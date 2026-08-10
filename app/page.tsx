@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { AdditionalReports, type ReportKey } from "./AdditionalReports";
 
 type Status = "On Time" | "Late" | "Not Assessable";
 type RecordRow = {
@@ -99,6 +100,7 @@ function downloadWorkbook(rows: RecordRow[], period: string) {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [activeReport, setActiveReport] = useState<"overview" | ReportKey>("overview");
   const [rows, setRows] = useState<RecordRow[]>(previewRows);
   const [period, setPeriod] = useState("July 2026");
   const [direction, setDirection] = useState("All flows");
@@ -129,6 +131,14 @@ export default function Home() {
   const otd = metricEligible ? (metricOnTime / metricEligible) * 100 : null;
   const customers = [...new Set(rows.map((r) => r.customer))];
   const subcontractors = [...new Set(rows.map((r) => r.subcontractor))];
+  const reportTitles: Record<"overview" | ReportKey, string> = {
+    overview: "Executive overview",
+    volume: "Subcontractor trip volume",
+    operation: "Coordinator operation",
+    scorecard: "Subcontractor scorecard",
+    safety: "Safety performance",
+    claims: "Claim dashboard",
+  };
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -193,28 +203,30 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand"><img src="/logo.png" alt="Leschaco" /><div><b>SCMOS</b><span>Report & Dashboard</span></div></div>
         <nav aria-label="Primary navigation">
-          <a className="active" href="#overview"><span>⌂</span> Executive overview</a>
-          <a href="#delivery"><span>↗</span> Delivery performance</a>
-          <a href="#billing"><span>▤</span> Billing performance</a>
-          <a href="#safety"><span>◇</span> Safety & accident</a>
-          <a href="#scorecard"><span>☆</span> Subcontractor scorecard</a>
+          <button className={activeReport === "overview" ? "active" : ""} onClick={() => setActiveReport("overview")}><span>⌂</span> Executive overview</button>
+          <button className={activeReport === "volume" ? "active" : ""} onClick={() => setActiveReport("volume")}><span>▥</span> Subcontractor volume</button>
+          <button className={activeReport === "operation" ? "active" : ""} onClick={() => setActiveReport("operation")}><span>↗</span> Coordinator operation</button>
+          <button className={activeReport === "scorecard" ? "active" : ""} onClick={() => setActiveReport("scorecard")}><span>☆</span> KPI scorecard</button>
+          <button className={activeReport === "safety" ? "active" : ""} onClick={() => setActiveReport("safety")}><span>◇</span> Safety & top 5 case</button>
+          <button className={activeReport === "claims" ? "active" : ""} onClick={() => setActiveReport("claims")}><span>฿</span> Claim dashboard</button>
           <div className="nav-label">DATA CONTROL</div>
           <button onClick={() => inputRef.current?.click()}><span>⇧</span> Upload monthly data</button>
-          <a href="#quality"><span>✓</span> Data quality</a>
-          <a href="#governance"><span>⌘</span> KPI governance</a>
-          <a href="#history"><span>◷</span> Report history</a>
+          <button onClick={() => { setActiveReport("overview"); setTimeout(() => document.getElementById("quality")?.scrollIntoView({ behavior: "smooth" }), 0); }}><span>✓</span> Data quality</button>
+          <button onClick={() => { setActiveReport("overview"); setTimeout(() => document.getElementById("governance")?.scrollIntoView({ behavior: "smooth" }), 0); }}><span>⌘</span> KPI governance</button>
+          <button onClick={() => { setActiveReport("overview"); setTimeout(() => document.getElementById("history")?.scrollIntoView({ behavior: "smooth" }), 0); }}><span>◷</span> Report history</button>
         </nav>
         <div className="sidebar-foot"><div className="avatar">ST</div><div><b>SCMOS Team</b><span>Operations · Thailand</span></div><button aria-label="More options">•••</button></div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
-          <div><p className="eyebrow">MONTHLY OPERATIONS CONTROL</p><h1>Executive overview</h1></div>
+          <div><p className="eyebrow">MONTHLY OPERATIONS CONTROL</p><h1>{reportTitles[activeReport]}</h1></div>
           <div className="top-actions"><span className="sync"><i /> Data synced 10 Aug · 09:42</span><button className="icon-btn" aria-label="Notifications">○</button><button className="primary" onClick={() => inputRef.current?.click()}>＋ Upload data</button></div>
           <input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.xls,.csv" multiple onChange={(event) => handleFiles(event.target.files)} />
         </header>
 
         <div className="content">
+          {activeReport !== "overview" ? <AdditionalReports report={activeReport} /> : <>
           <section className="filterbar" aria-label="Dashboard filters">
             <label>REPORTING PERIOD<select value={period} onChange={(e) => setPeriod(e.target.value)}><option>July 2026</option><option>June 2026</option><option>May 2026</option></select></label>
             <label>FLOW<select value={direction} onChange={(e) => setDirection(e.target.value)}><option>All flows</option><option>Import</option><option>Export</option></select></label>
@@ -240,6 +252,7 @@ export default function Home() {
           <section className="panel detail" id="history"><div className="panel-title"><div><span>AUDITABLE DETAIL</span><h2>{detailFilter === "All" ? "Jobs requiring attention" : `${detailFilter} jobs`}</h2></div><div className="export-actions"><button onClick={() => downloadWorkbook(shown, period)}>⇩ Excel</button><button onClick={() => window.print()}>⇩ PDF</button></div></div><div className="tabs">{(["All", "Late", "Not Assessable"] as const).map((tab) => <button key={tab} className={detailFilter === tab ? "active" : ""} onClick={() => setDetailFilter(tab)}>{tab}{tab !== "All" && <span>{filtered.filter((r) => r.status === tab).length}</span>}</button>)}</div><div className="table-wrap"><table><thead><tr><th>STATUS</th><th>JOB / ABS</th><th>CUSTOMER</th><th>SUBCONTRACTOR</th><th>PLAN → ACTUAL</th><th>SOURCE TRACE</th><th /></tr></thead><tbody>{shown.map((row) => <tr key={row.id}><td><span className={`pill ${row.status.replaceAll(" ", "-").toLowerCase()}`}>{row.status}</span></td><td><b>{row.job}</b><small>{row.direction} · {row.container}</small></td><td>{row.customer}</td><td>{row.subcontractor}</td><td><b>{row.plan}</b><small>{row.actual}</small></td><td><b className="source">{row.source}</b><small>Row {row.row} · Formula OTD v1.3</small></td><td><button className="row-action" aria-label={`Open ${row.job}`}>→</button></td></tr>)}</tbody></table>{!shown.length && <div className="empty">No records match the selected filters.</div>}</div></section>
 
           <section className="governance" id="governance"><div><span className="shield">✓</span><div><p>KPI GOVERNANCE</p><h2>Formula OTD v1.3 · Approved & locked</h2><span>On Time ÷ Eligible Jobs × 100 · Excludes cancelled jobs and records without assessable actual time.</span></div></div><div className="trace"><span>FILE</span><i>→</i><span>ROW</span><i>→</i><span>RULE</span><i>→</i><span>KPI</span></div><button>Open definition</button></section>
+          </>}
         </div>
       </section>
     </main>
