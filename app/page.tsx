@@ -55,7 +55,7 @@ function parseDate(value: unknown) {
   if (typeof value === "number") return XLSX.SSF.parse_date_code(value) ? new Date(Date.UTC(XLSX.SSF.parse_date_code(value)!.y, XLSX.SSF.parse_date_code(value)!.m - 1, XLSX.SSF.parse_date_code(value)!.d)) : null;
   const text = String(value ?? "").trim();
   if (!text) return null;
-  const match = text.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})/);
+  const match = text.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/);
   if (match) return new Date(Number(match[3].length === 2 ? `20${match[3]}` : match[3]), Number(match[2]) - 1, Number(match[1]));
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -101,7 +101,7 @@ function downloadWorkbook(rows: RecordRow[], period: string) {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [activeReport, setActiveReport] = useState<"overview" | "entry" | ReportKey>("overview");
+  const [activeReport, setActiveReport] = useState<"overview" | "entry" | ReportKey>("entry");
   const [rows, setRows] = useState<RecordRow[]>(previewRows);
   const [period, setPeriod] = useState("July 2026");
   const [direction, setDirection] = useState("All flows");
@@ -205,7 +205,7 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand"><img src="/logo.png" alt="Leschaco" /><div><b>SCMOS</b><span>Report & Dashboard</span></div></div>
         <nav aria-label="Primary navigation">
-          <button className={activeReport === "entry" ? "active" : ""} onClick={() => setActiveReport("entry")}><span>＋</span> Operation data entry</button>
+          <button className={activeReport === "entry" ? "active" : ""} onClick={() => setActiveReport("entry")}><span>＋</span> Operation workspace</button>
           <button className={activeReport === "overview" ? "active" : ""} onClick={() => setActiveReport("overview")}><span>⌂</span> Executive overview</button>
           <button className={activeReport === "volume" ? "active" : ""} onClick={() => setActiveReport("volume")}><span>▥</span> Subcontractor volume</button>
           <button className={activeReport === "operation" ? "active" : ""} onClick={() => setActiveReport("operation")}><span>↗</span> Coordinator operation</button>
