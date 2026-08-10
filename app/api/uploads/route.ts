@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getChatGPTUser } from "../../chatgpt-auth";
 
 type AppEnv = { DB: D1Database; FILES: R2Bucket };
 
@@ -14,6 +15,15 @@ async function ensureSchema(database: D1Database) {
       uploaded_at TEXT NOT NULL
     )`),
     database.prepare("CREATE INDEX IF NOT EXISTS report_uploads_period_idx ON report_uploads(period, uploaded_at)"),
+    database.prepare(`CREATE TABLE IF NOT EXISTS operation_uploads (
+      id TEXT PRIMARY KEY,
+      upload_id TEXT NOT NULL,
+      owner_name TEXT NOT NULL,
+      flow TEXT NOT NULL,
+      submitted_by TEXT NOT NULL,
+      submitted_at TEXT NOT NULL
+    )`),
+    database.prepare("CREATE INDEX IF NOT EXISTS operation_uploads_owner_idx ON operation_uploads(owner_name, submitted_at)"),
   ]);
 }
 
@@ -25,6 +35,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const user = await getChatGPTUser();
+  if (!user) return Response.json({ error: "Sign in is required" }, { status: 401 });
   const bindings = env as unknown as AppEnv;
   await ensureSchema(bindings.DB);
   const form = await request.formData();
@@ -38,5 +50,11 @@ export async function POST(request: Request) {
   await bindings.FILES.put(objectKey, file, { httpMetadata: { contentType: file.type || "application/octet-stream" }, customMetadata: { period, originalName: file.name } });
   await bindings.DB.prepare("INSERT INTO report_uploads (id, period, filename, object_key, row_count, issue_count, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(id, period, file.name, objectKey, Number(form.get("rows") ?? 0), Number(form.get("issues") ?? 0), uploadedAt).run();
+  const ownerName = String(form.get("owner") ?? "").trim();
+  const flow = String(form.get("flow") ?? "").trim();
+  if (ownerName) {
+    await bindings.DB.prepare("INSERT INTO operation_uploads (id, upload_id, owner_name, flow, submitted_by, submitted_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(crypto.randomUUID(), id, ownerName, flow || "Mixed", user.email, uploadedAt).run();
+  }
   return Response.json({ id, stored: true, objectKey });
 }

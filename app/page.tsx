@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { AdditionalReports, type ReportKey } from "./AdditionalReports";
+import { OperationWorkspace } from "./OperationWorkspace";
 
 type Status = "On Time" | "Late" | "Not Assessable";
 type RecordRow = {
@@ -100,7 +101,7 @@ function downloadWorkbook(rows: RecordRow[], period: string) {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [activeReport, setActiveReport] = useState<"overview" | ReportKey>("overview");
+  const [activeReport, setActiveReport] = useState<"overview" | "entry" | ReportKey>("overview");
   const [rows, setRows] = useState<RecordRow[]>(previewRows);
   const [period, setPeriod] = useState("July 2026");
   const [direction, setDirection] = useState("All flows");
@@ -131,8 +132,9 @@ export default function Home() {
   const otd = metricEligible ? (metricOnTime / metricEligible) * 100 : null;
   const customers = [...new Set(rows.map((r) => r.customer))];
   const subcontractors = [...new Set(rows.map((r) => r.subcontractor))];
-  const reportTitles: Record<"overview" | ReportKey, string> = {
+  const reportTitles: Record<"overview" | "entry" | ReportKey, string> = {
     overview: "Executive overview",
+    entry: "Operation data entry",
     volume: "Subcontractor trip volume",
     operation: "Coordinator operation",
     scorecard: "Subcontractor scorecard",
@@ -203,6 +205,7 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand"><img src="/logo.png" alt="Leschaco" /><div><b>SCMOS</b><span>Report & Dashboard</span></div></div>
         <nav aria-label="Primary navigation">
+          <button className={activeReport === "entry" ? "active" : ""} onClick={() => setActiveReport("entry")}><span>＋</span> Operation data entry</button>
           <button className={activeReport === "overview" ? "active" : ""} onClick={() => setActiveReport("overview")}><span>⌂</span> Executive overview</button>
           <button className={activeReport === "volume" ? "active" : ""} onClick={() => setActiveReport("volume")}><span>▥</span> Subcontractor volume</button>
           <button className={activeReport === "operation" ? "active" : ""} onClick={() => setActiveReport("operation")}><span>↗</span> Coordinator operation</button>
@@ -226,7 +229,7 @@ export default function Home() {
         </header>
 
         <div className="content">
-          {activeReport !== "overview" ? <AdditionalReports report={activeReport} /> : <>
+          {activeReport === "entry" ? <OperationWorkspace /> : activeReport !== "overview" ? <AdditionalReports report={activeReport} /> : <>
           <section className="filterbar" aria-label="Dashboard filters">
             <label>REPORTING PERIOD<select value={period} onChange={(e) => setPeriod(e.target.value)}><option>July 2026</option><option>June 2026</option><option>May 2026</option></select></label>
             <label>FLOW<select value={direction} onChange={(e) => setDirection(e.target.value)}><option>All flows</option><option>Import</option><option>Export</option></select></label>
