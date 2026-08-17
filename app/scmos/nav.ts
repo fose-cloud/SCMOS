@@ -57,7 +57,11 @@ export const META: Record<string, [string, string, string]> = {
 };
 
 export const TAB_DEFS: Record<string, string[]> = {
-  workspace: ["MY WORK", "TEAM WORK", "IMPORT", "EXPORT", "DELIVERY", "DELAY / EXCEPTION", "COMPLETED", "CALENDAR"],
+  // My Workspace: the operator's own day, in the order they work it. Only MY
+  // JOBS narrows to the person — the rest show the whole team, because seeing
+  // what the team is carrying is the point, and ownership controls editing
+  // rather than looking.
+  workspace: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
   dashboard: ["Executive", "Operational", "Wall Board"],
   booking: ["Booking Queue", "Carrier Escalation", "SLA"],
   subcontractors: ["Register", "Compliance", "Fleet"],

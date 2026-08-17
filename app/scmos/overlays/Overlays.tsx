@@ -157,13 +157,13 @@ export function ProfileMenu(p: {
 
           <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>
             <button
-              onClick={() => p.onOpen({ tab: "MY WORK" })}
+              onClick={() => p.onOpen({ tab: "MY JOBS" })}
               style={css("flex:1;min-width:130px;height:34px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}
             >
               เปิดงานของฉัน
             </button>
             <button
-              onClick={() => p.onOpen({ tab: "MY WORK", kpi: "Act" })}
+              onClick={() => p.onOpen({ tab: "MY JOBS", kpi: "Act" })}
               style={css("flex:1;min-width:130px;height:34px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12px;cursor:pointer")}
             >
               งานที่ต้องจัดการ

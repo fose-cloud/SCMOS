@@ -387,12 +387,12 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     if (a.kind === "job") {
       // Clear the workspace filters first, or the job the person just searched
       // for can land outside the current slice and look missing.
-      openTarget({ tab: "TEAM WORK" });
+      openTarget({ tab: "PENDING" });
       setDrawer(a.key);
       return;
     }
-    if (a.kind === "customer") { openTarget({ tab: "TEAM WORK" }); setWs((prev) => ({ ...prev, cust: a.value })); return; }
-    if (a.kind === "trucker") { openTarget({ tab: "TEAM WORK" }); setWs((prev) => ({ ...prev, trucker: a.value })); return; }
+    if (a.kind === "customer") { openTarget({ tab: "PENDING" }); setWs((prev) => ({ ...prev, cust: a.value })); return; }
+    if (a.kind === "trucker") { openTarget({ tab: "PENDING" }); setWs((prev) => ({ ...prev, trucker: a.value })); return; }
     if (a.kind === "supplier") { go("subcontractors"); setSupplier(a.name); return; }
     if (a.kind === "ship") { go("monitoring"); setSel(a.id); return; }
     go(a.screen);
@@ -400,7 +400,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
   function openTarget(target: WsTarget) {
     setScreen("workspace");
-    setTab(target.tab ?? "TEAM WORK");
+    setTab(target.tab ?? "PENDING");
     setPage(1);
     setQ("");
     setSel(null);
@@ -557,7 +557,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   const activeTab = tab && tabList.indexOf(tab) >= 0 ? tab : tabList[0] || "";
 
   const wsCounts = useMemo(
-    () => (isWorkspace ? workspaceTabCounts(ops, me.name, ws.cat) : {}),
+    () => (isWorkspace ? workspaceTabCounts(ops, me.opId, ws.cat) : {}),
     // `revision` is deliberate — see the note on `filtered` above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isWorkspace, ops, me.name, ws.cat, revision],
@@ -1047,7 +1047,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     persist(fresh.concat(dups.filter((d) => dupChoice[d.key] === "overwrite").map((d) => d.existing)));
     const errors = fresh.filter((j) => j.issues.some((i) => i.severity === "error")).length;
     closeImport();
-    setTab("TEAM WORK");
+    setTab("PENDING");
     setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL" }));
     setPage(1);
     setToast(
@@ -1097,7 +1097,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     setAiFields([]);
     setAiMsg("");
     setWs((prev) => ({ ...prev, cat, date: "ALL" }));
-    setTab("MY WORK");
+    setTab("MY JOBS");
     setPage(1);
     setDrawer(key);
     setToast("Job created — " + (job.jobCode || job.jobNo || job.customer) + " assigned to " + job.op);
@@ -1187,7 +1187,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
           setAuth(account);
           setLoginErr("");
           setScreen("workspace");
-          setTab("MY WORK");
+          setTab("MY JOBS");
           setWs(EMPTY_WS);
           setToast("Signed in as " + account.full + " · " + account.role);
         }}
@@ -1323,7 +1323,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                   onOpen={(job) => {
                     setScreen("workspace");
                     setWs((prev) => ({ ...prev, cat: job.cat, date: "ALL" }));
-                    setTab("TEAM WORK");
+                    setTab("PENDING");
                     setDrawer(job.key);
                   }}
                   onToast={setToast}
@@ -1404,7 +1404,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
           busy={dataBusy}
           onMerge={(group) => { void mergeGroups([group]); }}
           onMergeAll={() => { void mergeGroups(dupGroups.filter((g) => g.reUploaded && g.statuses.length <= 1 && g.owners.length <= 1)); }}
-          onOpenJob={(key) => { setDupGroups(null); openTarget({ tab: "TEAM WORK" }); setDrawer(key); }}
+          onOpenJob={(key) => { setDupGroups(null); openTarget({ tab: "PENDING" }); setDrawer(key); }}
           onClose={() => setDupGroups(null)}
         />
       )}

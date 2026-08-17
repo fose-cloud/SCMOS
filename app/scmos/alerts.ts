@@ -54,7 +54,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "งานล่าช้าที่ต้องติดตาม",
       body: "งานที่สถานะเป็น Delayed อยู่ตอนนี้ · เปิดเพื่อดูสาเหตุและผู้รับผิดชอบ",
       count: jobs.filter((j) => STATUS_RE.delayed.test(j.status)).length,
-      target: { tab: "DELAY / EXCEPTION", kpi: "Delay" },
+      target: { tab: "DELAY", kpi: "Delay" },
     },
     {
       id: "format",
@@ -63,7 +63,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "ข้อมูลผิดรูปแบบ ทำให้หลุดจาก KPI",
       body: "ค่าที่ระบบอ่านไม่ได้ เช่น วันที่ เวลา เลขตู้ หรือสถานะนอกลำดับ — งานเหล่านี้ไม่ถูกนับใน KPI จนกว่าจะแก้",
       count: jobs.filter((j) => !isKpiReady(j)).length,
-      target: { tab: "TEAM WORK", kpi: "Fmt" },
+      target: { tab: "PENDING", kpi: "Fmt" },
     },
     {
       id: "gatein",
@@ -72,7 +72,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "งานส่งออกเสี่ยงตกเรือ",
       body: "เวลา Closing มาก่อนเวลาที่รถจะถึง — ต้องเร่งหรือแจ้งเปลี่ยนรอบเรือ",
       count: jobs.filter(gateInRisk).length,
-      target: { tab: "EXPORT", cat: "EXPORT" },
+      target: { tab: "PENDING", cat: "EXPORT" },
     },
     {
       id: "waiting",
@@ -81,7 +81,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "งานที่ยังไม่มีรถ",
       body: "ยังไม่ได้จัดรถให้งานเหล่านี้ · จัดก่อนถึงวันโหลด",
       count: jobs.filter((j) => STATUS_RE.waiting.test(j.status)).length,
-      target: { tab: "TEAM WORK", kpi: "Wait" },
+      target: { tab: "PENDING", kpi: "Wait" },
     },
     {
       id: "truckdata",
@@ -90,7 +90,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "ยังไม่มีทะเบียนรถ / คนขับ / เบอร์ติดต่อ",
       body: "งานที่ยังไม่ปิดและยังกรอกข้อมูลรถไม่ครบ — ติดตามจากผู้ขนส่งก่อนวันโหลด",
       count: missingTruck.length,
-      target: { tab: "TEAM WORK", kpi: "Act" },
+      target: { tab: "PENDING", kpi: "Act" },
     },
     {
       id: "arrival",
@@ -99,7 +99,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "ยังไม่ลงเวลาถึง",
       body: "ไม่มีเวลาถึง ทำให้คำนวณอัตราตรงเวลาไม่ได้",
       count: noArrival.length,
-      target: { tab: "TEAM WORK", kpi: "Act" },
+      target: { tab: "PENDING", kpi: "Act" },
     },
     {
       id: "mine",
@@ -108,7 +108,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "งานของคุณที่ต้องดำเนินการ",
       body: "งานที่ " + me.name + " รับผิดชอบและยังมีข้อมูลค้างหรือสถานะที่ต้องจัดการ",
       count: mine.filter((j) => j.action).length,
-      target: { tab: "MY WORK", kpi: "Act" },
+      target: { tab: "MY JOBS", kpi: "Act" },
     },
     {
       id: "busiest",
@@ -117,7 +117,7 @@ export function buildAlerts(jobs: Job[], me: Account): Alert[] {
       th: "วันที่งานหนาแน่นที่สุด: " + busiest,
       body: "เตรียมกำลังรถและคนสำหรับวันนี้เป็นพิเศษ",
       count: dayCount[busiest] ?? 0,
-      target: { tab: "TEAM WORK", date: busiest },
+      target: { tab: "PENDING", date: busiest },
     },
     {
       id: "done",

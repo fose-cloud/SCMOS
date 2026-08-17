@@ -341,12 +341,12 @@ function Executive(p: {
   return (
     <div style={css("display:flex;flex-direction:column;gap:16px")}>
       <Tiles items={[
-        { label: "Jobs in Plan", th: "งานทั้งหมดในแผน", value: String(total), note: s.dates.length + " วัน", colour: "#2E7DD1", go: () => onDrill({ tab: "TEAM WORK" }) },
-        { label: "Import", th: "งานนำเข้า", value: String(s.imports.length), note: p.pct(s.imports.length), colour: "#0A2240", go: () => onDrill({ tab: "IMPORT", cat: "IMPORT" }) },
-        { label: "Export", th: "งานส่งออก", value: String(s.exports.length), note: p.pct(s.exports.length), colour: "#6FA8DC", go: () => onDrill({ tab: "EXPORT", cat: "EXPORT" }) },
-        { label: "Delivery", th: "งานกระจายสินค้า", value: String(s.deliveries.length), note: p.pct(s.deliveries.length), colour: "#0A6E8A", go: () => onDrill({ tab: "DELIVERY", cat: "DELIVERY" }) },
+        { label: "Jobs in Plan", th: "งานทั้งหมดในแผน", value: String(total), note: s.dates.length + " วัน", colour: "#2E7DD1", go: () => onDrill({ tab: "PENDING" }) },
+        { label: "Import", th: "งานนำเข้า", value: String(s.imports.length), note: p.pct(s.imports.length), colour: "#0A2240", go: () => onDrill({ tab: "PENDING", cat: "IMPORT" }) },
+        { label: "Export", th: "งานส่งออก", value: String(s.exports.length), note: p.pct(s.exports.length), colour: "#6FA8DC", go: () => onDrill({ tab: "PENDING", cat: "EXPORT" }) },
+        { label: "Delivery", th: "งานกระจายสินค้า", value: String(s.deliveries.length), note: p.pct(s.deliveries.length), colour: "#0A6E8A", go: () => onDrill({ tab: "PENDING", cat: "DELIVERY" }) },
         { label: "On-Time Arrival", th: "ถึงตรงเวลา", value: s.otpPct + "%", note: "วัดได้ " + s.measurable.length + "/" + total, colour: s.otpPct >= 90 ? "#16794C" : s.otpPct >= 75 ? "#B45309" : "#B42318" },
-        { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), note: p.pct(s.delayed.length), colour: "#B42318", go: () => onDrill({ tab: "DELAY / EXCEPTION", kpi: "Delay" }) },
+        { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), note: p.pct(s.delayed.length), colour: "#B42318", go: () => onDrill({ tab: "DELAY", kpi: "Delay" }) },
         { label: "Completed", th: "เสร็จสิ้น", value: String(s.done.length), note: p.pct(s.done.length), colour: "#16794C", go: () => onDrill({ tab: "COMPLETED", kpi: "Done" }) },
         { label: "KPI-Ready Data", th: "ข้อมูลพร้อมคิด KPI", value: total ? Math.round(((total - s.formatErrors.length) / total) * 100) + "%" : "—", note: s.formatErrors.length + " ต้องแก้", colour: "#B45309", go: () => onDrill({ kpi: "Fmt" }) },
       ]} />
@@ -369,7 +369,7 @@ function Executive(p: {
             <button
               key={d.d}
               type="button"
-              onClick={() => onDrill({ tab: "TEAM WORK", date: d.d })}
+              onClick={() => onDrill({ tab: "PENDING", date: d.d })}
               title={d.d + " · " + d.total + " jobs"}
               style={css("font-family:inherit;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;position:relative;border:none;background:none;padding:0;cursor:pointer")}
             >
@@ -497,12 +497,12 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
   return (
     <div style={css("display:flex;flex-direction:column;gap:16px")}>
       <Tiles items={[
-        { label: "Open Jobs", th: "งานที่ยังไม่ปิด", value: String(open.length), note: "จาก " + s.jobs.length, colour: "#2E7DD1", go: () => onDrill({ tab: "TEAM WORK" }) },
-        { label: "Waiting Truck", th: "รอรถ", value: String(s.waiting.length), colour: "#475569", go: () => onDrill({ tab: "TEAM WORK", kpi: "Wait" }) },
-        { label: "In Operation", th: "กำลังปฏิบัติงาน", value: String(s.running.length), colour: "#0A6E8A", go: () => onDrill({ tab: "TEAM WORK", kpi: "Run" }) },
-        { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), colour: "#B42318", go: () => onDrill({ tab: "DELAY / EXCEPTION", kpi: "Delay" }) },
-        { label: "Action Required", th: "ต้องดำเนินการ", value: String(s.action.length), colour: "#B45309", go: () => onDrill({ tab: "TEAM WORK", kpi: "Act" }) },
-        { label: "Format Error", th: "รูปแบบข้อมูลผิด", value: String(s.formatErrors.length), colour: "#B42318", go: () => onDrill({ tab: "TEAM WORK", kpi: "Fmt" }) },
+        { label: "Open Jobs", th: "งานที่ยังไม่ปิด", value: String(open.length), note: "จาก " + s.jobs.length, colour: "#2E7DD1", go: () => onDrill({ tab: "PENDING" }) },
+        { label: "Waiting Truck", th: "รอรถ", value: String(s.waiting.length), colour: "#475569", go: () => onDrill({ tab: "PENDING", kpi: "Wait" }) },
+        { label: "In Operation", th: "กำลังปฏิบัติงาน", value: String(s.running.length), colour: "#0A6E8A", go: () => onDrill({ tab: "PENDING", kpi: "Run" }) },
+        { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), colour: "#B42318", go: () => onDrill({ tab: "DELAY", kpi: "Delay" }) },
+        { label: "Action Required", th: "ต้องดำเนินการ", value: String(s.action.length), colour: "#B45309", go: () => onDrill({ tab: "PENDING", kpi: "Act" }) },
+        { label: "Format Error", th: "รูปแบบข้อมูลผิด", value: String(s.formatErrors.length), colour: "#B42318", go: () => onDrill({ tab: "PENDING", kpi: "Fmt" }) },
       ]} />
 
       <Panel title="Plan Days" sub="วันที่มีงานในแผน · คลิกเพื่อเปิดวันนั้นใน Workspace">
@@ -514,7 +514,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
               <button
                 key={d}
                 type="button"
-                onClick={() => onDrill({ tab: "TEAM WORK", date: d })}
+                onClick={() => onDrill({ tab: "PENDING", date: d })}
                 style={css(
                   "font-family:inherit;text-align:left;border:1px solid " + (d === busiest ? "#2E7DD1" : "#E2E8F0") +
                   ";background:" + (d === busiest ? "#F4F8FC" : "#fff") + ";border-radius:4px;padding:10px 11px;cursor:pointer",
@@ -542,7 +542,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
                   <button
                     key={st}
                     type="button"
-                    onClick={() => onDrill({ tab: "TEAM WORK", cat: c, status: st })}
+                    onClick={() => onDrill({ tab: "PENDING", cat: c, status: st })}
                     style={css("font-family:inherit;text-align:left;display:flex;align-items:center;gap:10px;width:100%;border:none;background:none;padding:0;cursor:pointer")}
                   >
                     <span style={css("width:150px;flex:none;font-size:11.5px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
@@ -567,7 +567,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
           sub={"ข้อมูลที่ยังขาด · นับเฉพาะงานที่ยังไม่ปิด (" + open.length + " งาน)"}
           right={
             <button
-              onClick={() => onDrill({ tab: "TEAM WORK", kpi: "Act" })}
+              onClick={() => onDrill({ tab: "PENDING", kpi: "Act" })}
               style={css("height:28px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:11.5px;color:#475569;cursor:pointer")}
             >
               เปิดใน Workspace
@@ -586,7 +586,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
               value: String(set.length),
               pct: s.jobs.length ? (set.length / Math.max(1, ...operators.map((o) => s.jobs.filter((j) => j.op === o).length))) * 100 : 0,
               colour: late ? "#B42318" : "#2E7DD1",
-              go: () => onDrill({ tab: "TEAM WORK" }),
+              go: () => onDrill({ tab: "PENDING" }),
             };
           })} />
         </Panel>
@@ -594,7 +594,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
 
       <Panel title="Delayed Jobs" sub="งานล่าช้าที่ต้องติดตาม" right={
         <button
-          onClick={() => onDrill({ tab: "DELAY / EXCEPTION", kpi: "Delay" })}
+          onClick={() => onDrill({ tab: "DELAY", kpi: "Delay" })}
           style={css("height:28px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:11.5px;color:#475569;cursor:pointer")}
         >
           ดูทั้งหมด {s.delayed.length}

@@ -226,22 +226,62 @@ function kpiCount(scope: Job[], code: string, mine: (j: Job) => boolean) {
   }
 }
 
+/** Today and tomorrow as the plan writes dates, so they compare as text. */
+function planDate(offsetDays: number): string {
+  const at = new Date();
+  at.setDate(at.getDate() + offsetDays);
+  return `${pad(at.getDate())}/${pad(at.getMonth() + 1)}/${at.getFullYear()}`;
+}
+
+/**
+ * The document values the plan itself carries.
+ *
+ * There is no document register yet — DocumentVerification is still on the
+ * schema rather than in it — so "document missing" means the identifiers the
+ * workbooks do carry: the container number, and the seal on an export. A truck
+ * load that never has a container is not missing one.
+ */
+function documentMissing(job: Job): boolean {
+  if (RE.done.test(job.status)) return false;
+  const blank = (value: string | undefined) => !(value ?? "").trim();
+  const needsContainer = !/6WH|4WH|10W|COMBINE/i.test(job.type || "");
+  if (needsContainer && blank(job.container)) return true;
+  return job.cat === "EXPORT" && blank(job.seal);
+}
+
+/**
+ * What each tab means, in one place.
+ *
+ * The counts on the tab strip and the rows in the grid both read this, so a tab
+ * cannot say 419 and then show a different set.
+ *
+ * Only MY JOBS narrows to the signed-in operator. The rest are team-wide: the
+ * process asks that everyone can see what the team is carrying, and ownership
+ * governs editing rather than looking.
+ */
+export const WORKSPACE_TABS: Record<string, (job: Job, opId: string) => boolean> = {
+  "MY JOBS": (job, opId) => !!opId && job.opId === opId,
+  PENDING: (job) => !RE.done.test(job.status),
+  TODAY: (job) => job.date === planDate(0),
+  TOMORROW: (job) => job.date === planDate(1),
+  // A delay is the status saying so, or a reason somebody wrote down. Not
+  // "action required" — that bucket is mostly missing values, and calling those
+  // delays would put 1,758 jobs behind a word that should mean something.
+  DELAY: (job) => RE.delayed.test(job.status) || !!(job.reason ?? "").trim(),
+  "DOCUMENT MISSING": documentMissing,
+  COMPLETED: (job) => RE.done.test(job.status),
+};
+
 /** Tab labels carry live counts; the header renders them, so this is exported. */
-export function workspaceTabCounts(ops: Ops | null, meName: string, cat: string): Record<string, number> {
+export function workspaceTabCounts(ops: Ops | null, opId: string, cat: string): Record<string, number> {
   if (!ops) return {};
-  const all = ops.jobs;
-  const base = cat === "ALL" ? all : all.filter((j) => j.cat === cat);
-  const dates = [...new Set(base.map((j) => j.date).filter(Boolean))];
-  return {
-    "MY WORK": base.filter((j) => j.op === meName).length,
-    "TEAM WORK": base.length,
-    IMPORT: all.filter((j) => j.cat === "IMPORT").length,
-    EXPORT: all.filter((j) => j.cat === "EXPORT").length,
-    DELIVERY: all.filter((j) => j.cat === "DELIVERY").length,
-    "DELAY / EXCEPTION": base.filter((j) => RE.delayed.test(j.status) || j.action).length,
-    COMPLETED: base.filter((j) => RE.done.test(j.status)).length,
-    CALENDAR: dates.length,
-  };
+  const base = cat === "ALL" ? ops.jobs : ops.jobs.filter((j) => j.cat === cat);
+  const counts: Record<string, number> = {};
+  for (const [tab, matches] of Object.entries(WORKSPACE_TABS)) {
+    counts[tab] = base.filter((job) => matches(job, opId)).length;
+  }
+  counts.CALENDAR = new Set(base.map((j) => j.date).filter(Boolean)).size;
+  return counts;
 }
 
 export function Workspace(p: Props) {
@@ -249,7 +289,10 @@ export function Workspace(p: Props) {
   const all = ops.jobs;
   const M = ops.masters;
 
-  const mineJ = (j: Job) => j.op === me.name;
+  // On the owner id, never the display name — the same rule the rest of the app
+  // uses. This copy was missed when ownership moved off names, which would have
+  // shown an operator an empty workspace the day real sign-in arrived.
+  const mineJ = (j: Job) => !!me.opId && j.opId === me.opId;
   const canEditJob = (j: Job) => me.role !== "Operation User" || mineJ(j);
   const canAssign = SUPERVISOR_ROLES.indexOf(me.role) >= 0;
 
@@ -339,14 +382,10 @@ export function Workspace(p: Props) {
 
   // ---- row filtering ----------------------------------------------------
   let list = base.slice();
-  if (ws.tab === "MY WORK") list = list.filter(mineJ);
-  else if (ws.tab === "IMPORT") list = list.filter((j) => j.cat === "IMPORT");
-  else if (ws.tab === "EXPORT") list = list.filter((j) => j.cat === "EXPORT");
-  else if (ws.tab === "DELIVERY") list = list.filter((j) => j.cat === "DELIVERY");
-  else if (ws.tab === "DELAY / EXCEPTION") list = list.filter((j) => RE.delayed.test(j.status) || j.action);
-  else if (ws.tab === "COMPLETED") list = list.filter((j) => RE.done.test(j.status));
+  const tabRule = WORKSPACE_TABS[ws.tab];
+  if (tabRule) list = list.filter((job) => tabRule(job, me.opId));
 
-  if (ws.tab !== "MY WORK") {
+  if (ws.tab !== "MY JOBS") {
     if (ws.assignee === "My Work") list = list.filter(mineJ);
     else if (M.operators.indexOf(ws.assignee) >= 0) list = list.filter((j) => j.op === ws.assignee);
   }
@@ -466,9 +505,9 @@ export function Workspace(p: Props) {
   };
 
   let colKey = "ALL";
-  if (ws.tab === "IMPORT" || ws.cat === "IMPORT") colKey = "IMPORT";
-  if (ws.tab === "EXPORT" || ws.cat === "EXPORT") colKey = "EXPORT";
-  if (ws.tab === "DELIVERY" || ws.cat === "DELIVERY") colKey = "DELIVERY";
+  if (ws.cat === "IMPORT") colKey = "IMPORT";
+  if (ws.cat === "EXPORT") colKey = "EXPORT";
+  if (ws.cat === "DELIVERY") colKey = "DELIVERY";
 
   list = sortJobs(list, ws.sort);
 
@@ -478,7 +517,9 @@ export function Workspace(p: Props) {
    * paging and its own header — rather than one table of everything where half
    * the columns are always blank.
    */
-  const splitMixed = ws.cat === "ALL" && ["MY WORK", "TEAM WORK", "DELAY / EXCEPTION", "COMPLETED"].indexOf(ws.tab) >= 0;
+  // Every tab is category-mixed now, so the grid splits import from export on
+  // all of them unless a category is chosen above it.
+  const splitMixed = ws.cat === "ALL";
   const sections = (splitMixed
     ? (["IMPORT", "EXPORT", "DELIVERY"] as const)
       .map((c) => ({ layout: c as string, jobs: list.filter((j) => j.cat === c) }))
@@ -512,6 +553,12 @@ export function Workspace(p: Props) {
 
   // ---- what is narrowing the grid right now ------------------------------
   const activeFilters: [string, string, () => void][] = [];
+  // The tab is a filter and has to say so. TODAY showing "0 จาก 2,102" beside
+  // "nothing is filtered" reads as an empty register rather than an empty day.
+  // PENDING is the widest view, so it is the way out of every other tab.
+  if (ws.tab !== "PENDING" && WORKSPACE_TABS[ws.tab]) {
+    activeFilters.push(["มุมมอง", ws.tab, () => p.set({ tab: "PENDING", page: 1 })]);
+  }
   if (ws.cat !== "ALL") activeFilters.push(["ประเภท", ws.cat, () => p.set({ cat: "ALL", page: 1 })]);
   if (ws.year !== "ALL") activeFilters.push(["ปี", ws.year, () => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })]);
   if (ws.month !== "ALL") activeFilters.push(["เดือน", monthLabel(ws.month), () => p.set({ month: "ALL", date: "ALL", page: 1 })]);
@@ -632,8 +679,8 @@ export function Workspace(p: Props) {
   });
 
   const listTitle =
-    ws.tab === "MY WORK" ? "My Work — " + me.name
-      : ws.tab === "DELAY / EXCEPTION" ? "Delay / Exception Control"
+    ws.tab === "MY JOBS" ? "My Jobs — " + me.name
+      : ws.tab === "DELAY" ? "Delayed Jobs"
         : ws.tab === "COMPLETED" ? "Completed Jobs"
           : "Team Work — one operation database";
 
@@ -952,7 +999,7 @@ export function Workspace(p: Props) {
               <button
                 key={w.name}
                 type="button"
-                onClick={() => p.set({ assignee: w.name, tab: "TEAM WORK", page: 1 })}
+                onClick={() => p.set({ assignee: w.name, tab: "PENDING", page: 1 })}
                 style={css(
                   "font-family:inherit;text-align:left;" +
                   "flex:1;min-width:172px;border:1px solid " + (w.name === me.name ? "#BBD5EE" : "#E9EFF5") +
@@ -1053,7 +1100,7 @@ export function Workspace(p: Props) {
               <button
                 key={d.key}
                 type="button"
-                onClick={() => p.set({ date: d.key, tab: "TEAM WORK", page: 1 })}
+                onClick={() => p.set({ date: d.key, tab: "PENDING", page: 1 })}
                 style={css(
                   "font-family:inherit;text-align:left;width:100%;" +
                   "border:1px solid " + (d.active ? "#2E7DD1" : "#E9EFF5") + ";background:" + (d.active ? "#F4F8FC" : "#fff") +
