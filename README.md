@@ -140,7 +140,15 @@ never hand them somebody else's.
 The Subcontractor row is the one worth arguing about. A carrier signing in to
 work their own jobs must not see `ViewRates` — the book holds seventeen other
 carriers' negotiated prices, and one subcontractor reading another's rates is the
-worst thing this system could leak.
+worst thing this system could leak. `/api/rates` refuses them, and the
+Administration screen shows the whole matrix read from the same table the API
+enforces against, so what people read cannot drift from what is in force.
+
+The browser asks `/api/me` for its capability list rather than deriving one.
+Deriving it is what went wrong before: the edit test was
+`role !== "Operation User"`, which is true of a supervisor **and** of every
+read-only role, so the day CS, Management and Viewer accounts existed they would
+each have been handed an edit button. That test existed in three files.
 
 ### Audit trail
 
@@ -524,10 +532,12 @@ sign-in is a URL that ends up forwarded.
 
 Tiering is a storage account lifecycle policy
 ([`infra/storage-lifecycle.json`](infra/storage-lifecycle.json)), so changing the
-rule is a policy change rather than a deployment:
+rule is a policy change rather than a deployment. One script does the whole
+storage side of a cutover — account, private container, managed identity, role
+assignment, lifecycle and app settings — and every step is idempotent:
 
 ```bash
-az storage account management-policy create --account-name <account> --resource-group <group> --policy @infra/storage-lifecycle.json
+RESOURCE_GROUP=rg-scmos STORAGE_ACCOUNT=scmosfiles API_APP=scmos-api ./infra/setup-storage.sh
 ```
 
 **There is no delete action in that policy and no code path in this system that
@@ -612,24 +622,36 @@ card-to-booking comparison needs the cards, which are not in the system yet.
 
 ## Known gaps
 
-- **Six screens still run on generated data** — Capacity, Billing, Documents,
-  Reports, Master Data, Administration. The dashboard badges its three demo
-  panels. TODAY, Supplier, CAR/PAR, Add New Vendor, Annual Evaluation, Rate
-  Quotation, AI Assistant, Audit and the alert feed now read the API.
+- **Every menu entry renders something real.** `NOT_BUILT` is empty. Two screens
+  still read generated data — **Billing** (there is no invoice table; the KPI it
+  reports on cannot be measured yet) and **Reports** (a catalogue of exports, of
+  which only the KPI workbook exists).
 - **No agents yet.** The permission layer, the tool catalogue and the approvals
   queue are real and enforced; the six agents that would call them are not built,
   so an Allow tool reports plainly that it is not wired to a real action rather
   than pretending to have done something. The risk answer is rules, not a model,
   and says so.
-- **Three of the twelve alerts cannot fire yet.** Capacity shortage needs
-  carriers to report their fleet availability; audit expiry needs audit reports
-  uploaded with dates; document-unclear needs somebody to mark one. Each reports
-  what it is waiting for rather than a reassuring zero.
-- **Only four of the eight roles have accounts.** Subcontractor, CS, Management
-  and Viewer are defined and enforced but nobody is assigned to them, so their
-  capability sets are untested against real use.
+- **Two of the twelve alerts have never fired.** Audit expiry needs an audit
+  report uploaded with a date; POD-missing needs a delivered job with no POD.
+  Both report what they are waiting for rather than a reassuring zero. Capacity
+  shortage and document-unclear now have screens that produce the data they need.
+- **Document verification says every job is short of paperwork**, because
+  nothing has been uploaded yet. That is accurate and will stay useless-looking
+  until people start attaching files; it is not a bug to be tuned away.
+- **The container check is not a real E-Card comparison.** It tests the number
+  against its own format, which is what will actually fail at the gate. Comparing
+  a card to a booking needs the cards.
 - **Bulk saves record one audit row, not thousands.** Above fifty jobs a save is
   an import, and it is recorded as the one action it was.
+- **Three tables are carried over from the previous system** — `report_uploads`,
+  `operation_uploads`, `operation_entries` — with their endpoints. Nothing calls
+  them and they are empty everywhere checked. They stay until somebody confirms
+  the production database is empty too; the query to run is in
+  [`Data/Entities.cs`](server/Scmos.Api/Data/Entities.cs).
+- **Nothing has run against real Azure yet.** Everything here is verified on SQL
+  Server LocalDB and the storage emulator. `infra/setup-storage.sh` does the
+  storage half of the cutover; the database and App Service halves still need
+  somebody with the subscription.
 - **Rates are not joined to jobs.** Quotation prices a journey when you ask it to,
   but nothing costs the 2,102 jobs in the register as a whole.
 - **The July plan is in the past.** Every loading date is July 2026, so the

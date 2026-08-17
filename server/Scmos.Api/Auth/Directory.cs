@@ -39,6 +39,16 @@ public static class StaffDirectory
         new("SV-01", "Titchanatorn", "titchanatorn", Roles.Supervisor),
         new("AM-01", "Nattikorn", "nattikorn", Roles.AssistantManager),
         new("AD-01", "Admin", "admin", Roles.Admin),
+
+        // The four roles that were defined and enforced but had nobody in them.
+        // A capability set nobody signs in as is one nobody has tested: the
+        // Subcontractor's inability to see the rate book is a rule this system
+        // depends on, and until somebody could sign in and fail to see it, that
+        // was an assertion rather than a fact.
+        new("CS-01", "Customerservice", "cs", Roles.CustomerService),
+        new("MG-01", "Management", "management", Roles.Management),
+        new("VW-01", "Viewer", "viewer", Roles.Viewer),
+        new("SC-01", "Subcontractor", "subcontractor", Roles.Subcontractor),
     ];
 
     public static bool IsSupervisor(string role) => Roles.IsSupervisor(role);

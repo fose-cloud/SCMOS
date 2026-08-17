@@ -1,4 +1,5 @@
 using Scmos.Api.Auth;
+using Scmos.Api.Rules;
 
 namespace Scmos.Api.Endpoints;
 
@@ -36,6 +37,17 @@ public static class MeEndpoints
                     opId = user.OperatorId,
                     init = initials.Length > 0 ? initials : "??",
                 },
+                // What this person may do, from the same table the API enforces
+                // against. The screens need it to decide what to render, and a
+                // second list kept in the browser would eventually grant a
+                // button the API refuses — or hide one it allows.
+                can = Enum.GetValues<Capability>()
+                    .Where(capability => capability != Capability.None && user.Can(capability))
+                    .Select(capability => capability.ToString())
+                    .ToArray(),
+                scope = Roles.Find(user.Role) is { } definition
+                    ? new { en = definition.ScopeEn, th = definition.ScopeTh }
+                    : null,
                 source = user.Source,
             });
         }).WithTags("Identity");

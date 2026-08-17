@@ -7,7 +7,7 @@ import { apiFetch, setDevUser } from "./scmos/api";
 import { Chrome, type FilterDef, type HeaderAction, type TabItem } from "./scmos/Chrome";
 import { DataTable } from "./scmos/DataTable";
 import { buildDb, type Ship } from "./scmos/demo";
-import { ACCOUNTS, META, opIdForName, SCREENS_WITH_FILTERS, SUPERVISOR_ROLES, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
+import { ACCOUNTS, META, opIdForName, SCREENS_WITH_FILTERS, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { normaliseField } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
@@ -33,34 +33,37 @@ import { Assistant } from "./scmos/screens/Assistant";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Today } from "./scmos/screens/Today";
+import { CapacityBoard } from "./scmos/screens/CapacityBoard";
+import { Documents } from "./scmos/screens/Documents";
+import { Administration } from "./scmos/screens/Administration";
+import { Verification } from "./scmos/screens/Verification";
 
 /**
  * Screens the menu names that the system cannot honestly fill yet.
  *
- * Each entry says what the backend already supports and what is still missing,
- * so the gap is legible instead of being papered over with demo figures.
+ * Empty at the moment — every menu entry now renders something real. Kept, with
+ * `NotBuilt`, because the next screen the menu promises before the backend can
+ * answer it should say so rather than being filled with plausible figures. A
+ * screen full of invented numbers is how a system starts being trusted for
+ * things it cannot do.
  */
-const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>> = {
-  docverify: {
-    ready: ["ขั้นตอน ตรวจ B/L และ ส่งเอกสารให้ผู้ขนส่ง อยู่ใน workflow แล้ว พร้อมการพักงานเมื่อ B/L ไม่ตรงหรือภาพไม่ชัด"],
-    missing: ["หน้าจอเทียบ B/L กับ booking", "อัปโหลด E-Card และเอกสารเข้า Blob", "เรียก Document Agent อ่านเอกสาร"],
-  },
-};
+const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>> = {};
 
 /**
  * Screens that render their own component off the API.
  *
- * The generic table builder still knows how to draw a demo register for some of
- * these names; listing them here keeps it from drawing one underneath the real
- * thing.
+ * The generic table builder draws nothing for these names now, but the header's
+ * fallback Export Excel — which only raises a toast — would be a button that
+ * lies about what it does, so listing them here suppresses it.
  */
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
   subcontractors: true, carpar: true, incident: true, assistant: true,
   vendor: true, evaluation: true, quotation: true,
+  capacity: true, documents: true, admin: true, docverify: true,
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
-import { BillingAging, Capacity, Reports, SupplierProfile } from "./scmos/screens/Panels";
+import { BillingAging, Reports } from "./scmos/screens/Panels";
 import { Booking } from "./scmos/screens/Booking";
 import { Workspace, workspaceTabCounts, type WsState } from "./scmos/screens/Workspace";
 
@@ -105,7 +108,6 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   /** Day / month / year the dashboard reports on. */
   const [period, setPeriod] = useState<Period>(ALL_PERIOD);
   const [sel, setSel] = useState<number | null>(null);
-  const [supplier, setSupplier] = useState<string | null>(null);
 
   // ---- session -----------------------------------------------------------
   // With real auth the visitor is already authenticated at the edge, so the demo
@@ -288,8 +290,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
   // ---- derived -----------------------------------------------------------
   const isDetail = sel !== null;
-  const isSupplierProfile = supplier !== null;
-  const metaKey = isDetail ? "detail" : isSupplierProfile ? "supplier" : screen;
+  const metaKey = isDetail ? "detail" : screen;
   const meta = META[metaKey] || ["", "", ""];
 
   // The header search is a launcher now, not a filter: it opens the record where
@@ -310,10 +311,33 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   }, [db, f, revision]);
 
   const me = auth ?? ACCOUNTS[0];
-  // Hides the controls a supervisor-only route would refuse anyway. The refusal
-  // itself lives in the API — this only keeps people from pressing buttons that
-  // were never going to work for them.
-  const isSupervisor = SUPERVISOR_ROLES.indexOf(me.role) >= 0;
+
+  /**
+   * What this person may do, from the API.
+   *
+   * The screens need it to decide what to render, and the API is where it is
+   * enforced — so it is fetched rather than re-derived here. Deriving it in the
+   * browser is how a Viewer ends up with an edit button: the old test was
+   * `role !== "Operation User"`, which was true for every role that is not an
+   * operator, including the four that may not write at all.
+   *
+   * Until it arrives, nothing beyond reading is offered. A moment of too few
+   * buttons is recoverable; a moment of too many is not.
+   */
+  const [can, setCan] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await apiFetch("/api/me", { headers: { accept: "application/json" } });
+      if (!response.ok || cancelled) return;
+      const body = await response.json() as { can?: string[] };
+      if (!cancelled) setCan(new Set(body.can ?? []));
+    })();
+    return () => { cancelled = true; };
+  }, [signedInAs]);
+
+  const able = (capability: string) => can.has(capability);
+  const isSupervisor = able("ApproveAi");
   const isWorkspace = screen === "workspace" && !isDetail;
 
   // The rate book is nearly two megabytes of subcontractor quotations, so it is
@@ -448,7 +472,6 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     }
     if (a.kind === "customer") { openTarget({ tab: "PENDING" }); setWs((prev) => ({ ...prev, cust: a.value })); return; }
     if (a.kind === "trucker") { openTarget({ tab: "PENDING" }); setWs((prev) => ({ ...prev, trucker: a.value })); return; }
-    if (a.kind === "supplier") { go("subcontractors"); setSupplier(a.name); return; }
     if (a.kind === "ship") { go("monitoring"); setSel(a.id); return; }
     go(a.screen);
   }
@@ -467,7 +490,6 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     setPage(1);
     setQ("");
     setSel(null);
-    setSupplier(null);
     setNotif(false);
     setProfileOpen(false);
     setWs((prev) => ({
@@ -505,8 +527,8 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
    * it asks first and is limited to supervisors.
    */
   async function reloadFromPlanFile() {
-    if (SUPERVISOR_ROLES.indexOf(me.role) < 0) {
-      setToast("โหลดแผนใหม่ได้เฉพาะระดับหัวหน้างานขึ้นไป");
+    if (!able("AdministerData")) {
+      setToast("โหลดแผนใหม่ได้เฉพาะผู้ดูแลระบบ");
       return;
     }
     if (!window.confirm(
@@ -540,8 +562,8 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
    */
   function runCleanup() {
     if (!ops) return;
-    if (SUPERVISOR_ROLES.indexOf(me.role) < 0) {
-      setToast("ล้างข้อมูลย้อนหลังได้เฉพาะระดับหัวหน้างานขึ้นไป");
+    if (!able("AdministerData")) {
+      setToast("ล้างข้อมูลย้อนหลังได้เฉพาะผู้ดูแลระบบ");
       return;
     }
     const { report, changed } = cleanupJobs(ops.jobs);
@@ -614,8 +636,16 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     }
   }
 
-  /** Same rule the grid uses: an Operation User only writes to their own jobs. */
-  const canEditJob = (job: Job) => me.role !== "Operation User" || owns(job);
+  /**
+   * Who may write to this job.
+   *
+   * On capabilities, not on a role name. The old test was
+   * `role !== "Operation User"`, which quietly meant "anyone who is not an
+   * operator can edit anything" — true of a supervisor, and equally true of a
+   * Viewer, a CS account and a subcontractor.
+   */
+  const canEditJob = (job: Job) =>
+    able("EditAnyJob") || (able("EditOwnJobs") && owns(job));
 
   const tabList = TAB_DEFS[screen] || [];
   const activeTab = tab && tabList.indexOf(tab) >= 0 ? tab : tabList[0] || "";
@@ -647,7 +677,6 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     setPage(1);
     setQ("");
     setSel(null);
-    setSupplier(null);
   };
 
   const actions: HeaderAction[] = (() => {
@@ -655,12 +684,6 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
       return [
         { label: "← Back to list", style: BTN_SECONDARY, go: () => setSel(null) },
         { label: "Edit Shipment", style: BTN_PRIMARY, go: () => setToast("Edit mode — draft saved locally") },
-      ];
-    }
-    if (isSupplierProfile) {
-      return [
-        { label: "← Back to Register", style: BTN_SECONDARY, go: () => setSupplier(null) },
-        { label: "Evaluate Supplier", style: BTN_PRIMARY, go: () => setToast("Evaluation form queued") },
       ];
     }
     if (isWorkspace) {
@@ -675,12 +698,12 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
       return [{ label: "Export Excel", style: BTN_SECONDARY, go: handleDashboardExport }];
     }
     if (screen === "documents") {
-      // The uploaded-file drawer used to hang off the header; it lives on the
-      // screen that owns documents now that the header button is gone.
-      return [
-        { label: `▤ Attached files ${docs.length}`, style: BTN_SECONDARY, go: () => setDocsOpen((v) => !v) },
-        { label: "Export Excel", style: BTN_SECONDARY, go: () => setToast("Exporting document register…") },
-      ];
+      // The browser-local drawer holds files this session attached but never
+      // sent anywhere. It stays reachable while that path exists, next to the
+      // register of files that really are in Blob Storage.
+      return docs.length > 0
+        ? [{ label: `▤ ไฟล์ในเครื่อง ${docs.length}`, style: BTN_SECONDARY, go: () => setDocsOpen((v) => !v) }]
+        : [];
     }
     if (screen === "subcontractors") {
       // Adding a supplier is its own screen, with the onboarding statuses on it.
@@ -725,7 +748,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     return [{ label: "Export Excel", style: BTN_SECONDARY, go: () => setToast("Exporting " + filtered.length + " records to Excel…") }];
   })();
 
-  const showFilters = SCREENS_WITH_FILTERS.indexOf(screen) >= 0 && !isDetail && !isSupplierProfile;
+  const showFilters = SCREENS_WITH_FILTERS.indexOf(screen) >= 0 && !isDetail;
   const setFilter = (key: keyof Filters, value: string) => { setF({ ...f, [key]: value }); setPage(1); };
   const filterDefs: FilterDef[] = [
     { label: "DIRECTION", value: f.dir, options: ["All", "Import", "Export"], onChange: (v) => setFilter("dir", v) },
@@ -745,8 +768,6 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   } else if (sel !== null) {
     const s = db.ships.find((x) => x.id === sel);
     if (s) recordLabel = s.abs + " · " + s.cust;
-  } else if (supplier) {
-    recordLabel = supplier;
   }
   const inScopeDocs = docs.filter((d) => d.module === moduleLabel);
 
@@ -914,7 +935,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
   function bulkAssign(keys: string[], owner: string) {
     if (!ops) return;
-    if (SUPERVISOR_ROLES.indexOf(me.role) < 0) {
+    if (!able("AssignJobs")) {
       setToast("การมอบหมายงานทำได้เฉพาะระดับหัวหน้างานขึ้นไป");
       return;
     }
@@ -1221,16 +1242,15 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
   // ---- table -------------------------------------------------------------
   const table = useMemo(() => {
-    if (isDetail || isSupplierProfile || isWorkspace || OWN_SCREEN[screen]) return null;
+    if (isDetail || isWorkspace || OWN_SCREEN[screen]) return null;
     return buildTable({
-      screen, tab: activeTab, db, filtered, q, page, f, per: prefs.perPage,
+      screen, tab: activeTab, db, filtered, q, page, per: prefs.perPage,
       onSort: () => setToast("Sorted"),
       selectShip: (id) => setSel(id),
-      selectSupplier: (name) => setSupplier(name),
       toast: setToast,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, activeTab, db, filtered, q, page, f, prefs.perPage, isDetail, isSupplierProfile, isWorkspace, revision]);
+  }, [screen, activeTab, db, filtered, q, page, f, prefs.perPage, isDetail, isWorkspace, revision]);
 
   const selectedShip = sel !== null ? db.ships.find((x) => x.id === sel) ?? null : null;
   const drawerJob = drawer && ops ? ops.jobs.find((x) => x.key === drawer) ?? null : null;
@@ -1306,8 +1326,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
         alertTone={criticalAlerts ? "red" : alerts.length ? "amber" : "blue"}
         onToggleNotif={() => { setNotif((v) => !v); setProfileOpen(false); }}
         crumb={(isDetail && selectedShip ? "SCMOS / " + (META[screen]?.[0] ?? "") + " / " + selectedShip.abs
-          : isSupplierProfile ? "SCMOS / Subcontractors / " + supplier
-            : "SCMOS / " + meta[0]).toUpperCase()}
+          : "SCMOS / " + meta[0]).toUpperCase()}
         title={meta[0]}
         titleTh={meta[1]}
         blurb={meta[2]}
@@ -1329,9 +1348,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
           />
         )}
 
-        {isSupplierProfile && supplier && <SupplierProfile db={db} name={supplier} />}
-
-        {!isDetail && !isSupplierProfile && (
+        {!isDetail && (
           <>
             {/* TODAY comes from the API rather than the in-browser jobs, so it
                 bypasses the period bar the other three tabs share — "today" is
@@ -1375,6 +1392,8 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                   onSaveCell={saveCell}
                   onStatusChange={changeJobStatus}
                   onSort={() => undefined}
+                  canEdit={canEditJob}
+                  canAssign={able("AssignJobs")}
                   per={prefs.perPage}
                   sync={sync}
                   panels={prefs.panels}
@@ -1418,7 +1437,14 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
               : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
                   กำลังโหลดแผนงาน…
                 </div>)}
-            {screen === "capacity" && <Capacity db={db} />}
+            {screen === "capacity" && (
+              <CapacityBoard canEdit={able("EditOwnJobs")} onToast={setToast} />
+            )}
+            {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
+            {screen === "admin" && <Administration />}
+            {screen === "docverify" && (
+              <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
+            )}
             {screen === "billing" && <BillingAging filtered={filtered} />}
             {screen === "reports" && <Reports toast={setToast} />}
 
@@ -1484,7 +1510,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
           onAvatar={pickAvatar}
           prefs={prefs}
           onChange={updatePrefs}
-          canReload={SUPERVISOR_ROLES.indexOf(me.role) >= 0}
+          canReload={able("AdministerData")}
           onReloadPlan={reloadFromPlanFile}
           onCleanup={runCleanup}
           onDuplicates={openDuplicates}
@@ -1567,7 +1593,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
             touch();
           }}
           onReassign={() => {
-            if (SUPERVISOR_ROLES.indexOf(me.role) < 0) {
+            if (!able("AssignJobs")) {
               setToast("Only Supervisor and above can reassign jobs");
               return;
             }

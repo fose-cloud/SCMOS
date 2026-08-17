@@ -17,7 +17,6 @@ export type SearchAction =
   | { kind: "job"; key: string }
   | { kind: "customer"; value: string }
   | { kind: "trucker"; value: string }
-  | { kind: "supplier"; name: string }
   | { kind: "ship"; id: number }
   | { kind: "screen"; screen: Screen; note?: string };
 
@@ -113,21 +112,10 @@ export function globalSearch(query: string, ops: Ops | null, db: Db): SearchGrou
       tone: "green" as const,
       action: { kind: "trucker", value: t },
     }));
-
-  // ---- supplier register --------------------------------------------------
-  const supplierHits: SearchHit[] = db.suppliers
-    .filter((s) => matches(q, [s.code, s.name, s.vendor, s.contact, s.phone, s.email, s.area, s.service]))
-    .map((s) => ({
-      id: "sup-" + s.code,
-      group: "ผู้ขนส่ง · Subcontractors",
-      title: s.name,
-      sub: s.code + " · " + s.contact + " · " + s.phone + " · เปิดประวัติผู้รับเหมาช่วง",
-      tag: s.status,
-      tone: s.status === "Approved" ? "green" : s.status === "Suspended" ? "amber" : "gray",
-      action: { kind: "supplier", name: s.name },
-      demo: true,
-    }));
-  push("ผู้ขนส่ง · Subcontractors", truckerHits.concat(supplierHits));
+  // Carrier names come from the plan, not from the demo register: the register
+  // that generated those names is not displayed anywhere now, so a hit on one
+  // would open a profile for a company the real register has never heard of.
+  push("ผู้ขนส่ง · Subcontractors", truckerHits);
 
   // ---- demo shipment register (still reachable from Billing) --------------
   const shipHits: SearchHit[] = db.ships

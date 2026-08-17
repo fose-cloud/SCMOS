@@ -316,6 +316,25 @@ public class IncidentCase
 // its CaseId set. It had its own table for exactly as long as it took to give
 // files a single home — see Data/DocumentEntities.cs.
 
+/* ------------------------------------------------------------------------
+ * Carried over from the system this replaced.
+ *
+ * ReportUpload, OperationUpload and OperationEntry back /api/uploads and
+ * /api/operations. No screen calls either route any more — the register is
+ * OperationJob and files are StoredDocument — and all three tables are empty in
+ * every environment checked so far.
+ *
+ * They are still here on purpose. "Empty locally" is not "empty in production",
+ * and dropping a table is the one migration that cannot be undone by running the
+ * next one. Before removing them, run this against the real database:
+ *
+ *   SELECT (SELECT COUNT(*) FROM report_uploads)    AS reports,
+ *          (SELECT COUNT(*) FROM operation_uploads) AS op_uploads,
+ *          (SELECT COUNT(*) FROM operation_entries) AS entries;
+ *
+ * If all three are zero, the tables, their endpoints and this comment can go.
+ * ---------------------------------------------------------------------- */
+
 /// <summary>A file kept in Blob Storage, with the row counts it was reported with.</summary>
 public class ReportUpload
 {

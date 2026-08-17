@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
 import { STATUS_RE, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
-import { SUPERVISOR_ROLES } from "../nav";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
 import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
@@ -46,6 +45,15 @@ type Props = {
   onSaveCell: (job: Job, field: keyof Job) => void;
   onStatusChange: (job: Job, value: string) => void;
   onSort: (key: string) => void;
+  /**
+   * Whether this person may write to a job, and whether they may hand one to
+   * somebody else. Passed in rather than worked out here: this file had its own
+   * copy of the edit rule, it said `role !== "Operation User"`, and it would
+   * have handed an edit button to every Viewer and CS account the moment those
+   * roles were used. Every rule this codebase has written twice has drifted.
+   */
+  canEdit: (job: Job) => boolean;
+  canAssign: boolean;
   /** Rows per page, from the viewer's settings. */
   per: number;
   /** Whether edits are reaching the database, shown next to the welcome line. */
@@ -300,8 +308,8 @@ export function Workspace(p: Props) {
   // uses. This copy was missed when ownership moved off names, which would have
   // shown an operator an empty workspace the day real sign-in arrived.
   const mineJ = (j: Job) => !!me.opId && j.opId === me.opId;
-  const canEditJob = (j: Job) => me.role !== "Operation User" || mineJ(j);
-  const canAssign = SUPERVISOR_ROLES.indexOf(me.role) >= 0;
+  const canEditJob = p.canEdit;
+  const canAssign = p.canAssign;
 
   const inCat = (c: string) => (c === "ALL" ? all : all.filter((j) => j.cat === c));
   const catBase = inCat(ws.cat);

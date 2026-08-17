@@ -13,18 +13,16 @@ type Args = {
   filtered: Ship[];
   q: string;
   page: number;
-  f: Filters;
   /** Rows per page, from the viewer's settings. */
   per: number;
   onSort: (key: string) => void;
   selectShip: (id: number) => void;
-  selectSupplier: (name: string) => void;
   toast: (message: string) => void;
 };
 
 /** Builds the table model for every list-style screen. Returns null for screens that have none. */
 export function buildTable(a: Args): TableModel | null {
-  const { screen, tab, db, q, page, f } = a;
+  const { screen, tab, db, q, page } = a;
 
   const wrap = (
     title: string,
@@ -39,32 +37,11 @@ export function buildTable(a: Args): TableModel | null {
     title, meta: meta(total), cols: cols(colDefs, a.onSort), rows, total, pageCount, page: p, per,
   });
 
-  if (screen === "subcontractors") {
-    const list = searched(db.suppliers, ["code", "name", "contact", "area", "service", "status"], q);
-    const pg = paginate(list, page, a.per);
-    const rows: TableRow[] = pg.slice.map((s) => ({
-      key: s.code,
-      go: () => a.selectSupplier(s.name),
-      style: "cursor:pointer;background:#fff",
-      cells: [
-        cell(s.code, { mono: true, bold: true }), cell(s.name, { bold: true }), cell(s.vendor, { mono: true, mute: true }),
-        cell(s.contact), cell(s.phone, { mono: true }), cell(s.email, { mute: true }), cell(s.service),
-        cell(s.area, { mute: true }), cell(s.fleet, { mono: true, align: "right" }), cell(s.drivers, { mono: true, align: "right" }),
-        cell(s.dg, { tone: s.dg === "Yes" ? "green" : "gray" }), cell(s.reefer, { tone: s.reefer === "Yes" ? "green" : "gray" }),
-        cell(s.iso, { tone: s.iso === "Yes" ? "green" : "gray" }), cell(s.gps, { tone: s.gps === "Yes" ? "green" : "amber" }),
-        cell(s.ins, { mono: true }), cell(s.insExp, { mono: true, color: s.insExp.indexOf("2026") > 0 ? "#B45309" : null }),
-        cell(s.lic, { mono: true }), cell(s.licExp, { mono: true, color: s.licExp === "02 Sep 2026" ? "#B42318" : null }),
-        cell(s.safety, { tone: s.safety === "Valid" ? "green" : "red" }),
-        cell(s.score, { mono: true, bold: true, align: "right" }),
-        cell(s.status, { tone: s.status === "Approved" ? "green" : s.status === "Suspended" ? "red" : "amber" }),
-      ],
-    }));
-    return wrap("Subcontractor Register", (t) => t + " approved and evaluated carriers · click for full profile",
-      [["Code"], ["Company Name"], ["Vendor No."], ["Contact"], ["Phone"], ["Email"], ["Service Type"], ["Service Area"],
-        ["Fleet"], ["Drivers"], ["DG"], ["Reefer"], ["ISO Tank"], ["GPS"], ["Insurance Limit"], ["Ins. Expiry"],
-        ["Licence"], ["Lic. Expiry"], ["Safety"], ["Score"], ["Status"]],
-      rows, pg.total, pg.pageCount, pg.p, pg.per);
-  }
+  // The Subcontractor register and CAR/PAR have their own screens now, reading
+  // the real register over the API — see screens/Suppliers.tsx and
+  // screens/Incidents.tsx. Nothing is drawn for either name here: a generated
+  // register underneath the real one is how a system ends up giving two answers
+  // to the same question.
 
   // Transportation Rates has its own screen now — it reads the subcontractors'
   // real quotations, which price in diesel bands and cannot be shown as one
@@ -101,33 +78,6 @@ export function buildTable(a: Args): TableModel | null {
     return wrap("Billing Monitor", (t) => t + " completed jobs · KPI: supplier invoice within 4 calendar days",
       [["ABS No."], ["Job No."], ["Customer"], ["Subcontractor"], ["Completion Date"], ["Invoice Received"],
         ["Days After"], ["Trucking Charge"], ["Additional"], ["Advance Receipt"], ["Total"], ["Billing Status"]],
-      rows, pg.total, pg.pageCount, pg.p, pg.per);
-  }
-
-  if (screen === "carpar") {
-    let list = db.carpar;
-    if (tab === "Closed") list = list.filter((c) => c.status === "Closed");
-    if (tab === "Aging") list = list.slice().sort((x, y) => y.age - x.age);
-    if (f.sub !== "All") list = list.filter((c) => c.sub === f.sub);
-    list = searched(list, ["no", "cust", "sub", "type", "owner", "status"], q);
-
-    const pg = paginate(list, page, a.per);
-    const rows: TableRow[] = pg.slice.map((c) => ({
-      key: c.no,
-      go: () => a.toast("Case " + c.no + " opened"),
-      style: "cursor:pointer;background:" + (c.status === "Overdue" ? "#FEF6F5" : "#fff"),
-      cells: [
-        cell(c.no, { mono: true, bold: true }), cell(c.cust), cell(c.sub, { bold: true }), cell(c.date, { mono: true }),
-        cell(c.type), cell("Under investigation", { mute: true }), cell("Driver retraining scheduled", { mute: true }),
-        cell(c.owner), cell(c.target, { mono: true }),
-        cell(c.age + " d", { mono: true, align: "right", color: c.age > 30 ? "#B42318" : c.age > 14 ? "#B45309" : "#16794C" }),
-        cell(c.status === "Waiting Evidence" ? "0 files" : "3 files", { mute: true }),
-        cell(c.status, { tone: c.status === "Closed" ? "green" : c.status === "Overdue" ? "red" : c.status === "Open" ? "gray" : "blue" }),
-      ],
-    }));
-    return wrap("CAR / PAR Register", (t) => t + " cases · overdue cases highlighted",
-      [["CAR/PAR No."], ["Customer"], ["Supplier"], ["Incident Date"], ["Incident Type"], ["Root Cause"],
-        ["Corrective Action"], ["Responsible"], ["Target Date"], ["Aging"], ["Evidence"], ["Status"]],
       rows, pg.total, pg.pageCount, pg.p, pg.per);
   }
 

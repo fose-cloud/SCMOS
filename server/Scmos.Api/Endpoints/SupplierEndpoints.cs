@@ -81,17 +81,28 @@ public static class SupplierEndpoints
         /* ----------------------------------------------------------- rates */
         var rates = routes.MapGroup("/api/rates").WithTags("Rates");
 
+        // ViewRates, not merely signed in. The book holds eighteen carriers'
+        // negotiated prices, and the Subcontractor role exists precisely so a
+        // carrier can work their own jobs without reading what seventeen
+        // competitors charge. That is the single worst thing this system could
+        // leak, so it is refused here rather than hidden on a screen.
         rates.MapGet("", async (string? carrier, string? service, HttpContext context, IUserAccessor users,
             RateService service_, CancellationToken token) =>
         {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูตารางราคา", StatusCodes.Status403Forbidden);
             return Results.Json(await service_.ReadAsync(carrier, service, token));
         });
 
         rates.MapGet("/quotes", async (string? customer, string? destination, string? vehicle, decimal? diesel,
             HttpContext context, IUserAccessor users, RateService service, CancellationToken token) =>
         {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูตารางราคา", StatusCodes.Status403Forbidden);
             var quotes = await service.QuotesForAsync(customer ?? "", destination ?? "",
                 vehicle ?? "", diesel ?? 32.94m, token);
             return Results.Json(quotes);

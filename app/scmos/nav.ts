@@ -37,14 +37,13 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["admin", "Administration", "ผู้ดูแลระบบ", [[2, 2, 5, 5], [9, 2, 5, 5], [9, 9, 5, 5]]],
 ];
 
-/** [title, Thai title, blurb] keyed by screen (plus the two drill-down views). */
+/** [title, Thai title, blurb] keyed by screen (plus the shipment drill-down). */
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน", "Executive = ภาพรวมทั้งแผน · Operational = สิ่งที่ต้องทำวันนี้ · Wall Board = จอแสดงผลหน้างาน — ทุกตัวเลขคิดจากงานจริงใน Operation Workspace คลิกตัวเลขเพื่อเปิดงานชุดนั้นใน Workspace และกด Export Excel เพื่อดึงออกเป็นไฟล์"],
   workspace: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
   subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง", "Approved carrier register with fleet, insurance, licence and safety validity."],
-  supplier: ["Subcontractor Profile", "ประวัติผู้รับเหมาช่วง", "Complete carrier file — company, fleet, rates, compliance, performance and billing."],
   rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง", "Cost vs selling rate with fuel adjustment and margin control per lane."],
   capacity: ["Capacity Planning", "การวางแผนกำลังรถ", "Daily and weekly truck availability against confirmed demand."],
   billing: ["Billing Control", "การควบคุมการวางบิล", "Supplier invoices must be received within 4 calendar days after delivery / loading completion."],
@@ -77,9 +76,9 @@ export const TAB_DEFS: Record<string, string[]> = {
   // controls. Tabs that narrowed the demo table would be buttons that do
   // nothing, which is worse than no tabs.
   billing: ["Aging", "Invoices", "Advance Receipts"],
-  admin: ["Roles & Permissions", "Users", "Audit Log", "Data Model"],
+  // Capacity, Document Center and Administration carry their own controls now
+  // that they read the API; tabs that narrowed a demo table would do nothing.
   reports: ["Catalogue", "Scheduled"],
-  documents: ["All Documents", "Expiring"],
 };
 
 // The dashboard is off this list on purpose: it reads the real operation jobs,
@@ -121,6 +120,14 @@ export const ACCOUNTS: Account[] = [
   { user: "titchanatorn", name: "Titchanatorn", full: "Titchanatorn", role: "Operation Supervisor", id: "SV-01", opId: "SV-01", init: "TI" },
   { user: "nattikorn", name: "Nattikorn", full: "Nattikorn", role: "Assistant Manager", id: "AM-01", opId: "AM-01", init: "NA" },
   { user: "admin", name: "Admin", full: "Admin", role: "Administrator", id: "AD-01", opId: "AD-01", init: "AD" },
+
+  // Kept in step with StaffDirectory.All. These four exist so the roles that
+  // were defined and enforced but unoccupied can actually be signed in as —
+  // a capability set nobody has used is one nobody has tested.
+  { user: "cs", name: "Customerservice", full: "Customer Service", role: "CS", id: "CS-01", opId: "CS-01", init: "CS" },
+  { user: "management", name: "Management", full: "Management", role: "Management", id: "MG-01", opId: "MG-01", init: "MG" },
+  { user: "viewer", name: "Viewer", full: "Viewer", role: "Viewer", id: "VW-01", opId: "VW-01", init: "VW" },
+  { user: "subcontractor", name: "Subcontractor", full: "Subcontractor", role: "Subcontractor", id: "SC-01", opId: "SC-01", init: "SC" },
 ];
 
 /**
@@ -152,7 +159,16 @@ export function matchAccount(email: string, displayName: string): Account | unde
   return first ? ACCOUNTS.find((account) => account.name.toLowerCase() === first.toLowerCase()) : undefined;
 }
 
-export const SUPERVISOR_ROLES = ["Operation Supervisor", "Assistant Manager", "Manager", "Administrator"];
+/**
+ * Gone on purpose.
+ *
+ * What a role may do is decided by `Rules/Roles.cs` and read from `/api/me` as a
+ * capability list. A role-name array in the browser was a second opinion the API
+ * never saw — and its real failure mode was quieter than that: every test
+ * written against it asked "is this person senior", when the question was
+ * always "may this person do this particular thing".
+ */
+export const DEFAULT_LANDING_ROLE = DEFAULT_ROLE;
 
 /** Alert centre feed: [severity, title, body, relative time]. */
 export const ALERTS: [string, string, string, string][] = [

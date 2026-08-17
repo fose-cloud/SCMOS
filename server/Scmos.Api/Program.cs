@@ -51,6 +51,8 @@ builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<RiskService>();
+builder.Services.AddScoped<CapacityService>();
+builder.Services.AddScoped<VerificationService>();
 builder.Services.AddScoped<AiGateway>();
 // The audit trail records the caller's address and session, which only the
 // request knows about.
@@ -131,6 +133,8 @@ app.MapSuppliers();
 app.MapDocuments();
 app.MapAudit();
 app.MapDashboard();
+app.MapCapacity();
+app.MapVerification();
 app.MapUploads();
 app.MapOperations();
 app.MapAiExtract();
