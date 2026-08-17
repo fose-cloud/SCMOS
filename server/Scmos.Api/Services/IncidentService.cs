@@ -12,7 +12,7 @@ public record IncidentView(
     string ResponsiblePerson, string DueDate, string FollowUpNote, string EffectivenessNote,
     string ApprovedBy, DateTimeOffset? ApprovedAt,
     string RaisedBy, DateTimeOffset RaisedAt, bool Overdue,
-    IReadOnlyList<IncidentEvidence> Evidence);
+    IReadOnlyList<DocumentView> Evidence);
 
 public record IncidentResult(bool Ok, string Message, long? Id = null);
 
@@ -40,19 +40,20 @@ public class IncidentService(ScmosDbContext db)
         if (!string.IsNullOrWhiteSpace(kind) && kind != "All") query = query.Where(c => c.Kind == kind);
 
         var cases = await query.OrderByDescending(c => c.Id).Take(300).ToListAsync(token);
-        var ids = cases.Select(c => c.Id).ToHashSet();
-        var evidence = await db.IncidentEvidence.AsNoTracking()
+        var ids = cases.Select(c => (long?)c.Id).ToHashSet();
+        var evidence = await db.Documents.AsNoTracking()
             .Where(e => ids.Contains(e.CaseId)).ToListAsync(token);
 
-        return cases.Select(c => Describe(c, evidence.Where(e => e.CaseId == c.Id).ToList())).ToList();
+        return cases.Select(c => Describe(c,
+            evidence.Where(e => e.CaseId == c.Id).Select(DocumentService.Describe).ToList())).ToList();
     }
 
     public async Task<IncidentView?> ReadAsync(long id, CancellationToken token)
     {
         var record = await db.IncidentCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, token);
         if (record is null) return null;
-        var evidence = await db.IncidentEvidence.AsNoTracking().Where(e => e.CaseId == id).ToListAsync(token);
-        return Describe(record, evidence);
+        var evidence = await db.Documents.AsNoTracking().Where(e => e.CaseId == id).ToListAsync(token);
+        return Describe(record, evidence.Select(DocumentService.Describe).ToList());
     }
 
     /// <summary>
@@ -176,29 +177,15 @@ public class IncidentService(ScmosDbContext db)
         return new IncidentResult(true, $"ไปยังขั้น {next}", id);
     }
 
-    public async Task<IncidentResult> AddEvidenceAsync(long caseId, string kind, string fileName,
-        string objectKey, string note, string by, CancellationToken token)
-    {
-        var exists = await db.IncidentCases.AsNoTracking().AnyAsync(c => c.Id == caseId, token);
-        if (!exists) return new IncidentResult(false, "ไม่พบเคสนี้");
+    // Attaching evidence is an upload, not a row: POST /api/documents with a
+    // caseId. It used to take an objectKey the caller invented, which meant the
+    // one thing the storage structure depends on — that nobody composes their
+    // own path — was left to whoever called it.
 
-        db.IncidentEvidence.Add(new IncidentEvidence
-        {
-            CaseId = caseId,
-            Kind = kind.Trim().Length > 0 ? kind.Trim() : "photo",
-            FileName = fileName.Trim(),
-            ObjectKey = objectKey.Trim(),
-            Note = note.Trim(),
-            UploadedBy = by,
-            UploadedAt = DateTimeOffset.UtcNow,
-        });
-        await db.SaveChangesAsync(token);
-        return new IncidentResult(true, "แนบหลักฐานแล้ว", caseId);
-    }
-
-    private static IncidentView Describe(IncidentCase c, List<IncidentEvidence> evidence)
+    private static IncidentView Describe(IncidentCase c, List<DocumentView> evidence)
     {
         var due = Formats.DateNumber(c.DueDate);
+
         var today = Formats.DateNumber(DateTimeOffset.Now.ToString("dd/MM/yyyy"));
         return new IncidentView(
             c.Id, c.Reference, c.JobKey, c.Kind, c.Category, c.Title, c.Stage,

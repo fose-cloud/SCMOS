@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
 using Scmos.Api.Data;
+using Scmos.Api.Rules;
 using Scmos.Api.Services;
 
 namespace Scmos.Api.Endpoints;
@@ -54,14 +55,20 @@ public static class UploadsEndpoints
             var id = Guid.NewGuid();
             var period = Field(form, "period", "Unspecified");
             var uploadedAt = DateTimeOffset.UtcNow;
-            var safeName = SafeName(file.FileName);
-            var objectKey = $"monthly/{period.Replace(" ", "-").ToLowerInvariant()}/{id}-{safeName}";
+            // Under the same root as everything else. This used to write
+            // `monthly/…` at the container root, which is how a storage account
+            // ends up with files nobody can find or apply a lifecycle rule to.
+            var objectKey = BlobPaths.ForReport(uploadedAt.Year.ToString("D4"), period, file.FileName);
 
             await using (var stream = file.OpenReadStream())
             {
                 await files.PutAsync(objectKey, stream,
                     string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
-                    new Dictionary<string, string> { ["period"] = period, ["originalName"] = safeName },
+                    new Dictionary<string, string>
+                    {
+                        ["period"] = BlobPaths.SafeName(period),
+                        ["originalName"] = BlobPaths.SafeName(file.FileName),
+                    },
                     token);
             }
 
@@ -103,17 +110,4 @@ public static class UploadsEndpoints
 
     private static int Number(IFormCollection form, string name) =>
         int.TryParse(form[name].ToString(), out var value) && value >= 0 ? value : 0;
-
-    /// <summary>
-    /// Blob names accept far more than this, but a key that survives a URL, a
-    /// download header and a Windows file system is worth more than a faithful
-    /// Thai filename — the original is kept in the row and the blob metadata.
-    /// </summary>
-    private static string SafeName(string name)
-    {
-        var cleaned = new string(Path.GetFileName(name)
-            .Select(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-' ? c : '_')
-            .ToArray());
-        return cleaned.Trim('_').Length == 0 ? "upload" : cleaned[..Math.Min(cleaned.Length, 120)];
-    }
 }

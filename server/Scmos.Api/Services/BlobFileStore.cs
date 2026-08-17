@@ -31,6 +31,13 @@ public interface IFileStore
 {
     bool Configured { get; }
     Task<string> PutAsync(string objectKey, Stream content, string contentType, IDictionary<string, string> metadata, CancellationToken token);
+
+    /// <summary>
+    /// Opens a stored file for reading. Reading goes through the API rather than
+    /// the blob URL because the container is private and has to stay that way —
+    /// a URL that works without a sign-in is a URL that will end up in an email.
+    /// </summary>
+    Task<Stream?> OpenAsync(string objectKey, CancellationToken token);
 }
 
 public class BlobFileStore : IFileStore
@@ -70,6 +77,9 @@ public class BlobFileStore : IFileStore
         }
 
         var blob = _container.GetBlobClient(objectKey);
+        // No overwrite flag: the key carries a timestamp and a short id, so two
+        // uploads never collide, and a call that would replace an existing blob
+        // is a bug worth hearing about rather than a file quietly destroyed.
         await blob.UploadAsync(content, new BlobUploadOptions
         {
             HttpHeaders = new BlobHttpHeaders { ContentType = contentType },
@@ -77,5 +87,14 @@ public class BlobFileStore : IFileStore
         }, token);
 
         return blob.Uri.ToString();
+    }
+
+    public async Task<Stream?> OpenAsync(string objectKey, CancellationToken token)
+    {
+        if (_container is null) throw new InvalidOperationException("File storage is not configured.");
+
+        var blob = _container.GetBlobClient(objectKey);
+        if (!await blob.ExistsAsync(token)) return null;
+        return await blob.OpenReadAsync(cancellationToken: token);
     }
 }

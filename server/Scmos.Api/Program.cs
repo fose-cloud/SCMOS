@@ -7,6 +7,12 @@ using Scmos.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// A machine-local override that is never committed — the storage emulator's
+// connection string, a real database to point at for an afternoon. It was
+// already git-ignored and simply never loaded, which meant the file people were
+// told to create did nothing.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false);
+
 // Secrets — the connection string, the OpenAI key, the proxy key — live in Key
 // Vault and are read with the App Service managed identity. Locally there is no
 // vault and no identity, so the section is simply absent and user-secrets or
@@ -40,6 +46,7 @@ builder.Services.AddScoped<MonitoringService>();
 builder.Services.AddScoped<RateService>();
 builder.Services.AddScoped<SupplierService>();
 builder.Services.AddScoped<IncidentService>();
+builder.Services.AddScoped<DocumentService>();
 builder.Services.AddScoped<AiGateway>();
 builder.Services.Configure<PreRunOptions>(builder.Configuration.GetSection(PreRunOptions.Section));
 builder.Services.AddSingleton<IUserAccessor, UserAccessor>();
@@ -114,6 +121,7 @@ app.MapWorkflow();
 app.MapPreRun();
 app.MapMonitoring();
 app.MapSuppliers();
+app.MapDocuments();
 app.MapUploads();
 app.MapOperations();
 app.MapAiExtract();

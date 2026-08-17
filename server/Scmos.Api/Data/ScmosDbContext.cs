@@ -15,12 +15,13 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<ShipmentMilestone> ShipmentMilestones => Set<ShipmentMilestone>();
     public DbSet<DelayRecord> DelayRecords => Set<DelayRecord>();
     public DbSet<IncidentCase> IncidentCases => Set<IncidentCase>();
-    public DbSet<IncidentEvidence> IncidentEvidence => Set<IncidentEvidence>();
+
+    /// <summary>Every file the system holds — a job's, a supplier's, a case's.</summary>
+    public DbSet<StoredDocument> Documents => Set<StoredDocument>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
     public DbSet<SupplierContact> SupplierContacts => Set<SupplierContact>();
-    public DbSet<SupplierDocument> SupplierDocuments => Set<SupplierDocument>();
     public DbSet<SupplierTruck> SupplierTrucks => Set<SupplierTruck>();
     public DbSet<SupplierDriver> SupplierDrivers => Set<SupplierDriver>();
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
@@ -211,19 +212,37 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => new { e.Stage, e.DueDate }).HasDatabaseName("incident_stage_idx");
         });
 
-        model.Entity<IncidentEvidence>(entry =>
+        // One table for every file. The indexes are the three questions actually
+        // asked of it: what is attached to this job, to this supplier, to this
+        // case — plus the unique key, which is what stops the same blob being
+        // recorded twice if an upload is retried.
+        model.Entity<StoredDocument>(entry =>
         {
-            entry.ToTable("incident_evidence");
+            entry.ToTable("documents");
             entry.HasKey(e => e.Id);
             entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Scope).HasColumnName("scope").HasMaxLength(20);
+            entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
             entry.Property(e => e.CaseId).HasColumnName("case_id");
-            entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(30);
+            entry.Property(e => e.Folder).HasColumnName("folder").HasMaxLength(30);
+            entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.Year).HasColumnName("year").HasMaxLength(4).HasDefaultValue("");
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.JobRef).HasColumnName("job_ref").HasMaxLength(120).HasDefaultValue("");
             entry.Property(e => e.FileName).HasColumnName("file_name").HasMaxLength(260);
+            entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.SizeBytes).HasColumnName("size_bytes");
             entry.Property(e => e.ObjectKey).HasColumnName("object_key").HasMaxLength(400);
+            entry.Property(e => e.BlobUrl).HasColumnName("blob_url").HasMaxLength(700).HasDefaultValue("");
+            entry.Property(e => e.ExpiryDate).HasColumnName("expiry_date").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(500).HasDefaultValue("");
             entry.Property(e => e.UploadedBy).HasColumnName("uploaded_by").HasMaxLength(120);
             entry.Property(e => e.UploadedAt).HasColumnName("uploaded_at");
-            entry.HasIndex(e => e.CaseId).HasDatabaseName("incident_evidence_case_idx");
+            entry.HasIndex(e => e.ObjectKey).IsUnique().HasDatabaseName("document_key_idx");
+            entry.HasIndex(e => new { e.JobKey, e.Folder }).HasDatabaseName("document_job_idx");
+            entry.HasIndex(e => e.SupplierId).HasDatabaseName("document_supplier_idx");
+            entry.HasIndex(e => e.CaseId).HasDatabaseName("document_case_idx");
         });
 
         // Supplier, rate and AI-permission tables. Column names stay snake_case
@@ -263,17 +282,6 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Phone).HasMaxLength(40).HasDefaultValue("");
             e.Property(x => x.Email).HasMaxLength(160).HasDefaultValue("");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_contact_idx");
-        });
-
-        model.Entity<SupplierDocument>(e =>
-        {
-            e.ToTable("supplier_documents");
-            e.Property(x => x.Kind).HasMaxLength(30);
-            e.Property(x => x.Title).HasMaxLength(200).HasDefaultValue("");
-            e.Property(x => x.ObjectKey).HasMaxLength(400).HasDefaultValue("");
-            e.Property(x => x.ExpiryDate).HasMaxLength(20).HasDefaultValue("");
-            e.Property(x => x.UploadedBy).HasMaxLength(120).HasDefaultValue("");
-            e.HasIndex(x => new { x.SupplierId, x.Kind }).HasDatabaseName("supplier_document_idx");
         });
 
         model.Entity<SupplierTruck>(e =>

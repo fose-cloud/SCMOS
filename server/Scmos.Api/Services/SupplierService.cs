@@ -14,7 +14,7 @@ public record SupplierSummary(
 public record SupplierProfileView(
     SupplierSummary Summary,
     IReadOnlyList<SupplierContact> Contacts,
-    IReadOnlyList<SupplierDocument> Documents,
+    IReadOnlyList<DocumentView> Documents,
     IReadOnlyList<SupplierTruck> Trucks,
     IReadOnlyList<SupplierDriver> Drivers,
     IReadOnlyList<SupplierEvaluation> Evaluations,
@@ -91,8 +91,9 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             .Select(group => new { Id = group.Key, Count = group.Count() })
             .ToDictionaryAsync(entry => entry.Id, entry => entry.Count, token);
 
-        var documents = await db.SupplierDocuments.AsNoTracking().ToListAsync(token);
-        var soon = Formats.DateNumber(DateTimeOffset.Now.AddDays(60).ToString("dd/MM/yyyy"));
+        var documents = await db.Documents.AsNoTracking()
+            .Where(document => document.SupplierId != null && document.ExpiryDate != "")
+            .ToListAsync(token);
 
         return suppliers.Select(supplier => new SupplierSummary(
             supplier.Id, supplier.Code, supplier.Name, supplier.Status,
@@ -105,9 +106,12 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             supplier.LastScore, supplier.LastEvaluatedPeriod,
             aliases.Where(alias => alias.SupplierId == supplier.Id)
                 .Select(alias => alias.Alias).OrderBy(name => name).ToList(),
+            // Expired counts as expiring: a certificate that lapsed last month is
+            // more urgent than one lapsing next month, and dropping it off the
+            // count would make it disappear at exactly the wrong moment.
             documents.Count(document => document.SupplierId == supplier.Id
-                && Formats.DateNumber(document.ExpiryDate) > 0
-                && Formats.DateNumber(document.ExpiryDate) <= soon))).ToList();
+                && (DocumentService.IsExpiring(document.ExpiryDate)
+                    || DocumentService.IsExpired(document.ExpiryDate))))).ToList();
     }
 
     public async Task<SupplierProfileView?> ProfileAsync(int id, CancellationToken token)
@@ -123,7 +127,9 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         return new SupplierProfileView(
             summary,
             await db.SupplierContacts.AsNoTracking().Where(x => x.SupplierId == id).ToListAsync(token),
-            await db.SupplierDocuments.AsNoTracking().Where(x => x.SupplierId == id).ToListAsync(token),
+            (await db.Documents.AsNoTracking().Where(x => x.SupplierId == id)
+                .OrderByDescending(x => x.Id).ToListAsync(token))
+                .Select(DocumentService.Describe).ToList(),
             await db.SupplierTrucks.AsNoTracking().Where(x => x.SupplierId == id).ToListAsync(token),
             await db.SupplierDrivers.AsNoTracking().Where(x => x.SupplierId == id).ToListAsync(token),
             await db.SupplierEvaluations.AsNoTracking().Where(x => x.SupplierId == id)

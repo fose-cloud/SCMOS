@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ignore-pattern .next --ignore-pattern server",
+    "lint": "eslint . --ignore-pattern .next --ignore-pattern server --ignore-pattern .claude",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

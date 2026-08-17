@@ -312,21 +312,9 @@ public class IncidentCase
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-/// <summary>One piece of evidence attached to a case, held in Blob Storage.</summary>
-public class IncidentEvidence
-{
-    public long Id { get; set; }
-    public long CaseId { get; set; }
-
-    /// <summary>photo · driver-statement · supplier-report · customer-information</summary>
-    public string Kind { get; set; } = "photo";
-
-    public string FileName { get; set; } = "";
-    public string ObjectKey { get; set; } = "";
-    public string Note { get; set; } = "";
-    public string UploadedBy { get; set; } = "";
-    public DateTimeOffset UploadedAt { get; set; }
-}
+// Evidence on a case is a file like any other and lives in StoredDocument with
+// its CaseId set. It had its own table for exactly as long as it took to give
+// files a single home — see Data/DocumentEntities.cs.
 
 /// <summary>A file kept in Blob Storage, with the row counts it was reported with.</summary>
 public class ReportUpload

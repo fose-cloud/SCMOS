@@ -349,6 +349,75 @@ where they say so.
   the assessor's own. A carrier below the minimum sample gets no operational
   component rather than a flattering hundred.
 
+## File storage
+
+One root, three trees, and no caller composes a path:
+
+```
+SCMOS/
+├── 2026/                                   ← the year the job ran
+│   ├── LOTUS/                              ← customer
+│   │   └── ABS260800001/                   ← job code, container, or key
+│   │       ├── Booking/  ECard/  POD/
+│   │       ├── Images/   Invoice/  CARPAR/
+│   └── TANATEX/
+├── Supplier/
+│   └── DGT/                                ← supplier code, not name
+│       ├── Audit/  Insurance/  License/
+│       ├── Training/  Contract/
+└── Report/2026/2026-07/                    ← monthly uploads
+```
+
+The shape is the point. A flat container is unusable within a year: nobody can
+find one job's paperwork, a lifecycle policy cannot be written against a prefix,
+and access cannot be narrowed to a customer or a supplier later. The path carries
+the year, the customer, the job and the kind of document, so all four are
+answerable from the key alone — which matters on the day the database and the
+storage account disagree about something.
+
+**SQL holds metadata and the blob URL. The bytes never come near it.** One
+`documents` table for every file — a job's paperwork, a supplier's insurance
+certificate, a CAR/PAR photo — because three tables would mean three copies of
+"where does a file go".
+
+[`Rules/BlobPaths.cs`](server/Scmos.Api/Rules/BlobPaths.cs) is the only thing that
+builds a key. A caller says what the file is attached to and what kind it is; the
+path follows from the register — the job's own work date gives the year, its
+customer the folder, its job code the reference. Uploading is
+`POST /api/documents` with a `jobKey`, a `supplierId` or a `caseId`, and exactly
+one of them.
+
+Four decisions worth knowing:
+
+- **The folder list is controlled**, like the status vocabulary and for the same
+  reason: "POD", "pod" and "Proof of delivery" as three sibling folders is the
+  mess this prevents. Unrecognised kinds land in `Other` rather than inventing a
+  folder nobody looks in again. Written spellings already in use — `e-card`,
+  `driver-statement`, `safety-training` — map onto the agreed folders.
+- **The year comes from the job, not the clock.** A July job filed in August is
+  still under the year it ran.
+- **Suppliers are keyed on the code, not the name.** TATIYAPOL and TATIYAPON are
+  deliberately separate companies until somebody says otherwise, and a name that
+  normalises the same way would quietly merge two firms' insurance.
+- **An upload never overwrites.** The stored file name is
+  `{timestamp}-{shortid}-{cleaned name}`, so two people uploading `POD.pdf` in
+  the same second both keep their file, and a folder listing sorts by when things
+  happened. The original name — Thai and all — is kept in the row.
+
+Reading goes through `GET /api/documents/{id}/content`, not the blob URL: the
+container is private and stays that way, because a URL that works without a
+sign-in is a URL that ends up forwarded.
+
+To exercise uploads locally, run the Azure Storage emulator and point the API at
+it — without it, upload answers 503 and says why, which is the honest default:
+
+```bash
+npx azurite --silent --location .azurite --blobPort 10000
+```
+
+Then set `Storage:ConnectionString` to `UseDevelopmentStorage=true` in
+`server/Scmos.Api/appsettings.Local.json` (git-ignored).
+
 ## Incident and CAR/PAR
 
 One register in the database — a case carries its kind — so the Incident and

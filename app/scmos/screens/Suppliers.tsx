@@ -64,6 +64,31 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
     } finally { setBusy(false); }
   }
 
+  /**
+   * Files a compliance document.
+   *
+   * The screen sends the supplier and the folder; where the file lands —
+   * SCMOS/Supplier/{code}/{folder} — is the API's to decide. The expiry is the
+   * point of storing it at all: an insurance certificate with no expiry cannot
+   * be watched, and a lapsed one is what the compliance count exists to catch.
+   */
+  async function upload(supplierId: number, file: File, folder: string, expiryDate: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const body = new FormData();
+      body.append("supplierId", String(supplierId));
+      body.append("folder", folder);
+      body.append("kind", folder);
+      body.append("expiryDate", expiryDate);
+      body.append("file", file);
+      const response = await apiFetch("/api/documents", { method: "POST", body });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "อัปโหลดไม่สำเร็จ");
+      await load();
+    } finally { setBusy(false); }
+  }
+
   if (!rows) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>กำลังโหลด…</div>;
   }
@@ -123,7 +148,8 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
           onAlias={(alias) => void post(`${picked}/alias`, { alias })}
           onStatus={(status) => void post(`${picked}/status`, { status })}
           onEvaluate={(period, safety, documents, note) =>
-            void post(`${picked}/evaluate`, { period, safety, documents, note })} />
+            void post(`${picked}/evaluate`, { period, safety, documents, note })}
+          onUpload={(file, folder, expiryDate) => void upload(picked, file, folder, expiryDate)} />
       )}
     </div>
   );
@@ -132,17 +158,26 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
 const CELL = "padding:8px 12px;vertical-align:top";
 const CELL_S = css(CELL);
 
-function Manage({ supplier, busy, onAlias, onStatus, onEvaluate }: {
+/** The folders a supplier's paperwork goes in, matching BlobPaths.SupplierFolders. */
+const SUPPLIER_FOLDERS: [string, string][] = [
+  ["Insurance", "ประกันภัย"], ["License", "ใบอนุญาต"], ["Audit", "ผลตรวจประเมิน"],
+  ["Training", "อบรม"], ["Contract", "สัญญา"], ["Other", "อื่นๆ"],
+];
+
+function Manage({ supplier, busy, onAlias, onStatus, onEvaluate, onUpload }: {
   supplier: Summary; busy: boolean;
   onAlias: (alias: string) => void;
   onStatus: (status: string) => void;
   onEvaluate: (period: string, safety: number | null, documents: number | null, note: string) => void;
+  onUpload: (file: File, folder: string, expiryDate: string) => void;
 }) {
   const [alias, setAlias] = useState("");
   const [period, setPeriod] = useState(String(new Date().getFullYear()));
   const [safety, setSafety] = useState("");
   const [documents, setDocuments] = useState("");
   const [note, setNote] = useState("");
+  const [folder, setFolder] = useState("Insurance");
+  const [expiry, setExpiry] = useState("");
 
   return (
     <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px")}>
@@ -190,6 +225,30 @@ function Manage({ supplier, busy, onAlias, onStatus, onEvaluate }: {
           style={css("width:100%;height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px;margin-bottom:7px")} />
         <Button label="บันทึกการประเมิน" tone="#16794C" busy={busy}
           onClick={() => onEvaluate(period, safety ? Number(safety) : null, documents ? Number(documents) : null, note)} />
+      </div>
+
+      <div>
+        <Label>เอกสาร</Label>
+        <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
+          เก็บที่ SCMOS/Supplier/{supplier.code}/{folder} — ระบบเลือกที่เก็บให้เอง ไม่ต้องตั้งชื่อพาธ
+        </div>
+        <div style={css("display:flex;gap:6px;flex-wrap:wrap;align-items:center")}>
+          <select value={folder} onChange={(e) => setFolder(e.target.value)}
+            style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff")}>
+            {SUPPLIER_FOLDERS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <input value={expiry} onChange={(e) => setExpiry(e.target.value)} placeholder="หมดอายุ DD/MM/YYYY"
+            style={css("width:150px;height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px")} />
+          <label style={css(`height:29px;padding:0 13px;border:1px solid #0A2240;background:${busy ? "#C3CFDB" : "#0A2240"};color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center`)}>
+            แนบไฟล์
+            <input type="file" disabled={busy} style={css("display:none")}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) onUpload(file, folder, expiry);
+              }} />
+          </label>
+        </div>
       </div>
     </div>
   );

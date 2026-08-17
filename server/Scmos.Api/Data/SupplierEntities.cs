@@ -82,24 +82,9 @@ public class SupplierContact
     public bool Primary { get; set; }
 }
 
-/// <summary>A document with an expiry the compliance screen watches.</summary>
-public class SupplierDocument
-{
-    public int Id { get; set; }
-    public int SupplierId { get; set; }
-
-    /// <summary>insurance · licence · iso · contract · safety-training · other</summary>
-    public string Kind { get; set; } = "";
-
-    public string Title { get; set; } = "";
-    public string ObjectKey { get; set; } = "";
-
-    /// <summary>DD/MM/YYYY, as the rest of the system writes dates.</summary>
-    public string ExpiryDate { get; set; } = "";
-
-    public string UploadedBy { get; set; } = "";
-    public DateTimeOffset UploadedAt { get; set; }
-}
+// A supplier's insurance certificate, licence and audit report are files, and
+// they live in StoredDocument with SupplierId set — one table, one path rule.
+// The expiry the compliance screen watches is a column on that row.
 
 public class SupplierTruck
 {

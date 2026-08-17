@@ -23,7 +23,14 @@ type Case = {
   responsiblePerson: string; dueDate: string; followUpNote: string; effectivenessNote: string;
   approvedBy: string; approvedAt: string | null;
   raisedBy: string; raisedAt: string; overdue: boolean;
-  evidence: { id: number; kind: string; fileName: string; note: string }[];
+  evidence: Evidence[];
+};
+
+/** A file on the case. The path it went to is decided by the API, not here. */
+type Evidence = {
+  id: number; kind: string; fileName: string; note: string;
+  folder: string; sizeBytes: number; objectKey: string;
+  uploadedBy: string; uploadedAt: string;
 };
 
 const STAGES = ["open", "analysis", "action", "follow-up", "monitoring", "approval", "closed"];
@@ -77,6 +84,28 @@ export function Incidents({ onToast }: { onToast: (m: string) => void }) {
       });
       const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
       onToast(reply.message ?? reply.error ?? "ทำรายการไม่สำเร็จ");
+      await load();
+    } finally { setBusy(false); }
+  }
+
+  /**
+   * Attaches evidence.
+   *
+   * The screen sends the case id and the file; it does not name a path. Where
+   * the file lands — the job's own year, customer and CARPAR folder — is the
+   * API's to decide, so the storage structure holds however the file arrives.
+   */
+  async function upload(caseId: number, file: File, kind: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const body = new FormData();
+      body.append("caseId", String(caseId));
+      body.append("kind", kind);
+      body.append("file", file);
+      const response = await apiFetch("/api/documents", { method: "POST", body });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "อัปโหลดไม่สำเร็จ");
       await load();
     } finally { setBusy(false); }
   }
@@ -140,6 +169,7 @@ export function Incidents({ onToast }: { onToast: (m: string) => void }) {
           <Detail case_={chosen} busy={busy}
             onSave={(fields) => void post(`/${chosen.id}`, fields)}
             onAdvance={() => void post(`/${chosen.id}/advance`, {})}
+            onUpload={(file, kind) => void upload(chosen.id, file, kind)}
             onClose={() => setPicked(null)} />
         )}
       </div>
@@ -149,12 +179,20 @@ export function Incidents({ onToast }: { onToast: (m: string) => void }) {
 
 const CELL = "padding:8px 12px;vertical-align:top";
 
-function Detail({ case_, busy, onSave, onAdvance, onClose }: {
+const EVIDENCE_KINDS: [string, string][] = [
+  ["photo", "รูปถ่าย"], ["driver-statement", "คำให้การคนขับ"],
+  ["supplier-report", "รายงานจากผู้ขนส่ง"], ["customer-information", "ข้อมูลจากลูกค้า"],
+];
+
+function Detail({ case_, busy, onSave, onAdvance, onUpload, onClose }: {
   case_: Case; busy: boolean;
   onSave: (fields: Record<string, string>) => void;
-  onAdvance: () => void; onClose: () => void;
+  onAdvance: () => void;
+  onUpload: (file: File, kind: string) => void;
+  onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [kind, setKind] = useState("photo");
   const position = STAGES.indexOf(case_.stage);
 
   return (
@@ -206,8 +244,53 @@ function Detail({ case_, busy, onSave, onAdvance, onClose }: {
           </div>
         )}
       </div>
+
+      <div style={css("padding:12px 16px;border-top:1px solid #E9EFF5")}>
+        <div style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:7px")}>
+          หลักฐาน · {case_.evidence.length} ไฟล์
+        </div>
+
+        {case_.evidence.map((file) => (
+          <div key={file.id} style={css("display:flex;gap:9px;align-items:baseline;padding:5px 0;border-bottom:1px solid #F1F5F9")}>
+            <a href={`/api/documents/${file.id}/content`} target="_blank" rel="noreferrer"
+              style={css("font-size:12px;color:#0A5FA8;text-decoration:none;flex:1;word-break:break-all")}>
+              {file.fileName}
+            </a>
+            <span style={css("font-size:11px;color:#7B8CA0;white-space:nowrap")}>{file.kind}</span>
+            <span style={css("font-family:ui-monospace,monospace;font-size:11px;color:#94A3B8;white-space:nowrap")}>{size(file.sizeBytes)}</span>
+          </div>
+        ))}
+        {!case_.evidence.length && (
+          <div style={css("font-size:11.5px;color:#94A3B8;padding-bottom:6px")}>ยังไม่มีหลักฐานแนบ</div>
+        )}
+
+        {case_.stage !== "closed" && (
+          <div style={css("display:flex;gap:6px;align-items:center;margin-top:9px;flex-wrap:wrap")}>
+            <select value={kind} onChange={(e) => setKind(e.target.value)}
+              style={css("height:28px;border:1px solid #C9D6E2;border-radius:4px;padding:0 7px;font-size:11.5px;background:#fff")}>
+              {EVIDENCE_KINDS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+            <label style={css("height:28px;padding:0 12px;border:1px solid #0A2240;background:#fff;color:#0A2240;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center")}>
+              แนบไฟล์
+              <input type="file" disabled={busy} style={css("display:none")}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) onUpload(file, kind);
+                }} />
+            </label>
+            <span style={css("font-size:11px;color:#94A3B8")}>
+              เก็บใน SCMOS/{case_.jobKey ? "ปี/ลูกค้า/งาน" : "ปี/CARPAR/เลขเคส"}/CARPAR
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
+}
+
+function size(bytes: number) {
+  return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
 }
 
 function Tile({ label, value, colour }: { label: string; value: number; colour: string }) {

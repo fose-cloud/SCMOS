@@ -19,7 +19,6 @@ public static class SupplierEndpoints
     public record AliasBody(string? Alias);
     public record EvaluateBody(string? Period, int? Safety, int? Documents, string? Note);
     public record RaiseBody(string? JobKey, string? Kind, string? Category, string? Title);
-    public record EvidenceBody(string? Kind, string? FileName, string? ObjectKey, string? Note);
     public record InvokeBody(string? Tool, string? Summary, JsonElementPayload? Payload);
     public record DecideBody(bool Approved, string? Note);
     public record AppliedBody(string? Result);
@@ -123,11 +122,10 @@ public static class SupplierEndpoints
             await GuardedIncident(context, users, false, (user, role) => service.AdvanceAsync(
                 id, user.Signature, role, token)));
 
-        incidents.MapPost("/{id:long}/evidence", async (long id, [FromBody] EvidenceBody body,
-            HttpContext context, IUserAccessor users, IncidentService service, CancellationToken token) =>
-            await GuardedIncident(context, users, false, (user, _) => service.AddEvidenceAsync(
-                id, body.Kind ?? "", body.FileName ?? "", body.ObjectKey ?? "", body.Note ?? "",
-                user.Signature, token)));
+        // Evidence is uploaded, not declared: POST /api/documents with a caseId
+        // and the file. This route stayed only long enough to notice that it let
+        // the caller invent the blob path — the one thing the storage structure
+        // depends on nobody doing.
 
         /* --------------------------------------------------------------- AI */
         var ai = routes.MapGroup("/api/ai").WithTags("AI");
