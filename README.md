@@ -586,6 +586,46 @@ npx azurite --silent --location .azurite --blobPort 10000
 Then set `Storage:ConnectionString` to `UseDevelopmentStorage=true` in
 `server/Scmos.Api/appsettings.Local.json` (git-ignored).
 
+## Editing in the workspace
+
+Every stored field on a job you own is editable in the grid. Click a cell, type,
+and move with the keyboard:
+
+| Key | Does |
+| --- | --- |
+| `←` `→` | Previous / next column — **only from the edge of the text**, so mid-word they still move the caret |
+| `↑` `↓` | Same column, previous / next row on this page |
+| `Tab` / `Shift+Tab` | Previous / next column, from anywhere in the text |
+| `Enter` / `Shift+Enter` | Save and move down / up |
+| `Esc` | Leave without saving |
+
+The edge rule is the part worth keeping. Hijacking `←` and `→` outright would
+break correcting one digit of a container number, which is most of what this
+grid is for; moving only from the ends gives spreadsheet navigation without
+taking the caret away.
+
+Navigation stops at the edges of the page rather than wrapping. Wrapping from the
+last column of one job to the first of the next is how somebody types a container
+number into the wrong row, and paging to a row nobody can see is a cursor typing
+in the dark.
+
+The column order the keyboard walks is captured as the rows are built, so it is
+the order on screen by construction rather than a second list to keep in step.
+
+Two things are deliberately not editable:
+
+- **Priority and the MY JOB flag** are worked out from the job — `flagJob` sets
+  one, and `store.ts` drops both before saving. Offering them would let somebody
+  change a value that reverts on the next reload.
+- **Delivery cost** is priced from the rate card. A hand-keyed cost that
+  disagrees with the card is a number nobody can explain later.
+
+Category and status are dropdowns because their values are a controlled set.
+Reassigning a job is a separate, permission-gated action, not an inline edit.
+
+> Delivery's grid was read-only in all but two columns, which made it a report
+> rather than a place to work. It has fourteen editable columns now.
+
 ## KPI
 
 Eight measures, computed in .NET from the register, each carrying the base it was

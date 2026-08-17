@@ -43,6 +43,8 @@ type Props = {
   onDrawer: (key: string) => void;
   onDelay: (key: string) => void;
   onSaveCell: (job: Job, field: keyof Job) => void;
+  /** Writes a known value straight onto a field — what the dropdowns use. */
+  onSetField: (job: Job, field: keyof Job, value: string) => void;
   onStatusChange: (job: Job, value: string) => void;
   onSort: (key: string) => void;
   /**
@@ -432,8 +434,64 @@ export function Workspace(p: Props) {
   }
 
   // ---- cell builders ----------------------------------------------------
+
+  /**
+   * The editable columns, in the order they are actually rendered.
+   *
+   * Captured as the rows are built rather than declared separately: keyboard
+   * navigation has to walk the same columns the eye does, and a hand-written
+   * second list would be one more rule to keep in step with the row builder.
+   * The jobs on screen per layout are recorded alongside, so up and down know
+   * which row comes next.
+   */
+  const editOrder: Record<string, string[]> = {};
+  const rowsByLayout: Record<string, Job[]> = {};
+  let building = "ALL";
+
+  /** Where the cursor is now, and what is either side of it. */
+  const locate = () => {
+    if (!ws.edit) return null;
+    for (const [layout, fields] of Object.entries(editOrder)) {
+      const column = fields.indexOf(ws.edit.field);
+      const row = (rowsByLayout[layout] ?? []).findIndex((j) => j.key === ws.edit!.key);
+      if (column >= 0 && row >= 0) return { layout, fields, column, row, jobs: rowsByLayout[layout] };
+    }
+    return null;
+  };
+
+  /**
+   * Moves the edit cursor, saving whatever was typed on the way.
+   *
+   * `onSaveCell` closes the editor; setting the next cell in the same handler
+   * re-opens it one along, and React batches both so the grid never flickers
+   * through a closed state. Stops at the edges rather than wrapping — wrapping
+   * from the last column of one job to the first of the next is how somebody
+   * types a container number into the wrong row.
+   */
+  const moveEdit = (job: Job, field: keyof Job, dx: number, dy: number) => {
+    const at = locate();
+    p.onSaveCell(job, field);
+    if (!at) return;
+
+    const column = Math.min(Math.max(at.column + dx, 0), at.fields.length - 1);
+    const row = Math.min(Math.max(at.row + dy, 0), at.jobs.length - 1);
+    const next = at.jobs[row];
+    if (!next || !canEditJob(next)) return;
+    if (next.key === job.key && at.fields[column] === String(field)) return;
+
+    p.set({
+      edit: { key: next.key, field: at.fields[column] },
+      editVal: (next[at.fields[column] as keyof Job] as string) || "",
+    });
+  };
+
   /** An editable text cell: click to edit in place, Enter/blur to save. */
   const ed = (j: Job, field: keyof Job, opts: CellOpts = {}): Cell => {
+    // Recorded for every job, editable or not: the column order belongs to the
+    // layout, not to whoever happens to own the first row on the page.
+    const order = editOrder[building] ??= [];
+    if (!order.includes(String(field))) order.push(String(field));
+
     const editing = ws.edit?.key === j.key && ws.edit?.field === field;
     if (editing) {
       return {
@@ -446,8 +504,23 @@ export function Workspace(p: Props) {
         onChange: (e) => p.set({ editVal: e.target.value }),
         onBlur: () => p.onSaveCell(j, field),
         onKey: (e) => {
-          if (e.key === "Enter") p.onSaveCell(j, field);
-          if (e.key === "Escape") p.set({ edit: null });
+          const input = e.currentTarget;
+          const caret = input.selectionStart ?? 0;
+          const selecting = input.selectionEnd !== input.selectionStart;
+
+          // Left and right only leave the cell from its edges. Anywhere else
+          // they move the caret, which is what somebody correcting one digit of
+          // a container number expects them to do.
+          const atStart = caret === 0 && !selecting;
+          const atEnd = caret === input.value.length && !selecting;
+
+          if (e.key === "Escape") { p.set({ edit: null }); return; }
+          if (e.key === "Enter") { e.preventDefault(); moveEdit(j, field, 0, e.shiftKey ? -1 : 1); return; }
+          if (e.key === "Tab") { e.preventDefault(); moveEdit(j, field, e.shiftKey ? -1 : 1, 0); return; }
+          if (e.key === "ArrowLeft" && atStart) { e.preventDefault(); moveEdit(j, field, -1, 0); return; }
+          if (e.key === "ArrowRight" && atEnd) { e.preventDefault(); moveEdit(j, field, 1, 0); return; }
+          if (e.key === "ArrowUp") { e.preventDefault(); moveEdit(j, field, 0, -1); return; }
+          if (e.key === "ArrowDown") { e.preventDefault(); moveEdit(j, field, 0, 1); }
         },
       };
     }
@@ -461,6 +534,26 @@ export function Workspace(p: Props) {
       };
     }
     return c;
+  };
+
+  /** A cell whose value is one of a fixed set — category, priority. */
+  const edChoice = (j: Job, field: keyof Job, options: string[], opts: CellOpts = {}): Cell => {
+    const current = (j[field] as string) || "";
+    if (!canEditJob(j)) return cell(current || "—", opts);
+    return {
+      kind: "select",
+      v: current,
+      sp: "",
+      value: current,
+      options: options.indexOf(current) >= 0 ? options : [current].concat(options),
+      td: "padding:5px 9px;white-space:nowrap;border-bottom:1px solid #EDF1F5;",
+      selStyle: "height:27px;border:1px solid #BBD5EE;border-radius:4px;background:#F4F8FC;font-size:11.5px;color:#0A2240;font-weight:600;padding:0 5px;cursor:pointer",
+      onChange: (e) => {
+        e.stopPropagation();
+        p.onSetField(j, field, e.target.value);
+      },
+      go: (e) => e.stopPropagation(),
+    };
   };
 
   /** Status is a dropdown for jobs you own; "Delayed" routes into the delay modal. */
@@ -500,7 +593,11 @@ export function Workspace(p: Props) {
     return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b)).slice(0, limit);
   };
 
-  const PICK_FIELDS: (keyof Job)[] = ["customer", "trucker", "product", "destination", "plant", "returnLoc", "cyYard", "type"];
+  const PICK_FIELDS: (keyof Job)[] = [
+    "customer", "trucker", "product", "destination", "plant", "returnLoc", "cyYard", "type",
+    // Delivery's own master-ish columns, now that its grid is editable.
+    "wh", "province",
+  ];
   const pickLists = PICK_FIELDS.map((field) => ({ id: "ws-list-" + field, options: suggestions(field) }));
 
   /** An editable cell that offers what the register already contains. */
@@ -615,13 +712,25 @@ export function Workspace(p: Props) {
     setPaging({ sig: filterSignature, pages: { ...pages, [layout]: page } });
 
   const rowCells = (j: Job, layout: string): Cell[] => {
+    // Which layout the following cells belong to, so `ed` records the column
+    // order against the right one.
+    building = layout;
+
     const mine = mineJ(j);
+    // Priority and the ownership flag are worked out from the job rather than
+    // typed on it — `flagJob` sets one and `store.ts` drops both before saving.
+    // Offering them as fields would let somebody change a value that reverts the
+    // moment the page reloads, which is worse than not offering it at all.
     const head = [
       cell(j.prio, { tone: j.prio === "HIGH" ? "red" : j.prio === "MEDIUM" ? "amber" : "gray" }),
       cell(mine ? "MY JOB" : "VIEW ONLY", { tone: mine ? "blue" : "gray" }),
     ];
 
-    const catCell = cell(j.cat, { tone: j.cat === "IMPORT" ? "dark" : j.cat === "EXPORT" ? "blue" : "teal" });
+    // Changing the category moves a job to a different grid with different
+    // paperwork, so it is a choice rather than free text — but it is a field on
+    // the job and an operator has to be able to correct it.
+    const catCell = edChoice(j, "cat", ["IMPORT", "EXPORT", "DELIVERY"],
+      { tone: j.cat === "IMPORT" ? "dark" : j.cat === "EXPORT" ? "blue" : "teal" });
 
     if (layout === "IMPORT") {
       return head.concat([
@@ -653,12 +762,18 @@ export function Workspace(p: Props) {
       ]);
     }
     if (layout === "DELIVERY") {
+      // Delivery was read-only in all but two columns, which made the grid a
+      // report rather than a place to work. Every stored field is editable now;
+      // cost is the one that is not, because it is priced from the rate card
+      // rather than typed, and a hand-keyed cost that disagrees with the card is
+      // the kind of number nobody can later explain.
       return head.concat([
-        cell(j.wh, { bold: true }), cell(j.jobNo, { mono: true }), cell(j.date, { mono: true }),
-        cell(j.sid, { mono: true, mute: true }), cell(j.customer, { w: 200 }), cell(j.province),
-        cell(j.zip, { mono: true }), cell(j.pallet, { mono: true, align: "right" }), cell(j.kgs, { mono: true, align: "right" }),
-        cell(j.v4, { mono: true, align: "right" }), cell(j.v6, { mono: true, align: "right" }),
-        cell(j.v10, { mono: true, align: "right" }), cell(j.vtr, { mono: true, align: "right" }),
+        edPick(j, "wh", { bold: true }), ed(j, "jobNo", { mono: true }), ed(j, "date", { mono: true }),
+        ed(j, "sid", { mono: true, mute: true }), edPick(j, "customer", { w: 200 }), edPick(j, "province"),
+        ed(j, "zip", { mono: true }), ed(j, "pallet", { mono: true, align: "right" }),
+        ed(j, "kgs", { mono: true, align: "right" }),
+        ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
+        ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtr", { mono: true, align: "right" }),
         cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right", bold: true }),
         stCell(j), ed(j, "remark", { w: 170, mute: true }), cell(j.op, { bold: mine, mute: !mine }),
       ]);
@@ -709,6 +824,10 @@ export function Workspace(p: Props) {
   /** One grid per section: its own columns, its own page, its own tick-all. */
   const grids = sections.map((section) => {
     const pg = paginate(section.jobs, pages[section.layout] ?? 1, p.per);
+    // What up and down move through: the rows on this page, in the order shown.
+    // Navigation stops at the page edge rather than paging — a cursor that
+    // jumps to a row nobody can see is a cursor that types into the dark.
+    rowsByLayout[section.layout] = pg.slice;
     const editableOnPage = pg.slice.filter(canEditJob);
     const allPagePicked = editableOnPage.length > 0 && editableOnPage.every((j) => picked.has(j.key));
 

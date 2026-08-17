@@ -909,28 +909,40 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
    * but flagged, with the required format shown so it can be retyped.
    */
   function saveCell(job: Job, field: keyof Job) {
-    const typed = ws.editVal;
-    const old = (job[field] as string) || "";
-    if (typed !== old) {
-      (job[field] as unknown as string) = typed;
-
-      const record = job as unknown as Record<string, unknown>;
-      const fix = normaliseField(record, String(field));
-      const saved = (job[field] as string) || "";
-      flagJob(job);
-      pushAct(job, String(field), old, saved);
-
-      const issue = job.issues.find((i) => i.field === String(field));
-      if (fix) {
-        setToast("จัดรูปแบบให้แล้ว ✓  " + fix.label + ": " + fix.from + " → " + fix.to);
-      } else if (issue) {
-        setToast("⚠ " + issue.label + " รูปแบบไม่ถูกต้อง — ต้องเป็น " + issue.expected + " เช่น " + issue.example);
-      } else {
-        setToast("Saved ✓  " + String(field) + ": " + (old || "—") + " → " + (saved || "—"));
-      }
-      persist([job]);
-    }
+    setField(job, field, ws.editVal);
     setWs((prev) => ({ ...prev, edit: null }));
+  }
+
+  /**
+   * Writes one value onto one field, against the data standard.
+   *
+   * Separate from `saveCell` because a dropdown knows its new value straight
+   * away and the text editor keeps it in `ws.editVal`. A select that called
+   * `saveCell` would save the *previous* render's value — React state does not
+   * update in time — which is a bug that would have looked like the dropdown
+   * lagging one choice behind.
+   */
+  function setField(job: Job, field: keyof Job, value: string) {
+    const old = (job[field] as string) || "";
+    if (value === old) { touch(); return; }
+
+    (job[field] as unknown as string) = value;
+
+    const record = job as unknown as Record<string, unknown>;
+    const fix = normaliseField(record, String(field));
+    const saved = (job[field] as string) || "";
+    flagJob(job);
+    pushAct(job, String(field), old, saved);
+
+    const issue = job.issues.find((i) => i.field === String(field));
+    if (fix) {
+      setToast("จัดรูปแบบให้แล้ว ✓  " + fix.label + ": " + fix.from + " → " + fix.to);
+    } else if (issue) {
+      setToast("⚠ " + issue.label + " รูปแบบไม่ถูกต้อง — ต้องเป็น " + issue.expected + " เช่น " + issue.example);
+    } else {
+      setToast("Saved ✓  " + String(field) + ": " + (old || "—") + " → " + (saved || "—"));
+    }
+    persist([job]);
     touch();
   }
 
@@ -1436,6 +1448,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                   onDrawer={setDrawer}
                   onDelay={setOpsDelay}
                   onSaveCell={saveCell}
+                  onSetField={setField}
                   onStatusChange={changeJobStatus}
                   onSort={() => undefined}
                   canEdit={canEditJob}
