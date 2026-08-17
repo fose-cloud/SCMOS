@@ -100,7 +100,7 @@ export function stTone(status: string): Tone {
 export function opTone(status: string): Tone {
   if (/delay/i.test(status)) return "red";
   if (/cancel/i.test(status)) return "dark";
-  if (/complet|delivered|gate-in/i.test(status)) return "green";
+  if (STATUS_RE.done.test(status)) return "green";
   if (/arrived|loading|pickup|transit|departed/i.test(status)) return "teal";
   if (/confirmed|assigned/i.test(status)) return "blue";
   return "gray";
@@ -115,10 +115,28 @@ export const ALL_STATUS = [
 ];
 
 /** Per-category status ladders used by the workspace grid. */
+/**
+ * The controlled status set, mirrored from server/Scmos.Api/Rules/JobStatus.cs.
+ *
+ * The codes are shared; the ladders are not. An import collects a laden
+ * container and delivers it; an export collects an empty one and loads it at
+ * the plant. LOADING is a real step for one and meaningless for the other, so
+ * it is only offered where it means something.
+ *
+ * The .NET side is the authority — it validates every write — and this copy
+ * exists so the dropdown can offer the right choices without a round trip.
+ */
+const BOOKING = [
+  "DRAFT", "RECEIVED", "VALIDATING", "WAITING_CS", "READY_FOR_BOOKING",
+  "WAITING_SUPPLIER", "SUPPLIER_CONFIRMED", "TRUCK_ASSIGNED", "PRE_RUN", "READY", "DISPATCHED",
+];
+const CLOSING = ["DOCUMENT_PENDING", "BILLING_PENDING", "COMPLETED"];
+const EXITS = ["CANCELLED", "HOLD"];
+
 export const STATUS_LADDER: Record<string, string[]> = {
-  IMPORT: ["New", "Waiting Information", "Waiting Truck", "Truck Confirmed", "Driver Assigned", "Container Pickup", "Departed Port", "In Transit", "Arrived Customer", "Delivery Started", "Delivery Completed", "Empty Return Pending", "Empty Returned", "Completed", "Delayed", "Cancelled"],
-  EXPORT: ["New", "Waiting Information", "Waiting Truck", "Truck Confirmed", "Empty Pickup", "Driver Assigned", "Arrived Plant", "Loading", "Loading Completed", "Departed Plant", "Port Return", "Gate-In Completed", "Completed", "Delayed", "Cancelled"],
-  DELIVERY: ["Scheduled", "Truck Assigned", "Pickup", "In Transit", "Delivered", "Completed", "Delayed", "Cancelled"],
+  IMPORT: [...BOOKING, "PICKED_UP", "IN_TRANSIT", "DELIVERED", "CONTAINER_RETURNED", ...CLOSING, ...EXITS],
+  EXPORT: [...BOOKING, "PICKED_UP", "LOADING", "IN_TRANSIT", "DELIVERED", "CONTAINER_RETURNED", ...CLOSING, ...EXITS],
+  DELIVERY: [...BOOKING, "PICKED_UP", "IN_TRANSIT", "DELIVERED", ...CLOSING, ...EXITS],
 };
 
 /**
@@ -126,34 +144,79 @@ export const STATUS_LADDER: Record<string, string[]> = {
  * screens so the workspace can show the same stage names those screens did.
  */
 export const STATUS_TH: Record<string, string> = {
-  New: "งานใหม่",
-  "Waiting Information": "รอข้อมูล",
-  "Waiting Truck": "รอรถ",
-  "Truck Confirmed": "ยืนยันรถ",
-  "Truck Assigned": "จัดรถแล้ว",
-  "Driver Assigned": "จัดคนขับ",
-  "Container Pickup": "รับตู้สินค้า",
-  "Departed Port": "ออกจากท่าเรือ",
-  "In Transit": "กำลังขนส่ง",
-  "Arrived Customer": "ถึงลูกค้า",
-  "Delivery Started": "เริ่มส่งมอบ",
-  "Delivery Completed": "ส่งมอบเสร็จ",
-  "Empty Return Pending": "รอคืนตู้เปล่า",
-  "Empty Returned": "คืนตู้เปล่าแล้ว",
-  "Empty Pickup": "รับตู้เปล่า",
-  "Arrived Plant": "ถึงโรงงาน",
-  Loading: "กำลังบรรจุ",
-  "Loading Completed": "บรรจุเสร็จ",
-  "Departed Plant": "ออกจากโรงงาน",
-  "Port Return": "ส่งกลับท่าเรือ",
-  "Gate-In Completed": "ผ่านประตูท่าเรือ",
-  Scheduled: "นัดหมายแล้ว",
-  Pickup: "รับสินค้า",
-  Delivered: "ส่งถึงแล้ว",
-  Completed: "เสร็จสิ้น",
-  Delayed: "ล่าช้า",
-  Cancelled: "ยกเลิก",
+  DRAFT: "ร่าง",
+  RECEIVED: "รับงานแล้ว",
+  VALIDATING: "กำลังตรวจสอบ",
+  WAITING_CS: "รอ CS",
+  READY_FOR_BOOKING: "พร้อมจองรถ",
+  WAITING_SUPPLIER: "รอผู้ขนส่งยืนยัน",
+  SUPPLIER_CONFIRMED: "ผู้ขนส่งยืนยันแล้ว",
+  TRUCK_ASSIGNED: "จัดรถแล้ว",
+  PRE_RUN: "ตรวจก่อนออกงาน",
+  READY: "พร้อมออกงาน",
+  DISPATCHED: "จ่ายงานแล้ว",
+  PICKED_UP: "รับตู้แล้ว",
+  LOADING: "กำลังบรรจุ",
+  IN_TRANSIT: "กำลังขนส่ง",
+  DELIVERED: "ส่งถึงแล้ว",
+  CONTAINER_RETURNED: "คืนตู้แล้ว",
+  DOCUMENT_PENDING: "รอเอกสาร",
+  BILLING_PENDING: "รอวางบิล",
+  COMPLETED: "เสร็จสิ้น",
+  CANCELLED: "ยกเลิก",
+  HOLD: "พักงาน",
 };
+
+/**
+ * How a status maps onto the buckets every summary counts by.
+ *
+ * The controlled codes are matched exactly; the old free-text spellings are
+ * still recognised so a workbook imported before the move is not silently
+ * uncounted. Mirrored from JobStatus.cs, which is the authority.
+ *
+ * DELIVERED is running, not done. It means the goods reached the destination —
+ * the documents and the invoice still have to follow, and calling it finished
+ * is how a job disappears from the queue while somebody is still owed a POD.
+ */
+const CODES = {
+  waiting: ["DRAFT", "RECEIVED", "VALIDATING", "WAITING_CS", "READY_FOR_BOOKING", "WAITING_SUPPLIER"],
+  confirmed: ["SUPPLIER_CONFIRMED", "TRUCK_ASSIGNED", "PRE_RUN", "READY"],
+  running: ["DISPATCHED", "PICKED_UP", "LOADING", "IN_TRANSIT", "DELIVERED", "CONTAINER_RETURNED"],
+  delayed: ["HOLD"],
+  done: ["COMPLETED"],
+};
+
+const LEGACY = {
+  waiting: /^(waiting truck|waiting information|new|scheduled)$/i,
+  confirmed: /^(truck confirmed|driver assigned|truck assigned)$/i,
+  running: /transit|arrived|loading|pickup|departed|gate|empty return/i,
+  delayed: /delay/i,
+  done: /^(completed|delivery completed|delivered)$/i,
+};
+
+/** Every controlled code, so a known code is never re-read as free text. */
+const CONTROLLED = new Set(Object.values(CODES).flat());
+
+const bucket = (kind: keyof typeof CODES) => ({
+  test: (status: string) => {
+    const value = (status ?? "").trim().toUpperCase();
+    // A controlled code answers from the code lists alone. Falling through to
+    // the legacy patterns would let DELIVERED — which means the goods arrived
+    // and the paperwork has not — match the old free-text "Delivered" that
+    // meant finished, and 228 running jobs would report as complete.
+    if (CONTROLLED.has(value)) return CODES[kind].includes(value);
+    return LEGACY[kind].test(status ?? "");
+  },
+});
+
+export const STATUS_RE = {
+  waiting: bucket("waiting"),
+  confirmed: bucket("confirmed"),
+  running: bucket("running"),
+  delayed: bucket("delayed"),
+  done: bucket("done"),
+};
+
 
 export const BTN_PRIMARY =
   "height:34px;padding:0 15px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12.5px;font-weight:500;cursor:pointer";

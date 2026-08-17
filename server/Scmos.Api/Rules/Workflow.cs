@@ -130,35 +130,33 @@ public static class Workflow
     /// </summary>
     public static Stage FromStatus(string status)
     {
-        var text = Formats.Clean(status);
-        if (text.Length == 0) return Stage.Received;
+        // A job written the old way is read through the same mapping the
+        // migration uses, so the flow places it identically before and after.
+        var code = JobStatus.IsValid("EXPORT", Formats.Clean(status))
+            ? Formats.Clean(status).ToUpperInvariant()
+            : JobStatus.FromLegacy(status);
 
-        return text.ToLowerInvariant() switch
+        return code switch
         {
-            "new" => Stage.Received,
-            "waiting information" => Stage.Reviewed,
-            "waiting truck" => Stage.SupplierSelection,
-            "truck confirmed" => Stage.SupplierAssigned,
-            "truck assigned" => Stage.SupplierAssigned,
-            "empty pickup" => Stage.PreRunVerification,
-            "driver assigned" => Stage.PreRunVerification,
-            "container pickup" or "pickup" => Stage.PickedUp,
-            "arrived plant" => Stage.PickedUp,
-            "loading" => Stage.Loading,
-            "loading completed" => Stage.Loading,
-            "departed port" or "departed plant" => Stage.InTransit,
-            "in transit" => Stage.InTransit,
-            "arrived customer" => Stage.Delivered,
-            "delivery started" => Stage.Delivered,
-            "delivery completed" or "delivered" => Stage.Delivered,
-            "port return" => Stage.ContainerReturned,
-            "gate-in completed" => Stage.ContainerReturned,
-            "empty return pending" => Stage.Delivered,
-            "empty returned" => Stage.ContainerReturned,
-            "completed" => Stage.Closed,
-            "scheduled" => Stage.SupplierSelection,
-            // Delayed and Cancelled say nothing about how far the job got, so
-            // they are left where the flow starts rather than guessed at.
+            JobStatus.Draft or JobStatus.Received => Stage.Received,
+            JobStatus.Validating => Stage.DocumentVerification,
+            JobStatus.WaitingCs => Stage.Reviewed,
+            JobStatus.ReadyForBooking or JobStatus.WaitingSupplier => Stage.SupplierSelection,
+            JobStatus.SupplierConfirmed => Stage.SupplierAssigned,
+            JobStatus.TruckAssigned => Stage.SupplierAssigned,
+            JobStatus.PreRun => Stage.PreRunVerification,
+            JobStatus.Ready => Stage.DocumentReleased,
+            JobStatus.Dispatched => Stage.Dispatched,
+            JobStatus.PickedUp => Stage.PickedUp,
+            JobStatus.Loading => Stage.Loading,
+            JobStatus.InTransit => Stage.InTransit,
+            JobStatus.Delivered => Stage.Delivered,
+            JobStatus.ContainerReturned => Stage.ContainerReturned,
+            JobStatus.DocumentPending => Stage.PodCollected,
+            JobStatus.BillingPending => Stage.BillingVerified,
+            JobStatus.Completed => Stage.Closed,
+            // Hold and Cancelled say nothing about how far the job got, so they
+            // start at the beginning rather than being guessed at.
             _ => Stage.Received,
         };
     }
@@ -166,19 +164,25 @@ public static class Workflow
     /// <summary>The status the plan should carry once a stage is reached, so the two agree.</summary>
     public static string? StatusFor(Stage stage, string category) => stage switch
     {
-        Stage.SupplierSelection => "Waiting Truck",
-        Stage.SupplierAssigned => category.Equals("DELIVERY", StringComparison.OrdinalIgnoreCase)
-            ? "Truck Assigned" : "Truck Confirmed",
-        Stage.PreRunVerification => "Driver Assigned",
-        Stage.PickedUp => category.Equals("EXPORT", StringComparison.OrdinalIgnoreCase)
-            ? "Arrived Plant" : "Container Pickup",
-        Stage.Loading => "Loading",
-        Stage.InTransit => "In Transit",
-        Stage.Delivered => category.Equals("EXPORT", StringComparison.OrdinalIgnoreCase)
-            ? "Departed Plant" : "Arrived Customer",
-        Stage.ContainerReturned => category.Equals("EXPORT", StringComparison.OrdinalIgnoreCase)
-            ? "Gate-In Completed" : "Empty Returned",
-        Stage.Closed => "Completed",
+        Stage.Reviewed => JobStatus.WaitingCs,
+        Stage.DocumentVerification => JobStatus.Validating,
+        Stage.SupplierSelection => JobStatus.WaitingSupplier,
+        Stage.CapacityRequested => JobStatus.WaitingSupplier,
+        Stage.SupplierAssigned => JobStatus.SupplierConfirmed,
+        Stage.PreRunVerification => JobStatus.PreRun,
+        Stage.DocumentReleased => JobStatus.Ready,
+        Stage.Dispatched => JobStatus.Dispatched,
+        Stage.PickedUp => JobStatus.PickedUp,
+        // LOADING is not on the import ladder — the box arrives full — so an
+        // import passing this stage keeps the status it already had.
+        Stage.Loading => JobStatus.IsValid(category, JobStatus.Loading) ? JobStatus.Loading : null,
+        Stage.InTransit => JobStatus.InTransit,
+        Stage.Delivered => JobStatus.Delivered,
+        Stage.ContainerReturned => JobStatus.IsValid(category, JobStatus.ContainerReturned)
+            ? JobStatus.ContainerReturned : null,
+        Stage.PodCollected => JobStatus.DocumentPending,
+        Stage.BillingVerified => JobStatus.BillingPending,
+        Stage.Closed => JobStatus.Completed,
         _ => null,
     };
 }

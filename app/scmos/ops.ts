@@ -1,6 +1,7 @@
 import { dnum, tmin } from "./util";
 import { opIdForName } from "./nav";
 import { normaliseJob, validateJob, type Fix, type Issue } from "./standard";
+import { STATUS_RE } from "./theme";
 
 export type HistEntry = { ts: string; user: string; field: string; old: string; neu: string };
 
@@ -155,7 +156,7 @@ function flagJob(j: Job) {
     if (j.cat === "EXPORT" && !j.seal) fl.push("Seal missing");
     if (!j.arrTime) fl.push("Arrival time missing");
   }
-  const done = /complet|delivered|gate-in/i.test(j.status);
+  const done = STATUS_RE.done.test(j.status);
   j.flags = done ? [] : fl;
 
   j.issues = validateJob(j as unknown as Record<string, unknown>);
@@ -171,7 +172,7 @@ function flagJob(j: Job) {
     !!j.arrTime &&
     (tmin(j.closingTime) ?? 0) - (tmin(j.arrTime) ?? 0) < 0;
   j.prio =
-    /delay/i.test(j.status) || risky || blocking > 0 ? "HIGH"
+    STATUS_RE.delayed.test(j.status) || risky || blocking > 0 ? "HIGH"
       : fl.length > 2 && !done ? "HIGH"
         : done ? "LOW" : "MEDIUM";
 }
@@ -181,14 +182,8 @@ export function isKpiReady(j: Job): boolean {
   return !j.issues.some((i) => i.severity === "error");
 }
 
-/** How a free-text status maps onto the buckets every summary counts by. */
-export const STATUS_RE = {
-  waiting: /waiting truck|new|scheduled/i,
-  confirmed: /truck confirmed|driver assigned|truck assigned/i,
-  running: /transit|arrived|loading|pickup|departed|gate/i,
-  delayed: /delay/i,
-  done: /complet|delivered|gate-in/i,
-};
+/** How a status maps onto the buckets every summary counts by. Defined in theme.ts. */
+export { STATUS_RE };
 
 /**
  * The operational summary behind the dashboard and its Excel export. Kept here

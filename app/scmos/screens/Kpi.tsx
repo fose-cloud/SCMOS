@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
-import { css } from "../theme";
+import { css, STATUS_RE } from "../theme";
 import type { Period } from "../period";
 
 /**
@@ -109,7 +109,7 @@ export function Kpi({ period, onDrill }: { period: Period; onDrill: (screen: str
     );
   }
 
-  const done = report.byStatus.filter((s) => /complet|delivered|gate-in/i.test(s.label))
+  const done = report.byStatus.filter((s) => STATUS_RE.done.test(s.label))
     .reduce((sum, s) => sum + s.value, 0);
 
   return (

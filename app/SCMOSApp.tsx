@@ -18,7 +18,7 @@ import { ALL_PERIOD, filterPeriod, periodLabel, type Period } from "./scmos/peri
 import { CleanupReportModal, DuplicatesModal } from "./scmos/overlays/DataOverlays";
 import { ImportModal, SavedViewsModal } from "./scmos/overlays/ExcelOverlays";
 import { buildTable, type Filters } from "./scmos/tables";
-import { BTN_PRIMARY, BTN_SECONDARY, STATUS, css } from "./scmos/theme";
+import { BTN_PRIMARY, BTN_SECONDARY, STATUS, STATUS_RE, css } from "./scmos/theme";
 import { fdate, nowHM, pad } from "./scmos/util";
 
 import { Dashboard } from "./scmos/screens/Dashboard";
@@ -370,7 +370,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   const myJobs = ops ? ops.jobs.filter(owns) : [];
   const myStats = {
     total: myJobs.length,
-    open: myJobs.filter((j) => !/complet|delivered|gate-in/i.test(j.status)).length,
+    open: myJobs.filter((j) => !STATUS_RE.done.test(j.status)).length,
     running: myJobs.filter((j) => /transit|arrived|loading|pickup|departed|gate/i.test(j.status)).length,
     delayed: myJobs.filter((j) => /delay/i.test(j.status)).length,
     action: myJobs.filter((j) => j.action).length,

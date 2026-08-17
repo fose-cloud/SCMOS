@@ -76,6 +76,11 @@ if (args.Contains("--seed"))
     return await PlanSeeder.RunAsync(app, args);
 }
 
+if (args.Contains("--migrate-status"))
+{
+    return await StatusMigration.RunAsync(app, args);
+}
+
 if (args.Contains("--migrate"))
 {
     using var scope = app.Services.CreateScope();

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
-import type { Job, Ops } from "../ops";
+import { STATUS_RE, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
 import { SUPERVISOR_ROLES } from "../nav";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
@@ -198,14 +198,21 @@ function markIssue(c: Cell, j: Job, field: string) {
     ";box-shadow:inset 3px 0 " + accent + ";";
 }
 
+/**
+ * The status buckets, from the one place that defines them.
+ *
+ * This file used to keep its own copy of the patterns. When the register moved
+ * to controlled codes that copy went on reading the old free text, so the KPI
+ * strip showed nought jobs waiting for a truck and counted 228 running jobs as
+ * complete — the panel and the grid beside it disagreed about the same rows.
+ *
+ * `open` and `active` are the two groupings the process board needs and are
+ * built from the shared buckets rather than from patterns of their own.
+ */
 const RE = {
-  waiting: /waiting truck|new|scheduled/i,
-  confirmed: /truck confirmed|driver assigned|truck assigned/i,
-  running: /transit|arrived|loading|pickup|departed|gate/i,
-  delayed: /delay/i,
-  done: /complet|delivered/i,
-  open: /waiting|new|scheduled/i,
-  active: /transit|arrived|loading|pickup|departed|gate|assigned|confirmed/i,
+  ...STATUS_RE,
+  open: { test: (s: string) => STATUS_RE.waiting.test(s) },
+  active: { test: (s: string) => STATUS_RE.confirmed.test(s) || STATUS_RE.running.test(s) },
 };
 
 function kpiCount(scope: Job[], code: string, mine: (j: Job) => boolean) {

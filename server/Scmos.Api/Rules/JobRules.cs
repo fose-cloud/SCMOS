@@ -34,35 +34,31 @@ public static partial class JobRules
     [GeneratedRegex(@"6WH|4WH|10W|COMBINE", RegexOptions.IgnoreCase)]
     private static partial Regex NoContainerNeeded();
 
-    public static bool IsWaiting(string status) => Waiting().IsMatch(status);
-    public static bool IsConfirmed(string status) => Confirmed().IsMatch(status);
-    public static bool IsRunning(string status) => Running().IsMatch(status);
-    public static bool IsDelayed(string status) => Delayed().IsMatch(status);
-    public static bool IsDone(string status) => Done().IsMatch(status);
+    /// <summary>
+    /// The buckets every summary groups by.
+    ///
+    /// Both spellings are accepted while the register holds a mix: the codes
+    /// answer directly, and the regexes still read a job written the old way, so
+    /// a workbook imported before the move is not silently uncounted.
+    /// </summary>
+    private static string Code(string status) => Formats.Clean(status).ToUpperInvariant();
 
-    /// <summary>The status ladder a category may use. Kept in step with theme.ts.</summary>
-    public static readonly Dictionary<string, string[]> StatusLadder = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["IMPORT"] =
-        [
-            "New", "Waiting Information", "Waiting Truck", "Truck Confirmed", "Driver Assigned",
-            "Container Pickup", "Departed Port", "In Transit", "Arrived Customer", "Delivery Started",
-            "Delivery Completed", "Empty Return Pending", "Empty Returned", "Completed", "Delayed", "Cancelled",
-        ],
-        ["EXPORT"] =
-        [
-            "New", "Waiting Information", "Waiting Truck", "Truck Confirmed", "Empty Pickup",
-            "Driver Assigned", "Arrived Plant", "Loading", "Loading Completed", "Departed Plant",
-            "Port Return", "Gate-In Completed", "Completed", "Delayed", "Cancelled",
-        ],
-        ["DELIVERY"] =
-        [
-            "Scheduled", "Truck Assigned", "Pickup", "In Transit", "Delivered", "Completed", "Delayed", "Cancelled",
-        ],
-    };
+    public static bool IsWaiting(string status) =>
+        JobStatus.IsControlled(Code(status)) ? JobStatus.IsWaiting(Code(status)) : Waiting().IsMatch(status);
 
-    public static string[] StatusesFor(string category) =>
-        StatusLadder.TryGetValue(category, out var ladder) ? ladder : StatusLadder["IMPORT"];
+    public static bool IsConfirmed(string status) =>
+        JobStatus.IsControlled(Code(status)) ? JobStatus.IsConfirmed(Code(status)) : Confirmed().IsMatch(status);
+
+    public static bool IsRunning(string status) =>
+        JobStatus.IsControlled(Code(status)) ? JobStatus.IsRunning(Code(status)) : Running().IsMatch(status);
+
+    public static bool IsDelayed(string status) =>
+        JobStatus.IsControlled(Code(status)) ? JobStatus.IsHeld(Code(status)) : Delayed().IsMatch(status);
+
+    public static bool IsDone(string status) =>
+        JobStatus.IsControlled(Code(status)) ? JobStatus.IsDone(Code(status)) : Done().IsMatch(status);
+
+    public static string[] StatusesFor(string category) => JobStatus.For(category);
 
     /// <summary>
     /// Every value on the job that breaks the standard.

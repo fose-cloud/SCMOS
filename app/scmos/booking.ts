@@ -1,5 +1,6 @@
 import { canonicalCarrier, priceFor, type RateBook, type RateLane } from "./rates";
 import { dnum } from "./util";
+import { STATUS_RE } from "./theme";
 import type { Job } from "./ops";
 
 /**
@@ -39,7 +40,7 @@ export function filled(value: string | undefined): boolean {
  * waiting for a plate, so the first gap found is the one that needs work.
  */
 export function stageOf(job: Job): Stage {
-  if (/complet|delivered|gate-in/i.test(job.status)) return "done";
+  if (STATUS_RE.done.test(job.status)) return "done";
   if (!filled(job.trucker)) return "no-carrier";
   if (!filled(job.licence)) return "no-plate";
   if (!filled(job.driver) || !filled(job.contact)) return "no-driver";
