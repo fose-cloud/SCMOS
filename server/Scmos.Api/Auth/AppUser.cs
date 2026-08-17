@@ -1,0 +1,18 @@
+namespace Scmos.Api.Auth;
+
+/// <summary>The signed-in person, in the shape the workspace already renders.</summary>
+public record AppUser(
+    string UserId,
+    string Email,
+    string DisplayName,
+    string Role,
+    /// <summary>Directory id (OP-01…). Empty when the account is not one of the eight.</summary>
+    string OperatorId,
+    /// <summary>Where the identity came from — "webapp" for App Service Web App Login.</summary>
+    string Source)
+{
+    public bool IsSupervisor => StaffDirectory.IsSupervisor(Role);
+
+    /// <summary>What gets written to updated_by, and shown in a job's history.</summary>
+    public string Signature => Email.Length > 0 ? Email : UserId;
+}
