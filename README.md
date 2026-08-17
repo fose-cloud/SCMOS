@@ -158,7 +158,15 @@ enforces them. Three separate second opinions were removed to get there:
 
 Until `/api/me` answers, an account has no owner id and no capabilities: no job
 looks like yours and no write control is offered. That is the safe direction to
-be wrong in.
+be wrong in — but **"safe when it fails" is only half a design; the other half is
+saying that it failed.** The first version had no second half, and when the API
+was briefly unreachable the grid went read-only in complete silence while the
+rows still said MY JOB. It looked like the screen was simply broken.
+
+The fetch now retries with backoff to thirty seconds, and a failure shows a
+banner saying editing is unavailable, why, and offering a retry. Recovery is
+automatic: bring the API back and the grid becomes editable again without a
+reload.
 
 An email in neither `Auth:Roles` nor the staff directory gets **Viewer**, and the
 workspace says so rather than silently showing nothing — an account nobody has

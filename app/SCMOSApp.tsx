@@ -328,31 +328,60 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   const [identity, setIdentity] = useState<
     { role: string; opId: string; name: string; init: string; known: boolean } | null>(null);
   const [can, setCan] = useState<Set<string>>(new Set());
+  /**
+   * Whether the capability list ever arrived.
+   *
+   * This needs a state of its own, and learning that cost a session. When the
+   * fetch simply failed, `can` stayed empty and every cell in the grid went
+   * read-only — correct, and completely silent. The rows still said MY JOB,
+   * because ownership comes from the page render, so the screen looked normal
+   * and nothing could be typed into. "Safe when it fails" is only half a design;
+   * the other half is saying that it failed.
+   */
+  const [identityState, setIdentityState] = useState<"loading" | "ready" | "failed">("loading");
+  const [identityAttempt, setIdentityAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+
     (async () => {
-      const response = await apiFetch("/api/me", { headers: { accept: "application/json" } });
-      if (!response.ok || cancelled) return;
-      const body = await response.json() as {
-        account?: { role?: string; opId?: string; name?: string; init?: string };
-        can?: string[];
-        known?: boolean;
-      };
-      if (cancelled) return;
-      setCan(new Set(body.can ?? []));
-      if (body.account) {
-        setIdentity({
-          role: body.account.role ?? "",
-          opId: body.account.opId ?? "",
-          name: body.account.name ?? "",
-          init: body.account.init ?? "",
-          known: body.known !== false,
-        });
+      try {
+        const response = await apiFetch("/api/me", { headers: { accept: "application/json" } });
+        if (cancelled) return;
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        const body = await response.json() as {
+          account?: { role?: string; opId?: string; name?: string; init?: string };
+          can?: string[];
+          known?: boolean;
+        };
+        if (cancelled) return;
+
+        setCan(new Set(body.can ?? []));
+        if (body.account) {
+          setIdentity({
+            role: body.account.role ?? "",
+            opId: body.account.opId ?? "",
+            name: body.account.name ?? "",
+            init: body.account.init ?? "",
+            known: body.known !== false,
+          });
+        }
+        setIdentityState("ready");
+      } catch {
+        if (cancelled) return;
+        setIdentityState("failed");
+        // Keep trying, backing off to half a minute. A blip on the way to the
+        // API should cost a few seconds of read-only, not the rest of the
+        // session — and the banner below says what is happening meanwhile.
+        const wait = Math.min(2000 * 2 ** identityAttempt, 30000);
+        retry = setTimeout(() => setIdentityAttempt((n) => n + 1), wait);
       }
     })();
-    return () => { cancelled = true; };
-  }, [signedInAs]);
+
+    return () => { cancelled = true; if (retry) clearTimeout(retry); };
+  }, [signedInAs, identityAttempt]);
 
   const base = auth ?? ACCOUNTS[0];
   // The API's answer wins over whatever the page render guessed. In development
@@ -1389,6 +1418,28 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
         {!isDetail && (
           <>
+            {/* The capability list never arrived, so nothing is editable. Said
+                out loud, with a way to try again: a grid that silently refuses
+                every keystroke is the most confusing state this app can be in,
+                because the rows still say MY JOB. */}
+            {identityState === "failed" && (
+              <div style={css("background:#FEF6F5;border:1px solid #F3C9C4;border-left:3px solid #B42318;border-radius:5px;padding:13px 16px;margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap")}>
+                <div style={css("flex:1;min-width:260px")}>
+                  <div style={css("font-size:13px;font-weight:650;color:#B42318;margin-bottom:3px")}>
+                    โหลดสิทธิ์การใช้งานไม่ได้ — ตอนนี้แก้ไขอะไรไม่ได้
+                  </div>
+                  <div style={css("font-size:12.5px;color:#5A6B7D;line-height:1.6")}>
+                    ติดต่อ API ไม่ได้ ระบบจึงยังไม่รู้ว่าคุณมีสิทธิ์ทำอะไรบ้าง และไม่เดาให้
+                    ข้อมูลที่เห็นอยู่อ่านจากไฟล์แผนสำรอง — กำลังลองใหม่ให้อัตโนมัติ
+                  </div>
+                </div>
+                <button onClick={() => { setIdentityState("loading"); setIdentityAttempt((n) => n + 1); }}
+                  style={css("height:31px;padding:0 14px;border:1px solid #B42318;background:#fff;color:#B42318;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+                  ลองใหม่
+                </button>
+              </div>
+            )}
+
             {/* Signed in, but the staff directory has never heard of them. Every
                 job will look like somebody else's and nothing will be editable,
                 which is correct and indistinguishable from a broken system
