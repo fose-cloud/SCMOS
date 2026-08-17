@@ -258,13 +258,6 @@ grey type so it cannot be mistaken for a number at a glance. Capacity risk is th
 live example: nobody has told the system what capacity they have, so reporting 0
 would be a claim it has no basis for.
 
-### Roles
-
-Everyone who passes the Entra policy reaches the app. What they may *edit* comes
-from `Auth:Roles` in the API's configuration — email to role — defaulting to
-`Operation User`, who can only edit jobs assigned to them. Supervisor and above
-edit any job, reassign, and reach the Data tools.
-
 ### Job ownership
 
 Ownership is decided on an **owner id** (`OP-01`…), never on a display name. The
@@ -275,24 +268,43 @@ every job away from every operator at once. `opId` sits between them, is
 backfilled from the operator name on the way in, and is written to the column and
 the stored JSON together so the two cannot drift.
 
-The directory lives in two places that must stay in step:
-[app/scmos/nav.ts](app/scmos/nav.ts) for what the screen shows, and
-[server/Scmos.Api/Auth/Directory.cs](server/Scmos.Api/Auth/Directory.cs) for what
-is enforced.
+[`StaffDirectory`](server/Scmos.Api/Auth/Directory.cs) is the directory.
+`ACCOUNTS` in [app/scmos/nav.ts](app/scmos/nav.ts) is not a second copy of it: it
+is the development sign-in list, and the name-to-owner-id map the Excel importer
+needs before a job has ever reached the API. Which directory person a signed-in
+email *is* — the answer ownership depends on — is decided in C# and read from
+`/api/me`.
 
 ## Deploying to Azure
 
+Nothing here has run against real Azure yet — everything in this repository is
+verified on SQL Server LocalDB and the storage emulator. Work through this in
+order; each step assumes the one before it.
+
+### 0. Merge to `main`
+
+Both workflows trigger on `main`. The work is on `azure-dotnet-migration`, so
+nothing deploys until that branch is merged.
+
 ### 1. Resources
 
-An Azure SQL database, a storage account, two App Services (Node 22 and .NET 10)
-on one plan, a Key Vault, and an Application Insights resource.
+An Azure SQL database, a storage account, two App Services on one plan
+(**Node 22** for web, **.NET 10** for the API), a Key Vault, and an Application
+Insights resource.
 
-Turn on a system-assigned managed identity for both App Services, then grant it:
+Turn on a system-assigned managed identity for both App Services, then grant:
 
-- **Key Vault Secrets User** on the vault (both)
-- **Storage Blob Data Contributor** on the storage account (API)
+- **Key Vault Secrets User** on the vault — both
+- **Storage Blob Data Contributor** on the storage account — API only
 - a contained user in Azure SQL for the API's identity, in `db_datareader`,
   `db_datawriter` and `db_ddladmin`
+
+`infra/setup-storage.sh` does the whole storage side, including the identity and
+the lifecycle policy:
+
+```bash
+RESOURCE_GROUP=rg-scmos STORAGE_ACCOUNT=scmosfiles API_APP=scmos-api ./infra/setup-storage.sh
+```
 
 ### 2. Secrets in Key Vault
 
@@ -302,6 +314,10 @@ Turn on a system-assigned managed identity for both App Services, then grant it:
 | `OpenAI--ApiKey` | API — the document reader |
 | `Auth--ProxyKey` | Both — the shared key on forwarded identity |
 
+`Auth--ProxyKey` is any long random string. Without it the API refuses every
+request and logs that it is doing so; that is deliberate, because the alternative
+is an API that trusts identity headers anybody can set.
+
 ### 3. App settings
 
 API App Service:
@@ -310,6 +326,7 @@ API App Service:
 KeyVault__Uri                            = https://<vault>.vault.azure.net/
 Auth__Mode                               = Proxy
 Storage__ServiceUri                      = https://<account>.blob.core.windows.net
+Storage__Container                       = operation-files
 APPLICATIONINSIGHTS_CONNECTION_STRING    = <from the App Insights resource>
 ```
 
@@ -321,22 +338,84 @@ SCMOS_API_PROXY_KEY    = @Microsoft.KeyVault(SecretUri=https://<vault>.vault.azu
 NEXT_PUBLIC_SITE_URL   = https://<your domain>
 ```
 
-Then turn on **Authentication** on the *web* App Service with Microsoft as the
-provider, requiring authentication.
+**Then who gets more than read-only.** Since an email in neither `Auth:Roles` nor
+the staff directory gets `Viewer`, deploying without this leaves everybody unable
+to write. One app setting per person, on the API:
 
-### 4. Deploy
+```
+Auth__Roles__titchanatorn.k@leschaco.co.th = Operation Supervisor
+Auth__Roles__nattikorn.s@leschaco.co.th    = Assistant Manager
+Auth__Roles__<admin>@leschaco.co.th        = Administrator
+```
+
+The five operators are matched by the staff directory on the local part of their
+email and need no entry. Valid roles are listed in `appsettings.json`.
+
+### 4. Authentication
+
+Turn on **Authentication** on the *web* App Service — Microsoft as the provider,
+require authentication. Leave it **off** on the API: the API is reached only
+through the web app's proxy, and `Auth:Mode=Proxy` is what makes it trust the
+forwarded headers.
+
+### 5. Deploy
 
 Push to `main`. [.github/workflows](.github/workflows) builds each side and
-deploys it, applying EF migrations before the API goes out. The workflows need
-`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and
-`SCMOS_SQL_CONNECTION` as secrets, and `API_APP_NAME` / `WEB_APP_NAME` as
-variables.
+deploys it, applying EF migrations before the API goes out.
 
-### 5. Long-term storage
+Repository secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_SUBSCRIPTION_ID`, `SCMOS_SQL_CONNECTION`.
+Repository variables: `API_APP_NAME`, `WEB_APP_NAME`.
 
-Add a lifecycle management rule on the storage account: Cool after 30 days,
-Archive after 180. It is a policy on the account rather than a tier set per
-upload, so changing your mind does not need a deployment.
+`AZURE_CLIENT_ID` is a federated-credential app registration with **Contributor**
+on the resource group; the workflows use OIDC, so no client secret is stored.
+
+### 6. Load the data
+
+The schema arrives empty. Three commands, run once, in this order — locally
+against the Azure SQL connection string, or from a container with it set:
+
+```bash
+dotnet run --project server/Scmos.Api -- --seed public/data/ops.json
+dotnet run --project server/Scmos.Api -- --migrate-status
+dotnet run --project server/Scmos.Api -- --seed-suppliers migration/data/rates.json
+```
+
+The first keys the operation plan (2,102 jobs) and is idempotent on the job key.
+The second moves free-text statuses onto the controlled vocabulary — run
+`--migrate-status --dry-run` first to see what it would change. The third builds
+the supplier register from the jobs and the rate cards (29 suppliers, 2,270
+lanes, 82,290 prices) and registers the 21 AI tools.
+
+`rates.json` is git-ignored and has to be rebuilt from the workbook folder first:
+
+```bash
+node migration/build-rates.mjs "D:/Leschaco/Dashboard/Transport cost subcon"
+```
+
+### 7. Check it came up
+
+```bash
+curl https://<api-app>.azurewebsites.net/health
+```
+
+Then sign in to the web app and confirm, in this order:
+
+1. The header shows your name and role — if the role is **Viewer** and you expected
+   more, `Auth__Roles__…` is missing or misspelled.
+2. The workspace lists jobs and **MY JOBS** is not zero — if it is, the staff
+   directory does not recognise your email; the screen says so.
+3. A cell in your own row accepts an edit — if the grid is read-only and a red
+   banner says permissions could not be loaded, the web app cannot reach the API
+   (`SCMOS_API_BASE_URL`) or the proxy key does not match.
+4. Upload a file on CAR/PAR — a 503 means `Storage__ServiceUri` or the Blob role
+   assignment is missing, and the message says which.
+
+### 8. Long-term storage
+
+Already applied by `infra/setup-storage.sh` in step 1: Hot for a year, Cool to
+three, Archive to ten, and **no delete action**. See the retention section below
+for why that last part is a refusal rather than an omission.
 
 ## Data
 
