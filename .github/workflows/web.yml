@@ -1,0 +1,72 @@
+name: Web
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "server/**"
+      - "migration/**"
+      - ".github/workflows/api.yml"
+  pull_request:
+    paths-ignore:
+      - "server/**"
+      - "migration/**"
+      - ".github/workflows/api.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+      # `output: standalone` leaves the server in .next/standalone but not the
+      # static assets or public/ — they are copied in beside it, which is what
+      # the Next docs call for and what App Service then serves.
+      - name: Assemble the deployment package
+        run: |
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: .next/standalone
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: standalone
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.WEB_APP_NAME }}
+          slot-name: production
+          package: standalone
+          startup-command: "node server.js"

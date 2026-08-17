@@ -1,0 +1,84 @@
+name: API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/api.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/api.yml"
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  PROJECT: server/Scmos.Api/Scmos.Api.csproj
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - run: dotnet restore ${{ env.PROJECT }}
+
+      # Warnings are errors here and nowhere else: the API is small enough that
+      # a warning means something, and nobody reads a build log that is noisy.
+      - run: dotnet build ${{ env.PROJECT }} --configuration Release --no-restore -warnaserror
+
+      - run: dotnet publish ${{ env.PROJECT }} --configuration Release --no-build --output publish
+
+      # The migration bundle travels with the build, so the deploy job applies
+      # exactly the schema this code was compiled against and needs no SDK.
+      - name: Build migration bundle
+        run: |
+          dotnet tool install --global dotnet-ef
+          dotnet ef migrations bundle \
+            --project ${{ env.PROJECT }} \
+            --configuration Release \
+            --self-contained -r linux-x64 \
+            --output publish/migrate
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api
+          path: publish
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: api
+          path: publish
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Schema first. A deploy that changed the model and did not run this would
+      # come up answering 500 to every save.
+      - name: Apply migrations
+        run: |
+          chmod +x publish/migrate
+          ./publish/migrate --connection "${{ secrets.SCMOS_SQL_CONNECTION }}"
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.API_APP_NAME }}
+          slot-name: production
+          package: publish
