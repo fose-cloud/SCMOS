@@ -53,13 +53,21 @@ export async function loadPlanFile(): Promise<RawOps> {
   return await response.json() as RawOps;
 }
 
-export async function saveJobs(jobs: Job[], by: string): Promise<{ ok: boolean; message: string }> {
+/**
+ * Writes jobs, with the reason for the change when there is one.
+ *
+ * The reason travels with the save rather than being written separately: the
+ * API works out which fields actually changed and attaches it to those audit
+ * rows, so "why did this carrier change" is answered by the same request that
+ * changed it and cannot go missing between two calls.
+ */
+export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ ok: boolean; message: string }> {
   if (!jobs.length) return { ok: true, message: "" };
   try {
     const response = await apiFetch(API, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ by, jobs: jobs.map(forStorage) }),
+      body: JSON.stringify({ by, reason, jobs: jobs.map(forStorage) }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({})) as { error?: string };

@@ -47,7 +47,14 @@ builder.Services.AddScoped<RateService>();
 builder.Services.AddScoped<SupplierService>();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<DocumentService>();
+builder.Services.AddScoped<AuditService>();
+builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<RiskService>();
 builder.Services.AddScoped<AiGateway>();
+// The audit trail records the caller's address and session, which only the
+// request knows about.
+builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<PreRunOptions>(builder.Configuration.GetSection(PreRunOptions.Section));
 builder.Services.AddSingleton<IUserAccessor, UserAccessor>();
 builder.Services.AddSingleton<IFileStore, BlobFileStore>();
@@ -122,6 +129,8 @@ app.MapPreRun();
 app.MapMonitoring();
 app.MapSuppliers();
 app.MapDocuments();
+app.MapAudit();
+app.MapDashboard();
 app.MapUploads();
 app.MapOperations();
 app.MapAiExtract();

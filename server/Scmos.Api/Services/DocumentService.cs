@@ -15,6 +15,10 @@ public record DocumentView(
 
 public record DocumentResult(bool Ok, string Message, DocumentView? Document = null);
 
+/// <param name="State">keep · review · overdue-review. Never "delete".</param>
+public record RetentionItem(long Id, string FileName, string ObjectKey, string Scope, string Folder,
+    DateTimeOffset UploadedAt, int AgeDays, string Tier, string State);
+
 /// <summary>
 /// Uploading and finding files.
 ///
@@ -211,6 +215,30 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     {
         var due = Formats.DateNumber(expiryDate);
         return due > 0 && due < Formats.DateNumber(DateTimeOffset.Now.ToString("dd/MM/yyyy"));
+    }
+
+    /// <summary>
+    /// Documents at or near the end of their ten-year retention.
+    ///
+    /// A list for a person to work through, not a queue for a job to drain.
+    /// Nothing in this service deletes a document, and nothing calls anything
+    /// that would — see <see cref="Retention"/> for why that is a refusal rather
+    /// than an omission.
+    /// </summary>
+    public async Task<IReadOnlyList<RetentionItem>> RetentionReviewAsync(bool includeAll, CancellationToken token)
+    {
+        var rows = await db.Documents.AsNoTracking()
+            .OrderBy(document => document.UploadedAt).Take(1000).ToListAsync(token);
+
+        return rows.Select(document =>
+            {
+                var age = Retention.AgeDays(document.UploadedAt);
+                return new RetentionItem(document.Id, document.FileName, document.ObjectKey,
+                    document.Scope, document.Folder, document.UploadedAt, age,
+                    Retention.TierFor(age), Retention.StateFor(age));
+            })
+            .Where(item => includeAll || item.State != "keep")
+            .ToList();
     }
 
     public static DocumentView Describe(StoredDocument d) => new(

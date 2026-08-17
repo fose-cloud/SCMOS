@@ -114,6 +114,111 @@ what stops anyone who can reach the API from claiming to be somebody:
 Lock the API App Service down with access restrictions as well, so only the web
 app's outbound addresses reach it. The key is the second lock, not the only one.
 
+### Roles and capabilities
+
+Eight roles, and what each may do is a **capability set**, not a name test.
+[`Rules/Roles.cs`](server/Scmos.Api/Rules/Roles.cs) owns it.
+
+| Role | Scope | May not |
+| --- | --- | --- |
+| Administrator | Full System | — |
+| Manager / Assistant Manager | Department Overview | administer the register |
+| Operation Supervisor | Team Control | change rates, approve retention |
+| Subcontractor | Operational Management | **see the rate book**, see the team |
+| Operation User | Own Workspace | edit others' jobs, approve anything |
+| CS | View / Upload | edit the operational record |
+| Management | Dashboard | see the register |
+| Viewer | Read Only | write anything |
+
+This replaced a `SupervisorRoles` array that four files tested against — which
+meant "who may approve an AI change" and "who may reassign a job" were the same
+question by accident, and adding a ninth role would have granted it whatever the
+array happened to contain. An unrecognised role now gets **Viewer's** grants, not
+the default role's: a typo in a role claim should cost somebody their edit rights,
+never hand them somebody else's.
+
+The Subcontractor row is the one worth arguing about. A carrier signing in to
+work their own jobs must not see `ViewRates` — the book holds seventeen other
+carriers' negotiated prices, and one subcontractor reading another's rates is the
+worst thing this system could leak.
+
+### Audit trail
+
+Every important change lands in one append-only `audit_events` table: **who ·
+what · old value · new value · date · time · IP · session · reason.**
+
+```
+17/08 21:09  OP-01 (Operation User)  เปลี่ยนผู้ขนส่ง
+260600800773 · ALTEK    DGT → PK TRANSPORT
+reason: DGT capacity unavailable        ::1 / 0HNNSD49K5EQ5
+```
+
+- **[`AuditService`](server/Scmos.Api/Services/AuditService.cs) is the only
+  writer.** Callers hand it what changed; it works out who, when and from where.
+  An endpoint that had to remember to capture the caller's address would
+  eventually forget, and the row it wrote would look complete.
+- **Old values are read before the write.** The save endpoint snapshots the
+  register first, because a change without its previous value is information
+  rather than evidence.
+- **Some changes must be explained.** Swapping a carrier, changing a rate,
+  closing a CAR/PAR, approving retention, replacing the register — the values
+  alone do not say why. Replacing a carrier prompts for a reason in the UI;
+  naming the *first* one does not, because there is nothing to explain about
+  filling a blank and asking anyway teaches people to type "update".
+- **Recording never fails a change.** If the trail cannot be written the change
+  still happens and the failure is logged loudly. Losing an audit row is bad;
+  refusing an operator's edit because a log table is full is worse.
+- **Nothing deletes from it**, and there is no route that edits an entry. A trail
+  somebody can tidy up is not a trail.
+- Reading it needs `ViewAudit` — supervisor and above. A system where everyone
+  reads everyone's history is a different system from one where each person sees
+  their own work.
+
+Behind App Service the client address comes from `X-Forwarded-For` (first entry,
+port stripped); recording the load balancer in every row would make the field
+worthless.
+
+### Notification engine
+
+Twelve alert kinds, [named once in
+`Rules/Notifications.cs`](server/Scmos.Api/Rules/Notifications.cs) and computed
+from the register by `/api/notifications`:
+
+supplier not confirmed · booking missing data · pre-run not confirmed · truck
+delay · E-Card mismatch · document unclear · POD missing · supplier document
+expiring · audit expiring · CAR/PAR overdue · capacity shortage · KPI below
+target.
+
+A fixed list, because the value of an alert is inversely proportional to how many
+kinds there are, and the fastest way to make a team ignore a real alert is to sit
+it next to nine they cannot fix. Every kind carries the action a person is meant
+to take and the screen that answers it — an alert nobody can act on is noise
+wearing a warning colour.
+
+Nothing is stored. An alert is a fact about the current state, so it stops
+existing the moment the state changes; a notifications table would need a rule
+for marking each row read and another for deleting it, and the first time those
+disagreed with reality somebody would be chasing a truck that already arrived.
+Alerts are grouped — "1,080 jobs missing a plate" is actionable, 1,080 rows are a
+wall people scroll past.
+
+These rules used to live in the browser, which meant the twelve the operation
+agreed on were invisible to the backend and a second copy waiting to disagree.
+
+### TODAY
+
+The front page answers the first question anyone has on opening the system.
+`/api/dashboard/today` measures the plan date, not the write date — a job planned
+for today is today's problem whether it was keyed last week or this morning. When
+the plan holds nothing for today it reports the nearest planned day and says so,
+rather than five zeroes that look like a quiet morning. (The July plan is in the
+past, so that is currently the normal case.)
+
+Any figure that cannot be measured renders as **ยังวัดไม่ได้**, in a smaller,
+grey type so it cannot be mistaken for a number at a glance. Capacity risk is the
+live example: nobody has told the system what capacity they have, so reporting 0
+would be a claim it has no basis for.
+
 ### Roles
 
 Everyone who passes the Entra policy reaches the app. What they may *edit* comes
@@ -408,6 +513,36 @@ Reading goes through `GET /api/documents/{id}/content`, not the blob URL: the
 container is private and stays that way, because a URL that works without a
 sign-in is a URL that ends up forwarded.
 
+### Ten-year retention
+
+| Age | Tier |
+| --- | --- |
+| 0–1 year | Hot |
+| 1–3 years | Cool |
+| 3–10 years | Archive |
+| 10 years | **review — a person decides** |
+
+Tiering is a storage account lifecycle policy
+([`infra/storage-lifecycle.json`](infra/storage-lifecycle.json)), so changing the
+rule is a policy change rather than a deployment:
+
+```bash
+az storage account management-policy create --account-name <account> --resource-group <group> --policy @infra/storage-lifecycle.json
+```
+
+**There is no delete action in that policy and no code path in this system that
+deletes a document.** That is a refusal, not an omission. A lifecycle rule that
+deletes is one mistyped prefix away from destroying a customs file a dispute
+three years later depends on, and blob deletion is not something an operator can
+undo. `Rules/Retention.cs` has no state called "delete" either — a state a
+program can produce is a state some later code will act on.
+
+Retention end raises a review (`GET /api/documents/retention`). Somebody with
+`ApproveRetention` — Manager and above, not Supervisor — decides, in writing,
+with a reason, and that decision lands in the audit trail. Carrying it out is
+then a separate, deliberate act against the storage account, so that "somebody
+approved this" and "it is gone" are never the same event.
+
 To exercise uploads locally, run the Azure Storage emulator and point the API at
 it — without it, upload answers 503 and says why, which is the honest default:
 
@@ -456,16 +591,45 @@ The AI Assistant screen reads the matrix from `/api/ai/tools`, the same source
 that enforces it, so the version people read cannot drift from the version in
 force.
 
+**"วันนี้มีงานอะไรเสี่ยงบ้าง"** is answered by `/api/risk`, grouped by customer
+with the reason on every group and the shipments listed underneath:
+
+```
+84 งานเสี่ยง จาก 12 ลูกค้า
+  (ไม่ระบุลูกค้า)  28  ยังไม่มีผู้ขนส่งยืนยัน
+  ALLNEX           14  เลขตู้ไม่ตรงมาตรฐาน จะไม่ตรงกับ E-Card
+```
+
+It is computed from the register's own rules, and the screen says so in as many
+words. That makes the answer explainable — every shipment carries why it was
+listed — and reproducible, which a model's answer to the same question would not
+be. An assistant people believe read their day, when it did not, is one they will
+eventually trust with something it never looked at.
+
+The E-Card check is named for what it actually tests: a container number that
+fails its own format will not match whatever the card says at the gate. A real
+card-to-booking comparison needs the cards, which are not in the system yet.
+
 ## Known gaps
 
 - **Six screens still run on generated data** — Capacity, Billing, Documents,
   Reports, Master Data, Administration. The dashboard badges its three demo
-  panels. Supplier, CAR/PAR, Add New Vendor, Annual Evaluation, Rate Quotation
-  and AI Assistant now read the API.
+  panels. TODAY, Supplier, CAR/PAR, Add New Vendor, Annual Evaluation, Rate
+  Quotation, AI Assistant, Audit and the alert feed now read the API.
 - **No agents yet.** The permission layer, the tool catalogue and the approvals
   queue are real and enforced; the six agents that would call them are not built,
   so an Allow tool reports plainly that it is not wired to a real action rather
-  than pretending to have done something.
+  than pretending to have done something. The risk answer is rules, not a model,
+  and says so.
+- **Three of the twelve alerts cannot fire yet.** Capacity shortage needs
+  carriers to report their fleet availability; audit expiry needs audit reports
+  uploaded with dates; document-unclear needs somebody to mark one. Each reports
+  what it is waiting for rather than a reassuring zero.
+- **Only four of the eight roles have accounts.** Subcontractor, CS, Management
+  and Viewer are defined and enforced but nobody is assigned to them, so their
+  capability sets are untested against real use.
+- **Bulk saves record one audit row, not thousands.** Above fifty jobs a save is
+  an import, and it is recorded as the one action it was.
 - **Rates are not joined to jobs.** Quotation prices a journey when you ask it to,
   but nothing costs the 2,102 jobs in the register as a whole.
 - **The July plan is in the past.** Every loading date is July 2026, so the

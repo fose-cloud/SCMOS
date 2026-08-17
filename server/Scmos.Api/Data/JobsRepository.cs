@@ -66,6 +66,55 @@ public class JobsRepository(ScmosDbContext db)
     }
 
     /// <summary>
+    /// What the register currently says about these jobs, keyed by job key.
+    ///
+    /// Read before a save so the audit trail can record what a field changed
+    /// *from*. Only the fields worth auditing are pulled back, and only for the
+    /// keys being written — a debounced edit is one or two jobs, so this is a
+    /// small read, not a second copy of the register.
+    /// </summary>
+    public async Task<Dictionary<string, Dictionary<string, string>>> SnapshotAsync(
+        IReadOnlyList<string> keys, CancellationToken token)
+    {
+        var wanted = keys.Select(key => Text(key, 80)).Where(key => key.Length > 0).Distinct().ToList();
+        var snapshot = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        if (wanted.Count == 0) return snapshot;
+
+        var rows = await db.OperationJobs.AsNoTracking()
+            .Where(job => wanted.Contains(job.Key))
+            .Select(job => new { job.Key, job.Trucker, job.Status, job.Owner, job.WorkDate, job.Container, job.Data })
+            .ToListAsync(token);
+
+        foreach (var row in rows)
+        {
+            var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["trucker"] = row.Trucker,
+                ["status"] = row.Status,
+                ["op"] = row.Owner,
+                ["date"] = row.WorkDate,
+                ["container"] = row.Container,
+            };
+
+            // licence, driver and planTime live in the job's JSON rather than in
+            // a column, so they are read from there. A row that will not parse
+            // simply contributes no old values — the audit says "—", which is
+            // true, rather than failing the save.
+            try
+            {
+                if (JsonNode.Parse(row.Data) is JsonObject job)
+                    foreach (var name in new[] { "licence", "driver", "planTime" })
+                        fields[name] = job[name]?.ToString() ?? "";
+            }
+            catch (JsonException) { /* unparseable row: no old values to report */ }
+
+            snapshot[row.Key] = fields;
+        }
+
+        return snapshot;
+    }
+
+    /// <summary>
     /// Writes whole jobs.
     ///
     /// The batch goes into a temp table in one bulk copy and is then matched

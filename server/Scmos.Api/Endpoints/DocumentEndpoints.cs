@@ -15,6 +15,9 @@ namespace Scmos.Api.Endpoints;
 /// </summary>
 public static class DocumentEndpoints
 {
+    /// <param name="Extend">True to keep the document longer; false to approve its destruction.</param>
+    public record RetentionDecision(bool? Extend, string? Reason);
+
     public static void MapDocuments(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/documents").WithTags("Documents");
@@ -34,10 +37,12 @@ public static class DocumentEndpoints
         });
 
         group.MapPost("", async (HttpContext context, IUserAccessor users, DocumentService documents,
-            CancellationToken token) =>
+            AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.UploadDocuments))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์อัปโหลดเอกสาร", StatusCodes.Status403Forbidden);
             if (!context.Request.HasFormContentType)
                 return ApiResults.Error("ต้องส่งเป็น multipart form", StatusCodes.Status415UnsupportedMediaType);
 
@@ -67,11 +72,81 @@ public static class DocumentEndpoints
                         Text(form, "expiryDate"), note, file, user, token)
                     : await documents.AddToJobAsync(jobKey, folder, kind, note, file, user, token);
 
-            return result.Ok
-                ? Results.Json(new { message = result.Message, document = result.Document })
-                : ApiResults.Error(result.Message,
+            if (!result.Ok)
+                return ApiResults.Error(result.Message,
                     documents.StorageReady ? StatusCodes.Status400BadRequest : StatusCodes.Status503ServiceUnavailable);
+
+            // The blob path is the new value on purpose: it is what somebody
+            // needs a year later to find the file this row is talking about.
+            await audit.RecordAsync(user, AuditActions.Upload, "document",
+                result.Document!.Id.ToString(), result.Document.FileName, result.Document.Folder,
+                "", result.Document.ObjectKey, note, token);
+
+            return Results.Json(new { message = result.Message, document = result.Document });
         }).DisableAntiforgery();
+
+        /// The ten-year retention review.
+        ///
+        /// Read-only, and there is no companion route that deletes what it
+        /// lists. Approving destruction is recorded as a decision in the audit
+        /// trail; carrying it out is a deliberate act somebody performs against
+        /// the storage account, not something this API can be talked into.
+        group.MapGet("/retention", async (bool? all, HttpContext context, IUserAccessor users,
+            DocumentService documents, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewAudit))
+                return ApiResults.Error("ดูรายการเก็บรักษาเอกสารได้เฉพาะระดับหัวหน้างานขึ้นไป",
+                    StatusCodes.Status403Forbidden);
+
+            var items = await documents.RetentionReviewAsync(all == true, token);
+            return Results.Json(new
+            {
+                items,
+                policy = new
+                {
+                    hotDays = Retention.CoolAfterDays,
+                    coolDays = Retention.ArchiveAfterDays,
+                    retentionDays = Retention.RetentionDays,
+                    reviewWindowDays = Retention.ReviewWindowDays,
+                    automaticDeletion = false,
+                },
+            });
+        });
+
+        group.MapPost("/retention/{id:long}", async (long id, RetentionDecision body, HttpContext context,
+            IUserAccessor users, DocumentService documents, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ApproveRetention))
+                return ApiResults.Error("อนุมัติการเก็บรักษาได้เฉพาะระดับผู้จัดการขึ้นไป",
+                    StatusCodes.Status403Forbidden);
+
+            var reason = (body.Reason ?? "").Trim();
+            if (reason.Length == 0)
+                return ApiResults.Error("ต้องระบุเหตุผลของการตัดสินใจ", StatusCodes.Status400BadRequest);
+
+            var document = await documents.FindAsync(id, token);
+            if (document is null) return ApiResults.Error("ไม่พบไฟล์นี้", StatusCodes.Status404NotFound);
+
+            var decision = body.Extend == true ? "extend" : "approve-destruction";
+            await audit.RecordAsync(user, AuditActions.RetentionReview, "document", id.ToString(),
+                document.FileName, "retention", Retention.StateFor(Retention.AgeDays(document.UploadedAt)),
+                decision, reason, token);
+
+            // The decision is recorded; the file is not touched. Destroying it is
+            // a separate, deliberate act against the storage account, so that
+            // "somebody approved this" and "it is gone" are never the same event.
+            return Results.Json(new
+            {
+                message = decision == "extend"
+                    ? "บันทึกการขยายระยะเก็บรักษาแล้ว"
+                    : "บันทึกการอนุมัติทำลายแล้ว — ระบบไม่ได้ลบไฟล์ ต้องดำเนินการกับที่เก็บแยกต่างหาก",
+                decision,
+            });
+        });
 
         group.MapGet("/{id:long}/content", async (long id, HttpContext context, IUserAccessor users,
             DocumentService documents, CancellationToken token) =>

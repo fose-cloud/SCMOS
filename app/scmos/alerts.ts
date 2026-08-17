@@ -10,7 +10,11 @@ import { tmin } from "./util";
  */
 
 /** Where an alert (or a dashboard figure) sends the workspace. */
-export type WsTarget = { tab?: string; cat?: string; kpi?: string; status?: string; date?: string };
+export type WsTarget = {
+  tab?: string; cat?: string; kpi?: string; status?: string; date?: string;
+  /** Set by an API alert: the screen that answers it, and the job it is about. */
+  screen?: string; jobKey?: string;
+};
 
 export type AlertLevel = "Critical" | "Warning" | "Information";
 

@@ -32,6 +32,7 @@ import { Incidents } from "./scmos/screens/Incidents";
 import { Assistant } from "./scmos/screens/Assistant";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
+import { Today } from "./scmos/screens/Today";
 
 /**
  * Screens the menu names that the system cannot honestly fill yet.
@@ -65,7 +66,7 @@ import { Workspace, workspaceTabCounts, type WsState } from "./scmos/screens/Wor
 
 import { Login } from "./scmos/overlays/Login";
 import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toast, type Field, type StoredDoc } from "./scmos/overlays/Overlays";
-import { buildAlerts, type WsTarget } from "./scmos/alerts";
+import type { Alert, WsTarget } from "./scmos/alerts";
 import { globalSearch, type SearchHit } from "./scmos/search";
 import { DEFAULT_PREFS, EMPTY_PROFILE, loadPrefs, loadProfile, readAvatar, savePrefs, saveProfile, type Prefs, type Profile } from "./scmos/settings";
 import { AddJobModal, AssignModal, JobDrawer } from "./scmos/overlays/WorkspaceOverlays";
@@ -181,13 +182,17 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   /** Jobs changed since the last write, collapsed by key so one save covers them. */
   const dirty = useRef(new Map<string, Job>());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Why the pending batch is being written, when the change needed explaining. */
+  const pendingReason = useRef("");
 
   const flush = useCallback(async () => {
     const batch = [...dirty.current.values()];
     dirty.current.clear();
     if (!batch.length) return;
+    const reason = pendingReason.current;
+    pendingReason.current = "";
     setSync((prev) => (prev.state === "off" ? prev : { state: "saving", at: prev.at, message: "" }));
-    const result = await saveJobs(batch, meRef.current);
+    const result = await saveJobs(batch, meRef.current, reason);
     setSync((prev) => (prev.state === "off" ? prev
       : result.ok ? { state: "saved", at: nowHM(), message: "" }
         : { state: "error", at: prev.at, message: result.message }));
@@ -197,9 +202,10 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
    * Every edit lands in the database. Writes are batched over a short window so
    * typing down a column is one save, not one per keystroke.
    */
-  const persist = useCallback((jobs: Job[]) => {
+  const persist = useCallback((jobs: Job[], reason = "") => {
     if (!jobs.length) return;
     jobs.forEach((job) => dirty.current.set(job.key, job));
+    if (reason) pendingReason.current = reason;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void flush(); }, 700);
   }, [flush]);
@@ -378,12 +384,42 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     [gq, ops, db, revision],
   );
 
-  /** Alerts are counted off the real plan, so they change as the jobs change. */
-  const alerts = useMemo(
-    () => (ops ? buildAlerts(ops.jobs, me) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ops, me, revision],
-  );
+  /**
+   * Alerts come from the API now.
+   *
+   * They used to be computed here, which meant the twelve rules the operation
+   * agreed on existed only in the browser — invisible to the backend, and a
+   * second copy waiting to disagree with the .NET one. `/api/notifications` runs
+   * them where every other rule now lives.
+   */
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await apiFetch("/api/notifications", { headers: { accept: "application/json" } });
+      if (!response.ok || cancelled) return;
+      const feed = await response.json() as {
+        alerts: { kind: string; level: string; english: string; thai: string; action: string;
+                  screen: string; title: string; detail: string; targetId: string; count: number }[];
+      };
+      if (cancelled) return;
+      setAlerts(feed.alerts.map((alert) => ({
+        id: alert.kind,
+        level: alert.level as Alert["level"],
+        title: alert.title,
+        th: alert.thai,
+        body: alert.detail ? `${alert.detail} · ${alert.action}` : alert.action,
+        count: alert.count,
+        // Every alert names the screen that answers it; the workspace ones also
+        // land on the job the count is about.
+        target: { tab: "PENDING", screen: alert.screen, jobKey: alert.targetId },
+      })));
+    })();
+    // The feed is a view of the register, so it is re-read whenever the register
+    // changes underneath it.
+    return () => { cancelled = true; };
+  }, [revision, ops]);
+
   const criticalAlerts = alerts.filter((a) => a.level === "Critical").length;
 
   const myJobs = ops ? ops.jobs.filter(owns) : [];
@@ -418,6 +454,14 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   }
 
   function openTarget(target: WsTarget) {
+    // An API alert names the screen that answers it. Sending every alert to the
+    // workspace would mean clicking "CAR/PAR overdue" lands on a job list that
+    // cannot show a case.
+    if (target.screen && target.screen !== "workspace") {
+      setNotif(false);
+      go(target.screen as Screen);
+      return;
+    }
     setScreen("workspace");
     setTab(target.tab ?? "PENDING");
     setPage(1);
@@ -439,6 +483,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
       status: target.status ?? "ALL",
       date: target.date ?? "ALL",
     }));
+    if (target.jobKey) setDrawer(target.jobKey);
   }
 
   function updatePrefs(next: Prefs) {
@@ -759,6 +804,27 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
       return;
     }
 
+    // Replacing a carrier needs a reason; naming the first one does not. There
+    // is nothing to explain about filling a blank, and asking anyway is how a
+    // team learns to type "update" into every box.
+    let reason = "";
+    const replacing = !!patch.trucker
+      && job.trucker.trim().length > 0
+      && patch.trucker.trim() !== job.trucker.trim();
+
+    if (replacing) {
+      const typed = window.prompt(
+        `เปลี่ยนผู้ขนส่งจาก ${job.trucker} เป็น ${patch.trucker}\n\nระบุเหตุผล (จะบันทึกไว้ในประวัติ)`,
+        "",
+      );
+      if (typed === null) return;
+      reason = typed.trim();
+      if (!reason) {
+        setToast("ต้องระบุเหตุผลในการเปลี่ยนผู้ขนส่ง");
+        return;
+      }
+    }
+
     const record = job as unknown as Record<string, unknown>;
     let changed = 0;
 
@@ -785,7 +851,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     }
 
     flagJob(job);
-    persist([job]);
+    persist([job], reason);
     touch();
   }
 
@@ -1267,7 +1333,14 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
         {!isDetail && !isSupplierProfile && (
           <>
-            {screen === "dashboard" && (
+            {/* TODAY comes from the API rather than the in-browser jobs, so it
+                bypasses the period bar the other three tabs share — "today" is
+                not a filter over a chosen period, it is the day itself. */}
+            {screen === "dashboard" && activeTab === "TODAY" && (
+              <Today onDrill={(next) => go(next as Screen)} />
+            )}
+
+            {screen === "dashboard" && activeTab !== "TODAY" && (
               <Dashboard
                 db={db}
                 filtered={filtered}
@@ -1354,7 +1427,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                 figures — a screen full of plausible demo numbers is how a
                 system starts being trusted for things it cannot do. */}
             {screen === "prerun" && <PreRun canEdit={(job) => canEditJob(job)} jobs={ops?.jobs ?? []} onToast={setToast} />}
-            {screen === "audit" && <Audit />}
+            {screen === "audit" && <Audit canView={isSupervisor} />}
 
             {/* Supplier register, CAR/PAR and the assistant all read the API
                 rather than the demo file. Incident and CAR/PAR are one register
@@ -1362,7 +1435,10 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                 open the same cases rather than two half-registers. */}
             {screen === "subcontractors" && <Suppliers canManage={isSupervisor} onToast={setToast} />}
             {(screen === "incident" || screen === "carpar") && <Incidents onToast={setToast} />}
-            {screen === "assistant" && <Assistant canApprove={isSupervisor} onToast={setToast} />}
+            {screen === "assistant" && (
+              <Assistant canApprove={isSupervisor} onToast={setToast}
+                onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
+            )}
             {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
             {screen === "quotation" && <Quotation diesel={diesel} onDiesel={setDiesel} onToast={setToast} />}

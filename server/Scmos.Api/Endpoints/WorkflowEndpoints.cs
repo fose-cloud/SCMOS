@@ -29,9 +29,14 @@ public static class WorkflowEndpoints
         // The flow itself, so the screen can draw it without hard-coding it.
         group.MapGet("/definition", () => Results.Json(WorkflowService.Definition()));
 
-        // The whole audit trail, newest first. Append-only, so this is the record
+        // Every workflow move, newest first. Append-only, so this is the record
         // rather than a copy of one.
-        routes.MapGet("/api/audit", async (int? limit, HttpContext context, IUserAccessor users,
+        //
+        // This used to answer /api/audit, which was the right name until there
+        // was a general audit trail — a workflow move is one kind of change, not
+        // the record of all of them. It lives under the workflow group now, and
+        // /api/audit belongs to who-changed-what.
+        group.MapGet("/events", async (int? limit, HttpContext context, IUserAccessor users,
             ScmosDbContext db, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
@@ -47,7 +52,7 @@ public static class WorkflowEndpoints
                 })
                 .ToListAsync(token);
             return Results.Json(entries);
-        }).WithTags("Audit");
+        });
 
         group.MapGet("/{jobKey}", async (string jobKey, HttpContext context, IUserAccessor users,
             WorkflowService workflow, CancellationToken token) =>

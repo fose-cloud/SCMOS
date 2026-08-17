@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Blob lifecycle for the SCMOS document store. Apply to the storage account:",
+    "",
+    "  az storage account management-policy create \\",
+    "    --account-name <account> --resource-group <group> \\",
+    "    --policy @infra/storage-lifecycle.json",
+    "",
+    "Ten years, in three tiers. Job and supplier paperwork move together because",
+    "they answer the same kinds of question years later — a customs query, an",
+    "insurance claim, a subcontractor dispute.",
+    "",
+    "There is NO delete action in this policy, and adding one would be a mistake.",
+    "A lifecycle rule that deletes is one mistyped prefix away from destroying a",
+    "file a dispute depends on, and blob deletion is not something an operator can",
+    "undo. Retention end raises a review in the app (GET /api/documents/retention);",
+    "a person with ApproveRetention decides, in writing, with a reason, and that",
+    "decision lands in the audit trail. Destroying anything is then a separate,",
+    "deliberate act against the storage account.",
+    "",
+    "tierToCool and tierToArchive are safe in a way delete is not: a wrongly tiered",
+    "blob costs a rehydration wait, not the file."
+  ],
+  "policy": {
+    "rules": [
+      {
+        "enabled": true,
+        "name": "scmos-operational-documents",
+        "type": "Lifecycle",
+        "definition": {
+          "filters": {
+            "blobTypes": ["blockBlob"],
+            "prefixMatch": ["operation-files/SCMOS/"]
+          },
+          "actions": {
+            "baseBlob": {
+              "tierToCool": { "daysAfterModificationGreaterThan": 365 },
+              "tierToArchive": { "daysAfterModificationGreaterThan": 1095 }
+            },
+            "snapshot": {
+              "tierToCool": { "daysAfterCreationGreaterThan": 365 }
+            },
+            "version": {
+              "tierToCool": { "daysAfterCreationGreaterThan": 365 },
+              "tierToArchive": { "daysAfterCreationGreaterThan": 1095 }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

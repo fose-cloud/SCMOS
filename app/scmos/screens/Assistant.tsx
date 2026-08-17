@@ -15,6 +15,15 @@ import { css } from "../theme";
  */
 
 type Tool = { name: string; agent: string; permission: string; description: string; enabled: boolean };
+
+type Risk = {
+  question: string; headline: string; basis: string;
+  recommendedActions: string[];
+  groups: {
+    customer: string; shipments: number; reason: string; reasonTh: string;
+    examples: { jobKey: string; reference: string; date: string; carrier: string }[];
+  }[];
+};
 type Approval = {
   id: number; tool: string; agent: string; summary: string; payload: string; state: string;
   requestedBy: string; requestedAt: string;
@@ -38,10 +47,13 @@ const STATE_TONE: Record<string, string> = {
   pending: "#B45309", approved: "#16794C", rejected: "#B42318", applied: "#0A2240",
 };
 
-export function Assistant({ canApprove, onToast }: { canApprove: boolean; onToast: (m: string) => void }) {
+export function Assistant({ canApprove, onToast, onOpenJob }: {
+  canApprove: boolean; onToast: (m: string) => void; onOpenJob: (key: string) => void;
+}) {
   const [tools, setTools] = useState<Tool[] | null>(null);
   const [forbidden, setForbidden] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [risk, setRisk] = useState<Risk | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -62,18 +74,21 @@ export function Assistant({ canApprove, onToast }: { canApprove: boolean; onToas
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [toolsResponse, queueResponse] = await Promise.all([
+      const [toolsResponse, queueResponse, riskResponse] = await Promise.all([
         apiFetch("/api/ai/tools", { headers: { accept: "application/json" } }),
         apiFetch("/api/ai/approvals", { headers: { accept: "application/json" } }),
+        apiFetch("/api/risk", { headers: { accept: "application/json" } }),
       ]);
       const catalogue = toolsResponse.ok
         ? await toolsResponse.json() as { tools: Tool[]; forbidden: string[] }
         : { tools: [] as Tool[], forbidden: [] as string[] };
       const queue = queueResponse.ok ? await queueResponse.json() as Approval[] : [];
+      const answer = riskResponse.ok ? await riskResponse.json() as Risk : null;
       if (cancelled) return;
       setTools(catalogue.tools);
       setForbidden(catalogue.forbidden);
       setApprovals(queue);
+      setRisk(answer);
     })();
     return () => { cancelled = true; };
   }, []);
@@ -106,6 +121,8 @@ export function Assistant({ canApprove, onToast }: { canApprove: boolean; onToas
         <Tile label="รออนุมัติอยู่" value={pending.length} colour="#B42318" />
         <Tile label="ห้ามเด็ดขาด" value={forbidden.length} colour="#0A2240" />
       </div>
+
+      {risk && <RiskPanel risk={risk} onOpen={onOpenJob} />}
 
       <div style={css("background:#FFF8F0;border:1px solid #F0D8B8;border-radius:5px;padding:12px 15px;font-size:12px;color:#7A4A16;line-height:1.65")}>
         การลบข้อมูลไม่ได้อยู่ในรายการเครื่องมือเลย และไม่มีเส้นทางในโค้ดที่จะเรียกได้ —
@@ -209,6 +226,58 @@ export function Assistant({ canApprove, onToast }: { canApprove: boolean; onToas
 
 const CELL = "padding:8px 12px;vertical-align:top";
 const CELL_S = css(CELL);
+
+/**
+ * "วันนี้มีงานอะไรเสี่ยงบ้าง" — the answer, grouped by customer.
+ *
+ * The basis line is not decoration. This is computed from the register's own
+ * rules, and saying so is what stops the screen implying a language model
+ * reviewed the day. An assistant people believe read their work, when it did
+ * not, is one they will eventually trust with something it never looked at.
+ */
+function RiskPanel({ risk, onOpen }: { risk: Risk; onOpen: (key: string) => void }) {
+  return (
+    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
+      <div style={css("padding:13px 16px;border-bottom:1px solid #E9EFF5")}>
+        <div style={css("font-size:12.5px;color:#7B8CA0")}>{risk.question}</div>
+        <div style={css("font-size:15px;font-weight:650;color:#0A2240;margin-top:3px")}>{risk.headline}</div>
+      </div>
+
+      {risk.groups.length > 0 && (
+        <div style={css("display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:1px;background:#E9EFF5")}>
+          {risk.groups.map((group) => (
+            <div key={group.customer + group.reason} style={css("background:#fff;padding:11px 15px")}>
+              <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:8px")}>
+                <span style={css("font-weight:650;color:#0A2240;font-size:12.5px")}>{group.customer}</span>
+                <span style={css("font-family:ui-monospace,monospace;font-size:15px;font-weight:600;color:#B45309")}>{group.shipments}</span>
+              </div>
+              <div style={css("font-size:11.5px;color:#B42318;margin-top:2px")}>{group.reasonTh}</div>
+              <div style={css("margin-top:6px;display:flex;flex-wrap:wrap;gap:4px")}>
+                {group.examples.map((job) => (
+                  <button key={job.jobKey} onClick={() => onOpen(job.jobKey)}
+                    title={`${job.date}${job.carrier ? " · " + job.carrier : ""}`}
+                    style={css("border:1px solid #D8E0E8;background:#F8FAFC;color:#5A6B7D;border-radius:3px;padding:1px 6px;font-family:ui-monospace,monospace;font-size:10.5px;cursor:pointer")}>
+                    {job.reference || job.jobKey}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={css("padding:12px 16px;border-top:1px solid #E9EFF5")}>
+        <div style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:5px")}>
+          สิ่งที่ควรทำ
+        </div>
+        {risk.recommendedActions.map((action, index) => (
+          <div key={action} style={css("font-size:12.5px;color:#16232F;padding:2px 0")}>{index + 1}. {action}</div>
+        ))}
+        <div style={css("font-size:11px;color:#94A3B8;margin-top:9px;line-height:1.6")}>{risk.basis}</div>
+      </div>
+    </div>
+  );
+}
 
 function Mini({ label, tone, busy, onClick }: { label: string; tone: string; busy: boolean; onClick: () => void }) {
   return (

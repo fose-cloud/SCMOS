@@ -19,6 +19,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Every file the system holds — a job's, a supplier's, a case's.</summary>
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
 
+    /// <summary>Append-only. Nothing in the codebase deletes from it.</summary>
+    public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
     public DbSet<SupplierContact> SupplierContacts => Set<SupplierContact>();
@@ -243,6 +246,33 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => new { e.JobKey, e.Folder }).HasDatabaseName("document_job_idx");
             entry.HasIndex(e => e.SupplierId).HasDatabaseName("document_supplier_idx");
             entry.HasIndex(e => e.CaseId).HasDatabaseName("document_case_idx");
+        });
+
+        // The indexes are the three questions an audit asks: what happened to
+        // this record, what did this person do, and what happened in this window.
+        model.Entity<AuditEvent>(entry =>
+        {
+            entry.ToTable("audit_events");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.At).HasColumnName("at");
+            entry.Property(e => e.Who).HasColumnName("who").HasMaxLength(160);
+            entry.Property(e => e.WhoId).HasColumnName("who_id").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Role).HasColumnName("role").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.Action).HasColumnName("action").HasMaxLength(40);
+            entry.Property(e => e.Entity).HasColumnName("entity").HasMaxLength(40);
+            entry.Property(e => e.EntityId).HasColumnName("entity_id").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.EntityLabel).HasColumnName("entity_label").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.Field).HasColumnName("field").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.OldValue).HasColumnName("old_value").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.NewValue).HasColumnName("new_value").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.IpAddress).HasColumnName("ip_address").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.SessionId).HasColumnName("session_id").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.Source).HasColumnName("source").HasMaxLength(20).HasDefaultValue("web");
+            entry.HasIndex(e => new { e.Entity, e.EntityId }).HasDatabaseName("audit_entity_idx");
+            entry.HasIndex(e => e.Who).HasDatabaseName("audit_who_idx");
+            entry.HasIndex(e => e.At).HasDatabaseName("audit_at_idx");
         });
 
         // Supplier, rate and AI-permission tables. Column names stay snake_case

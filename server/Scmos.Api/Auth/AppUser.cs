@@ -1,3 +1,5 @@
+using Scmos.Api.Rules;
+
 namespace Scmos.Api.Auth;
 
 /// <summary>The signed-in person, in the shape the workspace already renders.</summary>
@@ -11,7 +13,10 @@ public record AppUser(
     /// <summary>Where the identity came from — "webapp" for App Service Web App Login.</summary>
     string Source)
 {
-    public bool IsSupervisor => StaffDirectory.IsSupervisor(Role);
+    public bool IsSupervisor => Roles.IsSupervisor(Role);
+
+    /// <summary>Whether this person may do a particular thing. The only permission question worth asking.</summary>
+    public bool Can(Capability capability) => Roles.Can(Role, capability);
 
     /// <summary>What gets written to updated_by, and shown in a job's history.</summary>
     public string Signature => Email.Length > 0 ? Email : UserId;

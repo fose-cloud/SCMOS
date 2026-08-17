@@ -14,11 +14,12 @@ namespace Scmos.Api.Endpoints;
 /// </summary>
 public static class SupplierEndpoints
 {
-    public record RegisterBody(string? Name, string? Code, string? ServiceType, string? ServiceArea);
-    public record StatusBody(string? Status);
-    public record AliasBody(string? Alias);
+    public record RegisterBody(string? Name, string? Code, string? ServiceType, string? ServiceArea, string? Reason);
+    public record StatusBody(string? Status, string? Reason);
+    public record AliasBody(string? Alias, string? Reason);
     public record EvaluateBody(string? Period, int? Safety, int? Documents, string? Note);
     public record RaiseBody(string? JobKey, string? Kind, string? Category, string? Title);
+    public record ReasonBody(string? Reason);
     public record InvokeBody(string? Tool, string? Summary, JsonElementPayload? Payload);
     public record DecideBody(bool Approved, string? Note);
     public record AppliedBody(string? Result);
@@ -49,25 +50,33 @@ public static class SupplierEndpoints
         });
 
         suppliers.MapPost("", async ([FromBody] RegisterBody body, HttpContext context, IUserAccessor users,
-            SupplierService service, CancellationToken token) =>
-            await Guarded(context, users, true, user => service.RegisterAsync(
-                body.Name ?? "", body.Code ?? "", body.ServiceType ?? "", body.ServiceArea ?? "",
-                user.Signature, token)));
+            SupplierService service, AuditService audit, CancellationToken token) =>
+            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+                user => service.RegisterAsync(body.Name ?? "", body.Code ?? "", body.ServiceType ?? "",
+                    body.ServiceArea ?? "", user.Signature, token),
+                AuditActions.Register, "supplier", body.Name ?? "", "", "", body.Name ?? "", body.Reason ?? ""));
 
         suppliers.MapPost("/{id:int}/status", async (int id, [FromBody] StatusBody body, HttpContext context,
-            IUserAccessor users, SupplierService service, CancellationToken token) =>
-            await Guarded(context, users, true, user => service.SetStatusAsync(
-                id, body.Status ?? "", user.Signature, token)));
+            IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
+            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+                user => service.SetStatusAsync(id, body.Status ?? "", user.Signature, token),
+                AuditActions.StatusChange, "supplier", id.ToString(), "สถานะการอนุมัติ", "",
+                body.Status ?? "", body.Reason ?? ""));
 
         suppliers.MapPost("/{id:int}/alias", async (int id, [FromBody] AliasBody body, HttpContext context,
-            IUserAccessor users, SupplierService service, CancellationToken token) =>
-            await Guarded(context, users, true, user => service.LinkAliasAsync(
-                id, body.Alias ?? "", user.Signature, token)));
+            IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
+            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+                user => service.LinkAliasAsync(id, body.Alias ?? "", user.Signature, token),
+                AuditActions.Update, "supplier", id.ToString(), "ชื่อที่ผูก", "", body.Alias ?? "",
+                body.Reason ?? ""));
 
         suppliers.MapPost("/{id:int}/evaluate", async (int id, [FromBody] EvaluateBody body, HttpContext context,
-            IUserAccessor users, SupplierService service, CancellationToken token) =>
-            await Guarded(context, users, true, user => service.EvaluateAsync(
-                id, body.Period ?? "", body.Safety, body.Documents, body.Note ?? "", user.Signature, token)));
+            IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
+            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+                user => service.EvaluateAsync(id, body.Period ?? "", body.Safety, body.Documents,
+                    body.Note ?? "", user.Signature, token),
+                "evaluate", "supplier", id.ToString(), $"ประเมินรอบ {body.Period}", "", body.Period ?? "",
+                body.Note ?? ""));
 
         /* ----------------------------------------------------------- rates */
         var rates = routes.MapGroup("/api/rates").WithTags("Rates");
@@ -107,20 +116,29 @@ public static class SupplierEndpoints
         });
 
         incidents.MapPost("", async ([FromBody] RaiseBody body, HttpContext context, IUserAccessor users,
-            IncidentService service, CancellationToken token) =>
-            await GuardedIncident(context, users, false, (user, _) => service.RaiseAsync(
-                body.JobKey ?? "", body.Kind ?? "CAR", body.Category ?? "other", body.Title ?? "",
-                user.Signature, token)));
+            IncidentService service, AuditService audit, CancellationToken token) =>
+            await GuardedIncident(context, users, audit, token,
+                (user, _) => service.RaiseAsync(body.JobKey ?? "", body.Kind ?? "CAR",
+                    body.Category ?? "other", body.Title ?? "", user.Signature, token),
+                "create", body.Title ?? "", "", "", "open", ""));
 
         incidents.MapPost("/{id:long}", async (long id, [FromBody] Dictionary<string, string> body,
-            HttpContext context, IUserAccessor users, IncidentService service, CancellationToken token) =>
-            await GuardedIncident(context, users, false, (user, _) => service.UpdateAsync(
-                id, body ?? [], user.Signature, token)));
+            HttpContext context, IUserAccessor users, IncidentService service, AuditService audit,
+            CancellationToken token) =>
+            await GuardedIncident(context, users, audit, token,
+                (user, _) => service.UpdateAsync(id, body ?? [], user.Signature, token),
+                AuditActions.Update, "", string.Join(", ", (body ?? []).Keys), "",
+                string.Join(" · ", (body ?? []).Values.Where(v => v.Trim().Length > 0)), ""));
 
-        incidents.MapPost("/{id:long}/advance", async (long id, HttpContext context, IUserAccessor users,
-            IncidentService service, CancellationToken token) =>
-            await GuardedIncident(context, users, false, (user, role) => service.AdvanceAsync(
-                id, user.Signature, role, token)));
+        // Advancing to closed is a signature, which is why the reason travels
+        // with it: "why was this case closed" is the question an auditor asks
+        // about a CAR/PAR, and the stage alone never answers it.
+        incidents.MapPost("/{id:long}/advance", async (long id, [FromBody] ReasonBody? body,
+            HttpContext context, IUserAccessor users, IncidentService service, AuditService audit,
+            CancellationToken token) =>
+            await GuardedIncident(context, users, audit, token,
+                (user, role) => service.AdvanceAsync(id, user.Signature, role, token),
+                AuditActions.Close, "", "ขั้นตอน", "", "", (body?.Reason ?? "").Trim()));
 
         // Evidence is uploaded, not declared: POST /api/documents with a caseId
         // and the file. This route stayed only long enough to notice that it let
@@ -168,56 +186,84 @@ public static class SupplierEndpoints
             return Results.Json(await gateway.ApprovalsAsync(state, token));
         });
 
+        // A person agreeing to a machine's proposal is the entry an audit will
+        // care about most, so it is recorded with the decision note as the
+        // reason — and with the assistant named as the source of the change.
         ai.MapPost("/approvals/{id:long}", async (long id, [FromBody] DecideBody body, HttpContext context,
-            IUserAccessor users, AiGateway gateway, CancellationToken token) =>
+            IUserAccessor users, AiGateway gateway, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             var outcome = await gateway.DecideAsync(id, body.Approved, body.Note ?? "", user, token);
-            return outcome.Ok
-                ? Results.Json(new { message = outcome.Message })
-                : ApiResults.Error(outcome.Message, StatusCodes.Status403Forbidden);
+            if (!outcome.Ok) return ApiResults.Error(outcome.Message, StatusCodes.Status403Forbidden);
+
+            await audit.RecordAsync(user,
+                body.Approved ? AuditActions.Approve : AuditActions.Reject,
+                "approval", id.ToString(), outcome.Message, "", "pending",
+                body.Approved ? "approved" : "rejected", body.Note ?? "", token, source: "ai");
+
+            return Results.Json(new { message = outcome.Message });
         });
 
         ai.MapPost("/approvals/{id:long}/applied", async (long id, [FromBody] AppliedBody body,
-            HttpContext context, IUserAccessor users, AiGateway gateway, CancellationToken token) =>
+            HttpContext context, IUserAccessor users, AiGateway gateway, AuditService audit,
+            CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!AiPermissions.CanApprove(user.Role))
+            if (!user.Can(Capability.ApproveAi))
                 return ApiResults.Error("ทำได้เฉพาะระดับหัวหน้างานขึ้นไป", StatusCodes.Status403Forbidden);
             var outcome = await gateway.MarkAppliedAsync(id, body.Result ?? "", token);
-            return outcome.Ok
-                ? Results.Json(new { message = outcome.Message })
-                : ApiResults.Error(outcome.Message, StatusCodes.Status400BadRequest);
+            if (!outcome.Ok) return ApiResults.Error(outcome.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Apply, "approval", id.ToString(), outcome.Message,
+                "", "approved", "applied", body.Result ?? "", token, source: "ai");
+
+            return Results.Json(new { message = outcome.Message });
         });
     }
 
+    /// <summary>
+    /// Checks the capability, runs the action, and records it.
+    ///
+    /// The audit row is written here rather than inside the service so that
+    /// adding a supplier route cannot quietly add an unaudited one — the same
+    /// wrapper that lets the call through is the one that writes it down.
+    /// </summary>
     private static async Task<IResult> Guarded(HttpContext context, IUserAccessor users,
-        bool supervisorOnly, Func<AppUser, Task<SupplierResult>> action)
+        Capability required, AuditService audit, CancellationToken token,
+        Func<AppUser, Task<SupplierResult>> action,
+        string auditAction, string entity, string entityId, string label,
+        string oldValue, string newValue, string reason)
     {
         var user = users.Current(context);
         if (user is null) return ApiResults.SignInRequired;
-        if (supervisorOnly && !user.IsSupervisor)
+        if (!user.Can(required))
             return ApiResults.Error("ทำได้เฉพาะระดับหัวหน้างานขึ้นไป", StatusCodes.Status403Forbidden);
 
         var result = await action(user);
-        return result.Ok
-            ? Results.Json(new { message = result.Message, id = result.Id })
-            : ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+        if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+        await audit.RecordAsync(user, auditAction, entity, result.Id?.ToString() ?? entityId,
+            label.Length > 0 ? label : result.Message, "", oldValue, newValue, reason, token);
+
+        return Results.Json(new { message = result.Message, id = result.Id });
     }
 
     private static async Task<IResult> GuardedIncident(HttpContext context, IUserAccessor users,
-        bool supervisorOnly, Func<AppUser, string, Task<IncidentResult>> action)
+        AuditService audit, CancellationToken token, Func<AppUser, string, Task<IncidentResult>> action,
+        string auditAction, string label, string field, string oldValue, string newValue, string reason)
     {
         var user = users.Current(context);
         if (user is null) return ApiResults.SignInRequired;
-        if (supervisorOnly && !user.IsSupervisor)
-            return ApiResults.Error("ทำได้เฉพาะระดับหัวหน้างานขึ้นไป", StatusCodes.Status403Forbidden);
 
         var result = await action(user, user.Role);
-        return result.Ok
-            ? Results.Json(new { message = result.Message, id = result.Id })
-            : ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+        if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+        await audit.RecordAsync(user, auditAction, "incident", result.Id?.ToString() ?? "",
+            label.Length > 0 ? label : result.Message, field, oldValue,
+            newValue.Length > 0 ? newValue : result.Message, reason, token);
+
+        return Results.Json(new { message = result.Message, id = result.Id });
     }
 }

@@ -69,7 +69,9 @@ export const TAB_DEFS: Record<string, string[]> = {
   // what the team is carrying is the point, and ownership controls editing
   // rather than looking.
   workspace: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
-  dashboard: ["Executive", "Operational", "Wall Board"],
+  // TODAY leads: the first question anyone opening the system has is what is
+  // happening now, and it is the one tab whose every figure comes from the API.
+  dashboard: ["TODAY", "Executive", "Operational", "Wall Board"],
   booking: ["Booking Queue", "Carrier Escalation", "SLA"],
   // Supplier and CAR/PAR read the real register now, and both carry their own
   // controls. Tabs that narrowed the demo table would be buttons that do

@@ -1,3 +1,5 @@
+using Scmos.Api.Rules;
+
 namespace Scmos.Api.Auth;
 
 /// <summary>
@@ -12,10 +14,15 @@ public record Operator(string Id, string Name, string Account, string Role);
 
 public static class StaffDirectory
 {
-    public const string DefaultRole = "Operation User";
+    public const string DefaultRole = Roles.Operation;
 
+    /// <summary>
+    /// Kept only for the places that still name roles. What a role may do is
+    /// decided in <see cref="Roles"/>, by capability — an array of role names
+    /// four files test against cannot say why any of them is on the list.
+    /// </summary>
     public static readonly string[] SupervisorRoles =
-        ["Operation Supervisor", "Assistant Manager", "Manager", "Administrator"];
+        Roles.All.Where(role => Roles.IsSupervisor(role.Name)).Select(role => role.Name).ToArray();
 
     /// <summary>
     /// Kept in step with ACCOUNTS in app/scmos/nav.ts. The five operation users
@@ -29,12 +36,12 @@ public static class StaffDirectory
         new("OP-03", "Ananya", "ananya", DefaultRole),
         new("OP-04", "Maliwan", "maliwan", DefaultRole),
         new("OP-05", "Jiratchaya", "jiratchaya", DefaultRole),
-        new("SV-01", "Titchanatorn", "titchanatorn", "Operation Supervisor"),
-        new("AM-01", "Nattikorn", "nattikorn", "Assistant Manager"),
-        new("AD-01", "Admin", "admin", "Administrator"),
+        new("SV-01", "Titchanatorn", "titchanatorn", Roles.Supervisor),
+        new("AM-01", "Nattikorn", "nattikorn", Roles.AssistantManager),
+        new("AD-01", "Admin", "admin", Roles.Admin),
     ];
 
-    public static bool IsSupervisor(string role) => SupervisorRoles.Contains(role);
+    public static bool IsSupervisor(string role) => Roles.IsSupervisor(role);
 
     /// <summary>
     /// The owner id for a name off the plan, or an empty string when the name is
