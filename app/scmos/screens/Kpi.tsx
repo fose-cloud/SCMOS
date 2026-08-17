@@ -37,10 +37,15 @@ export type KpiReport = {
   computedAt: string;
 };
 
+type TrendPoint = { period: string; value: number | null; base: number };
+
 type Measure = {
   id: string; english: string; thai: string; kind: string;
   available: boolean; value: number | null; base: number; unit: string; note: string;
   breakdown: Counted[];
+  target: number | null;
+  meetsTarget: boolean | null;
+  trend: TrendPoint[] | null;
 };
 
 type SupplierScore = {
@@ -53,7 +58,24 @@ type SupplierScore = {
 
 type EngineReport = { jobs: number; measures: Measure[]; suppliers: SupplierScore[] };
 
-export function Kpi({ period, onDrill }: { period: Period; onDrill: (screen: string) => void }) {
+/**
+ * Which workspace slice answers "why is this number what it is".
+ *
+ * Only the measures where the register can show you the jobs. Confirmation SLA
+ * and Billing have no slice to open because the records behind them do not
+ * exist yet, and a link to an empty list teaches people the links do not work.
+ */
+const DRILL: Record<string, { kpi?: string; status?: string }> = {
+  OnTimeDelivery: { kpi: "Done" },
+  Delay: { kpi: "Delay" },
+};
+
+export function Kpi({ period, onDrill, onOpenJobs }: {
+  period: Period;
+  onDrill: (screen: string) => void;
+  /** Opens the workspace on the jobs behind a figure. */
+  onOpenJobs: (filter: { kpi?: string; trucker?: string; status?: string }) => void;
+}) {
   const [report, setReport] = useState<KpiReport | null>(null);
   const [engine, setEngine] = useState<EngineReport | null>(null);
   const [error, setError] = useState("");
@@ -75,9 +97,12 @@ export function Kpi({ period, onDrill }: { period: Period; onDrill: (screen: str
 
         // apiFetch, not fetch: it carries the signed-in identity the API refuses
         // to answer without.
+        const withTrend = new URLSearchParams(query);
+        withTrend.set("trend", "true");
+
         const [operational, measures] = await Promise.all([
           apiFetch(`/api/kpi?${query}`, { headers: { accept: "application/json" } }),
-          apiFetch(`/api/kpi/measures?${query}`, { headers: { accept: "application/json" } }),
+          apiFetch(`/api/kpi/measures?${withTrend}`, { headers: { accept: "application/json" } }),
         ]);
         if (!operational.ok) throw new Error("HTTP " + operational.status);
         const body = await operational.json() as KpiReport;
@@ -148,40 +173,66 @@ export function Kpi({ period, onDrill }: { period: Period; onDrill: (screen: str
           <div style={css("overflow-x:auto")}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
-                <tr>{["ตัวชี้วัด", "ค่า", "ฐานที่วัด", "รายละเอียด"].map((h, i) => (
+                <tr>{["ตัวชี้วัด", "ค่า", "เป้า", "แนวโน้ม", "ฐานที่วัด", "รายละเอียด"].map((h, i) => (
                   <th key={h} style={css(
-                    "padding:8px 14px;text-align:" + (i === 1 || i === 2 ? "right" : "left") +
+                    "padding:8px 14px;text-align:" + (i >= 1 && i <= 2 || i === 4 ? "right" : "left") +
                     ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;white-space:nowrap",
                   )}>{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
-                {engine.measures.map((measure) => (
-                  <tr key={measure.id} style={css("border-bottom:1px solid #F1F5F9")}>
-                    <td style={css("padding:9px 14px")}>
-                      <div style={css("font-weight:600;color:#0A2240")}>{measure.thai}</div>
-                      <div style={css("font-size:11px;color:#94A3B8")}>{measure.english}</div>
-                    </td>
-                    <td style={css("padding:9px 14px;text-align:right;font-family:ui-monospace,monospace;font-weight:600;white-space:nowrap;color:" +
-                      (measure.available ? "#16232F" : "#B45309"))}>
-                      {measure.available && measure.value !== null
-                        ? measure.kind === "Rate" ? `${measure.value}${measure.unit}` : `${measure.value.toLocaleString()} ${measure.unit}`
-                        : "ยังวัดไม่ได้"}
-                    </td>
-                    <td style={css("padding:9px 14px;text-align:right;font-family:ui-monospace,monospace;color:#7B8CA0")}>
-                      {measure.base.toLocaleString()}
-                    </td>
-                    <td style={css("padding:9px 14px;color:#5A6B7D;font-size:11.5px")}>
-                      {measure.note}
-                      {measure.breakdown.length > 0 && (
-                        <div style={css("color:#94A3B8;margin-top:2px")}>
-                          {measure.breakdown.filter((b) => b.value > 0).slice(0, 5)
-                            .map((b) => `${b.label} ${b.value.toLocaleString()}`).join(" · ") || "—"}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {engine.measures.map((measure) => {
+                  const drill = DRILL[measure.id];
+                  return (
+                    <tr key={measure.id} style={css("border-bottom:1px solid #F1F5F9;vertical-align:top")}>
+                      <td style={css("padding:9px 14px")}>
+                        {drill ? (
+                          <button onClick={() => onOpenJobs(drill)}
+                            style={css("border:none;background:none;padding:0;font-family:inherit;text-align:left;cursor:pointer")}>
+                            <div style={css("font-weight:600;color:#0A5FA8")}>{measure.thai} →</div>
+                            <div style={css("font-size:11px;color:#94A3B8")}>{measure.english}</div>
+                          </button>
+                        ) : (
+                          <>
+                            <div style={css("font-weight:600;color:#0A2240")}>{measure.thai}</div>
+                            <div style={css("font-size:11px;color:#94A3B8")}>{measure.english}</div>
+                          </>
+                        )}
+                      </td>
+                      <td style={css("padding:9px 14px;text-align:right;font-family:ui-monospace,monospace;font-weight:600;white-space:nowrap;color:" +
+                        (!measure.available ? "#B45309"
+                          : measure.meetsTarget === false ? "#B42318"
+                            : measure.meetsTarget === true ? "#16794C" : "#16232F"))}>
+                        {measure.available && measure.value !== null
+                          ? measure.kind === "Rate" ? `${measure.value}${measure.unit}` : `${measure.value.toLocaleString()} ${measure.unit}`
+                          : "ยังวัดไม่ได้"}
+                      </td>
+                      <td style={css("padding:9px 14px;text-align:right;font-family:ui-monospace,monospace;white-space:nowrap;color:#7B8CA0")}>
+                        {measure.target === null ? "—" : `${measure.target}%`}
+                        {measure.meetsTarget !== null && (
+                          <div style={css("font-size:10.5px;font-weight:700;color:" + (measure.meetsTarget ? "#16794C" : "#B42318"))}>
+                            {measure.meetsTarget ? "ถึงเป้า" : "ต่ำกว่าเป้า"}
+                          </div>
+                        )}
+                      </td>
+                      <td style={css("padding:9px 14px")}>
+                        <Trend points={measure.trend} unit={measure.unit} />
+                      </td>
+                      <td style={css("padding:9px 14px;text-align:right;font-family:ui-monospace,monospace;color:#7B8CA0")}>
+                        {measure.base.toLocaleString()}
+                      </td>
+                      <td style={css("padding:9px 14px;color:#5A6B7D;font-size:11.5px;max-width:320px")}>
+                        {measure.note}
+                        {measure.breakdown.length > 0 && (
+                          <div style={css("color:#94A3B8;margin-top:2px")}>
+                            {measure.breakdown.filter((b) => b.value > 0).slice(0, 5)
+                              .map((b) => `${b.label} ${b.value.toLocaleString()}`).join(" · ") || "—"}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -191,18 +242,35 @@ export function Kpi({ period, onDrill }: { period: Period; onDrill: (screen: str
       {engine && engine.suppliers.some((s) => s.score !== null) && (
         <Panel
           title="คะแนนผู้ขนส่ง"
-          note={`ให้คะแนนได้ ${engine.suppliers.filter((s) => s.score !== null).length} เจ้า · อีก ${engine.suppliers.filter((s) => s.score === null).length} เจ้ายังมีข้อมูลไม่พอ`}
+          note={`ให้คะแนนได้ ${engine.suppliers.filter((s) => s.score !== null).length} เจ้า · อีก ${engine.suppliers.filter((s) => s.score === null).length} เจ้ายังมีข้อมูลไม่พอ · คลิกชื่อเพื่อดูงานของเจ้านั้น`}
         >
-          <Table
-            head={["ผู้ขนส่ง", "งาน", "ตรงเวลา %", "ฐาน", "คะแนน"]}
-            rows={engine.suppliers.filter((s) => s.score !== null).map((s) => [
-              s.carrier,
-              s.jobs.toLocaleString(),
-              s.onTime === null ? "—" : String(s.onTime),
-              s.onTimeBase.toLocaleString(),
-              String(s.score),
-            ])}
-          />
+          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
+            <thead><tr>{["ผู้ขนส่ง", "งาน", "ตรงเวลา", "ตอบยืนยัน", "ไม่มีความล่าช้า", "คะแนน"].map((h, i) => (
+              <th key={h} style={css("padding:8px 14px;text-align:" + (i === 0 ? "left" : "right") +
+                ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
+            ))}</tr></thead>
+            <tbody>
+              {engine.suppliers.filter((s) => s.score !== null).map((s) => (
+                <tr key={s.carrier} style={css("border-bottom:1px solid #F1F5F9")}>
+                  <td style={css("padding:8px 14px")}>
+                    <button onClick={() => onOpenJobs({ trucker: s.carrier })}
+                      style={css("border:none;background:none;padding:0;font-family:inherit;font-size:12.5px;font-weight:600;color:#0A5FA8;cursor:pointer")}>
+                      {s.carrier} →
+                    </button>
+                  </td>
+                  <td style={NUM_S}>{s.jobs.toLocaleString()}</td>
+                  {/* Each component shows its own base. A carrier scored on
+                      forty measured jobs and one scored on five are not the same
+                      claim, and the score alone hides which is which. */}
+                  <Component value={s.onTime} base={s.onTimeBase} />
+                  <Component value={s.confirmation} base={s.confirmationBase} />
+                  <Component value={s.delayFree} base={s.delayCount} baseLabel="ล่าช้า" />
+                  <td style={css("padding:8px 14px;text-align:right;font-family:ui-monospace,monospace;font-weight:600;color:" +
+                    (s.score! >= 85 ? "#16794C" : s.score! >= 70 ? "#B45309" : "#B42318"))}>{s.score}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Panel>
       )}
 
@@ -237,20 +305,33 @@ export function Kpi({ period, onDrill }: { period: Period; onDrill: (screen: str
           />
         </Panel>
 
-        <Panel title="ตรงเวลาแยกตามผู้ขนส่ง" note="แสดงเฉพาะเจ้าที่มีงานวัดผลได้">
-          <Table
-            head={["ผู้ขนส่ง", "งาน", "วัดได้", "ตรงเวลา", "%"]}
-            rows={report.carriers
-              .filter((c) => c.measured > 0)
-              .slice(0, 14)
-              .map((c) => [
-                c.carrier,
-                c.total.toLocaleString(),
-                c.measured.toLocaleString(),
-                c.onTime.toLocaleString(),
-                c.percent + "%",
-              ])}
-          />
+        <Panel title="ตรงเวลาแยกตามผู้ขนส่ง" note="แสดงเฉพาะเจ้าที่มีงานวัดผลได้ · คลิกชื่อเพื่อดูงาน">
+          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
+            <thead><tr>{["ผู้ขนส่ง", "งาน", "วัดได้", "ตรงเวลา", "%"].map((h, i) => (
+              <th key={h} style={css("padding:8px 14px;text-align:" + (i === 0 ? "left" : "right") +
+                ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
+            ))}</tr></thead>
+            <tbody>
+              {report.carriers.filter((c) => c.measured > 0).slice(0, 14).map((c) => (
+                <tr key={c.carrier} style={css("border-bottom:1px solid #F1F5F9")}>
+                  <td style={css("padding:8px 14px")}>
+                    <button onClick={() => onOpenJobs({ trucker: c.carrier })}
+                      style={css("border:none;background:none;padding:0;font-family:inherit;font-size:12.5px;font-weight:600;color:#0A5FA8;cursor:pointer")}>
+                      {c.carrier} →
+                    </button>
+                  </td>
+                  <td style={NUM_S}>{c.total.toLocaleString()}</td>
+                  <td style={NUM_S}>{c.measured.toLocaleString()}</td>
+                  <td style={NUM_S}>{c.onTime.toLocaleString()}</td>
+                  <td style={css(NUM + ";font-weight:600;color:" +
+                    (c.percent >= 95 ? "#16794C" : c.percent >= 80 ? "#B45309" : "#B42318"))}>{c.percent}%</td>
+                </tr>
+              ))}
+              {!report.carriers.some((c) => c.measured > 0) && (
+                <tr><td colSpan={5} style={css("padding:22px;text-align:center;color:#94A3B8")}>ไม่มีข้อมูลในช่วงนี้</td></tr>
+              )}
+            </tbody>
+          </table>
         </Panel>
 
         <Panel title="ปริมาณงานตามหมวด" note={report.undated ? `${report.undated} งานไม่มีวันที่ใช้ได้` : "ทุกงานมีวันที่"}>
@@ -300,6 +381,49 @@ async function download(period: Period, setBusy: (busy: boolean) => void) {
   }
 }
 
+/**
+ * The measure over the preceding months.
+ *
+ * A bar per month with the latest value beside it, and the direction of travel
+ * spelled out — 55% is a crisis if it was 80% last month and a recovery if it
+ * was 40%. When the register only holds one month there is no trend to draw, and
+ * the screen says that rather than leaving an empty cell somebody reads as a
+ * loading failure.
+ */
+function Trend({ points, unit }: { points: TrendPoint[] | null; unit: string }) {
+  const measured = (points ?? []).filter((p) => p.value !== null);
+  if (measured.length < 2) {
+    return (
+      <div style={css("font-size:11px;color:#94A3B8;white-space:nowrap")}>
+        {points === null || points.length < 2 ? "มีข้อมูลเดือนเดียว" : "วัดได้เดือนเดียว"}
+      </div>
+    );
+  }
+
+  const values = measured.map((p) => p.value!);
+  const top = Math.max(...values, 1);
+  const first = values[0];
+  const last = values[values.length - 1];
+  const change = Math.round((last - first) * 10) / 10;
+
+  return (
+    <div style={css("display:flex;gap:8px;align-items:flex-end;white-space:nowrap")}>
+      <div style={css("display:flex;gap:2px;align-items:flex-end;height:26px")} title={
+        measured.map((p) => `${p.period} ${p.value}${unit} (${p.base})`).join("\n")
+      }>
+        {measured.map((point) => (
+          <div key={point.period}
+            style={css(`width:7px;border-radius:1px;background:${point === measured[measured.length - 1] ? "#0A2240" : "#C9D6E2"};height:${Math.max(2, Math.round((point.value! / top) * 26))}px`)} />
+        ))}
+      </div>
+      <div style={css("font-size:11px;font-family:ui-monospace,monospace;color:" +
+        (change === 0 ? "#7B8CA0" : change > 0 ? "#16794C" : "#B42318"))}>
+        {change > 0 ? "▲" : change < 0 ? "▼" : "="}{Math.abs(change)}
+      </div>
+    </div>
+  );
+}
+
 function Tile({ label, value, note, colour, onClick }: {
   label: string; value: string; note: string; colour: string; onClick?: () => void;
 }) {
@@ -314,6 +438,23 @@ function Tile({ label, value, note, colour, onClick }: {
   return onClick
     ? <button onClick={onClick} style={css(skin + ";font-family:inherit;cursor:pointer")}>{body}</button>
     : <div style={css(skin)}>{body}</div>;
+}
+
+const NUM = "padding:8px 14px;text-align:right;font-family:ui-monospace,monospace;color:#16232F";
+const NUM_S = css(NUM);
+
+/** One component of a carrier's score, with the base it was measured over. */
+function Component({ value, base, baseLabel }: { value: number | null; base: number; baseLabel?: string }) {
+  return (
+    <td style={css(NUM)}>
+      {value === null
+        ? <span style={css("color:#B45309;font-family:inherit;font-size:11.5px")}>ยังวัดไม่ได้</span>
+        : <>
+            <div>{value}%</div>
+            <div style={css("font-size:10.5px;color:#94A3B8")}>{baseLabel ? `${baseLabel} ${base}` : base}</div>
+          </>}
+    </td>
+  );
 }
 
 function Panel({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {

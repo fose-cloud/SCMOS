@@ -586,6 +586,42 @@ npx azurite --silent --location .azurite --blobPort 10000
 Then set `Storage:ConnectionString` to `UseDevelopmentStorage=true` in
 `server/Scmos.Api/appsettings.Local.json` (git-ignored).
 
+## KPI
+
+Eight measures, computed in .NET from the register, each carrying the base it was
+measured over. Three things make the screen answerable rather than decorative:
+
+- **A target.** On-time delivery and pickup are held to 95%, confirmation SLA to
+  90% — the figures the operation already works to. The other five have no
+  target and say so; an invented one is worse than none, because the first thing
+  a target does is tell people which numbers to argue about.
+- **A trend.** Each measure carries the preceding six months, built by running
+  the same engine once per month so a trend point and the headline figure can
+  never be computed two different ways. 55% is a crisis if it was 80% last month
+  and a recovery if it was 40%. The register currently holds one month, so the
+  screen says "มีข้อมูลเดือนเดียว" rather than drawing nothing.
+- **A way through.** Every carrier row and the measures with a matching slice
+  open the workspace on the jobs behind the number. A rate you cannot open is a
+  rate you cannot act on.
+
+The scorecard shows each component with its own base — a carrier scored on forty
+measured jobs and one scored on five are not the same claim.
+
+> **Two bugs this turned up, both of the same kind.**
+>
+> Delay-free was computed from `delay_records`, a table nothing writes to yet, so
+> every carrier scored exactly 100% and collected a perfect fifth of their score
+> for it. The component meant to separate carriers gave the best and the
+> least-known the same mark. It now reads the register when the records are
+> empty, and returns **null** rather than 100 when neither can say.
+>
+> Then the delay count came out at 2 while the workspace's DELAY tab showed 64.
+> The tab counts a held status **or** a recorded reason — a job delayed on
+> Tuesday and delivered on Wednesday is no longer held, and the reason an
+> operator typed is its only trace. The engine counted status alone. One word,
+> two definitions, thirty-fold apart, on two screens of the same app.
+> `JobRules.WasDelayed` is now the single definition and the counts agree.
+
 ## Incident and CAR/PAR
 
 One register in the database — a case carries its kind — so the Incident and

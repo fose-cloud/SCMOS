@@ -24,12 +24,17 @@ public static class KpiEndpoints
 
         // The eight measures the business reports on, each with the base it was
         // measured over and whether it can be measured at all.
-        routes.MapGet("/api/kpi/measures", async (string? year, string? month, string? day,
+        routes.MapGet("/api/kpi/measures", async (string? year, string? month, string? day, bool? trend,
             HttpContext context, IUserAccessor users, KpiEngine engine, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
             var period = new Period(Clean(year, 4), Clean(month, 2), Clean(day, 2));
-            return Results.Json(await engine.BuildAsync(period, token));
+            // The trend runs the engine once per month, so it is asked for
+            // rather than always computed — the Excel export and the dashboard
+            // want a single period and should not pay for six.
+            return Results.Json(trend == true
+                ? await engine.BuildWithTrendAsync(period, token)
+                : await engine.BuildAsync(period, token));
         }).WithTags("KPI");
 
         routes.MapGet("/api/kpi/excel", async (string? year, string? month, string? day,

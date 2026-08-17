@@ -26,7 +26,20 @@ public record Measure(
     int Base,
     string Unit,
     string Note,
-    IReadOnlyList<Counted> Breakdown);
+    IReadOnlyList<Counted> Breakdown,
+    /// <summary>What the team agreed to hit, when somebody has agreed one.</summary>
+    double? Target = null,
+    /// <summary>Whether the figure meets it. Null when either side is unknown.</summary>
+    bool? MeetsTarget = null,
+    /// <summary>
+    /// The same measure over the preceding months, oldest first. A number with
+    /// no direction is a number nobody can act on: 55% is a crisis if it was 80%
+    /// last month and a recovery if it was 40%.
+    /// </summary>
+    IReadOnlyList<TrendPoint>? Trend = null);
+
+/// <param name="Period">"2026-07", as the month is written in a report.</param>
+public record TrendPoint(string Period, double? Value, int Base);
 
 public record SupplierScore(
     string Carrier,
@@ -88,7 +101,7 @@ public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
             OnTimeDelivery(jobs),
             OnTimePickup(milestones),
             ConfirmationSla(requests, preRuns),
-            Delay(delays),
+            Delay(delays, jobs),
             Accident(cases),
             CarPar(cases),
             Billing(),
@@ -97,6 +110,70 @@ public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
 
         return new KpiEngineReport(period, jobs.Count, measures, scores,
             DateTimeOffset.UtcNow.ToString("O"));
+    }
+
+    /// <summary>How many months of history the trend looks back over.</summary>
+    private const int TrendMonths = 6;
+
+    /// <summary>
+    /// The report, with each measure carrying the preceding months alongside it.
+    ///
+    /// Built by running the same engine once per month rather than by a separate
+    /// query, so a trend point and the headline figure can never be computed two
+    /// different ways. It costs one pass per month over a register that is a few
+    /// thousand rows; if that ever stops being cheap, cache it — do not fork the
+    /// calculation.
+    /// </summary>
+    public async Task<KpiEngineReport> BuildWithTrendAsync(Period period, CancellationToken token)
+    {
+        var report = await BuildAsync(period, token);
+
+        var months = await MonthsAsync(token);
+        if (months.Count == 0) return report;
+
+        // The months up to and including the one being reported on. Looking at
+        // July while the trend runs to December would be a graph of the future.
+        var upTo = period.Year.Length > 0 && period.Month.Length > 0
+            ? $"{period.Year}-{period.Month}"
+            : months[^1];
+        var window = months.Where(month => string.CompareOrdinal(month, upTo) <= 0)
+            .TakeLast(TrendMonths).ToList();
+        if (window.Count < 2) return report;
+
+        var byMonth = new List<(string Month, KpiEngineReport Report)>();
+        foreach (var month in window)
+        {
+            var parts = month.Split('-');
+            byMonth.Add((month, await BuildAsync(new Period(parts[0], parts[1], ""), token)));
+        }
+
+        var measures = report.Measures.Select(measure => measure with
+        {
+            Trend = byMonth
+                .Select(entry =>
+                {
+                    var match = entry.Report.Measures.FirstOrDefault(m => m.Id == measure.Id);
+                    return new TrendPoint(entry.Month, match?.Value, match?.Base ?? 0);
+                })
+                .ToList(),
+        }).ToList();
+
+        return report with { Measures = measures };
+    }
+
+    /// <summary>Every month the register has work in, oldest first.</summary>
+    private async Task<List<string>> MonthsAsync(CancellationToken token)
+    {
+        var dates = await db.OperationJobs.AsNoTracking()
+            .Select(job => job.WorkDate).ToListAsync(token);
+
+        return dates
+            .Select(date => Formats.PartsOf(date))
+            .Where(parts => parts.Year.Length > 0 && parts.Month.Length > 0)
+            .Select(parts => $"{parts.Year}-{parts.Month}")
+            .Distinct()
+            .OrderBy(month => month, StringComparer.Ordinal)
+            .ToList();
     }
 
     /* ------------------------------------------------------------ measures */
@@ -164,24 +241,58 @@ public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
             breakdown);
     }
 
-    private static Measure Delay(List<DelayRecord> delays)
+    /// <summary>
+    /// How much is running late.
+    ///
+    /// Reported zero for months while the workspace showed sixty-four delayed
+    /// jobs, because it counted only <c>delay_records</c> — the categorised,
+    /// attributed rows somebody is meant to write and nobody has. The register's
+    /// own statuses are the weaker source and the one that actually has data, so
+    /// they are used when the records are empty, and the note says which it is.
+    /// </summary>
+    private static Measure Delay(List<DelayRecord> delays,
+        List<(string Key, string Carrier, JobRecord Record)> jobs)
     {
-        var breakdown = delays
-            .GroupBy(delay => delay.Category)
-            .Select(group => new Counted(
-                DelayReasons.Thai(Enum.TryParse<DelayCategory>(group.Key, true, out var c) ? c : DelayCategory.Other),
-                group.Count()))
+        if (delays.Count > 0)
+        {
+            var breakdown = delays
+                .GroupBy(delay => delay.Category)
+                .Select(group => new Counted(
+                    DelayReasons.Thai(Enum.TryParse<DelayCategory>(group.Key, true, out var c) ? c : DelayCategory.Other),
+                    group.Count()))
+                .OrderByDescending(entry => entry.Value)
+                .ToList();
+
+            var impact = delays.Where(d => d.ImpactMinutes is not null).Sum(d => d.ImpactMinutes!.Value);
+            var againstCarrier = delays.Count(d => d.AgainstCarrier);
+
+            return Count(MeasureId.Delay, delays.Count, "รายการ",
+                $"รวมกระทบ {impact:N0} นาที · เป็นความรับผิดชอบของผู้ขนส่ง {againstCarrier} รายการ",
+                breakdown);
+        }
+
+        var held = jobs.Where(job => JobRules.WasDelayed(job.Record)).ToList();
+        if (held.Count == 0)
+        {
+            return Count(MeasureId.Delay, 0, "รายการ",
+                "ไม่มีงานที่พักไว้ในทะเบียน และยังไม่มีการบันทึกความล่าช้าแยกรายการ", []);
+        }
+
+        // Grouped by carrier rather than by category: without delay records
+        // there is no category, and inventing one would be the same mistake in a
+        // different place.
+        var byCarrier = held
+            .Where(job => job.Carrier.Length > 0)
+            .GroupBy(job => job.Carrier)
+            .Select(group => new Counted(group.Key, group.Count()))
             .OrderByDescending(entry => entry.Value)
+            .Take(8)
             .ToList();
 
-        var impact = delays.Where(d => d.ImpactMinutes is not null).Sum(d => d.ImpactMinutes!.Value);
-        var againstCarrier = delays.Count(d => d.AgainstCarrier);
-
-        return Count(MeasureId.Delay, delays.Count, "รายการ",
-            delays.Count == 0
-                ? "ยังไม่มีการบันทึกความล่าช้า"
-                : $"รวมกระทบ {impact:N0} นาที · เป็นความรับผิดชอบของผู้ขนส่ง {againstCarrier} รายการ",
-            breakdown);
+        return Count(MeasureId.Delay, held.Count, "รายการ",
+            "นับจากสถานะในทะเบียน (ยังไม่มีการบันทึกสาเหตุแยกรายการ) — ตัวเลขนี้ต่ำกว่าความจริง " +
+            "เพราะงานที่ล่าช้าแล้วส่งจบไปแล้วจะไม่เหลือร่องรอยในสถานะ",
+            byCarrier);
     }
 
     private static Measure Accident(List<IncidentCase> cases)
@@ -249,6 +360,18 @@ public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
             .GroupBy(d => d.JobKey)
             .ToDictionary(group => group.Key, group => group.Count());
 
+        // Whether anything can be said about delays at all, and from what.
+        //
+        // This used to read delay_records alone. Nothing writes to that table
+        // yet, so every carrier came out delay-free at exactly 100% and each
+        // collected a perfect fifth of their score for it — the least-known
+        // carrier and the best one scored identically on the component meant to
+        // separate them. The register does know about delays: a job sitting at a
+        // held or delayed status is delayed, and there are sixty-four of them.
+        var evidence = delayByJob.Count > 0 ? DelayEvidence.Records
+            : jobs.Any(job => JobRules.WasDelayed(job.Record)) ? DelayEvidence.Status
+                : DelayEvidence.None;
+
         var built = jobs
             .Where(job => job.Carrier.Length > 0)
             .GroupBy(job => job.Carrier)
@@ -266,8 +389,17 @@ public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
                     : (double)answered.Count(r => (r.RespondedAt!.Value - r.RequestedAt).TotalMinutes <= _sla) / answered.Count;
 
                 var jobKeys = group.Select(job => job.Key).ToList();
-                var delayed = jobKeys.Count(key => delayByJob.ContainsKey(key));
-                double? delayFree = jobKeys.Count == 0 ? null : 1.0 - (double)delayed / jobKeys.Count;
+                var delayed = evidence switch
+                {
+                    DelayEvidence.Records => jobKeys.Count(key => delayByJob.ContainsKey(key)),
+                    DelayEvidence.Status => group.Count(job => JobRules.WasDelayed(job.Record)),
+                    _ => 0,
+                };
+                // Null, not 100, when nothing can say. That distinction is the
+                // whole point of the component.
+                double? delayFree = evidence == DelayEvidence.None || jobKeys.Count == 0
+                    ? null
+                    : 1.0 - (double)delayed / jobKeys.Count;
 
                 return new SupplierScore(
                     group.Key, group.Count(),
@@ -306,11 +438,11 @@ public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
         IReadOnlyList<Counted>? breakdown = null)
     {
         var definition = KpiMeasures.Of(id);
+        var value = measured == 0 ? (double?)null : Math.Round(met * 100.0 / measured, 1);
         return new Measure(
             id.ToString(), definition.English, definition.Thai, "Rate",
-            measured > 0,
-            measured == 0 ? null : Math.Round(met * 100.0 / measured, 1),
-            measured, "%", note, breakdown ?? []);
+            measured > 0, value, measured, "%", note, breakdown ?? [],
+            definition.Target, Meets(definition, value));
     }
 
     private static Measure Count(MeasureId id, int value, string unit, string note,
@@ -321,8 +453,18 @@ public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
         // result — so a count is always available, unlike a rate with no base.
         return new Measure(
             id.ToString(), definition.English, definition.Thai, "Count",
-            true, value, value, unit, note, breakdown ?? []);
+            true, value, value, unit, note, breakdown ?? [],
+            definition.Target, Meets(definition, value));
     }
+
+    /// <summary>
+    /// Whether a figure meets its target, or null when either side is unknown.
+    /// A measure with no target is not failing one.
+    /// </summary>
+    private static bool? Meets(MeasureDefinition definition, double? value) =>
+        definition.Target is not { } target || value is not { } actual
+            ? null
+            : definition.HigherIsBetter ? actual >= target : actual <= target;
 
     private static double? Percent(double? ratio) =>
         ratio is null ? null : Math.Round(ratio.Value * 100, 1);

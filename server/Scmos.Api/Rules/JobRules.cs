@@ -52,8 +52,28 @@ public static partial class JobRules
     public static bool IsRunning(string status) =>
         JobStatus.IsControlled(Code(status)) ? JobStatus.IsRunning(Code(status)) : Running().IsMatch(status);
 
+    /// <summary>
+    /// Whether a job is currently held or delayed, by its status alone.
+    ///
+    /// Narrower than what the workspace calls delayed — see
+    /// <see cref="WasDelayed"/>, which is the definition the screens use and the
+    /// one to reach for when counting.
+    /// </summary>
     public static bool IsDelayed(string status) =>
         JobStatus.IsControlled(Code(status)) ? JobStatus.IsHeld(Code(status)) : Delayed().IsMatch(status);
+
+    /// <summary>
+    /// Whether this job ran late, by everything the register knows.
+    ///
+    /// A held status, or a delay reason somebody wrote down. The second half
+    /// matters more than it looks: a job delayed on Tuesday and delivered on
+    /// Wednesday is no longer held, and its only trace is the reason an operator
+    /// typed. Counting the status alone found 2 delays where the workspace's
+    /// DELAY tab — which has always used both — showed 64. The same word meant
+    /// two things thirty-fold apart on two screens of the same app.
+    /// </summary>
+    public static bool WasDelayed(JobRecord job) =>
+        IsDelayed(job.Status) || Formats.Clean(job.Reason).Length > 0;
 
     public static bool IsDone(string status) =>
         JobStatus.IsControlled(Code(status)) ? JobStatus.IsDone(Code(status)) : Done().IsMatch(status);

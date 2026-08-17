@@ -32,20 +32,28 @@ public record MeasureDefinition(
     /// <summary>What has to exist before this can be measured — shown when it cannot.</summary>
     string Source,
     /// <summary>Higher is better for a rate; for a count, lower is better.</summary>
-    bool HigherIsBetter);
+    bool HigherIsBetter,
+    /// <summary>
+    /// What the team agreed to hit. Null where nobody has set one — an invented
+    /// target is worse than none, because the first thing a target does is tell
+    /// people which numbers to argue about.
+    /// </summary>
+    double? Target = null);
 
 public static class KpiMeasures
 {
     public static readonly MeasureDefinition[] All =
     [
+        // The three targets are the ones the operation already works to. The rest
+        // have none, and say so rather than being given a plausible round number.
         new(MeasureId.OnTimeDelivery, "On-Time Delivery", "ส่งมอบตรงเวลา", MeasureKind.Rate,
-            "วันและเวลาตามแผน กับวันและเวลาที่ถึงจริง ในทะเบียนงาน", true),
+            "วันและเวลาตามแผน กับวันและเวลาที่ถึงจริง ในทะเบียนงาน", true, 95),
 
         new(MeasureId.OnTimePickup, "On-Time Pickup", "รับตู้ตรงเวลา", MeasureKind.Rate,
-            "milestone รับตู้ที่บันทึกเวลาแผนและเวลาจริงไว้ (shipment_milestones)", true),
+            "milestone รับตู้ที่บันทึกเวลาแผนและเวลาจริงไว้ (shipment_milestones)", true, 95),
 
         new(MeasureId.ConfirmationSla, "Confirmation SLA", "ตอบยืนยันภายใน SLA", MeasureKind.Rate,
-            "คำขอรถที่ผู้ขนส่งตอบกลับ (supplier_requests) และ pre-run ที่ได้รับคำตอบ (pre_run_checks)", true),
+            "คำขอรถที่ผู้ขนส่งตอบกลับ (supplier_requests) และ pre-run ที่ได้รับคำตอบ (pre_run_checks)", true, 90),
 
         new(MeasureId.Delay, "Delay", "ความล่าช้า", MeasureKind.Count,
             "รายการความล่าช้าที่บันทึกพร้อมหมวด (delay_records)", false),
@@ -97,6 +105,13 @@ public static class KpiMeasures
     /// the least-known carriers at the top of the list — which is the opposite
     /// of what a scorecard is for. Delay-free only counts alongside a component
     /// that was actually measured.
+    ///
+    /// The second rule was being satisfied on a technicality. Delay-free was
+    /// computed from <c>delay_records</c>, a table nothing writes to yet, so it
+    /// came out at exactly 100% for every carrier and quietly added a perfect
+    /// fifth of the score to all of them. It was measured, it just measured
+    /// nothing. Pass <paramref name="delayFree"/> as null when neither the delay
+    /// records nor the register can say — see <see cref="DelayEvidence"/>.
     /// </summary>
     public static int? Score(
         double? onTime, int onTimeBase,
@@ -122,4 +137,22 @@ public static class KpiMeasures
         if (weight == 0) return null;
         return (int)Math.Round(total / weight * 100, MidpointRounding.AwayFromZero);
     }
+}
+
+/// <summary>Where a delay figure came from, so the screen can say how much to trust it.</summary>
+public enum DelayEvidence
+{
+    /// <summary>Nothing to go on. The figure is null, not zero.</summary>
+    None,
+
+    /// <summary>
+    /// From the register's own statuses: jobs currently held or delayed. It is
+    /// real evidence and it undercounts — a job delayed mid-run and then
+    /// completed leaves no trace in its status. Better than the alternative,
+    /// which was reporting a perfect record from an empty table.
+    /// </summary>
+    Status,
+
+    /// <summary>From delay_records, where somebody categorised and attributed it.</summary>
+    Records,
 }

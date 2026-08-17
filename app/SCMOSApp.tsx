@@ -1453,7 +1453,18 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                   Loading operation data…
                 </div>)}
 
-            {screen === "kpi" && <Kpi period={period} onDrill={(next) => setScreen(next as Screen)} />}
+            {screen === "kpi" && (
+              <Kpi
+                period={period}
+                onDrill={(next) => setScreen(next as Screen)}
+                // Every figure on the KPI screen is a way into the jobs behind
+                // it. A rate you cannot open is a rate you cannot act on.
+                onOpenJobs={(filter) => {
+                  openTarget({ tab: "PENDING", kpi: filter.kpi, status: filter.status });
+                  if (filter.trucker) setWs((prev) => ({ ...prev, trucker: filter.trucker! }));
+                }}
+              />
+            )}
 
             {screen === "monitoring" && (ops
               ? <Monitoring jobs={periodJobs} canEdit={canEditJob} onToast={setToast} />
