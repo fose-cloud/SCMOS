@@ -34,7 +34,31 @@ yarn-error.log*
 # vercel
 .vercel
 
-/dist/
-/.wrangler/
 /outputs/
 /work/
+
+# The register carries real driver names, phone numbers and plates. Exports and
+# database snapshots stay on the machine that made them.
+/migration/*.json
+/migration/*.sqlite
+
+# .NET
+/server/**/bin/
+/server/**/obj/
+/server/**/appsettings.Local.json
+
+# Build artefacts
+tsconfig.tsbuildinfo
+/migration/.export-copy.sqlite*
+
+# Operational data files.
+#
+# ops.json carries real customer names, driver names and driver phone numbers.
+# rates.json carries eighteen subcontractors' negotiated prices, which each of
+# them would consider commercial-in-confidence.
+#
+# Neither has ever been tracked, and this repository has a remote — git history
+# is effectively permanent, so they stay out of it. The register itself now
+# lives in Azure SQL; see migration/README.md to rebuild these locally.
+/public/data/ops.json
+/public/data/rates.json

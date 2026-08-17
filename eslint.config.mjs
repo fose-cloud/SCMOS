@@ -10,10 +10,11 @@ import tseslint from "typescript-eslint";
 const eslintConfig = defineConfig([
   globalIgnores([
     ".next/**",
-    "dist/**",
     "out/**",
-    "build/**",
     "next-env.d.ts",
+    // The API is C# and the migration scripts are one-shot Node.
+    "server/**",
+    "migration/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
