@@ -310,31 +310,58 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db, f, revision]);
 
-  const me = auth ?? ACCOUNTS[0];
-
   /**
-   * What this person may do, from the API.
+   * Who this person is and what they may do — both from the API.
    *
-   * The screens need it to decide what to render, and the API is where it is
-   * enforced — so it is fetched rather than re-derived here. Deriving it in the
-   * browser is how a Viewer ends up with an edit button: the old test was
-   * `role !== "Operation User"`, which was true for every role that is not an
-   * operator, including the four that may not write at all.
+   * The API reads the same platform headers the page render did, and it is the
+   * copy that answers for every write, so it decides the role, the owner id and
+   * the capability list. The browser used to work all three out for itself:
+   * a role table the code told you to keep in step with the API's, an email
+   * matcher beside `StaffDirectory.Match`, and a capability test that read
+   * `role !== "Operation User"`. Three second opinions about who somebody is.
    *
-   * Until it arrives, nothing beyond reading is offered. A moment of too few
-   * buttons is recoverable; a moment of too many is not.
+   * Until this lands the account has no owner id and no capabilities, so no job
+   * looks like yours and no write control is offered. That is the safe direction
+   * to be wrong in: a moment of too few buttons is recoverable, a moment of too
+   * many is not.
    */
+  const [identity, setIdentity] = useState<
+    { role: string; opId: string; name: string; init: string; known: boolean } | null>(null);
   const [can, setCan] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const response = await apiFetch("/api/me", { headers: { accept: "application/json" } });
       if (!response.ok || cancelled) return;
-      const body = await response.json() as { can?: string[] };
-      if (!cancelled) setCan(new Set(body.can ?? []));
+      const body = await response.json() as {
+        account?: { role?: string; opId?: string; name?: string; init?: string };
+        can?: string[];
+        known?: boolean;
+      };
+      if (cancelled) return;
+      setCan(new Set(body.can ?? []));
+      if (body.account) {
+        setIdentity({
+          role: body.account.role ?? "",
+          opId: body.account.opId ?? "",
+          name: body.account.name ?? "",
+          init: body.account.init ?? "",
+          known: body.known !== false,
+        });
+      }
     })();
     return () => { cancelled = true; };
   }, [signedInAs]);
+
+  const base = auth ?? ACCOUNTS[0];
+  // The API's answer wins over whatever the page render guessed. In development
+  // the demo account already carries a role, so this changes nothing; deployed,
+  // it is the only thing that fills them in.
+  const me: Account = identity
+    ? { ...base, role: identity.role || base.role, opId: identity.opId || base.opId,
+        name: identity.name || base.name, init: identity.init || base.init }
+    : base;
 
   const able = (capability: string) => can.has(capability);
   const isSupervisor = able("ApproveAi");
@@ -1350,6 +1377,25 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
         {!isDetail && (
           <>
+            {/* Signed in, but the staff directory has never heard of them. Every
+                job will look like somebody else's and nothing will be editable,
+                which is correct and indistinguishable from a broken system
+                unless it is said out loud. */}
+            {identity && !identity.known && (
+              <div style={css("background:#FFF8F0;border:1px solid #F0D8B8;border-left:3px solid #B45309;border-radius:5px;padding:13px 16px;margin-bottom:14px")}>
+                <div style={css("font-size:13px;font-weight:650;color:#B45309;margin-bottom:3px")}>
+                  บัญชีนี้ยังไม่อยู่ในทะเบียนพนักงาน
+                </div>
+                <div style={css("font-size:12.5px;color:#5A6B7D;line-height:1.6")}>
+                  ลงชื่อเข้าใช้สำเร็จแล้ว แต่ระบบยังไม่รู้ว่าคุณเป็นใครในแผน จึงไม่มีงานไหนนับเป็นของคุณ
+                  และแก้ไขอะไรไม่ได้ — สิทธิ์ปัจจุบันคือ <b>{me.role || "อ่านอย่างเดียว"}</b>
+                  <br />
+                  ให้ผู้ดูแลระบบเพิ่มบัญชีนี้ใน <code style={css("font-family:ui-monospace,monospace")}>StaffDirectory</code> หรือ
+                  ตั้งบทบาทใน <code style={css("font-family:ui-monospace,monospace")}>Auth:Roles</code> ของ API
+                </div>
+              </div>
+            )}
+
             {/* TODAY comes from the API rather than the in-browser jobs, so it
                 bypasses the period bar the other three tabs share — "today" is
                 not a filter over a chosen period, it is the day itself. */}

@@ -98,18 +98,23 @@ export type Account = {
 export const DEFAULT_ROLE = "Operation User";
 
 /**
- * The people the register knows about.
+ * The demo sign-in list, and the name-to-owner-id map the plan needs.
  *
- * `opId` is the load-bearing field. Ownership used to be `job.op === user.name`,
- * matching the operator's display name — which worked only for as long as the
- * app invented its own accounts. Web App Login introduces the same person as
- * `watsana.k@leschaco.co.th` with a full name, and on the day that arrived every
- * operator would have lost every job at once. The id sits between the two:
- * the plan workbooks still say "Watsana", sign-in still says the email, and both
- * resolve to OP-01.
+ * Two jobs, both local to the browser:
+ *
+ * 1. The development login screen, which exists because there is no identity
+ *    provider in front of `npm run dev`. Deployed, Web App Login has already
+ *    said who this is and `/api/me` says what they may do — this list is not
+ *    consulted for either.
+ *
+ * 2. `opIdForName`, which turns the operator name written in a plan workbook
+ *    into an owner id. The importer needs it before a job has ever reached the
+ *    API, so a freshly keyed job looks like yours immediately rather than after
+ *    a round trip. The API derives the same id on save from `StaffDirectory`,
+ *    and its answer is the one stored.
  *
  * `name` must stay spelled exactly as it appears in ops.json — that spelling is
- * what the backfill in ops.ts matches on.
+ * what the backfill in ops.ts matches on — and in step with `StaffDirectory.All`.
  */
 export const ACCOUNTS: Account[] = [
   { user: "watsana", name: "Watsana", full: "Watsana", role: DEFAULT_ROLE, id: "OP-01", opId: "OP-01", init: "WA" },
@@ -142,22 +147,11 @@ export function opIdForName(name: string): string {
   return found?.opId ?? "";
 }
 
-/**
- * Matches a signed-in identity to the directory: first on the local part of the
- * email, then on the stem before its first dot, then on the first word of the
- * display name.
- */
-export function matchAccount(email: string, displayName: string): Account | undefined {
-  const local = (email.includes("@") ? email.slice(0, email.indexOf("@")) : email).trim().toLowerCase();
-  if (local) {
-    const byAccount = ACCOUNTS.find((account) => account.user === local);
-    if (byAccount) return byAccount;
-    const byStem = ACCOUNTS.find((account) => account.user === local.split(".")[0]);
-    if (byStem) return byStem;
-  }
-  const first = (displayName ?? "").trim().split(/\s+/)[0];
-  return first ? ACCOUNTS.find((account) => account.name.toLowerCase() === first.toLowerCase()) : undefined;
-}
+// Matching a signed-in email to a directory person lives in
+// `StaffDirectory.Match` and nowhere else. The browser had its own copy, which
+// would have been a second opinion about who somebody is — and ownership, which
+// decides whose jobs a person can edit, is derived from it. `/api/me` answers
+// instead.
 
 /**
  * Gone on purpose.

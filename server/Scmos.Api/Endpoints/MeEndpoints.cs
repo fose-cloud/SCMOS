@@ -48,6 +48,11 @@ public static class MeEndpoints
                 scope = Roles.Find(user.Role) is { } definition
                     ? new { en = definition.ScopeEn, th = definition.ScopeTh }
                     : null,
+                // No owner id means the staff directory has never heard of this
+                // person. Their workspace will be empty and nothing will look
+                // like theirs — which is correct, and looks exactly like a
+                // broken system unless the screen is told to say so.
+                known = user.OperatorId.Length > 0,
                 source = user.Source,
             });
         }).WithTags("Identity");

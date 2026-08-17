@@ -82,7 +82,7 @@ public class JobsRepository(ScmosDbContext db)
 
         var rows = await db.OperationJobs.AsNoTracking()
             .Where(job => wanted.Contains(job.Key))
-            .Select(job => new { job.Key, job.Trucker, job.Status, job.Owner, job.WorkDate, job.Container, job.Data })
+            .Select(job => new { job.Key, job.Trucker, job.Status, job.Owner, job.OwnerId, job.WorkDate, job.Container, job.Data })
             .ToListAsync(token);
 
         foreach (var row in rows)
@@ -92,6 +92,9 @@ public class JobsRepository(ScmosDbContext db)
                 ["trucker"] = row.Trucker,
                 ["status"] = row.Status,
                 ["op"] = row.Owner,
+                // Not audited — no rule in AuditActions names it — but carried
+                // so the save route can check who owns a job before writing it.
+                ["ownerId"] = row.OwnerId,
                 ["date"] = row.WorkDate,
                 ["container"] = row.Container,
             };
@@ -112,6 +115,26 @@ public class JobsRepository(ScmosDbContext db)
         }
 
         return snapshot;
+    }
+
+    /// <summary>
+    /// Which of these jobs belong to somebody other than <paramref name="ownerId"/>.
+    ///
+    /// A job with no owner recorded, and a key that is not in the register yet,
+    /// both count as available — an unassigned job is a visible problem for a
+    /// person to fix, not a locked one, and a new job has no previous owner to
+    /// take it from.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> OthersJobsAsync(IReadOnlyList<string> keys, string ownerId,
+        CancellationToken token)
+    {
+        var wanted = keys.Select(key => Text(key, 80)).Where(key => key.Length > 0).Distinct().ToList();
+        if (wanted.Count == 0) return [];
+
+        return await db.OperationJobs.AsNoTracking()
+            .Where(job => wanted.Contains(job.Key) && job.OwnerId != "" && job.OwnerId != ownerId)
+            .Select(job => job.Key)
+            .ToListAsync(token);
     }
 
     /// <summary>

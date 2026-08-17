@@ -144,11 +144,34 @@ worst thing this system could leak. `/api/rates` refuses them, and the
 Administration screen shows the whole matrix read from the same table the API
 enforces against, so what people read cannot drift from what is in force.
 
-The browser asks `/api/me` for its capability list rather than deriving one.
-Deriving it is what went wrong before: the edit test was
-`role !== "Operation User"`, which is true of a supervisor **and** of every
-read-only role, so the day CS, Management and Viewer accounts existed they would
-each have been handed an edit button. That test existed in three files.
+**The browser decides nothing about identity or permission.** `/api/me` answers
+with the role, the owner id and the capability list, and the API is the copy that
+enforces them. Three separate second opinions were removed to get there:
+
+- a `ROLE_BY_EMAIL` table in `app/auth.ts` whose own comment told you to "keep it
+  in step with Auth:Roles" — two answers to "is this person a supervisor", and
+  the one users would have seen was not the one enforced;
+- a `matchAccount` beside `StaffDirectory.Match`, deciding which directory person
+  an email is — and therefore which jobs are yours;
+- an edit test reading `role !== "Operation User"`, in three files, true of a
+  supervisor **and** of every read-only role.
+
+Until `/api/me` answers, an account has no owner id and no capabilities: no job
+looks like yours and no write control is offered. That is the safe direction to
+be wrong in.
+
+An email in neither `Auth:Roles` nor the staff directory gets **Viewer**, and the
+workspace says so rather than silently showing nothing — an account nobody has
+added yet should be able to read and nothing else, and an empty workspace with no
+explanation is indistinguishable from a broken system.
+
+> **Enforcement is at the API, not the screen.** `PUT /api/jobs` checked only
+> that you were signed in: a Viewer could write to the register, and an operator
+> could write to another operator's job, because ownership lived in the grid that
+> drew the rows. `DELETE` had no check at all beyond sign-in. Both now test the
+> capability and, for anyone without `EditAnyJob`, refuse a batch containing
+> somebody else's job. Verified: Viewer write → 403, cross-owner write → 403,
+> Viewer delete → 403, own-job write → 200, supervisor → 200.
 
 ### Audit trail
 

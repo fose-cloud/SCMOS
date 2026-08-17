@@ -37,15 +37,37 @@ public static class JobsEndpoints
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
 
+            // Signing in was the only thing this route ever checked, which meant
+            // a Viewer, a Management account or anybody the directory has never
+            // heard of could write to the register — the browser hid the
+            // controls and that was the whole of the protection. Ownership is
+            // enforced per job below; this is the gate for writing at all.
+            if (!user.Can(Capability.EditOwnJobs) && !user.Can(Capability.EditAnyJob))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขข้อมูลงาน", StatusCodes.Status403Forbidden);
+
             var incoming = body.Jobs ?? [];
             if (incoming.Count == 0) return Results.Json(new { saved = 0 });
             if (incoming.Count > JobsRepository.Limit)
                 return ApiResults.Error($"Too many jobs in one save (max {JobsRepository.Limit})", StatusCodes.Status413PayloadTooLarge);
 
+            var keys = incoming.Select(job => Key(job)).Where(key => key.Length > 0).ToList();
+
+            // Ownership, enforced here rather than only in the grid that draws
+            // the rows. "An Operation User edits their own jobs" was a rule the
+            // browser kept and the API took on trust, which made it a rule about
+            // what the screen offers rather than about what can happen.
+            if (!user.Can(Capability.EditAnyJob))
+            {
+                var others = await jobs.OthersJobsAsync(keys, user.OperatorId, token);
+                if (others.Count > 0)
+                    return ApiResults.Error(
+                        $"แก้ไม่ได้ — {others.Count} งานในชุดนี้เป็นของผู้อื่น",
+                        StatusCodes.Status403Forbidden);
+            }
+
             // Read what the register says now, before the write replaces it.
             // Without this the trail could say what a field became but never what
             // it was, which is the half that makes an entry arguable.
-            var keys = incoming.Select(job => Key(job)).Where(key => key.Length > 0).ToList();
             var before = incoming.Count <= EditBatchLimit
                 ? await jobs.SnapshotAsync(keys, token)
                 : [];
@@ -91,6 +113,22 @@ public static class JobsEndpoints
             }
 
             var wanted = body?.Keys ?? [];
+
+            // Deleting had no check at all beyond being signed in: any account
+            // could remove any job by sending its key. The grid refused to offer
+            // the button, which is not the same thing.
+            if (!user.Can(Capability.EditOwnJobs) && !user.Can(Capability.EditAnyJob))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ลบข้อมูลงาน", StatusCodes.Status403Forbidden);
+
+            if (!user.Can(Capability.EditAnyJob))
+            {
+                var others = await jobs.OthersJobsAsync(wanted, user.OperatorId, token);
+                if (others.Count > 0)
+                    return ApiResults.Error(
+                        $"ลบไม่ได้ — {others.Count} งานในชุดนี้เป็นของผู้อื่น",
+                        StatusCodes.Status403Forbidden);
+            }
+
             // Snapshotted first so the trail can say which job was removed rather
             // than only its key — a deleted row cannot be looked up afterwards.
             var labels = wanted.Count <= EditBatchLimit

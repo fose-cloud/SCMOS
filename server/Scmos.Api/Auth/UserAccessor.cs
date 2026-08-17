@@ -127,12 +127,23 @@ public class UserAccessor(IOptions<AuthOptions> options, IHostEnvironment enviro
             : new AppUser(known.Id, "", known.Name, known.Role, known.Id, "development");
     }
 
+    /// <summary>
+    /// The one place a signed-in identity becomes a role and an owner id.
+    ///
+    /// Order: an explicit <c>Auth:Roles</c> entry, then the staff directory,
+    /// then <see cref="Rules.Roles.Viewer"/> — not the default operator role.
+    /// Somebody the directory has never heard of is a person nobody has added
+    /// yet, and read-only is the honest answer to that. Giving them a writer
+    /// role instead produces an account that looks like an operator, owns no
+    /// jobs, and can still report fleet capacity — which is worse than an
+    /// obvious lack of access somebody fixes in a minute.
+    /// </summary>
     private AppUser Build(string userId, string email, string displayName, string source)
     {
         var matched = StaffDirectory.Match(email, displayName);
         var role = _options.Roles.TryGetValue(email, out var configured) && configured.Length > 0
             ? configured
-            : matched?.Role ?? StaffDirectory.DefaultRole;
+            : matched?.Role ?? Rules.Roles.Viewer;
 
         return new AppUser(
             userId.Length > 0 ? userId : email,
