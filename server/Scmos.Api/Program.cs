@@ -37,6 +37,10 @@ builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<PreRunService>();
 builder.Services.AddScoped<MonitoringService>();
+builder.Services.AddScoped<RateService>();
+builder.Services.AddScoped<SupplierService>();
+builder.Services.AddScoped<IncidentService>();
+builder.Services.AddScoped<AiGateway>();
 builder.Services.Configure<PreRunOptions>(builder.Configuration.GetSection(PreRunOptions.Section));
 builder.Services.AddSingleton<IUserAccessor, UserAccessor>();
 builder.Services.AddSingleton<IFileStore, BlobFileStore>();
@@ -76,6 +80,11 @@ if (args.Contains("--seed"))
     return await PlanSeeder.RunAsync(app, args);
 }
 
+if (args.Contains("--seed-suppliers"))
+{
+    return await SupplierSeeder.RunAsync(app, args);
+}
+
 if (args.Contains("--migrate-status"))
 {
     return await StatusMigration.RunAsync(app, args);
@@ -104,6 +113,7 @@ app.MapKpi();
 app.MapWorkflow();
 app.MapPreRun();
 app.MapMonitoring();
+app.MapSuppliers();
 app.MapUploads();
 app.MapOperations();
 app.MapAiExtract();

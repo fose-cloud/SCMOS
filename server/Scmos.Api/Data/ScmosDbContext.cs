@@ -16,6 +16,23 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<DelayRecord> DelayRecords => Set<DelayRecord>();
     public DbSet<IncidentCase> IncidentCases => Set<IncidentCase>();
     public DbSet<IncidentEvidence> IncidentEvidence => Set<IncidentEvidence>();
+
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
+    public DbSet<SupplierContact> SupplierContacts => Set<SupplierContact>();
+    public DbSet<SupplierDocument> SupplierDocuments => Set<SupplierDocument>();
+    public DbSet<SupplierTruck> SupplierTrucks => Set<SupplierTruck>();
+    public DbSet<SupplierDriver> SupplierDrivers => Set<SupplierDriver>();
+    public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
+    public DbSet<SupplierEvaluation> SupplierEvaluations => Set<SupplierEvaluation>();
+
+    public DbSet<FuelBand> FuelBands => Set<FuelBand>();
+    public DbSet<RateLane> RateLanes => Set<RateLane>();
+    public DbSet<RatePrice> RatePrices => Set<RatePrice>();
+    public DbSet<RateSurcharge> RateSurcharges => Set<RateSurcharge>();
+
+    public DbSet<AiTool> AiTools => Set<AiTool>();
+    public DbSet<Approval> Approvals => Set<Approval>();
     public DbSet<ReportUpload> ReportUploads => Set<ReportUpload>();
     public DbSet<OperationUpload> OperationUploads => Set<OperationUpload>();
     public DbSet<OperationEntry> OperationEntries => Set<OperationEntry>();
@@ -207,6 +224,168 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.UploadedBy).HasColumnName("uploaded_by").HasMaxLength(120);
             entry.Property(e => e.UploadedAt).HasColumnName("uploaded_at");
             entry.HasIndex(e => e.CaseId).HasDatabaseName("incident_evidence_case_idx");
+        });
+
+        // Supplier, rate and AI-permission tables. Column names stay snake_case
+        // like the rest of the schema; EF's defaults for keys and lengths are
+        // fine everywhere the value is not something the team types.
+        model.Entity<Supplier>(e =>
+        {
+            e.ToTable("suppliers");
+            e.Property(x => x.Code).HasMaxLength(30);
+            e.Property(x => x.Name).HasMaxLength(160);
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("draft");
+            e.Property(x => x.VendorNo).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.TaxId).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.Address).HasMaxLength(400).HasDefaultValue("");
+            e.Property(x => x.ServiceArea).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.ServiceType).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.ApprovedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.LastEvaluatedPeriod).HasMaxLength(20).HasDefaultValue("");
+            e.HasIndex(x => x.Code).IsUnique().HasDatabaseName("suppliers_code_idx");
+            e.HasIndex(x => x.Name).HasDatabaseName("suppliers_name_idx");
+        });
+
+        model.Entity<SupplierAlias>(e =>
+        {
+            e.ToTable("supplier_aliases");
+            e.Property(x => x.Alias).HasMaxLength(160);
+            e.Property(x => x.Source).HasMaxLength(20).HasDefaultValue("");
+            e.HasIndex(x => x.Alias).IsUnique().HasDatabaseName("supplier_alias_idx");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_alias_supplier_idx");
+        });
+
+        model.Entity<SupplierContact>(e =>
+        {
+            e.ToTable("supplier_contacts");
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.Property(x => x.Role).HasMaxLength(80).HasDefaultValue("");
+            e.Property(x => x.Phone).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.Email).HasMaxLength(160).HasDefaultValue("");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_contact_idx");
+        });
+
+        model.Entity<SupplierDocument>(e =>
+        {
+            e.ToTable("supplier_documents");
+            e.Property(x => x.Kind).HasMaxLength(30);
+            e.Property(x => x.Title).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.ObjectKey).HasMaxLength(400).HasDefaultValue("");
+            e.Property(x => x.ExpiryDate).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.UploadedBy).HasMaxLength(120).HasDefaultValue("");
+            e.HasIndex(x => new { x.SupplierId, x.Kind }).HasDatabaseName("supplier_document_idx");
+        });
+
+        model.Entity<SupplierTruck>(e =>
+        {
+            e.ToTable("supplier_trucks");
+            e.Property(x => x.Plate).HasMaxLength(60);
+            e.Property(x => x.VehicleType).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.RegistrationExpiry).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("active");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_truck_idx");
+        });
+
+        model.Entity<SupplierDriver>(e =>
+        {
+            e.ToTable("supplier_drivers");
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.Property(x => x.Phone).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.LicenceNo).HasMaxLength(60).HasDefaultValue("");
+            e.Property(x => x.LicenceExpiry).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.TrainingExpiry).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("active");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_driver_idx");
+        });
+
+        model.Entity<SupplierCapacity>(e =>
+        {
+            e.ToTable("supplier_capacity");
+            e.Property(x => x.Date).HasMaxLength(20);
+            e.Property(x => x.VehicleType).HasMaxLength(20);
+            e.Property(x => x.UpdatedBy).HasMaxLength(120).HasDefaultValue("");
+            e.HasIndex(x => new { x.Date, x.VehicleType }).HasDatabaseName("supplier_capacity_date_idx");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_capacity_supplier_idx");
+        });
+
+        model.Entity<SupplierEvaluation>(e =>
+        {
+            e.ToTable("supplier_evaluations");
+            e.Property(x => x.Period).HasMaxLength(20);
+            e.Property(x => x.Grade).HasMaxLength(10).HasDefaultValue("");
+            e.Property(x => x.Note).HasMaxLength(1000).HasDefaultValue("");
+            e.Property(x => x.Stage).HasMaxLength(20).HasDefaultValue("draft");
+            e.Property(x => x.EvaluatedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.ApprovedBy).HasMaxLength(120).HasDefaultValue("");
+            e.HasIndex(x => new { x.SupplierId, x.Period }).IsUnique().HasDatabaseName("supplier_evaluation_idx");
+        });
+
+        model.Entity<FuelBand>(e =>
+        {
+            e.ToTable("fuel_bands");
+            e.Property(x => x.Label).HasMaxLength(40);
+            e.Property(x => x.MinPrice).HasPrecision(6, 2);
+            e.Property(x => x.MaxPrice).HasPrecision(6, 2);
+            e.HasIndex(x => x.Position).IsUnique().HasDatabaseName("fuel_band_position_idx");
+        });
+
+        model.Entity<RateLane>(e =>
+        {
+            e.ToTable("rate_lanes");
+            e.Property(x => x.Carrier).HasMaxLength(120);
+            e.Property(x => x.Service).HasMaxLength(20);
+            e.Property(x => x.Customer).HasMaxLength(300).HasDefaultValue("");
+            e.Property(x => x.FromPlace).HasMaxLength(400).HasDefaultValue("");
+            e.Property(x => x.ToPlace).HasMaxLength(400).HasDefaultValue("");
+            e.Property(x => x.County).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Remark).HasMaxLength(300).HasDefaultValue("");
+            e.Property(x => x.SourceFile).HasMaxLength(300).HasDefaultValue("");
+            e.HasIndex(x => new { x.Carrier, x.Service }).HasDatabaseName("rate_lane_carrier_idx");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("rate_lane_supplier_idx");
+        });
+
+        model.Entity<RatePrice>(e =>
+        {
+            e.ToTable("rate_prices");
+            e.Property(x => x.Vehicle).HasMaxLength(20);
+            // The lookup is always lane plus vehicle plus band, so that is the index.
+            e.HasIndex(x => new { x.LaneId, x.Vehicle, x.BandPosition }).HasDatabaseName("rate_price_lookup_idx");
+        });
+
+        model.Entity<RateSurcharge>(e =>
+        {
+            e.ToTable("rate_surcharges");
+            e.Property(x => x.Service).HasMaxLength(20);
+            e.Property(x => x.No).HasMaxLength(10);
+            e.Property(x => x.Description).HasMaxLength(500);
+            e.Property(x => x.Currency).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.Rate).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.Unit).HasMaxLength(80).HasDefaultValue("");
+        });
+
+        model.Entity<AiTool>(e =>
+        {
+            e.ToTable("ai_tools");
+            e.Property(x => x.Name).HasMaxLength(60);
+            e.Property(x => x.Agent).HasMaxLength(30);
+            e.Property(x => x.Permission).HasMaxLength(10);
+            e.Property(x => x.Description).HasMaxLength(400).HasDefaultValue("");
+            e.HasIndex(x => x.Name).IsUnique().HasDatabaseName("ai_tool_name_idx");
+        });
+
+        model.Entity<Approval>(e =>
+        {
+            e.ToTable("approvals");
+            e.Property(x => x.Tool).HasMaxLength(60);
+            e.Property(x => x.Agent).HasMaxLength(30).HasDefaultValue("");
+            e.Property(x => x.Summary).HasMaxLength(500);
+            e.Property(x => x.Payload).HasColumnType("nvarchar(max)");
+            e.Property(x => x.State).HasMaxLength(20).HasDefaultValue("pending");
+            e.Property(x => x.RequestedBy).HasMaxLength(120);
+            e.Property(x => x.DecidedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.DecisionNote).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.Result).HasMaxLength(1000).HasDefaultValue("");
+            e.HasIndex(x => new { x.State, x.RequestedAt }).HasDatabaseName("approval_state_idx");
         });
 
         model.Entity<ReportUpload>(upload =>

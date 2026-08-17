@@ -27,6 +27,11 @@ import { Kpi } from "./scmos/screens/Kpi";
 import { Monitoring } from "./scmos/screens/Monitoring";
 import { PreRun } from "./scmos/screens/PreRun";
 import { Audit, NotBuilt } from "./scmos/screens/Audit";
+import { Suppliers } from "./scmos/screens/Suppliers";
+import { Incidents } from "./scmos/screens/Incidents";
+import { Assistant } from "./scmos/screens/Assistant";
+import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
+import { Quotation } from "./scmos/screens/Quotation";
 
 /**
  * Screens the menu names that the system cannot honestly fill yet.
@@ -39,26 +44,18 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
     ready: ["ขั้นตอน ตรวจ B/L และ ส่งเอกสารให้ผู้ขนส่ง อยู่ใน workflow แล้ว พร้อมการพักงานเมื่อ B/L ไม่ตรงหรือภาพไม่ชัด"],
     missing: ["หน้าจอเทียบ B/L กับ booking", "อัปโหลด E-Card และเอกสารเข้า Blob", "เรียก Document Agent อ่านเอกสาร"],
   },
-  incident: {
-    ready: ["ตาราง incident_cases และ incident_evidence พร้อม 5W1H, root cause, CAPA, ผู้รับผิดชอบ, กำหนดเสร็จ และการอนุมัติโดยคน"],
-    missing: ["service และ endpoint", "อัปโหลดหลักฐานเข้า Blob", "AI สรุปเหตุการณ์", "เชื่อมจากการพักงาน Incident ใน workflow"],
-  },
-  assistant: {
-    ready: ["ข้อมูลทั้งหมดอยู่ใน Azure SQL แล้ว และ KPI Engine ตอบคำถามอย่าง “ผู้ขนส่งไหนตรงเวลาน้อยสุด” ได้"],
-    missing: ["ชั้น AI Permission และ tool layer — ต้องทำก่อนสร้าง agent", "Agent Router และ agent ทั้ง 6 ตัว"],
-  },
-  vendor: {
-    ready: ["ยังไม่มี — ต้องมีตาราง supplier ก่อน"],
-    missing: ["ตาราง supplier", "ฟอร์มลงทะเบียน", "อัปโหลดเอกสาร", "Pre-Audit และ Audit", "อนุมัติหรือ CAP"],
-  },
-  evaluation: {
-    ready: ["คะแนนผู้ขนส่งคำนวณได้แล้วในหน้า KPI (ตรงเวลา 50% · ตอบยืนยัน 30% · ไม่มีความล่าช้า 20%)"],
-    missing: ["ตาราง supplier", "รอบการประเมินประจำปีและการเก็บผลย้อนหลัง", "แบบฟอร์มประเมินและการอนุมัติ"],
-  },
-  quotation: {
-    ready: ["ตารางราคา 2,270 เส้นทางอ่านได้แล้ว และ parser รองรับฟอร์ม LESCHACO ทั้ง 4 แบบ รวมถึงฟอร์มของ DGT"],
-    missing: ["ย้ายตารางราคาเข้า Azure SQL (ตอนนี้เป็นไฟล์ที่ web app เสิร์ฟ)", "รอบขอใบเสนอราคาและการเปรียบเทียบ", "อนุมัติราคา"],
-  },
+};
+
+/**
+ * Screens that render their own component off the API.
+ *
+ * The generic table builder still knows how to draw a demo register for some of
+ * these names; listing them here keeps it from drawing one underneath the real
+ * thing.
+ */
+const OWN_SCREEN: Partial<Record<Screen, true>> = {
+  subcontractors: true, carpar: true, incident: true, assistant: true,
+  vendor: true, evaluation: true, quotation: true,
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
@@ -307,6 +304,10 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   }, [db, f, revision]);
 
   const me = auth ?? ACCOUNTS[0];
+  // Hides the controls a supervisor-only route would refuse anyway. The refusal
+  // itself lives in the API — this only keeps people from pressing buttons that
+  // were never going to work for them.
+  const isSupervisor = SUPERVISOR_ROLES.indexOf(me.role) >= 0;
   const isWorkspace = screen === "workspace" && !isDetail;
 
   // The rate book is nearly two megabytes of subcontractor quotations, so it is
@@ -326,9 +327,27 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     ratesAsked.current = true;
     (async () => {
       try {
-        const response = await fetch("/data/rates.json");
+        // From the API, not the public folder. Eighteen carriers' negotiated
+        // prices were reachable by anyone who guessed the URL; now they are
+        // behind the same sign-in as everything else.
+        const response = await apiFetch("/api/rates", { headers: { accept: "application/json" } });
         if (!response.ok) throw new Error("HTTP " + response.status);
-        setRates(await response.json() as RateBook);
+        const body = await response.json() as {
+          bands: { label: string; min: number; max: number }[];
+          lanes: { id: number; carrier: string; service: string; customer: string;
+                   from: string; to: string; county: string; remark: string;
+                   prices: Record<string, (number | null)[]> }[];
+          surcharges: { service: string; no: string; description: string;
+                        currency: string; rate: string; unit: string }[];
+        };
+        setRates({
+          bands: body.bands,
+          lanes: body.lanes.map((lane) => ({ ...lane, id: String(lane.id) })),
+          surcharges: body.surcharges,
+          sources: [],
+          issues: [],
+          builtAt: "",
+        });
       } catch (error) {
         setRatesError(error instanceof Error ? error.message : String(error));
       }
@@ -569,8 +588,10 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     go: () => { setTab(t); setPage(1); },
   }));
 
+  // CAR/PAR is off this list now that the screen reads the real register: a
+  // sidebar badge counted off the demo file would contradict the screen it
+  // points at.
   const navCounts: Record<string, number> = {
-    carpar: db.carpar.filter((x) => x.status !== "Closed").length,
     billing: db.ships.filter((x) => x.bill === "Overdue").length,
     booking: db.ships.filter((x) => x.status === "Waiting Truck").length,
   };
@@ -617,10 +638,9 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
       ];
     }
     if (screen === "subcontractors") {
-      return [
-        { label: "Export Excel", style: BTN_SECONDARY, go: () => setToast("Exporting supplier register…") },
-        { label: "+ Add Supplier", style: BTN_PRIMARY, go: () => setToast("Supplier onboarding form opened") },
-      ];
+      // Adding a supplier is its own screen, with the onboarding statuses on it.
+      // Sending people there beats a button that opens a form somewhere else.
+      return [{ label: "+ Add Supplier", style: BTN_PRIMARY, go: () => go("vendor") }];
     }
     // No header action on KPI yet. The generic fallback offers an Export Excel
     // that only raises a toast, and a button that claims to export and does not
@@ -629,7 +649,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     // offers an "Export Excel" that only raises a toast, and a button that
     // claims to export and does not is worse than no button.
     if (screen === "kpi" || screen === "monitoring" || screen === "prerun" || screen === "audit") return [];
-    if (NOT_BUILT[screen]) return [];
+    if (NOT_BUILT[screen] || OWN_SCREEN[screen]) return [];
     if (screen === "booking") {
       const waiting = (ops?.jobs ?? []).filter((j) => !/complet|delivered|gate-in/i.test(j.status) && !j.licence.trim());
       return [
@@ -655,12 +675,6 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
             setToast(`ส่งออก ${rates.lanes.length.toLocaleString()} เส้นทางแล้ว`);
           },
         },
-      ];
-    }
-    if (screen === "carpar") {
-      return [
-        { label: "Export PDF", style: BTN_SECONDARY, go: () => setToast("CAR/PAR register exported") },
-        { label: "+ Raise CAR/PAR", style: BTN_PRIMARY, go: () => setToast("New CAR/PAR form") },
       ];
     }
     return [{ label: "Export Excel", style: BTN_SECONDARY, go: () => setToast("Exporting " + filtered.length + " records to Excel…") }];
@@ -1141,7 +1155,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
 
   // ---- table -------------------------------------------------------------
   const table = useMemo(() => {
-    if (isDetail || isSupplierProfile || isWorkspace) return null;
+    if (isDetail || isSupplierProfile || isWorkspace || OWN_SCREEN[screen]) return null;
     return buildTable({
       screen, tab: activeTab, db, filtered, q, page, f, per: prefs.perPage,
       onSort: () => setToast("Sorted"),
@@ -1341,6 +1355,18 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                 system starts being trusted for things it cannot do. */}
             {screen === "prerun" && <PreRun canEdit={(job) => canEditJob(job)} jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "audit" && <Audit />}
+
+            {/* Supplier register, CAR/PAR and the assistant all read the API
+                rather than the demo file. Incident and CAR/PAR are one register
+                in the database — a case carries its kind — so both menu names
+                open the same cases rather than two half-registers. */}
+            {screen === "subcontractors" && <Suppliers canManage={isSupervisor} onToast={setToast} />}
+            {(screen === "incident" || screen === "carpar") && <Incidents onToast={setToast} />}
+            {screen === "assistant" && <Assistant canApprove={isSupervisor} onToast={setToast} />}
+            {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
+            {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
+            {screen === "quotation" && <Quotation diesel={diesel} onDiesel={setDiesel} onToast={setToast} />}
+
             {NOT_BUILT[screen] && <NotBuilt detail={NOT_BUILT[screen]} />}
 
             {table && <DataTable model={table} onPage={setPage} onTool={(label) => setToast(label === "Export Excel" ? "Exported " + table.total + " rows" : label + " — coming from the column chooser")} />}

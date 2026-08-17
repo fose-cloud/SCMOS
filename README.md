@@ -26,14 +26,29 @@ integrations. Both run on Azure App Service.
 
 ## Where the rules live
 
-The data standard, the duplicate matching, the cleanup pass and both Excel
-directions stay in TypeScript, in the browser, in `app/scmos/`. They were not
-ported to C#, on purpose: they are the asset, they are already tested against the
-real July plan, and rewriting three thousand lines of validation into another
-language would have risked the one thing this system is trusted for.
+The rules that decide anything live in C#, in `server/Scmos.Api/Rules/`: the data
+standard, the status vocabulary, the workflow state machine, carrier assignment,
+the pre-run SLA, delay classification, the KPI measures and the AI permission
+matrix. A rule the backend cannot see is a rule the backend cannot enforce, and a
+browser is not a place to enforce anything.
 
-The API owns what the browser must not: the register, the blobs, the OpenAI key,
-and who is allowed to write.
+The port was checked against the TypeScript it replaced on identical raw data
+before anything relied on it — 2,102 jobs, 631 needing action, 183 gate-in risks,
+109 measurable, 28 without a carrier, on both sides.
+
+What stays in TypeScript is what only the browser does: reading and writing Excel
+workbooks, the import preview and duplicate decisions, and the cleanup pass the
+operator runs and reviews. `app/scmos/theme.ts` holds the one copy of the status
+buckets the screens share.
+
+> The recurring lesson of this codebase: **a duplicated rule drifts.** The status
+> buckets existed in four places and a status migration silently moved COMPLETED
+> from 11 to 239 before they were consolidated. When a rule needs to exist on both
+> sides, one side imports it — `migration/build-rates.mjs` imports the parser from
+> `app/scmos/rates.ts` rather than restating it.
+
+The API also owns what the browser must not: the register, the blobs, the rate
+book, the OpenAI key, and who is allowed to write.
 
 ## Prerequisites
 
@@ -181,17 +196,21 @@ upload, so changing your mind does not need a deployment.
 
 ## Data
 
-> ⚠️ `public/data/ops.json` and `public/data/rates.json` are served as **static
-> public assets**. The first holds real customer names, driver names and driver
-> phone numbers; the second holds eighteen subcontractors' negotiated prices,
-> which is commercially confidential and would be visible to any of them. Any
-> deployment that is not behind Web App Login exposes both to anyone who knows
-> the URL.
+> ⚠️ `public/data/ops.json` is served as a **static public asset** and holds real
+> customer names, driver names and driver phone numbers. Any deployment that is
+> not behind Web App Login exposes it to anyone who knows the URL. It is only a
+> seed for an empty register — once Azure SQL holds the plan, replace it with
+> anonymised data or remove it.
 >
-> `ops.json` is only a seed for an empty register — once Azure SQL holds the
-> plan, replace it with anonymised data or remove it. `rates.json` should move
-> behind the API for the same reason, so it is served to a signed-in caller
-> rather than sitting on the public path.
+> The rate book **no longer sits on the public path**. Eighteen subcontractors'
+> negotiated prices were reachable by anyone who guessed
+> `/data/rates.json`; they now live in Azure SQL and are served by `/api/rates`
+> to a signed-in caller. `migration/build-rates.mjs` writes to
+> `migration/data/rates.json`, which is git-ignored and is only an input to
+> `--seed-suppliers`.
+>
+> Neither file has ever been tracked, and this repository has a remote — git
+> history is effectively permanent, so both stay out of it.
 
 The published copy is missing its `delivery`, `rates` and `masters` sections
 because the source export was truncated, so the DELIVERY category is empty and
@@ -209,9 +228,11 @@ restores both with no code change — see [app/scmos/ops.ts](app/scmos/ops.ts).
 | `dotnet run --project server/Scmos.Api` | Run the API |
 | `dotnet run --project server/Scmos.Api -- --migrate` | Apply EF migrations |
 | `dotnet run --project server/Scmos.Api -- --seed <file>` | Load a register export |
+| `dotnet run --project server/Scmos.Api -- --migrate-status [--dry-run]` | Move free-text statuses onto the controlled vocabulary |
+| `dotnet run --project server/Scmos.Api -- --seed-suppliers [rates.json]` | Build the supplier register from the jobs and rate cards, load the rate tables, register the AI tools |
 | `dotnet ef migrations add <Name> --project server/Scmos.Api --output-dir Data/Migrations` | New migration after editing the model |
 | `node migration/export-d1.mjs` | Export the register out of the old D1 database |
-| `node migration/build-rates.mjs "<folder>"` | Rebuild `public/data/rates.json` from the subcontractor rate workbooks |
+| `node migration/build-rates.mjs "<folder>"` | Rebuild `migration/data/rates.json` from the subcontractor rate workbooks |
 
 ## Layout
 
@@ -220,8 +241,12 @@ restores both with no code change — see [app/scmos/ops.ts](app/scmos/ops.ts).
 - `app/api/[...path]/route.ts` — the proxy to the API; the only server code left
   in the web app besides identity
 - `app/auth.ts`, `app/easy-auth.ts` — reading the Web App Login principal
-- `server/Scmos.Api/Endpoints/` — jobs, uploads, operations, AI extract, identity
-- `server/Scmos.Api/Data/` — EF model, migrations, the register repository, seeder
+- `server/Scmos.Api/Endpoints/` — jobs, uploads, operations, AI extract, identity,
+  suppliers, rates, incidents, the AI gateway
+- `server/Scmos.Api/Rules/` — the business rules: formats, job rules, the status
+  vocabulary, the workflow state machine, carrier assignment, pre-run SLA, delay
+  reasons, KPI measures, AI permissions
+- `server/Scmos.Api/Data/` — EF model, migrations, the register repository, seeders
 - `server/Scmos.Api/Auth/` — the staff directory and who is trusted
 - `migration/` — moving the register off D1 (git-ignored outputs)
 
@@ -233,10 +258,17 @@ price per vehicle type repeated once for each diesel price band, because the
 contract's fuel clause moves the rate about 3% at every band.
 
 `node migration/build-rates.mjs "D:/…/Transport cost subcon"` reads that folder
-and writes `public/data/rates.json`. The parsing rules are in
-[app/scmos/rates.ts](app/scmos/rates.ts) with the other business rules, and the
-script imports them, so the browser and the build cannot disagree about how a
-quotation is read.
+and writes `migration/data/rates.json`; `--seed-suppliers` then loads it into
+Azure SQL — **24 fuel bands, 2,270 lanes, 82,290 prices**. The parsing rules are
+in [app/scmos/rates.ts](app/scmos/rates.ts) with the other business rules, and
+the script imports them, so the browser and the build cannot disagree about how
+a quotation is read.
+
+The screen reads `/api/rates`, not a file. That matters beyond confidentiality:
+the backend can now see what a carrier charges, which is the ordering the
+carrier-priority rule actually asks for. `/api/rates/quotes?customer=…&vehicle=…
+&diesel=…` answers "who quoted this journey, cheapest first" and is what the Rate
+Quotation screen shows.
 
 The screen prices every lane at one diesel price rather than showing the bands
 as columns. There are twenty-four distinct bands across the carriers — the form
@@ -292,27 +324,93 @@ The plan's container wording is mapped onto the rate cards' vocabulary in
 `6W`. That covers 98% of the typed jobs; `COMBINE` and `1X45'` are left unmapped
 rather than guessed.
 
+## Supplier register
+
+One row per company, with every spelling anyone has typed pointing at it. That
+reconciliation is what makes the rest possible: a supplier's jobs, rates,
+incidents and score can only be gathered together once somebody has said that
+two spellings mean one firm.
+
+`--seed-suppliers` builds it from the two places carriers are named — the 2,102
+jobs and the rate workbooks — and produces **29 suppliers from 34 spellings**.
+Only matches beyond doubt are merged: the same letters with punctuation and
+spacing removed, so `TO = TO. = T.O. = T.O`, `ACN = A.C.N`, `W.A.K = WAK`. TTP is
+*not* merged into TATIYAPON by this. An abbreviation could be another company,
+and paying the wrong subcontractor is worse than having two rows; those pairs are
+listed at the end of the seed for a person to decide, and the Supplier screen is
+where they say so.
+
+- **Supplier** — the register, with jobs, priced lanes, aliases and status.
+- **Add New Vendor** — registration and the onboarding statuses. A new vendor
+  starts as a draft; only an approved supplier can be given work, and moving the
+  status is a supervisor's act.
+- **Annual Evaluation** — on-time, confirmation and delay come from the KPI
+  engine so the meeting argues with measured figures; safety and documents are
+  the assessor's own. A carrier below the minimum sample gets no operational
+  component rather than a flattering hundred.
+
+## Incident and CAR/PAR
+
+One register in the database — a case carries its kind — so the Incident and
+CAR/PAR menu names open the same cases rather than two half-registers.
+
+Seven stages: open → analysis → action → follow-up → monitoring → approval →
+closed. The service refuses to skip the things that make a case worth having: no
+corrective action without a root cause, no follow-up without an owner and a due
+date, no approval without a recorded effectiveness result. The last step is a
+person's signature and only a supervisor may give it — the AI may draft the whole
+case and may not close one.
+
+## AI permissions
+
+Three levels, and the difference between them is structural rather than textual.
+Everything the assistant does passes through `AiGateway`, which is deliberately
+the only way in:
+
+| Level | What happens | Tools |
+| --- | --- | --- |
+| Allow | The tool runs | 16 — reading anything, drafting anything |
+| Approval | Returns the exact payload it would have applied, parks it for a person | 5 — change a record, change a rate, send an email, close a CAR/PAR, assign a supplier |
+| Deny | The tool is not in the catalogue at all | deletion, in every form |
+
+Deny is the important one. A model cannot be instructed out of a capability it
+does not have, and it can always be talked out of an instruction. There is no
+delete tool and no code path that would call one; any name beginning `delete` or
+`drop` is refused at the gate before dispatch. "AI must never delete records" is
+therefore a property of the system, not a sentence in a prompt somebody may later
+edit. Approving is a supervisor's act — an Operation User approving the
+assistant's edit to their own job would just be the assistant editing it — and
+approval and application are two separate steps, so nothing is written by the act
+of reading the queue.
+
+The AI Assistant screen reads the matrix from `/api/ai/tools`, the same source
+that enforces it, so the version people read cannot drift from the version in
+force.
+
 ## Known gaps
 
-Carried over from before the move, and unchanged by it:
-
-- **Nine screens still run on generated data** — Subcontractors, Capacity,
-  Billing, Safety, CAR/PAR, Performance, Documents, Reports, Master Data,
-  Administration. The dashboard badges its three demo panels.
-- **Rates are not joined to jobs.** Booking prices a lane when you ask it to, but
-  nothing costs the 2,102 jobs in the register as a whole. Doing that needs the
-  carrier spellings reconciled first — see below.
+- **Six screens still run on generated data** — Capacity, Billing, Documents,
+  Reports, Master Data, Administration. The dashboard badges its three demo
+  panels. Supplier, CAR/PAR, Add New Vendor, Annual Evaluation, Rate Quotation
+  and AI Assistant now read the API.
+- **No agents yet.** The permission layer, the tool catalogue and the approvals
+  queue are real and enforced; the six agents that would call them are not built,
+  so an Allow tool reports plainly that it is not wired to a real action rather
+  than pretending to have done something.
+- **Rates are not joined to jobs.** Quotation prices a journey when you ask it to,
+  but nothing costs the 2,102 jobs in the register as a whole.
 - **The July plan is in the past.** Every loading date is July 2026, so the
   booking queue has no live urgency to sort by and does not pretend to; it orders
   by loading date and shows the date.
-- **Four carriers have jobs but no rate card** — PPK (127 jobs), SJ (102),
-  JTC (55) and T.O. (26): 310 jobs, 15% of July, that cannot be costed. The
-  form's own remarks quote JTC's fuel adjustment, so a card exists somewhere.
-- **Carrier spellings do not reconcile.** The register writes TATIYAPOL, TTP and
-  TATIYAPON; T.O., TO and TO.; W.A.K and WAK. Only spellings beyond doubt are
-  aliased in [app/scmos/rates.ts](app/scmos/rates.ts); the rest need a person,
-  because paying the wrong subcontractor's rate is worse than having no rate.
-- **SBT quote on their own form** and are not read — 4 jobs.
+- **Fifteen suppliers carry work but have no rate card** — including PPK (127
+  jobs), SJ (102), JTC (55) and T.O. (41). The Supplier screen counts them under
+  "มีงานแต่ไม่มีราคา", because a carrier whose work cannot be costed is a finding,
+  not a blank cell. The form's own remarks quote JTC's fuel adjustment, so a card
+  exists somewhere.
+- **Two rate carriers have no supplier row** — TNB and NHP have quoted but never
+  carried. Quotation flags them rather than hiding them.
+- **Evidence is not uploaded yet.** `incident_evidence` and the endpoint exist;
+  the Blob upload from the CAR/PAR screen does not.
 - **Delivery is empty.** The grid and its KPI exist and are ready.
 - **Duplicates within one file are not detected.** The importer compares against
   the register, so a workbook that repeats a row inside itself brings both.

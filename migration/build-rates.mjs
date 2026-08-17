@@ -5,7 +5,7 @@
  *
  * The parsing rules live in app/scmos/rates.ts with the rest of the business
  * rules — this only walks the folder, decides which file is the current one for
- * each carrier, and writes public/data/rates.json.
+ * each carrier, and writes migration/data/rates.json, which --seed-suppliers loads into Azure SQL.
  *
  * Node strips the TypeScript types on import, so there is one copy of the rules
  * and the browser and this script cannot disagree about them.
@@ -20,7 +20,7 @@ import { parseRateSheet, parseDgtSheet, parseSurcharges, serviceOf, canonicalCar
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = process.argv[2] ?? "D:/Leschaco/Dashboard/Transport cost subcon";
-const OUT = join(here, "..", "public", "data", "rates.json");
+const OUT = join(here, "data", "rates.json");
 
 /**
  * Files that are superseded, and why. A carrier who sends three workbooks is

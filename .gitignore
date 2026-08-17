@@ -61,4 +61,7 @@ tsconfig.tsbuildinfo
 # is effectively permanent, so they stay out of it. The register itself now
 # lives in Azure SQL; see migration/README.md to rebuild these locally.
 /public/data/ops.json
-/public/data/rates.json
+
+# rates.json now lives under migration/ and is loaded into Azure SQL by
+# --seed-suppliers. It is not served to the browser at all any more.
+/migration/data/

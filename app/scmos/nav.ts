@@ -50,7 +50,14 @@ export const META: Record<string, [string, string, string]> = {
   billing: ["Billing Control", "การควบคุมการวางบิล", "Supplier invoices must be received within 4 calendar days after delivery / loading completion."],
   monitoring: ["Shipment Monitoring", "ติดตามการขนส่ง", "ติดตามงานตั้งแต่จ่ายงานจนปิดงาน — แผนกับเวลาจริงของทุกขั้นตอน พร้อมบันทึกความล่าช้าและสาเหตุ"],
   kpi: ["Operational KPI", "ตัวชี้วัดการปฏิบัติงาน", "ทุกตัวเลขคำนวณจากทะเบียนงานจริงฝั่ง .NET ตามกฎชุดเดียวกับที่หน้า Workspace ใช้ — เปลี่ยนช่วงเวลาแล้วทุกค่าคิดใหม่ทั้งหมด"],
-  carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR", "Corrective and preventive actions with root cause, owner and due-date control."],
+  carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR", "ทะเบียนเดียวกับหน้า Incident — ระบบไม่ยอมให้ข้ามขั้น: ไม่มีสาเหตุที่แท้จริงก็กำหนดการแก้ไขไม่ได้ ไม่มีผู้รับผิดชอบและกำหนดเสร็จก็ติดตามไม่ได้ และปิดเคสได้เฉพาะระดับหัวหน้างานขึ้นไป"],
+  incident: ["Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข", "เปิดเคสจากเหตุที่เกิดจริง บันทึก 5W1H สาเหตุที่แท้จริง การแก้ไขและการป้องกัน แล้วเดินตามขั้นจนปิดเคสด้วยลายเซ็นของคน"],
+  prerun: ["Pre-Run Check", "ตรวจก่อนออกงาน", "ยืนยันรถ คนขับ ทะเบียน และเอกสารก่อนวันงาน พร้อมจับเวลาตอบกลับตาม SLA"],
+  audit: ["Audit Trail", "ประวัติการใช้งาน", "ใครแก้อะไร เมื่อไหร่ จากค่าเดิมเป็นค่าใหม่อะไร — อ่านจากประวัติที่ผูกกับงานแต่ละใบ"],
+  assistant: ["AI Assistant", "ผู้ช่วย AI", "สิทธิ์ของผู้ช่วยอ่านจาก API ที่บังคับใช้จริง — อ่านและร่างได้เลย เปลี่ยนข้อมูลจริงต้องมีคนอนุมัติ และการลบไม่มีอยู่ในระบบเลย"],
+  vendor: ["Add New Vendor", "เพิ่มผู้ขนส่งใหม่", "ลงทะเบียนผู้ขนส่งรายใหม่เข้าทะเบียนเดียวกับที่ Workspace และ KPI ใช้ — เริ่มที่สถานะร่าง จ่ายงานได้ต่อเมื่ออนุมัติแล้ว"],
+  evaluation: ["Annual Evaluation", "ประเมินผู้ขนส่งประจำปี", "คะแนนตรงเวลา ตอบยืนยัน และความล่าช้า ดึงจาก KPI Engine ส่วนความปลอดภัยและเอกสารเป็นดุลพินิจของผู้ประเมิน"],
+  quotation: ["Rate Quotation", "ขอใบเสนอราคา", "เทียบราคาผู้ขนส่งสำหรับเส้นทางและประเภทรถที่ต้องการ ตามราคาน้ำมันปัจจุบัน — อ่านจากตารางราคาใน Azure SQL"],
   documents: ["Document Register", "ทะเบียนเอกสาร", "Controlled operational and compliance documents with expiry monitoring."],
   reports: ["Management Reports", "รายงานผู้บริหาร", "Standard report catalogue with daily, weekly, monthly, yearly and custom periods."],
   admin: ["Administration", "การดูแลระบบ", "Role-based access control and audit trail."],
@@ -64,9 +71,10 @@ export const TAB_DEFS: Record<string, string[]> = {
   workspace: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
   dashboard: ["Executive", "Operational", "Wall Board"],
   booking: ["Booking Queue", "Carrier Escalation", "SLA"],
-  subcontractors: ["Register", "Compliance", "Fleet"],
+  // Supplier and CAR/PAR read the real register now, and both carry their own
+  // controls. Tabs that narrowed the demo table would be buttons that do
+  // nothing, which is worse than no tabs.
   billing: ["Aging", "Invoices", "Advance Receipts"],
-  carpar: ["Register", "Aging", "Closed"],
   admin: ["Roles & Permissions", "Users", "Audit Log", "Data Model"],
   reports: ["Catalogue", "Scheduled"],
   documents: ["All Documents", "Expiring"],
@@ -77,7 +85,7 @@ export const TAB_DEFS: Record<string, string[]> = {
 // the same reason — it reads the real quotations and carries its own controls,
 // including the diesel price every figure on it depends on.
 export const SCREENS_WITH_FILTERS = [
-  "billing", "carpar",
+  "billing",
 ];
 
 export type Account = {
