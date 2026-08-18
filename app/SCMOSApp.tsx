@@ -1451,7 +1451,13 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                 </div>
                 <div style={css("font-size:12.5px;color:#5A6B7D;line-height:1.6")}>
                   ลงชื่อเข้าใช้สำเร็จแล้ว แต่ระบบยังไม่รู้ว่าคุณเป็นใครในแผน จึงไม่มีงานไหนนับเป็นของคุณ
-                  และแก้ไขอะไรไม่ได้ — สิทธิ์ปัจจุบันคือ <b>{me.role || "อ่านอย่างเดียว"}</b>
+                  {/* Only claim they cannot edit when they actually cannot. An
+                      Administrator set through Auth:Roles has every capability
+                      and no owner id — telling them they are locked out would
+                      be the banner lying to the one person who can fix it. */}
+                  {able("EditAnyJob")
+                    ? <> แต่สิทธิ์ <b>{me.role}</b> ยังแก้ไขงานของทีมได้ตามปกติ</>
+                    : <> และแก้ไขอะไรไม่ได้ — สิทธิ์ปัจจุบันคือ <b>{me.role || "อ่านอย่างเดียว"}</b></>}
                   <br />
                   ให้ผู้ดูแลระบบเพิ่มบัญชีนี้ใน <code style={css("font-family:ui-monospace,monospace")}>StaffDirectory</code> หรือ
                   ตั้งบทบาทใน <code style={css("font-family:ui-monospace,monospace")}>Auth:Roles</code> ของ API

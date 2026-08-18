@@ -358,6 +358,32 @@ require authentication. Leave it **off** on the API: the API is reached only
 through the web app's proxy, and `Auth:Mode=Proxy` is what makes it trust the
 forwarded headers.
 
+LESCHACO staff sign in with Microsoft 365, so this is the whole of the SSO work.
+
+The path was tested end to end against the real header shape — a base64
+`X-MS-CLIENT-PRINCIPAL` carrying the claims Entra emits — before it had ever run
+on Azure:
+
+| Signs in as | Resolves to | Role |
+| --- | --- | --- |
+| `watsana.k@leschaco.co.th` | `OP-01` | Operation User |
+| `uthai@leschaco.co.th` | `OP-02` | Operation User |
+| `titchanatorn.k@leschaco.co.th` | `SV-01` | Operation Supervisor, from `Auth:Roles` |
+| `somchai.p@leschaco.co.th` | no owner id | Administrator, from `Auth:Roles` |
+| `newhire@leschaco.co.th` | no owner id | **Viewer** |
+
+The first row is the one that matters. Entra introduces an operator as
+`watsana.k@…` while the plan workbooks call her "Watsana"; matching those two
+spellings against each other is what the pre-migration version did, and it would
+have taken every job away from every operator on the day sign-in was switched on.
+The directory matches the local part, then the stem before its first dot, then
+the display name's first word.
+
+The fourth row is worth noticing too: an administrator who is not an operator has
+every capability and no owner id, so no job is "theirs" and the workspace says
+the directory does not know them — while they can still edit anything. The banner
+says exactly that rather than the reverse.
+
 ### 5. Deploy
 
 Push to `main` and both workflows build, test and release to production,
