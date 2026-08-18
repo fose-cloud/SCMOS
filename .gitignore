@@ -65,3 +65,6 @@ tsconfig.tsbuildinfo
 # rates.json now lives under migration/ and is loaded into Azure SQL by
 # --seed-suppliers. It is not served to the browser at all any more.
 /migration/data/
+
+# Deployment packages — built locally, never committed.
+/publish/
