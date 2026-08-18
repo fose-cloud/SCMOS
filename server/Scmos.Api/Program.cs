@@ -58,7 +58,8 @@ builder.Services.AddScoped<AiGateway>();
 // request knows about.
 builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<PreRunOptions>(builder.Configuration.GetSection(PreRunOptions.Section));
-builder.Services.AddSingleton<IUserAccessor, UserAccessor>();
+builder.Services.AddScoped<IUserAccessor, UserAccessor>();
+builder.Services.AddScoped<StaffService>();
 builder.Services.AddSingleton<IFileStore, BlobFileStore>();
 builder.Services.AddSingleton<IDocumentExtractor, DocumentExtractor>();
 
@@ -110,6 +111,12 @@ if (args.Contains("--migrate"))
 {
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<ScmosDbContext>().Database.MigrateAsync();
+
+    // The staff directory used to be a hardcoded array. Seeding it here means an
+    // existing deployment upgrades into a populated table rather than one where
+    // nobody is recognised and every sign-in lands on Viewer.
+    await scope.ServiceProvider.GetRequiredService<StaffService>().SeedAsync(CancellationToken.None);
+
     app.Logger.LogInformation("Database is up to date.");
     return 0;
 }
@@ -133,6 +140,7 @@ app.MapSuppliers();
 app.MapDocuments();
 app.MapAudit();
 app.MapDashboard();
+app.MapStaff();
 app.MapCapacity();
 app.MapVerification();
 app.MapUploads();

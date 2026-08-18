@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace Scmos.Api.Auth;
@@ -83,9 +84,34 @@ public interface IUserAccessor
 /// one. Outside those two cases the headers are ignored completely, because
 /// anyone could set them by hand.
 /// </summary>
-public class UserAccessor(IOptions<AuthOptions> options, IHostEnvironment environment, ILogger<UserAccessor> log) : IUserAccessor
+public class UserAccessor(
+    IOptions<AuthOptions> options,
+    IHostEnvironment environment,
+    ILogger<UserAccessor> log,
+    Data.ScmosDbContext db) : IUserAccessor
 {
     private readonly AuthOptions _options = options.Value;
+
+    /// <summary>
+    /// The directory, read once per request.
+    ///
+    /// It is a table now rather than a hardcoded array, so this cannot stay
+    /// static. A failure to read it must not become a failure to sign in as
+    /// anybody at all, so an unreachable directory degrades to "nobody is
+    /// recognised" — which the screen already explains — rather than throwing.
+    /// </summary>
+    private IReadOnlyList<Data.StaffMember> Directory()
+    {
+        try
+        {
+            return db.Staff.AsNoTracking().Where(person => person.Active).ToList();
+        }
+        catch (Exception problem)
+        {
+            log.LogError(problem, "Could not read the staff directory; nobody will be recognised.");
+            return [];
+        }
+    }
 
     private const string PrincipalHeader = "X-MS-CLIENT-PRINCIPAL";
     private const string NameHeader = "X-MS-CLIENT-PRINCIPAL-NAME";
@@ -159,7 +185,8 @@ public class UserAccessor(IOptions<AuthOptions> options, IHostEnvironment enviro
         var account = context.Request.Headers[DevUserHeader].ToString().Trim().ToLowerInvariant();
         if (account.Length == 0) return null;
 
-        var known = StaffDirectory.All.FirstOrDefault(o => o.Account == account);
+        var known = Directory().FirstOrDefault(person =>
+            string.Equals(person.Account, account, StringComparison.OrdinalIgnoreCase));
         return known is null
             ? Build(account, "", account, "development")
             : new AppUser(known.Id, "", known.Name, known.Role, known.Id, "development");
@@ -178,7 +205,11 @@ public class UserAccessor(IOptions<AuthOptions> options, IHostEnvironment enviro
     /// </summary>
     private AppUser Build(string userId, string email, string displayName, string source)
     {
-        var matched = StaffDirectory.Match(email, displayName);
+        var matched = Services.StaffService.MatchIn(Directory(), email, displayName);
+
+        // The app setting wins over the table on purpose. It is the way back in
+        // when the directory says nobody is an administrator — a lockout the
+        // Administration screen cannot fix from inside.
         var role = _options.AllRoles().TryGetValue(email, out var configured) && configured.Length > 0
             ? configured
             : matched?.Role ?? Rules.Roles.Viewer;

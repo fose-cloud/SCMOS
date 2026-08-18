@@ -22,6 +22,21 @@ public class JobsRepository(ScmosDbContext db)
     /// <summary>What one save may carry. The workspace never sends more in one go.</summary>
     public const int Limit = 5000;
 
+    /// <summary>Operator name to owner id, read once per save. See SaveAsync.</summary>
+    private Dictionary<string, string> _directory = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The owner id for an operator name off a plan workbook, or empty when the
+    /// directory has never heard of them — an unassigned job is a visible
+    /// problem, a misassigned one is not.
+    /// </summary>
+    private string IdForName(string? name)
+    {
+        var first = (name ?? "").Trim()
+            .Split([' ', '	'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return first is not null && _directory.TryGetValue(first, out var id) ? id : "";
+    }
+
     /// <summary>
     /// The plan, as JSON, ready to send.
     ///
@@ -146,6 +161,12 @@ public class JobsRepository(ScmosDbContext db)
     /// </summary>
     public async Task<(int Saved, DateTimeOffset At)> SaveAsync(IReadOnlyList<JsonElement> jobs, string by, CancellationToken token)
     {
+        // One read of the directory for the whole batch. A per-row lookup would
+        // be two thousand queries to answer the same question two thousand times.
+        _directory = await db.Staff.AsNoTracking()
+            .Select(person => new { person.Id, person.Name })
+            .ToDictionaryAsync(person => person.Name, person => person.Id, StringComparer.OrdinalIgnoreCase, token);
+
         var now = DateTimeOffset.UtcNow;
         var table = BuildTable(jobs, by, now);
         if (table.Rows.Count == 0) return (0, now);
@@ -228,7 +249,7 @@ public class JobsRepository(ScmosDbContext db)
         await command.ExecuteNonQueryAsync(token);
     }
 
-    private static DataTable BuildTable(IReadOnlyList<JsonElement> jobs, string by, DateTimeOffset now)
+    private DataTable BuildTable(IReadOnlyList<JsonElement> jobs, string by, DateTimeOffset now)
     {
         var table = new DataTable();
         foreach (var (name, type) in new (string, Type)[]
@@ -256,7 +277,7 @@ public class JobsRepository(ScmosDbContext db)
 
             var owner = Field(job, "op", 60);
             var suppliedOwnerId = Field(job, "opId", 20);
-            var ownerId = suppliedOwnerId.Length > 0 ? suppliedOwnerId : StaffDirectory.IdForName(owner);
+            var ownerId = suppliedOwnerId.Length > 0 ? suppliedOwnerId : IdForName(owner);
 
             // The column and the JSON are written together so they cannot drift.
             // A register keyed before owner ids existed arrives with only a name,

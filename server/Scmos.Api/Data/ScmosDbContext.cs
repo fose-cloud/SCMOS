@@ -19,6 +19,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Every file the system holds — a job's, a supplier's, a case's.</summary>
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
 
+    /// <summary>Who may sign in, and as what.</summary>
+    public DbSet<StaffMember> Staff => Set<StaffMember>();
+
     /// <summary>Append-only. Nothing in the codebase deletes from it.</summary>
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
@@ -219,6 +222,29 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
         // asked of it: what is attached to this job, to this supplier, to this
         // case — plus the unique key, which is what stops the same blob being
         // recorded twice if an upload is retried.
+        // The directory an administrator edits. Email is unique because it is
+        // what a sign-in is matched on — two rows claiming the same address
+        // would make "who is this" depend on row order.
+        model.Entity<StaffMember>(entry =>
+        {
+            entry.ToTable("staff");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").HasMaxLength(20);
+            entry.Property(e => e.Email).HasColumnName("email").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.Name).HasColumnName("name").HasMaxLength(120);
+            entry.Property(e => e.Account).HasColumnName("account").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.Role).HasColumnName("role").HasMaxLength(40);
+            entry.Property(e => e.Active).HasColumnName("active").HasDefaultValue(true);
+            entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entry.HasIndex(e => e.Email).IsUnique().HasDatabaseName("staff_email_idx")
+                .HasFilter("[email] <> ''");
+            entry.HasIndex(e => e.Account).HasDatabaseName("staff_account_idx");
+        });
+
         model.Entity<StoredDocument>(entry =>
         {
             entry.ToTable("documents");

@@ -1568,7 +1568,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
               <CapacityBoard canEdit={able("EditOwnJobs")} onToast={setToast} />
             )}
             {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
-            {screen === "admin" && <Administration />}
+            {screen === "admin" && <Administration onToast={setToast} />}
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
             )}
