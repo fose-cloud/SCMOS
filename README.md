@@ -342,6 +342,28 @@ That is a working system. What the long guide adds, and when it is worth adding:
 None of them are load-bearing on day one. All of them are worth having by the
 time this is carrying real work.
 
+## What the first real deployment found
+
+Everything below was written before any of it had run on Azure. Three things in
+it were wrong, and all three only appear when you actually deploy:
+
+| Wrong | Why | Now |
+| --- | --- | --- |
+| `Auth__Roles__<email>` as an app setting | App Service allows only letters, digits, dots and underscores in a setting name. Every email has an `@`. | `Auth__RoleMap`, one setting holding all assignments |
+| `Compress-Archive` to build the zip | Windows PowerShell writes zip entries with backslashes; the Linux host then cannot extract `es\Foo.dll` and the deploy half-lands | Build the zip with forward slashes — `infra/pack.py` |
+| `--seed public/data/ops.json` | Relative to the repo root, but `dotnet run --project` runs in the *project* directory; and that file is the truncated 381-job copy, not the 2,102-job register | Absolute path to `migration/register-export.json` |
+
+The second one is the worst of the three: the deployment reported failure loudly,
+but a half-extracted `wwwroot` is the kind of state that could equally have
+produced an app that starts and misbehaves.
+
+The system now runs on Azure: 2,102 jobs, 29 suppliers, 2,270 rate lanes, 82,290
+prices, on App Service **F1** and an Azure SQL **free-limit** database.
+
+> A free-trial subscription is **paused when the trial expires**, whatever tier
+> the resources are. Upgrading to Pay-As-You-Go before day 30 keeps it running;
+> F1 and the SQL free limit stay free afterwards, so the bill stays near zero.
+
 ## Deploying to Azure
 
 Nothing here has run against real Azure yet — everything in this repository is
@@ -407,13 +429,19 @@ NEXT_PUBLIC_SITE_URL   = https://<your domain>
 
 **Then who gets more than read-only.** Since an email in neither `Auth:Roles` nor
 the staff directory gets `Viewer`, deploying without this leaves everybody unable
-to write. One app setting per person, on the API:
+to write — including the person who would fix it.
+
+One setting on the API, holding every assignment:
 
 ```
-Auth__Roles__titchanatorn.k@leschaco.co.th = Operation Supervisor
-Auth__Roles__nattikorn.s@leschaco.co.th    = Assistant Manager
-Auth__Roles__<admin>@leschaco.co.th        = Administrator
+Auth__RoleMap = titchanatorn.k@leschaco.co.th=Operation Supervisor; nattikorn.s@leschaco.co.th=Assistant Manager; admin@leschaco.co.th=Administrator
 ```
+
+> **Not `Auth__Roles__<email>`.** That form is in the code and works from
+> `appsettings.json` and Key Vault, and it is *rejected by App Service*, which
+> allows only letters, digits, dots and underscores in a setting name — no `@`
+> and no `-`. Every email has an `@`. This was written, documented, and only
+> found on the first real deployment; `Auth__RoleMap` exists because of it.
 
 The five operators are matched by the staff directory on the local part of their
 email and need no entry. Valid roles are listed in `appsettings.json`.
@@ -493,12 +521,22 @@ The schema arrives empty. Three commands, run once, in this order — locally
 against the Azure SQL connection string, or from a container with it set:
 
 ```bash
-dotnet run --project server/Scmos.Api -- --seed public/data/ops.json
+dotnet run --project server/Scmos.Api -- --migrate
+dotnet run --project server/Scmos.Api -- --seed  /abs/path/to/migration/register-export.json
 dotnet run --project server/Scmos.Api -- --migrate-status
-dotnet run --project server/Scmos.Api -- --seed-suppliers migration/data/rates.json
+dotnet run --project server/Scmos.Api -- --seed-suppliers /abs/path/to/migration/data/rates.json
 ```
 
-The first keys the operation plan (2,102 jobs) and is idempotent on the job key.
+> **Absolute paths.** `dotnet run --project` runs with the *project* directory as
+> the working directory, so a path relative to the repository root resolves to
+> nothing and the seed reports "No such file".
+
+> **`register-export.json`, not `public/data/ops.json`.** The published file is
+> the truncated copy — it holds **381** jobs, not 2,102. Seeding it succeeds,
+> reports a number nobody checks, and leaves five sixths of the register missing.
+> See [migration/README.md](migration/README.md) for producing the export.
+
+The seed is idempotent on the job key.
 The second moves free-text statuses onto the controlled vocabulary — run
 `--migrate-status --dry-run` first to see what it would change. The third builds
 the supplier register from the jobs and the rate cards (29 suppliers, 2,270

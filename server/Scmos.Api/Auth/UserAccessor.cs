@@ -26,8 +26,46 @@ public class AuthOptions
     /// <summary>Shared secret between the web app and this API. Comes from Key Vault.</summary>
     public string ProxyKey { get; set; } = "";
 
-    /// <summary>Overrides for people whose role is not the default. Email → role.</summary>
+    /// <summary>
+    /// Overrides for people whose role is not the default. Email → role.
+    ///
+    /// Works from appsettings.json and Key Vault, where a key may be anything.
+    /// It does <b>not</b> work as an App Service application setting: those names
+    /// accept only letters, digits, dots and underscores, and every email address
+    /// contains an <c>@</c>. Use <see cref="RoleMap"/> there.
+    /// </summary>
     public Dictionary<string, string> Roles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The same assignments in one value, for hosts that restrict setting names.
+    ///
+    ///   <c>Auth__RoleMap = a@x.com=Administrator; b@x.com=Operation Supervisor</c>
+    ///
+    /// This exists because the per-email form was written, documented, and then
+    /// refused by App Service on the first real deployment — the name it needs
+    /// cannot contain the one character an email always has.
+    /// </summary>
+    public string RoleMap { get; set; } = "";
+
+    /// <summary>
+    /// Every assignment, from both forms. <see cref="RoleMap"/> is applied second
+    /// so a host-level setting can correct a value baked into a config file.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> AllRoles()
+    {
+        var all = new Dictionary<string, string>(Roles, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in RoleMap.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var split = entry.IndexOf('=');
+            if (split <= 0) continue;
+            var email = entry[..split].Trim();
+            var role = entry[(split + 1)..].Trim();
+            if (email.Length > 0 && role.Length > 0) all[email] = role;
+        }
+
+        return all;
+    }
 }
 
 public interface IUserAccessor
@@ -141,7 +179,7 @@ public class UserAccessor(IOptions<AuthOptions> options, IHostEnvironment enviro
     private AppUser Build(string userId, string email, string displayName, string source)
     {
         var matched = StaffDirectory.Match(email, displayName);
-        var role = _options.Roles.TryGetValue(email, out var configured) && configured.Length > 0
+        var role = _options.AllRoles().TryGetValue(email, out var configured) && configured.Length > 0
             ? configured
             : matched?.Role ?? Rules.Roles.Viewer;
 

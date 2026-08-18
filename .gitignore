@@ -68,3 +68,6 @@ tsconfig.tsbuildinfo
 
 # Deployment packages — built locally, never committed.
 /publish/
+
+# Zips built by infra/pack.py — rebuilt on demand, never committed.
+*.zip
