@@ -275,6 +275,73 @@ needs before a job has ever reached the API. Which directory person a signed-in
 email *is* — the answer ownership depends on — is decided in C# and read from
 `/api/me`.
 
+## Getting it on the web, the short way
+
+Four resources, all from the Azure Portal in a browser. No CLI, no Key Vault, no
+managed identity, no slots, no GitHub secrets. About half an hour.
+
+The long guide below is the end state. Almost none of it is required to have the
+system running and signed into — that is worth saying plainly, because the length
+of it suggests otherwise.
+
+**1. Create four things** (same region, same resource group)
+
+| | Setting |
+| --- | --- |
+| App Service | **Node 22**, Linux — the web app |
+| App Service | **.NET 10**, Linux — the API, same plan |
+| Azure SQL Database | Basic or S0 is plenty for 2,102 jobs |
+| Storage account | Standard LRS, one private container `operation-files` |
+
+**2. Tell them about each other** — Configuration → Application settings
+
+API:
+
+```
+ConnectionStrings__ScmosDb = <the Azure SQL connection string, SQL auth>
+Auth__Mode                 = Proxy
+Auth__ProxyKey             = <any long random string>
+Storage__ConnectionString  = <the storage account access key connection string>
+Storage__Container         = operation-files
+Auth__Roles__<you>@leschaco.co.th = Administrator
+```
+
+Web:
+
+```
+SCMOS_API_BASE_URL  = https://<api-app>.azurewebsites.net
+SCMOS_API_PROXY_KEY = <the same random string>
+```
+
+That last pair is the whole security model at this size: the API trusts the
+identity the web app forwards only when the shared key comes with it. Key Vault
+and managed identity replace the two plain strings later; they change nothing
+about how it works.
+
+**3. Turn on Authentication** on the **web** app only — Microsoft, require
+authentication. That is the Microsoft 365 sign-in, done.
+
+**4. Deploy** — from VS Code with the Azure App Service extension, right-click
+each app and Deploy. Or `npm run build` and drag the folder into the portal's
+Advanced Tools. GitHub Actions is nicer once it changes often; it is not needed
+to see it working today.
+
+**5. Load the data** — see [step 6 of the long guide](#6-load-the-data), pointing
+the three commands at the Azure connection string instead of LocalDB.
+
+That is a working system. What the long guide adds, and when it is worth adding:
+
+| Add | When |
+| --- | --- |
+| Key Vault + managed identity | Before anyone outside the team can read the app settings |
+| GitHub Actions | Once you are deploying more than about once a week |
+| Staging slot | Before there is data you would be upset to lose |
+| Application Insights | The first time something breaks and nobody knows why |
+| Blob lifecycle policy | Any time before the files are a year old |
+
+None of them are load-bearing on day one. All of them are worth having by the
+time this is carrying real work.
+
 ## Deploying to Azure
 
 Nothing here has run against real Azure yet — everything in this repository is
