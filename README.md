@@ -360,11 +360,35 @@ forwarded headers.
 
 ### 5. Deploy
 
-Push to `main`. [.github/workflows](.github/workflows) builds each side and
-deploys it, applying EF migrations before the API goes out.
+Push to `main` and both workflows build, test and release to production,
+applying EF migrations before the API goes out.
+
+**Try it on a staging slot first.** Both workflows also run on demand against any
+branch, so a change can be seen running on Azure without releasing it:
+
+```bash
+RESOURCE_GROUP=rg-scmos WEB_APP=scmos-web API_APP=scmos-api STAGING_SQL_CONNECTION='Server=...;Database=scmos-staging;...' ./infra/setup-slot.sh
+```
+
+Then **Actions → API → Run workflow → slot: staging**, and the same for Web. Each
+smoke-tests the slot it deployed to and fails if it does not answer.
+
+Two things about slots that bite, both closed off by the script and the
+workflows:
+
+- **App settings swap with the slot** unless marked sticky, so a staging slot
+  inherits production's connection string by default and writes to the live
+  register. Everything the script sets is slot-specific.
+- **A staging deploy must not migrate the production database.** The workflow
+  reads `SCMOS_SQL_CONNECTION_STAGING` for a staging slot and *fails* if it is
+  missing rather than falling back — a fallback is exactly how unreleased schema
+  reaches live data.
+
+Auto-swap is left off. A slot that promotes itself is not a test.
 
 Repository secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
-`AZURE_SUBSCRIPTION_ID`, `SCMOS_SQL_CONNECTION`.
+`AZURE_SUBSCRIPTION_ID`, `SCMOS_SQL_CONNECTION`, and
+`SCMOS_SQL_CONNECTION_STAGING` if you use a slot.
 Repository variables: `API_APP_NAME`, `WEB_APP_NAME`.
 
 `AZURE_CLIENT_ID` is a federated-credential app registration with **Contributor**

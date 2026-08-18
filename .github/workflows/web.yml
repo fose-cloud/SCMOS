@@ -12,7 +12,14 @@ on:
       - "server/**"
       - "migration/**"
       - ".github/workflows/api.yml"
+  # Any branch, to a slot — see the note in api.yml.
   workflow_dispatch:
+    inputs:
+      slot:
+        description: "Deployment slot (staging, or production to release)"
+        type: choice
+        options: [staging, production]
+        default: staging
 
 jobs:
   build:
@@ -46,12 +53,14 @@ jobs:
 
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
     permissions:
       id-token: write
       contents: read
+    env:
+      SLOT: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -67,6 +76,27 @@ jobs:
       - uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ vars.WEB_APP_NAME }}
-          slot-name: production
+          slot-name: ${{ env.SLOT }}
           package: standalone
           startup-command: "node server.js"
+
+      - name: Smoke test
+        run: |
+          if [ "$SLOT" = "production" ]; then
+            base="https://${{ vars.WEB_APP_NAME }}.azurewebsites.net"
+          else
+            base="https://${{ vars.WEB_APP_NAME }}-$SLOT.azurewebsites.net"
+          fi
+          echo "Checking $base"
+          for i in $(seq 1 12); do
+            # 200 is the app, 302 is Web App Login redirecting an anonymous
+            # caller to Entra — both mean the site is up. Anything else is not.
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$base" || true)
+            case "$code" in
+              200|302) echo "up ($code)"; exit 0 ;;
+            esac
+            echo "  attempt $i: $code"
+            sleep 10
+          done
+          echo "::error::$base never answered — the slot is deployed but not serving."
+          exit 1

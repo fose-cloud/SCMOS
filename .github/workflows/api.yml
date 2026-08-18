@@ -10,7 +10,20 @@ on:
     paths:
       - "server/**"
       - ".github/workflows/api.yml"
+  # Any branch, to a slot. This is how a change is tried before it is merged —
+  # the push trigger above only ever fires on main, so without this the only way
+  # to see the code running on Azure was to release it.
   workflow_dispatch:
+    inputs:
+      slot:
+        description: "Deployment slot (staging, or production to release)"
+        type: choice
+        options: [staging, production]
+        default: staging
+      migrate:
+        description: "Apply EF migrations to that slot's database"
+        type: boolean
+        default: true
 
 env:
   DOTNET_VERSION: "10.0.x"
@@ -52,12 +65,15 @@ jobs:
 
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
     runs-on: ubuntu-latest
-    environment: production
+    # A push to main releases; a manual run defaults to staging and says so.
+    environment: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
     permissions:
       id-token: write
       contents: read
+    env:
+      SLOT: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -70,15 +86,58 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Schema first. A deploy that changed the model and did not run this would
-      # come up answering 500 to every save.
+      # Which database this slot's migrations go to.
+      #
+      # Staging gets its own connection string and nothing else. If it is not
+      # set the deploy fails rather than falling back to production — a staging
+      # deploy that quietly applies unreleased schema to the live database is
+      # the worst thing this workflow could do, and a fallback is exactly how
+      # that happens.
+      #
+      # Both secrets arrive as step environment variables rather than through a
+      # step output: an output is written to a file on the runner and carried
+      # between steps, and a connection string has no business making that trip.
       - name: Apply migrations
+        if: github.event_name == 'push' || inputs.migrate
+        env:
+          PRODUCTION_CONNECTION: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          STAGING_CONNECTION: ${{ secrets.SCMOS_SQL_CONNECTION_STAGING }}
         run: |
+          if [ "$SLOT" = "production" ]; then
+            connection="$PRODUCTION_CONNECTION"
+          else
+            connection="$STAGING_CONNECTION"
+          fi
+
+          if [ -z "$connection" ]; then
+            echo "::error::No connection string for slot '$SLOT'."
+            echo "Set SCMOS_SQL_CONNECTION_STAGING to a database this slot may change."
+            echo "Refusing to fall back to the production connection."
+            exit 1
+          fi
+
           chmod +x publish/migrate
-          ./publish/migrate --connection "${{ secrets.SCMOS_SQL_CONNECTION }}"
+          ./publish/migrate --connection "$connection"
 
       - uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ vars.API_APP_NAME }}
-          slot-name: production
+          slot-name: ${{ env.SLOT }}
           package: publish
+
+      - name: Smoke test
+        run: |
+          if [ "$SLOT" = "production" ]; then
+            base="https://${{ vars.API_APP_NAME }}.azurewebsites.net"
+          else
+            base="https://${{ vars.API_APP_NAME }}-$SLOT.azurewebsites.net"
+          fi
+          echo "Checking $base/health"
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$base/health" || true)
+            [ "$code" = "200" ] && { echo "healthy"; exit 0; }
+            echo "  attempt $i: $code"
+            sleep 10
+          done
+          echo "::error::$base/health never returned 200 — the slot is up but unhealthy."
+          exit 1
