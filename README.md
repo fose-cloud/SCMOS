@@ -961,6 +961,47 @@ The E-Card check is named for what it actually tests: a container number that
 fails its own format will not match whatever the card says at the gate. A real
 card-to-booking comparison needs the cards, which are not in the system yet.
 
+## Paging the register on the server
+
+The workspace fetched every job and threw away all but twenty-five of them:
+2,637 KB on every load, most of it other people's work. `GET /api/jobs/page`
+now answers with the page the screen is about to draw, plus the counts for the
+tab strip, from one pass over the register.
+
+The tab rules moved into `Rules/WorkspaceTabs.cs` rather than being copied.
+Verified against the browser's own definitions across all 2,626 jobs: eight
+tabs, four categories, every count identical. Two rules had already drifted
+before this and were corrected — `IsDone` matched `gate-in` and was unanchored,
+so a job could be finished on one screen and running on another while the KPI
+engine read the looser one.
+
+Measured, one load of the workspace on the PENDING tab with no category chosen:
+
+| | bytes |
+|---|---|
+| whole register | 2,637 KB |
+| IMPORT page 1 of 78 | 20.1 KB |
+| EXPORT page 1 of 28 | 24.2 KB |
+| **total** | **44.6 KB** — 59× less |
+
+**The screen is not converted yet.** `loadJobsPage` exists and is proven end to
+end through the web app's proxy; nothing calls it. Three things have to be true
+before the workspace can use it, and each was found by looking rather than
+assumed:
+
+1. When no category is chosen the grid is not one list — it splits into IMPORT,
+   EXPORT and DELIVERY sections, each paged independently. So a load is one
+   request per visible section, not one request. The endpoint already supports
+   this through `cat`; the numbers above are exactly that.
+2. Rows from the API are stored fields only. The grid draws `issues`, `prio`,
+   `action` and `flags`, which `prep`/`flagJob` derive in the browser — server
+   rows have to go through the same enrichment or the priority column and the
+   validation marks come back empty.
+3. The panels above the grid (KPI, stage, team load), the calendar, duplicate
+   detection and the Excel export all read the whole register. They keep working
+   off the full load, which stays until each is given its own answer — so the
+   first conversion makes the grid fast without yet removing the big fetch.
+
 ## Known gaps
 
 - **Every menu entry renders something real.** `NOT_BUILT` is empty. Two screens
