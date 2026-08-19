@@ -46,7 +46,15 @@ const TONE: Record<string, { bg: string; border: string; text: string; th: strin
   MISSING: { bg: "#F1F5F9", border: "#E2E8F0", text: "#64748B", th: "ยังไม่เคยอบรม" },
 };
 
-export function Training({ onToast }: { onToast: (message: string) => void }) {
+export function Training({ onToast, registerCustomers }: {
+  onToast: (message: string) => void;
+  /**
+   * Every customer the register knows, so the form suggests the names jobs are
+   * actually written against rather than only the handful that already have a
+   * training requirement — which, before any requirement exists, is none.
+   */
+  registerCustomers: string[];
+}) {
   const [tab, setTab] = useState<"dashboard" | "drivers" | "requirements">("dashboard");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -145,7 +153,11 @@ export function Training({ onToast }: { onToast: (message: string) => void }) {
     );
   }
 
-  const customers = [...new Set(requirements.map((item) => item.customer))].sort();
+  // Customers with a requirement first, because those are the ones this screen
+  // measures against; then everyone else the register carries.
+  const withRules = [...new Set(requirements.map((item) => item.customer))].sort();
+  const customers = withRules;
+  const suggestions = [...new Set([...withRules, ...registerCustomers])].sort();
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
@@ -182,11 +194,16 @@ export function Training({ onToast }: { onToast: (message: string) => void }) {
       {adding && (
         <div style={css("background:#F8FAFC;border:1px solid #D3DBE3;border-radius:6px;padding:15px 17px")}>
           <div style={css("display:flex;gap:9px;flex-wrap:wrap")}>
-            <Field label="ชื่อลูกค้า" width="190px">
-              <select value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} style={INPUT}>
-                <option value="">— เลือกลูกค้า —</option>
-                {customers.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
+            <Field label="ชื่อลูกค้า" width="210px">
+              {/* Typed or picked. A closed list would have refused a customer
+                  the register already knows simply because nobody had written
+                  a training requirement for them yet. */}
+              <input list="training-customers" value={form.customer}
+                onChange={(e) => setForm({ ...form, customer: e.target.value })}
+                placeholder="พิมพ์ หรือเลือกจากรายการ" style={INPUT} />
+              <datalist id="training-customers">
+                {suggestions.map((name) => <option key={name} value={name} />)}
+              </datalist>
             </Field>
             <Field label="บริษัทขนส่ง" width="190px">
               <select value={form.supplierId} onChange={(e) => setForm({ ...form, supplierId: e.target.value })} style={INPUT}>

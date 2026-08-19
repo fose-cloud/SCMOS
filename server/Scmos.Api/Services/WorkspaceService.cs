@@ -125,10 +125,23 @@ public class WorkspaceService(JobsRepository jobs)
         return new Page(rows, sorted.Count, pageCount, page, counts, dates, updatedAt);
     }
 
-    /// <summary>An exact-value filter, where ALL or empty means no filter.</summary>
+    /// <summary>
+    /// The values the screen sends when a filter is not set.
+    ///
+    /// Three different words for the same idea, because each picker was written
+    /// with the label that reads best above it — "ALL" for a category, "All
+    /// Team" for the assignee, "All" for the KPI drill. Listing them here is
+    /// less pleasant than one sentinel and much better than a server that reads
+    /// "All Team" as somebody's name and answers with an empty grid.
+    /// </summary>
+    private static bool NotSet(string value) =>
+        value.Length == 0
+        || value.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("All Team", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>An exact-value filter, where an unset value means no filter.</summary>
     private static bool Is(string value, string wanted) =>
-        wanted.Length == 0 || wanted == "ALL"
-        || string.Equals(value, wanted, StringComparison.OrdinalIgnoreCase);
+        NotSet(wanted) || string.Equals(value, wanted, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Whose work to show. MY JOBS is already one person's, so the picker does
@@ -138,7 +151,7 @@ public class WorkspaceService(JobsRepository jobs)
     private static bool MatchesAssignee(WorkspaceTabs.JobView job, Query query)
     {
         if (query.Tab == WorkspaceTabs.MyJobs) return true;
-        if (query.Assignee.Length == 0 || query.Assignee == "ALL") return true;
+        if (NotSet(query.Assignee)) return true;
 
         return query.Assignee == "My Work"
             ? query.OpId.Length > 0 && string.Equals(job.OwnerId, query.OpId, StringComparison.OrdinalIgnoreCase)
@@ -147,7 +160,7 @@ public class WorkspaceService(JobsRepository jobs)
 
     private static bool MatchesKpi(WorkspaceTabs.JobView job, Query query) => query.Kpi switch
     {
-        "" or "ALL" => true,
+        "" or "ALL" or "All" => true,
         "Mine" => query.OpId.Length > 0 && string.Equals(job.OwnerId, query.OpId, StringComparison.OrdinalIgnoreCase),
         "Imp" => string.Equals(job.Cat, "IMPORT", StringComparison.OrdinalIgnoreCase),
         "Exp" => string.Equals(job.Cat, "EXPORT", StringComparison.OrdinalIgnoreCase),

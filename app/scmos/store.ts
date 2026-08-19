@@ -62,6 +62,9 @@ export type JobPage = {
 export type PageQuery = {
   tab: string; cat?: string; year?: string; month?: string; day?: string;
   q?: string; sort?: string; dir?: string; page?: number; per?: number;
+  /** The rest of the workspace's filter bar, answered by the same endpoint. */
+  customer?: string; trucker?: string; type?: string; status?: string;
+  assignee?: string; kpi?: string;
 };
 
 /**
@@ -85,6 +88,12 @@ export async function loadJobsPage(query: PageQuery): Promise<JobPage | null> {
   if (query.q) params.set("q", query.q);
   if (query.sort) params.set("sort", query.sort);
   if (query.dir) params.set("dir", query.dir);
+  if (query.customer) params.set("customer", query.customer);
+  if (query.trucker) params.set("trucker", query.trucker);
+  if (query.type) params.set("type", query.type);
+  if (query.status) params.set("status", query.status);
+  if (query.assignee) params.set("assignee", query.assignee);
+  if (query.kpi) params.set("kpi", query.kpi);
   params.set("page", String(query.page ?? 1));
   params.set("per", String(query.per ?? 25));
 

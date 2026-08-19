@@ -59,6 +59,28 @@ type Props = {
   canAssign: boolean;
   /** Rows per page, from the viewer's settings. */
   per: number;
+  /**
+   * The page the API chose, one entry per section, when the screen is being
+   * fed from the server rather than from the whole register in the browser.
+   *
+   * Absent means the old path: filter and paginate 2,626 jobs here. Present
+   * means the rows and the totals come from `/api/jobs/page`, which applied the
+   * same tab, category, period and sort rules — moved there rather than copied,
+   * and checked against these ones on every tab and category before this was
+   * wired up.
+   */
+  serverPages?: Record<string, { jobs: Job[]; total: number; pageCount: number }>;
+  /**
+   * Which page each section is on, and how to change it.
+   *
+   * Owned above rather than here whenever the server is answering, because the
+   * fetch and the pager have to agree on the number: this screen kept its own
+   * and the two drifted apart the moment somebody pressed next — the pager
+   * moved to page two and the request that would have fetched it never ran, so
+   * the grid drew a page that had not been asked for and came out empty.
+   */
+  sectionPages?: Record<string, number>;
+  onSectionPage?: (layout: string, page: number) => void;
   /** Whether edits are reaching the database, shown next to the welcome line. */
   sync: { state: "idle" | "saving" | "saved" | "error" | "off"; at: string; message: string };
   /** Which panels above the grid are expanded, and which one to fold. */
@@ -633,12 +655,21 @@ export function Workspace(p: Props) {
   // Every tab is category-mixed now, so the grid splits import from export on
   // all of them unless a category is chosen above it.
   const splitMixed = ws.cat === "ALL";
-  const sections = (splitMixed
-    ? (["IMPORT", "EXPORT", "DELIVERY"] as const)
-      .map((c) => ({ layout: c as string, jobs: list.filter((j) => j.cat === c) }))
-      .filter((s) => s.jobs.length)
-    : [{ layout: colKey, jobs: list }]);
-  if (!sections.length) sections.push({ layout: colKey, jobs: list });
+  const server = p.serverPages;
+
+  // With the server answering, the sections are the ones it answered for — it
+  // was asked per category, and a category it returned nothing for is a section
+  // with no rows, exactly as an empty filter result is here.
+  const sections = server
+    ? Object.keys(server)
+        .filter((layout) => server[layout].total > 0)
+        .map((layout) => ({ layout, jobs: server[layout].jobs }))
+    : (splitMixed
+      ? (["IMPORT", "EXPORT", "DELIVERY"] as const)
+        .map((c) => ({ layout: c as string, jobs: list.filter((j) => j.cat === c) }))
+        .filter((s) => s.jobs.length)
+      : [{ layout: colKey, jobs: list }]);
+  if (!sections.length) sections.push({ layout: colKey, jobs: server ? [] : list });
 
   // ---- selection --------------------------------------------------------
   const picked = new Set(ws.picked);
@@ -824,7 +855,18 @@ export function Workspace(p: Props) {
 
   /** One grid per section: its own columns, its own page, its own tick-all. */
   const grids = sections.map((section) => {
-    const pg = paginate(section.jobs, pages[section.layout] ?? 1, p.per);
+    // The server already chose this page; paginating it again here would slice
+    // twenty-five rows out of twenty-five and report a page count of one.
+    const answered = server?.[section.layout];
+    const pg = answered
+      ? {
+          slice: answered.jobs,
+          total: answered.total,
+          pageCount: answered.pageCount,
+          p: p.sectionPages?.[section.layout] ?? 1,
+          per: p.per,
+        }
+      : paginate(section.jobs, pages[section.layout] ?? 1, p.per);
     // What up and down move through: the rows on this page, in the order shown.
     // Navigation stops at the page edge rather than paging — a cursor that
     // jumps to a row nobody can see is a cursor that types into the dark.
@@ -1320,7 +1362,7 @@ export function Workspace(p: Props) {
           <div className="grid-only">
             <DataTable
               model={grid.model}
-              onPage={(page) => setPage(grid.layout, page)}
+              onPage={(page) => (p.onSectionPage ?? setPage)(grid.layout, page)}
               onTool={() => undefined}
             />
           </div>

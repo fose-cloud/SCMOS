@@ -12,7 +12,7 @@ import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { normaliseField } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
-import { clearJobs, deleteJobs, loadJobs, loadPlanFile, saveJobs } from "./scmos/store";
+import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
 import { cleanupJobs, duplicateGroups, type CleanupReport, type DupGroup } from "./scmos/cleanup";
 import { ALL_PERIOD, filterPeriod, periodLabel, type Period } from "./scmos/period";
 import { CleanupReportModal, DuplicatesModal } from "./scmos/overlays/DataOverlays";
@@ -748,6 +748,77 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
 
   const tabList = TAB_DEFS[screen] || [];
   const activeTab = tab && tabList.indexOf(tab) >= 0 ? tab : tabList[0] || "";
+
+  /**
+   * The page the workspace is about to draw, asked for directly.
+   *
+   * The register is still loaded — the panels above the grid, the calendar,
+   * duplicate detection and the Excel export all read the whole thing — but the
+   * grid no longer waits for it. Twenty-five rows arrive in a fraction of the
+   * time 2,626 take, and the tab counts come with them, computed over the whole
+   * register by the side that holds it.
+   *
+   * Asked per category, because the grid splits into independently paged
+   * sections when no category is chosen. That is one request per visible
+   * section rather than one, and still a fiftieth of the bytes.
+   */
+  /**
+   * The page each grid section is on. Held here because the request that
+   * fetches a page and the control that changes it must read the same number.
+   */
+  const [sectionPages, setSectionPages] = useState<Record<string, number>>({});
+
+  const [serverPages, setServerPages] =
+    useState<Record<string, { jobs: Job[]; total: number; pageCount: number }> | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isWorkspace) return;
+    let cancelled = false;
+
+    (async () => {
+      const wanted = ws.cat === "ALL" ? ["IMPORT", "EXPORT", "DELIVERY"] : [ws.cat];
+      const answers = await Promise.all(wanted.map((cat) => loadJobsPage({
+        tab: activeTab, cat,
+        year: ws.year, month: ws.month, day: ws.date,
+        q, sort: ws.sort?.key, dir: ws.sort?.dir,
+        page: sectionPages[cat] ?? 1, per: prefs.perPage,
+        customer: ws.cust, trucker: ws.trucker, type: ws.type,
+        status: ws.status, assignee: ws.assignee, kpi: ws.kpi,
+      })));
+      if (cancelled) return;
+
+      // One failure and the whole thing falls back to the register in the
+      // browser, which is slower and still correct. A half-filled grid would
+      // not be.
+      if (answers.some((answer) => answer === null)) { setServerPages(undefined); return; }
+
+      const next: Record<string, { jobs: Job[]; total: number; pageCount: number }> = {};
+      wanted.forEach((cat, index) => {
+        const answer = answers[index]!;
+        // Through `prep`, because the grid draws fields it derives — the
+        // priority column, the validation marks — and stored rows carry none
+        // of them.
+        next[cat] = {
+          jobs: prep({ jobs: answer.jobs }).jobs,
+          total: answer.total,
+          pageCount: answer.pageCount,
+        };
+      });
+      setServerPages(next);
+    })();
+
+    return () => { cancelled = true; };
+  }, [isWorkspace, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
+      ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q,
+      sectionPages, prefs.perPage, revision]);
+
+  // Changing what is being looked at puts every section back to its first page.
+  // Left alone, a filter that narrows to eight jobs would open on page four of
+  // the previous selection and look empty.
+  useEffect(() => {
+    setSectionPages({});
+  }, [activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
+      ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q, prefs.perPage]);
 
   const wsCounts = useMemo(
     () => (isWorkspace ? workspaceTabCounts(ops, me.opId, ws.cat) : {}),
@@ -1610,6 +1681,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onSort={() => undefined}
                   canEdit={canEditJob}
                   canAssign={able("AssignJobs")}
+                  serverPages={serverPages}
+                  sectionPages={sectionPages}
+                  onSectionPage={(layout, next) =>
+                    setSectionPages((was) => ({ ...was, [layout]: next }))}
                   per={prefs.perPage}
                   sync={sync}
                   panels={prefs.panels}
@@ -1671,7 +1746,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "admin" && <Administration onToast={setToast} />}
             {screen === "abs" && <Abs />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
-            {screen === "training" && <Training onToast={setToast} />}
+            {screen === "training" && (
+              <Training onToast={setToast}
+                registerCustomers={[...new Set((ops?.jobs ?? [])
+                  .map((job) => job.customer.trim()).filter(Boolean))]} />
+            )}
             {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
