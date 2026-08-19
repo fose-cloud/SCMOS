@@ -46,6 +46,17 @@ public class StaffMember
     /// </summary>
     public bool Active { get; set; } = true;
 
+    /// <summary>
+    /// Which carrier this account speaks for, when it is a carrier's account.
+    ///
+    /// The whole boundary rests on this one column. A <c>Subcontractor</c> may
+    /// see the jobs offered to their own company and nothing else — not another
+    /// carrier's rates, not a customer whose work they were never sent. With no
+    /// supplier here there is nothing to compare against, so such an account is
+    /// shown no jobs at all rather than everyone's.
+    /// </summary>
+    public int? SupplierId { get; set; }
+
     public string Note { get; set; } = "";
 
     public string CreatedBy { get; set; } = "";

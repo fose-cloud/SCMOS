@@ -122,6 +122,22 @@ public class StaffService(ScmosDbContext db)
             p.Email.Length > 0 && string.Equals(p.Email, address, StringComparison.OrdinalIgnoreCase));
         if (byEmail is not null) return byEmail;
 
+        // A guest has two names and Microsoft does not always send the same one.
+        // The directory stores them as `someone_gmail.com#EXT#@tenant…`, while
+        // the claim that arrives is usually the address they actually typed.
+        // Storing one form and being sent the other is a sign-in that succeeds
+        // and a person the system still does not recognise — the failure looks
+        // like a permissions problem and is really a spelling one.
+        var plain = PlainAddress(address);
+        if (plain.Length > 0)
+        {
+            var byGuest = people.FirstOrDefault(p =>
+                p.Email.Length > 0 &&
+                (string.Equals(p.Email, plain, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(PlainAddress(p.Email), plain, StringComparison.OrdinalIgnoreCase)));
+            if (byGuest is not null) return byGuest;
+        }
+
         var local = (address.Contains('@') ? address[..address.IndexOf('@')] : address).Trim().ToLowerInvariant();
         if (local.Length > 0)
         {
@@ -142,6 +158,27 @@ public class StaffService(ScmosDbContext db)
             : people.FirstOrDefault(p => string.Equals(p.Name, first, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// The address behind a guest name, or the address unchanged.
+    ///
+    /// <c>watsana5592_gmail.com#EXT#@tenant.onmicrosoft.com</c> becomes
+    /// <c>watsana5592@gmail.com</c>. Only the last underscore is the one that
+    /// was an <c>@</c>, because a local part may contain underscores of its own
+    /// — <c>a_b_gmail.com#EXT#@…</c> is <c>a_b@gmail.com</c>, not
+    /// <c>a@b_gmail.com</c>.
+    /// </summary>
+    public static string PlainAddress(string value)
+    {
+        var marker = (value ?? "").IndexOf("#EXT#", StringComparison.OrdinalIgnoreCase);
+        if (marker <= 0) return value ?? "";
+
+        var guest = value![..marker];
+        var split = guest.LastIndexOf('_');
+        return split <= 0 || split == guest.Length - 1
+            ? guest
+            : $"{guest[..split]}@{guest[(split + 1)..]}";
+    }
+
     /// <summary>The owner id for an operator name off a plan workbook.</summary>
     public async Task<string> IdForNameAsync(string? name, CancellationToken token)
     {
@@ -154,19 +191,54 @@ public class StaffService(ScmosDbContext db)
 
     /* --------------------------------------------------------------- edits */
 
-    public async Task<StaffResult> CreateAsync(string email, string name, string role, string note,
-        AppUser by, CancellationToken token)
+    /// <summary>
+    /// Everything that can be judged before a directory account exists.
+    ///
+    /// Separated out because the order matters: inviting somebody and then
+    /// discovering the role was misspelled leaves a real account in the
+    /// directory that nothing in SCMOS refers to. Check first, invite second,
+    /// write the row third.
+    /// </summary>
+    public async Task<StaffResult> PrecheckAsync(string email, string name, string role,
+        CancellationToken token)
     {
-        var address = email.Trim();
-        var person = name.Trim();
-
-        if (address.Length == 0) return new StaffResult(false, "ต้องระบุอีเมลที่ใช้ลงชื่อเข้าใช้");
-        if (person.Length == 0) return new StaffResult(false, "ต้องระบุชื่อ");
+        if (email.Trim().Length == 0) return new StaffResult(false, "ต้องระบุอีเมลที่ใช้ลงชื่อเข้าใช้");
+        if (name.Trim().Length == 0) return new StaffResult(false, "ต้องระบุชื่อ");
         if (Roles.Find(role) is null)
             return new StaffResult(false, "บทบาทที่ใช้ได้: " + string.Join(", ", Roles.All.Select(r => r.Name)));
 
-        if (await db.Staff.AnyAsync(p => p.Email == address, token))
-            return new StaffResult(false, "อีเมลนี้มีอยู่ในทะเบียนแล้ว");
+        return await db.Staff.AnyAsync(p => p.Email == email.Trim(), token)
+            ? new StaffResult(false, "อีเมลนี้มีอยู่ในทะเบียนแล้ว")
+            : new StaffResult(true, "");
+    }
+
+    /// <param name="signInName">
+    /// What Microsoft will actually call this person — a guest's
+    /// <c>#EXT#</c> name, or the new account's UPN. When it is given it becomes
+    /// the row's email, because that string is the one arriving in the sign-in
+    /// header, and the address the administrator typed is only how a human
+    /// refers to them. Storing the human one is what left the first invited
+    /// account signed in and unrecognised.
+    /// </param>
+    public async Task<StaffResult> CreateAsync(string email, string name, string role, string note,
+        AppUser by, CancellationToken token, string signInName = "")
+    {
+        var typed = email.Trim();
+        var address = signInName.Trim().Length > 0 ? signInName.Trim() : typed;
+        var person = name.Trim();
+
+        var checks = await PrecheckAsync(typed, person, role, token);
+        if (!checks.Ok) return checks;
+
+        if (address != typed && await db.Staff.AnyAsync(p => p.Email == address, token))
+            return new StaffResult(false, "บัญชีลงชื่อเข้าใช้นี้มีอยู่ในทะเบียนแล้ว");
+
+        // Keep the address a human recognises. The row's email is now a UPN
+        // nobody would think to search for.
+        if (address != typed)
+        {
+            note = note.Trim().Length > 0 ? $"{note.Trim()} · อีเมลติดต่อ {typed}" : $"อีเมลติดต่อ {typed}";
+        }
 
         var id = await NextIdAsync(role, token);
         var now = DateTimeOffset.UtcNow;
@@ -256,6 +328,61 @@ public class StaffService(ScmosDbContext db)
     /// The next free id for a role's prefix. Ids are what jobs store, so they
     /// are never reused — the search starts above the highest one taken.
     /// </summary>
+    /// <summary>
+    /// Removes a row, but only when removing it destroys nothing.
+    ///
+    /// The rule this service was written around is that nobody is deleted: a
+    /// person who has left still owns the jobs they worked, and dropping the row
+    /// leaves every one of those jobs pointing at an owner id that no longer
+    /// resolves — the workspace then shows them as belonging to nobody, and the
+    /// history of who did what is gone.
+    ///
+    /// That reasoning holds for somebody with work behind them. It does not hold
+    /// for a row created by mistake, or one superseded when an account was moved
+    /// from a personal address to a company one — those own nothing, and keeping
+    /// them makes the directory harder to read for no gain. So deletion is
+    /// allowed exactly when there is nothing to lose:
+    ///
+    /// <list type="bullet">
+    /// <item>the account is already deactivated, so this is never a way to cut
+    /// somebody off mid-shift;</item>
+    /// <item>no job in the register names them as owner;</item>
+    /// <item>they are not the last administrator.</item>
+    /// </list>
+    ///
+    /// The audit trail keeps what they did either way — it stores the id as
+    /// text and is never joined back to this table.
+    /// </summary>
+    public async Task<StaffResult> DeleteAsync(string id, AppUser by, CancellationToken token)
+    {
+        var person = await db.Staff.FirstOrDefaultAsync(p => p.Id == id, token);
+        if (person is null) return new StaffResult(false, "ไม่พบผู้ใช้รายนี้");
+
+        if (string.Equals(person.Id, by.OperatorId, StringComparison.OrdinalIgnoreCase))
+            return new StaffResult(false, "ลบบัญชีของตัวเองไม่ได้");
+
+        if (person.Active)
+            return new StaffResult(false, "ต้องปิดบัญชีก่อนจึงจะลบได้ — กันการตัดสิทธิ์คนที่ยังทำงานอยู่");
+
+        var jobs = await db.OperationJobs.AsNoTracking().CountAsync(job => job.OwnerId == id, token);
+        if (jobs > 0)
+            return new StaffResult(false,
+                $"ลบไม่ได้ — ยังเป็นเจ้าของงาน {jobs:N0} ใบ ลบแล้วงานเหล่านั้นจะไม่มีเจ้าของ " +
+                "ถ้าต้องการลบจริง ให้ย้ายงานไปให้คนอื่นก่อน หรือปล่อยไว้แบบปิดบัญชีซึ่งเก็บประวัติไว้ครบ");
+
+        if (Roles.Can(person.Role, Capability.AdministerData))
+        {
+            var others = await db.Staff.AsNoTracking()
+                .Where(p => p.Id != id && p.Active).Select(p => p.Role).ToListAsync(token);
+            if (!others.Any(role => Roles.Can(role, Capability.AdministerData)))
+                return new StaffResult(false, "ลบไม่ได้ — จะไม่เหลือผู้ดูแลระบบในองค์กร");
+        }
+
+        db.Staff.Remove(person);
+        await db.SaveChangesAsync(token);
+        return new StaffResult(true, $"ลบ {person.Name} ({id}) ออกจากทะเบียนแล้ว", id);
+    }
+
     private async Task<string> NextIdAsync(string role, CancellationToken token)
     {
         var prefix = role switch

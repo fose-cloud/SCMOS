@@ -231,6 +231,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasKey(e => e.Id);
             entry.Property(e => e.Id).HasColumnName("id").HasMaxLength(20);
             entry.Property(e => e.Email).HasColumnName("email").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
             entry.Property(e => e.Name).HasColumnName("name").HasMaxLength(120);
             entry.Property(e => e.Account).HasColumnName("account").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.Role).HasColumnName("role").HasMaxLength(40);

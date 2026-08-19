@@ -159,6 +159,41 @@ public class JobsRepository(ScmosDbContext db)
     /// against the register in a single statement, so saving the whole July plan
     /// is two round trips rather than two thousand.
     /// </summary>
+    /// <summary>
+    /// Changes a few fields on one job, leaving every other field alone.
+    ///
+    /// The save path takes whole jobs, which is right for the grid — it sends
+    /// back what it holds. It is wrong for a caller that knows about three
+    /// fields and nothing else: building a whole job around them would write
+    /// blanks over everything it did not know, and the register would lose a
+    /// column every time a carrier answered the phone. So this reads the row
+    /// first and writes it back merged.
+    /// </summary>
+    public async Task<bool> PatchAsync(string key, IReadOnlyDictionary<string, string> fields,
+        string by, CancellationToken token)
+    {
+        var wanted = Text(key, 80);
+        if (wanted.Length == 0 || fields.Count == 0) return false;
+
+        var row = await db.OperationJobs.AsNoTracking()
+            .FirstOrDefaultAsync(job => job.Key == wanted, token);
+        if (row is null) return false;
+
+        var merged = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(row.Data)
+                     ?? new Dictionary<string, JsonElement>();
+        foreach (var (name, value) in fields)
+        {
+            merged[name] = JsonSerializer.SerializeToElement(value);
+        }
+        merged["key"] = JsonSerializer.SerializeToElement(row.Key);
+
+        // Recording why is the caller's job, through AuditService — it knows
+        // the role, the address and the session, and writing a second, thinner
+        // audit row here would be the same rule kept in two places.
+        var (saved, _) = await SaveAsync([JsonSerializer.SerializeToElement(merged)], by, token);
+        return saved > 0;
+    }
+
     public async Task<(int Saved, DateTimeOffset At)> SaveAsync(IReadOnlyList<JsonElement> jobs, string by, CancellationToken token)
     {
         // One read of the directory for the whole batch. A per-row lookup would

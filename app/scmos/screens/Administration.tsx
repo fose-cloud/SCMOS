@@ -20,7 +20,37 @@ type Person = {
   active: boolean; note: string; jobs: number; can: string[];
   updatedBy: string; updatedAt: string;
 };
-type Directory = { people: Person[]; roles: Role[]; canManage: boolean; you: string };
+type Directory = {
+  people: Person[]; roles: Role[]; canManage: boolean; you: string;
+  /** Whether this API can create a sign-in, not only a register row. */
+  signIn?: { ready: boolean; why: string };
+};
+
+/**
+ * What an administrator is actually deciding when they add somebody.
+ *
+ * Adding a row to the directory says what a person may do. It does not give
+ * them a way in — and the two were the same button until an administrator
+ * created a colleague, told them to sign in, and watched it fail with nothing
+ * on screen to explain why.
+ */
+const SIGN_IN_WAYS = [
+  {
+    id: "invite",
+    label: "เชิญด้วยอีเมลที่เขามีอยู่",
+    detail: "Gmail, Outlook.com, อีเมลบริษัท — Microsoft ส่งคำเชิญไปให้ เขากดรับแล้วเข้าด้วยรหัสเดิมของตัวเอง SCMOS ไม่เก็บรหัสผ่าน",
+  },
+  {
+    id: "tenant",
+    label: "สร้างบัญชีใหม่ในองค์กร",
+    detail: "สำหรับคนที่ไม่มีอีเมลใช้ได้ ระบบสุ่มรหัสชั่วคราวให้ครั้งเดียว และบังคับเปลี่ยนรหัสเมื่อเข้าใช้ครั้งแรก",
+  },
+  {
+    id: "none",
+    label: "เขาเข้าระบบได้อยู่แล้ว",
+    detail: "บันทึกลงทะเบียนอย่างเดียว ใช้เมื่อบัญชีนั้นลงชื่อเข้าใช้ได้อยู่ก่อนแล้ว",
+  },
+] as const;
 
 const CAPABILITY_TH: Record<string, string> = {
   ViewDashboard: "ดูแดชบอร์ด",
@@ -43,24 +73,51 @@ export function Administration({ onToast }: { onToast: (m: string) => void }) {
   const [dir, setDir] = useState<Directory | null>(null);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ email: "", name: "", role: "Operation User", note: "" });
+  const [form, setForm] = useState({ email: "", name: "", role: "Operation User", note: "", signIn: "invite" });
+  /**
+   * The temporary password, held only long enough to be read.
+   *
+   * It is never stored — not in the staff row, not in the audit trail — so this
+   * is the one and only time anybody sees it. A toast would slide away while
+   * the administrator was still reaching for a pen.
+   */
+  const [issued, setIssued] = useState<{ name: string; signIn: string; password: string } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ role: string; email: string; note: string }>({ role: "", email: "", note: "" });
 
+  /**
+   * Why the directory could not be read, in the caller's own words.
+   *
+   * "No permission or the API is unreachable" was one message for two
+   * situations that need opposite responses: one is answered by asking an
+   * administrator, the other by waiting ten seconds. It appeared during a
+   * routine restart of the API and stayed on screen with nothing to press,
+   * which reads as the account having lost its access.
+   */
+  const [failure, setFailure] = useState<{ retryable: boolean; message: string } | null>(null);
+
   const load = useCallback(async () => {
-    const response = await apiFetch("/api/staff", { headers: { accept: "application/json" } });
-    setDir(response.ok ? await response.json() as Directory : null);
+    try {
+      const response = await apiFetch("/api/staff", { headers: { accept: "application/json" } });
+      if (response.ok) {
+        setDir(await response.json() as Directory);
+        setFailure(null);
+        return;
+      }
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      setDir(null);
+      setFailure(response.status === 401 || response.status === 403
+        ? { retryable: false, message: body.error || "บัญชีนี้ไม่มีสิทธิ์เปิดทะเบียนผู้ใช้" }
+        : { retryable: true, message: `API ตอบ ${response.status} — ` +
+            (response.status >= 500 ? "เซิร์ฟเวอร์อาจกำลังรีสตาร์ท" : body.error || "ลองใหม่อีกครั้ง") });
+    } catch (error) {
+      setDir(null);
+      setFailure({ retryable: true,
+        message: "ติดต่อ API ไม่ได้: " + (error instanceof Error ? error.message : String(error)) });
+    }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const response = await apiFetch("/api/staff", { headers: { accept: "application/json" } });
-      const body = response.ok ? await response.json() as Directory : null;
-      if (!cancelled) setDir(body);
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  useEffect(() => { void load(); }, [load]);
 
   async function post(path: string, body: unknown) {
     if (busy) return false;
@@ -76,13 +133,87 @@ export function Administration({ onToast }: { onToast: (m: string) => void }) {
     } finally { setBusy(false); }
   }
 
+  /**
+   * Creating differs from every other action here: its answer carries something
+   * that cannot be fetched again. `post` throws the body away after the toast,
+   * which is right for a role change and wrong for a password issued once.
+   */
+  async function create(body: unknown) {
+    if (busy) return null;
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/staff", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      const reply = await response.json().catch(() => ({})) as
+        { message?: string; error?: string; signIn?: string; tempPassword?: string };
+      onToast(reply.message ?? reply.error ?? "สร้างบัญชีไม่สำเร็จ");
+      await load();
+      return response.ok ? reply : null;
+    } finally { setBusy(false); }
+  }
+
+  /**
+   * Removing a row. Separate from `post` because it is the one action here that
+   * cannot be undone from this screen — the confirmation and the wording of the
+   * refusal matter more than the request does.
+   */
+  async function remove(person: Person) {
+    if (busy) return;
+    if (!window.confirm(
+      `ลบ ${person.name} (${person.id}) ออกจากทะเบียนถาวร?
+
+` +
+      `ประวัติการใช้งานใน Audit ยังอยู่ครบ แต่แถวนี้จะหายไปและกู้คืนไม่ได้`,
+    )) return;
+
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/staff/${person.id}`, { method: "DELETE" });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "ลบไม่สำเร็จ");
+      await load();
+    } finally { setBusy(false); }
+  }
+
+  /**
+   * The same shape as `create`: some answers carry a value that exists nowhere
+   * else and cannot be fetched again, so the body is kept rather than toasted
+   * and thrown away.
+   */
+  async function create2(path: string) {
+    if (busy) return null;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/staff${path}`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      const reply = await response.json().catch(() => ({})) as
+        { message?: string; error?: string; tempPassword?: string };
+      onToast(reply.message ?? reply.error ?? "ทำรายการไม่สำเร็จ");
+      await load();
+      return response.ok ? reply : null;
+    } finally { setBusy(false); }
+  }
+
   if (!dir) {
+    const retryable = failure?.retryable ?? true;
     return (
-      <div style={css("background:#fff;border:1px solid #F3C9C4;border-left:3px solid #B42318;border-radius:5px;padding:20px 22px")}>
-        <div style={css("font-size:13.5px;font-weight:650;color:#B42318;margin-bottom:4px")}>อ่านทะเบียนผู้ใช้ไม่ได้</div>
-        <div style={css("font-size:12.5px;color:#5A6B7D")}>
-          หน้านี้ต้องมีสิทธิ์ระดับหัวหน้างานขึ้นไป หรือ API ยังติดต่อไม่ได้
+      <div style={css("background:#fff;border:1px solid " + (retryable ? "#F0D8B8" : "#F3C9C4") +
+        ";border-left:3px solid " + (retryable ? "#B45309" : "#B42318") + ";border-radius:5px;padding:20px 22px")}>
+        <div style={css("font-size:13.5px;font-weight:650;color:" + (retryable ? "#B45309" : "#B42318") + ";margin-bottom:4px")}>
+          {retryable ? "ยังอ่านทะเบียนผู้ใช้ไม่ได้" : "บัญชีนี้เปิดทะเบียนผู้ใช้ไม่ได้"}
         </div>
+        <div style={css("font-size:12.5px;color:#5A6B7D;line-height:1.7")}>
+          {failure?.message ?? "กำลังโหลด…"}
+          {retryable && <><br />ถ้าเพิ่งมีการอัปเดตระบบ ให้รอสักครู่แล้วกดลองใหม่</>}
+        </div>
+        {retryable && (
+          <button onClick={() => void load()} disabled={busy}
+            style={css("margin-top:14px;height:32px;padding:0 15px;border:1px solid #B45309;background:#fff;color:#B45309;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+            ลองใหม่
+          </button>
+        )}
       </div>
     );
   }
@@ -117,6 +248,41 @@ export function Administration({ onToast }: { onToast: (m: string) => void }) {
           )}
         </div>
 
+        {/* What just happened, kept on screen until it is dismissed. The
+            password below exists nowhere else — closing this panel is the last
+            chance to read it. */}
+        {issued && (
+          <div style={css("padding:14px 16px;border-bottom:1px solid #E9EFF5;background:#F0F8F3")}>
+            <div style={css("display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap")}>
+              <div style={css("flex:1;min-width:260px")}>
+                <div style={css("font-size:13px;font-weight:650;color:#16794C;margin-bottom:4px")}>
+                  สร้างบัญชีให้ {issued.name} แล้ว
+                </div>
+                <div style={css("font-size:12.5px;color:#3F5265;line-height:1.65")}>{issued.signIn}</div>
+
+                {issued.password && (
+                  <div style={css("margin-top:10px;padding:11px 13px;background:#fff;border:1px solid #BBD5EE;border-radius:5px")}>
+                    <div style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:5px")}>
+                      รหัสผ่านชั่วคราว — แสดงครั้งเดียว
+                    </div>
+                    <div style={css("font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:16px;font-weight:600;color:#0F2B46;letter-spacing:.04em;word-break:break-all")}>
+                      {issued.password}
+                    </div>
+                    <div style={css("margin-top:7px;font-size:11.5px;color:#B45309;line-height:1.6")}>
+                      ระบบไม่ได้เก็บรหัสนี้ไว้ที่ไหนเลย ส่งให้เจ้าตัวโดยตรง แล้วเขาจะถูกบังคับให้ตั้งรหัสใหม่ทันทีที่เข้าครั้งแรก
+                      ถ้าทำหาย ให้ออกรหัสใหม่แทนการตามหา
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setIssued(null)}
+                style={css("height:29px;padding:0 13px;border:1px solid #C3CFDB;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}>
+                รับทราบแล้ว
+              </button>
+            </div>
+          </div>
+        )}
+
         {adding && dir.canManage && (
           <div style={css("padding:14px 16px;border-bottom:1px solid #E9EFF5;background:#F8FAFC")}>
             <div style={css("display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end")}>
@@ -138,7 +304,11 @@ export function Administration({ onToast }: { onToast: (m: string) => void }) {
               </Field>
               <button
                 onClick={async () => {
-                  if (await post("", form)) { setForm({ email: "", name: "", role: "Operation User", note: "" }); setAdding(false); }
+                  const reply = await create(form);
+                  if (!reply) return;
+                  setIssued({ name: form.name, signIn: reply.signIn ?? "", password: reply.tempPassword ?? "" });
+                  setForm({ email: "", name: "", role: "Operation User", note: "", signIn: form.signIn });
+                  setAdding(false);
                 }}
                 disabled={busy || !form.email.trim() || !form.name.trim()}
                 style={css("height:30px;padding:0 15px;border:1px solid #16794C;background:" +
@@ -149,10 +319,38 @@ export function Administration({ onToast }: { onToast: (m: string) => void }) {
             <div style={css("margin-top:11px;padding:10px 12px;background:#E7F0FA;border:1px solid #BBD5EE;border-radius:5px;font-size:12px;color:#1D4E80;line-height:1.6")}>
               <b>บทบาท {form.role}</b> จะได้สิทธิ์: {(roleOf(form.role)?.grants ?? []).map((g) => CAPABILITY_TH[g] ?? g).join(" · ") || "—"}
             </div>
-            <div style={css("margin-top:7px;font-size:11.5px;color:#B45309;line-height:1.6")}>
-              อีเมลต้องตรงกับที่ Microsoft 365 ส่งมาจริง — บัญชีที่เป็น guest ในองค์กรจะใช้รูป
-              <code style={css("font-family:ui-monospace,monospace")}>ชื่อ_domain.com#EXT#@tenant.onmicrosoft.com</code> ไม่ใช่อีเมลเดิม
+            <div style={css("margin-top:11px")}>
+              <div style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:6px")}>
+                เขาจะเข้าระบบด้วยวิธีไหน
+              </div>
+              <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>
+                {SIGN_IN_WAYS.map((way) => {
+                  const on = form.signIn === way.id;
+                  return (
+                    <button key={way.id} onClick={() => setForm({ ...form, signIn: way.id })}
+                      style={css("flex:1;min-width:210px;text-align:left;padding:9px 11px;border:1px solid " +
+                        (on ? "#0A2240" : "#D3DBE3") + ";background:" + (on ? "#0A2240" : "#fff") +
+                        ";color:" + (on ? "#fff" : "#0F2B46") + ";border-radius:5px;cursor:pointer")}>
+                      <div style={css("font-size:12.5px;font-weight:650;margin-bottom:2px")}>{way.label}</div>
+                      <div style={css("font-size:11.5px;line-height:1.55;color:" + (on ? "#C8D6E5" : "#7B8CA0"))}>
+                        {way.detail}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+
+            {/* Said before the form is filled in, not after it fails. Without
+                directory permission the API can still write the row, and that
+                row is exactly the half that looks like success. */}
+            {form.signIn !== "none" && dir.signIn && !dir.signIn.ready && (
+              <div style={css("margin-top:9px;padding:10px 12px;background:#FFF8F0;border:1px solid #F0D8B8;border-left:3px solid #B45309;border-radius:5px;font-size:12px;color:#8A5A12;line-height:1.6")}>
+                <b>ตอนนี้ยังสร้างบัญชีลงชื่อเข้าใช้ไม่ได้</b> — {dir.signIn.why}
+                <br />
+                เพิ่มผู้ใช้ตอนนี้จะได้แค่แถวในทะเบียน ซึ่งยังล็อกอินไม่ได้ จนกว่าจะให้สิทธิ์นั้นก่อน
+              </div>
+            )}
           </div>
         )}
 
@@ -211,6 +409,28 @@ export function Administration({ onToast }: { onToast: (m: string) => void }) {
                             onClick={() => { setEditing(person.id); setDraft({ role: person.role, email: person.email, note: person.note }); }} />
                           <Mini label={person.active ? "ปิดบัญชี" : "เปิดใช้"} tone={person.active ? "#B42318" : "#16794C"} busy={busy}
                             onClick={() => void post(`/${person.id}`, { active: !person.active })} />
+                          {/* Offered for everyone, because an administrator
+                              cannot tell a guest from a member by looking at the
+                              row — the API answers with the reason when it is a
+                              guest, which is more use than a button that is not
+                              there. */}
+                          {/* Only on a closed account, and only then: the API
+                              still refuses if the person owns any job, and says
+                              how many rather than just refusing. */}
+                          {!person.active && (
+                            <Mini label="ลบ" tone="#B42318" busy={busy}
+                              onClick={() => void remove(person)} />
+                          )}
+                          <Mini label="รหัสใหม่" tone="#B45309" busy={busy}
+                            onClick={async () => {
+                              if (!window.confirm(`ออกรหัสผ่านชั่วคราวใหม่ให้ ${person.name}?
+
+รหัสเดิมจะใช้ไม่ได้ทันที และเขาต้องตั้งรหัสใหม่เมื่อเข้าครั้งถัดไป`)) return;
+                              const reply = await create2(`/${person.id}/reset-password`);
+                              if (reply?.tempPassword) {
+                                setIssued({ name: person.name, signIn: reply.message ?? "", password: reply.tempPassword });
+                              }
+                            }} />
                         </span>
                       ))}
                     </td>
