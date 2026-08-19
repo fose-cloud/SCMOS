@@ -1,5 +1,5 @@
 import type { Db } from "./demo";
-import { NAV, type Screen } from "./nav";
+import { ALL_NAV, type Screen } from "./nav";
 import type { Job, Ops } from "./ops";
 
 /**
@@ -162,7 +162,9 @@ export function globalSearch(query: string, ops: Ops | null, db: Db): SearchGrou
   push("CAR / PAR", carparHits);
 
   // ---- the menu itself ----------------------------------------------------
-  const screenHits: SearchHit[] = NAV
+  // Parents and children both: moving three screens under Workspace must not
+  // be the same as removing them from search.
+  const screenHits: SearchHit[] = ALL_NAV
     .filter(([, label, th]) => norm(label).indexOf(q) >= 0 || th.indexOf(query.trim()) >= 0)
     .map(([key, label, th]) => ({
       id: "screen-" + key,

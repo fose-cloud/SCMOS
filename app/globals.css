@@ -63,3 +63,103 @@ button { cursor: pointer; }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+
+/* --------------------------------------------------------------- phones
+   Every screen in this app was laid out for a desk. These rules are the
+   smallest set that makes it usable on a phone without each screen having to
+   learn about screen width — the inline styles stay as written, and this
+   corrects the three shapes that break: rows that cannot shrink, tables wider
+   than the glass, and controls too small to hit with a thumb.
+
+   Kept as a stylesheet rather than threaded through every component as a prop:
+   a dozen screens would each need the same rule, and this project has already
+   been bitten by the same rule living in two places. */
+@media (max-width: 900px) {
+  /* The rail stops being a column and becomes a drawer over the content. It is
+     the whole reason this block exists: at 375px the column took 248 and left
+     117 for the work. `!important` because the component writes its desktop
+     width inline, and an inline style outranks a stylesheet without it. */
+  .app-rail {
+    position: fixed !important;
+    top: 60px; bottom: 0; left: 0;
+    width: 264px !important;
+    z-index: 45;
+    overflow-y: auto !important;
+    transform: translateX(-100%);
+    transition: transform .18s ease !important;
+  }
+  .app-rail.is-open { transform: none; }
+
+  /* Tapping the page behind the drawer shuts it — the only gesture available
+     once the menu covers the button that opened it. */
+  .rail-scrim { display: block !important; }
+
+  /* The header holds a company band, a product band, a search box, an alert
+     button and a profile card. Four of those are the first to go. */
+  .only-wide { display: none !important; }
+  .brand-band {
+    width: auto !important;
+    padding-left: 12px !important;
+    border-right: 0 !important;
+  }
+  .search-band { max-width: none !important; margin-left: 8px !important; }
+  .header-actions { gap: 4px !important; }
+
+  /* A row of chips or buttons pinned to the right pushes the whole page wider
+     than the screen. On a phone it wraps onto the next line instead. */
+  main [style*="margin-left: auto"] {
+    margin-left: 0 !important;
+    /* Unpinning it is not enough — four category chips are still wider than a
+       phone, so they wrap onto a second line rather than stretching the page. */
+    flex-wrap: wrap;
+  }
+
+  /* Tables carry twenty columns; the page must not stretch to fit them. They
+     scroll inside their own frame, which is what the frame is for. */
+  main table {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Apple's guidance is 44px; anything under that is a tap that misses. Only
+     raised where it is currently smaller, so nothing already comfortable grows. */
+  main button, main select, main a[href] {
+    min-height: 36px;
+  }
+
+  /* iOS zooms the whole page when a field under 16px takes focus, and never
+     zooms back out. Every text field in the app is 12.5px. */
+  main input, main select, main textarea {
+    font-size: 16px !important;
+  }
+
+  /* The page header takes a third of a phone screen before any work is
+     visible. */
+  main h1 { font-size: 18px !important; }
+}
+
+/* One register, two shapes. The grid is the tool for keying a plan at a desk;
+   the cards are for reading one job on a phone. Both are rendered and the
+   stylesheet decides, so neither has to be told how wide the screen is. */
+.cards-only { display: none; }
+
+@media (max-width: 900px) {
+  .grid-only { display: none !important; }
+  .cards-only { display: flex !important; }
+}
+
+@media (max-width: 900px) {
+  /* The page heading and its toolbar sat on one row. Four buttons do not
+     shrink, so the title column was squeezed to about a hundred pixels and
+     every Thai word wrapped onto its own line — a heading read downwards. The
+     toolbar goes underneath instead. */
+  .page-head { flex-wrap: wrap !important; }
+  .page-head > div:first-child { flex: 1 0 100% !important; }
+  .page-actions {
+    flex: 1 0 100% !important;
+    flex-wrap: wrap !important;
+    padding-top: 4px !important;
+  }
+}

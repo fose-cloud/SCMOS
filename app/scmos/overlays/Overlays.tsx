@@ -192,6 +192,20 @@ export function ProfileMenu(p: {
 
 /* -------------------------------------------------------------- settings */
 
+/**
+ * Whether this sign-in belongs to somebody invited from outside.
+ *
+ * A guest's name carries `#EXT#`, or is a plain address on a domain the tenant
+ * does not own; their password lives with their own Microsoft account. A member
+ * of the organisation changes theirs on the organisation's page. Sending either
+ * one to the other's address produces "we could not find an account with that
+ * username", which reads as the account being broken.
+ */
+function guestAccount(user: string): boolean {
+  const name = (user || "").toLowerCase();
+  return name.includes("#ext#") || !name.endsWith(".onmicrosoft.com");
+}
+
 export function SettingsModal(p: {
   me: Account;
   profile: Profile;
@@ -328,8 +342,58 @@ export function SettingsModal(p: {
                 <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>หน้าเริ่มต้นหลังเข้าสู่ระบบ</div>
                 <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>Landing screen after sign-in</div>
                 <div style={css("display:flex;gap:8px")}>
-                  <button onClick={() => p.onChange({ ...p.prefs, landing: "workspace" })} style={css(chip(p.prefs.landing === "workspace"))}>Operation Workspace</button>
+                  <button onClick={() => p.onChange({ ...p.prefs, landing: "myjob" })} style={css(chip(p.prefs.landing === "myjob"))}>Operation Workspace</button>
                   <button onClick={() => p.onChange({ ...p.prefs, landing: "dashboard" })} style={css(chip(p.prefs.landing === "dashboard"))}>Dashboard</button>
+                </div>
+              </div>
+
+              {/*
+                Changing a password is Microsoft's job, not this application's.
+                SCMOS never sees one — the platform authenticates people and
+                hands over a verified identity, which is why there is no field
+                here to type a new password into. What this section can do, and
+                what somebody looking for "change my password" actually needs,
+                is to send them to the right page for the kind of account they
+                signed in with, because the two live at different addresses and
+                the wrong one simply says the account does not exist.
+              */}
+              <div>
+                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>รหัสผ่านและความปลอดภัย</div>
+                <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
+                  จัดการโดย Microsoft — SCMOS ไม่เก็บรหัสผ่านของใครเลย
+                </div>
+
+                <div style={css("background:#F8FAFC;border:1px solid #E3E8EE;border-radius:5px;padding:11px 13px")}>
+                  <div style={css("font-size:11.5px;color:#5A6B7D;line-height:1.7")}>
+                    บัญชีที่ใช้อยู่: <b style={css("color:#0F2B46")}>{p.me.user || p.me.full}</b>
+                    <br />
+                    {guestAccount(p.me.user)
+                      ? "บัญชีนี้เป็นบัญชีภายนอกที่ได้รับเชิญเข้ามา รหัสผ่านเป็นของบัญชี Microsoft ส่วนตัวของคุณ"
+                      : "บัญชีนี้เป็นบัญชีขององค์กร เปลี่ยนรหัสผ่านได้ที่หน้าของ Microsoft"}
+                  </div>
+
+                  <div style={css("display:flex;gap:8px;margin-top:10px;flex-wrap:wrap")}>
+                    <a href={guestAccount(p.me.user)
+                        ? "https://account.live.com/password/change"
+                        : "https://account.activedirectory.windowsazure.com/ChangePassword.aspx"}
+                      target="_blank" rel="noreferrer"
+                      style={css("display:inline-flex;align-items:center;height:32px;padding:0 14px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12px;font-weight:600;text-decoration:none")}>
+                      เปลี่ยนรหัสผ่าน
+                    </a>
+                    <a href="https://mysignins.microsoft.com/security-info"
+                      target="_blank" rel="noreferrer"
+                      style={css("display:inline-flex;align-items:center;height:32px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12px;font-weight:600;text-decoration:none")}>
+                      ตั้งค่าความปลอดภัย
+                    </a>
+                  </div>
+
+                  {guestAccount(p.me.user) && (
+                    <div style={css("margin-top:10px;font-size:11px;color:#8A5A12;background:#FFF8F0;border:1px solid #F0D8B8;border-radius:4px;padding:8px 10px;line-height:1.65")}>
+                      ถ้าทุกครั้งที่เข้าระบบมีรหัสส่งไปที่อีเมล แปลว่าอีเมลนี้ยังไม่มีบัญชี Microsoft
+                      สมัครฟรีที่ <b>signup.live.com</b> ด้วยอีเมลเดิม ตั้งรหัสที่ต้องการครั้งเดียว
+                      แล้วจะไม่มีรหัสส่งเข้าอีเมลอีก — ไม่ต้องเปลี่ยนอีเมลและไม่ต้องรับคำเชิญใหม่
+                    </div>
+                  )}
                 </div>
               </div>
 

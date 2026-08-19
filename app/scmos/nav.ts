@@ -2,7 +2,8 @@ export type Screen =
   | "dashboard" | "workspace" | "booking" | "monitoring" | "prerun" | "docverify"
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
-  | "vendor" | "evaluation" | "quotation" | "admin";
+  | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
+  | "loreal" | "carrier" | "myjob";
 
 /**
  * The menu, in the order the work happens.
@@ -16,9 +17,7 @@ export type Screen =
 export const NAV: [Screen, string, string, number[][]][] = [
   ["dashboard", "Dashboard", "แดชบอร์ด", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
   ["workspace", "Workspace", "พื้นที่คีย์งาน", [[2, 2, 12, 4], [2, 8, 5, 6], [9, 8, 5, 2], [9, 12, 5, 2]]],
-  ["booking", "Booking", "จองรถบรรทุก", [[2, 3, 10, 7], [12, 6, 2, 4], [3, 12, 3, 2], [10, 12, 3, 2]]],
-  ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
-  ["prerun", "Pre-Run", "ตรวจก่อนออกงาน", [[2, 3, 12, 2], [2, 7, 8, 2], [2, 11, 5, 2], [11, 9, 3, 5]]],
+  // A heading, not a destination — see HEADINGS below.
   ["docverify", "Document Verification", "ตรวจสอบเอกสาร", [[3, 2, 10, 12], [5, 6, 6, 1.5], [5, 9, 4, 1.5]]],
   ["subcontractors", "Supplier", "ผู้รับเหมาช่วง", [[2, 6, 4, 8], [7, 3, 4, 11], [12, 8, 2, 6]]],
   ["capacity", "Capacity", "วางแผนกำลังรถ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
@@ -34,13 +33,64 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["vendor", "Add New Vendor", "เพิ่มผู้ขนส่งใหม่", [[2, 6, 5, 8], [8, 3, 6, 3], [8, 8, 6, 3], [8, 12, 6, 2]]],
   ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
   ["quotation", "Rate Quotation", "ขอใบเสนอราคา", [[2, 2, 10, 12], [4, 5, 6, 1.5], [4, 8, 6, 1.5], [4, 11, 4, 1.5]]],
+  ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
+  ["abs", "ABS", "ระบบ ABS", [[2, 2, 12, 12], [5, 5, 6, 6]]],
   ["admin", "Administration", "ผู้ดูแลระบบ", [[2, 2, 5, 5], [9, 2, 5, 5], [9, 9, 5, 5]]],
+];
+
+/**
+ * Screens that hang under another one.
+ *
+ * A customer report is not a step in the process, so it does not belong in the
+ * main list beside Booking and Pre-Run — but it reads the same register the
+ * Workspace does, and somebody looking for it will look there. It nests.
+ */
+export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]][]>> = {
+  // Still in the order the work happens — a booking is taken, the run is
+  // watched, the truck is checked the night before. They sit under Workspace
+  // because that is the screen they are all about, and the top-level list is
+  // shorter for it. The icons come with them: collapsed to a 64px rail there
+  // is no label to read, and a sub-menu that vanishes when the rail narrows is
+  // three screens nobody can reach.
+  workspace: [
+    ["myjob", "My Job", "งานของฉัน", [[2, 2, 12, 4], [2, 8, 5, 6], [9, 8, 5, 2], [9, 12, 5, 2]]],
+    ["booking", "Booking", "จองรถบรรทุก", [[2, 3, 10, 7], [12, 6, 2, 4], [3, 12, 3, 2], [10, 12, 3, 2]]],
+    ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
+    ["prerun", "Pre-Run", "ตรวจก่อนออกงาน", [[2, 3, 12, 2], [2, 7, 8, 2], [2, 11, 5, 2], [11, 9, 3, 5]]],
+    ["loreal", "L'OREAL", "รายงานตู้ลูกค้า", [[2, 2, 12, 3], [2, 7, 12, 1.5], [2, 11, 8, 1.5]]],
+  ],
+};
+
+/**
+ * Menu entries that group rather than go anywhere.
+ *
+ * Clicking one folds its children instead of opening a screen. Workspace became
+ * one when everything it used to hold moved down into My Job: a parent that
+ * still navigated would open a page with nothing on it, and the only way to
+ * learn that is to click it.
+ */
+export const HEADINGS: Screen[] = ["workspace"];
+
+/**
+ * What a carrier's account is allowed to open.
+ *
+ * Not a smaller version of the operator's menu — a different one. Every screen
+ * left out reads the whole register, and a subcontractor who clicks one gets a
+ * refusal, which looks like a broken system rather than a boundary working as
+ * intended. Their own jobs are the whole of what they came for.
+ */
+export const CARRIER_SCREENS: Screen[] = ["carrier"];
+
+/** Every screen in the menu, parents and children alike. */
+export const ALL_NAV: [Screen, string, string, number[][]][] = [
+  ...NAV,
+  ...Object.values(SUB_NAV).flat(),
 ];
 
 /** [title, Thai title, blurb] keyed by screen (plus the shipment drill-down). */
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน", "Executive = ภาพรวมทั้งแผน · Operational = สิ่งที่ต้องทำวันนี้ · Wall Board = จอแสดงผลหน้างาน — ทุกตัวเลขคิดจากงานจริงใน Operation Workspace คลิกตัวเลขเพื่อเปิดงานชุดนั้นใน Workspace และกด Export Excel เพื่อดึงออกเป็นไฟล์"],
-  workspace: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
+  myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
   subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง", "Approved carrier register with fleet, insurance, licence and safety validity."],
@@ -59,6 +109,9 @@ export const META: Record<string, [string, string, string]> = {
   quotation: ["Rate Quotation", "ขอใบเสนอราคา", "เทียบราคาผู้ขนส่งสำหรับเส้นทางและประเภทรถที่ต้องการ ตามราคาน้ำมันปัจจุบัน — อ่านจากตารางราคาใน Azure SQL"],
   documents: ["Document Register", "ทะเบียนเอกสาร", "Controlled operational and compliance documents with expiry monitoring."],
   reports: ["Management Reports", "รายงานผู้บริหาร", "Standard report catalogue with daily, weekly, monthly, yearly and custom periods."],
+  carrier: ["งานของบริษัท", "Carrier Portal", "งานที่ลูกค้าส่งมาให้บริษัทนี้ กดรับพร้อมแจ้งทะเบียนรถ คนขับ และเบอร์โทร แล้วข้อมูลจะขึ้นที่หน้างานของเจ้าของงานทันที"],
+  loreal: ["L'OREAL Truck Report", "รายงานรถลูกค้า L'OREAL", "ฟอร์มเดียวกับที่ส่งลูกค้าทุกเดือน ดึงจากทะเบียนงานจริง — ช่องที่ระบบยังไม่มีที่มาจะเว้นว่างและบอกไว้ ไม่เดาแทน"],
+  abs: ["ABS", "ระบบ ABS", "หน้าจอยังว่าง รอเชื่อมกับ API ของโปรแกรม ABS — เมนู เส้นทาง และการตรวจสิทธิ์พร้อมแล้ว"],
   admin: ["Administration", "การดูแลระบบ", "Role-based access control and audit trail."],
 };
 
@@ -67,7 +120,7 @@ export const TAB_DEFS: Record<string, string[]> = {
   // JOBS narrows to the person — the rest show the whole team, because seeing
   // what the team is carrying is the point, and ownership controls editing
   // rather than looking.
-  workspace: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
+  myjob: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
   // TODAY leads: the first question anyone opening the system has is what is
   // happening now, and it is the one tab whose every figure comes from the API.
   dashboard: ["TODAY", "Executive", "Operational", "Wall Board"],

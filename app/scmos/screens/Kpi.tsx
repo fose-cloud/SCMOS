@@ -150,7 +150,7 @@ export function Kpi({ period, onDrill, onOpenJobs }: {
           colour={report.onTime.percent >= 80 ? "#16794C" : report.onTime.percent >= 60 ? "#B45309" : "#B42318"}
         />
         <Tile label="เสร็จสิ้น" value={done.toLocaleString()} note="ตามสถานะในทะเบียน" colour="#16794C" />
-        <Tile label="ต้องดำเนินการ" value={report.actionRequired.toLocaleString()} note="ข้อมูลผิดหรือยังขาด" colour="#B45309" onClick={() => onDrill("workspace")} />
+        <Tile label="ต้องดำเนินการ" value={report.actionRequired.toLocaleString()} note="ข้อมูลผิดหรือยังขาด" colour="#B45309" onClick={() => onDrill("myjob")} />
         <Tile label="รูปแบบข้อมูลผิด" value={report.formatErrors.toLocaleString()} note="ค่าที่อ่านไม่ได้ในฐานข้อมูล" colour="#B42318" />
         <Tile label="เสี่ยงตกเรือ (Export)" value={report.gateInRisk.toLocaleString()} note="เวลาปิดตู้มาก่อนรถถึง" colour="#B42318" />
       </div>

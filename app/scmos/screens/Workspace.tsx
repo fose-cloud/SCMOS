@@ -5,6 +5,7 @@ import { css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
 import { STATUS_RE, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
+import { JobCards } from "../JobCards";
 import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, dowOf, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
@@ -1311,13 +1312,24 @@ export function Workspace(p: Props) {
             </div>
       )}
 
+      {/* Both are rendered; the stylesheet shows one. `.grid-only` is hidden on
+          a phone and `.cards-only` on everything else, so neither has to ask how
+          wide the screen is — see the note in JobCards. */}
       {grids.map((grid) => (
-        <DataTable
-          key={grid.layout}
-          model={grid.model}
-          onPage={(page) => setPage(grid.layout, page)}
-          onTool={() => undefined}
-        />
+        <div key={grid.layout}>
+          <div className="grid-only">
+            <DataTable
+              model={grid.model}
+              onPage={(page) => setPage(grid.layout, page)}
+              onTool={() => undefined}
+            />
+          </div>
+          <JobCards
+            jobs={rowsByLayout[grid.layout] ?? []}
+            mine={mineJ}
+            onOpen={p.onDrawer}
+          />
+        </div>
       ))}
 
       {!canAssign && (

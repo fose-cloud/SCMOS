@@ -7,7 +7,7 @@ import { apiFetch, setDevUser } from "./scmos/api";
 import { Chrome, type FilterDef, type HeaderAction, type TabItem } from "./scmos/Chrome";
 import { DataTable } from "./scmos/DataTable";
 import { buildDb, type Ship } from "./scmos/demo";
-import { ACCOUNTS, META, opIdForName, SCREENS_WITH_FILTERS, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
+import { ACCOUNTS, CARRIER_SCREENS, HEADINGS, META, opIdForName, SCREENS_WITH_FILTERS, SUB_NAV, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { normaliseField } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
@@ -59,7 +59,7 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
   subcontractors: true, carpar: true, incident: true, assistant: true,
   vendor: true, evaluation: true, quotation: true,
-  capacity: true, documents: true, admin: true, docverify: true,
+  capacity: true, documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true,
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
@@ -67,6 +67,9 @@ import { BillingAging, Reports } from "./scmos/screens/Panels";
 import { Booking } from "./scmos/screens/Booking";
 import { Workspace, workspaceTabCounts, type WsState } from "./scmos/screens/Workspace";
 
+import { Abs } from "./scmos/screens/Abs";
+import { Loreal } from "./scmos/screens/Loreal";
+import { CarrierPortal } from "./scmos/screens/CarrierPortal";
 import { Login } from "./scmos/overlays/Login";
 import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toast, type Field, type StoredDoc } from "./scmos/overlays/Overlays";
 import type { Alert, WsTarget } from "./scmos/alerts";
@@ -93,9 +96,11 @@ type Props = {
   initialUser: Account | null;
   /** Where the platform's sign-out lives, when there is a real session to end. */
   signOutHref: string | null;
+  /** Whether the passwordless demo gate is available. Never true in a deployed build. */
+  demo: boolean;
 };
 
-export function SCMOSApp({ initialUser, signOutHref }: Props) {
+export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // ---- chrome / navigation -----------------------------------------------
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
@@ -112,7 +117,14 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   // ---- session -----------------------------------------------------------
   // With real auth the visitor is already authenticated at the edge, so the demo
   // account switcher is bypassed entirely and sign-out hands back to the platform.
-  const [auth, setAuth] = useState<Account | null>(initialUser ?? ACCOUNTS[0]);
+  /**
+   * Falling back to the first demo account was fine while this was a demo. It
+   * is not fine in front of a team: when the platform sends no identity, every
+   * one of them is greeted as Watsana, sees her name in the header, and reads
+   * the empty screen behind it as the system being broken rather than as
+   * nobody being signed in.
+   */
+  const [auth, setAuth] = useState<Account | null>(initialUser ?? (demo ? ACCOUNTS[0] : null));
 
   // Set during render rather than from an effect: the first load fires from an
   // effect declared further down, and it has to carry the account with it. The
@@ -326,7 +338,8 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
    * many is not.
    */
   const [identity, setIdentity] = useState<
-    { role: string; opId: string; name: string; init: string; known: boolean } | null>(null);
+    { role: string; opId: string; name: string; init: string; known: boolean;
+      full: string; authorised: boolean } | null>(null);
   const [can, setCan] = useState<Set<string>>(new Set());
   /**
    * Whether the capability list ever arrived.
@@ -352,9 +365,10 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
         if (!response.ok) throw new Error("HTTP " + response.status);
 
         const body = await response.json() as {
-          account?: { role?: string; opId?: string; name?: string; init?: string };
+          account?: { role?: string; opId?: string; name?: string; init?: string; full?: string };
           can?: string[];
           known?: boolean;
+          authorised?: boolean;
         };
         if (cancelled) return;
 
@@ -366,6 +380,11 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
             name: body.account.name ?? "",
             init: body.account.init ?? "",
             known: body.known !== false,
+            full: body.account.full ?? "",
+            // Absent means an older API that had no such idea, and every
+            // account it answered for was one it had let in. Defaulting to
+            // refused would lock out a working deployment mid-upgrade.
+            authorised: body.authorised !== false,
           });
         }
         setIdentityState("ready");
@@ -393,8 +412,31 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     : base;
 
   const able = (capability: string) => can.has(capability);
+  /**
+   * A carrier's account. Their menu is their own, and the register screens are
+   * not in it — the API refuses them, and a rail full of buttons that refuse is
+   * indistinguishable from an outage.
+   */
+  const isCarrier = (identity?.role || base.role) === "Subcontractor";
+
+  // The default landing screen is the dashboard, which a carrier may not open.
+  // Without this they arrive on a screen that is not in their own menu, and the
+  // application appears to have loaded nothing at all.
+  useEffect(() => {
+    if (isCarrier && !CARRIER_SCREENS.includes(screen)) setScreen(CARRIER_SCREENS[0]);
+  }, [isCarrier, screen]);
+
+  // A heading is not a page. Anything that still points at one — a stored
+  // landing preference from before Workspace became a section, a drill-down
+  // written against the old name — lands on its first child instead of on
+  // nothing at all.
+  useEffect(() => {
+    if (!HEADINGS.includes(screen)) return;
+    const first = (SUB_NAV[screen] ?? [])[0];
+    if (first) setScreen(first[0]);
+  }, [screen]);
   const isSupervisor = able("ApproveAi");
-  const isWorkspace = screen === "workspace" && !isDetail;
+  const isWorkspace = screen === "myjob" && !isDetail;
 
   // The rate book is nearly two megabytes of subcontractor quotations, so it is
   // fetched the first time somebody opens a screen that prices work, rather than
@@ -536,12 +578,12 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
     // An API alert names the screen that answers it. Sending every alert to the
     // workspace would mean clicking "CAR/PAR overdue" lands on a job list that
     // cannot show a case.
-    if (target.screen && target.screen !== "workspace") {
+    if (target.screen && target.screen !== "myjob") {
       setNotif(false);
       go(target.screen as Screen);
       return;
     }
-    setScreen("workspace");
+    setScreen("myjob");
     setTab(target.tab ?? "PENDING");
     setPage(1);
     setQ("");
@@ -1338,6 +1380,62 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
   const onDragOver = (e: DragEvent<HTMLLabelElement>) => { e.preventDefault(); if (!dragOver) setDragOver(true); };
   const onDragLeave = (e: DragEvent<HTMLLabelElement>) => { e.preventDefault(); setDragOver(false); };
 
+  /**
+   * Signed in with Microsoft, and not on the list.
+   *
+   * This is a full stop rather than a banner. Everything below it would render
+   * an application made of failed requests — empty tabs, a KPI screen of
+   * dashes, a workspace with no rows — and a person reading that screen
+   * concludes the system is broken, not that nobody has given them access yet.
+   * The two look identical unless one of them says so.
+   */
+  if (identity && !identity.authorised) {
+    return (
+      <div style={css("min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F4F6F8;padding:24px")}>
+        <div style={css("max-width:460px;background:#fff;border:1px solid #E3E8EE;border-radius:8px;padding:28px 30px")}>
+          <div style={css("font-size:15px;font-weight:700;color:#0F2B46;margin-bottom:10px")}>
+            ยังไม่ได้รับสิทธิ์เข้าใช้ระบบ
+          </div>
+          <div style={css("font-size:13px;color:#5A6B7D;line-height:1.75")}>
+            คุณลงชื่อเข้าใช้กับ Microsoft สำเร็จแล้ว
+            {identity.full ? <> ในชื่อ <b>{identity.full}</b></> : null} แต่ยังไม่มีผู้ดูแลระบบเพิ่มบัญชีนี้
+            เข้าทะเบียนพนักงานของ SCMOS จึงยังเปิดข้อมูลงานให้ไม่ได้
+            <br /><br />
+            แจ้งผู้ดูแลระบบให้เพิ่มบัญชีนี้ในเมนู <b>Administrator</b> แล้วลงชื่อเข้าใช้ใหม่อีกครั้ง
+          </div>
+          <div style={css("margin-top:18px;display:flex;gap:9px;flex-wrap:wrap")}>
+            <button onClick={() => { setIdentityState("loading"); setIdentityAttempt((n) => n + 1); }}
+              style={css("height:33px;padding:0 15px;border:1px solid #0F2B46;background:#0F2B46;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+              ตรวจสอบอีกครั้ง
+            </button>
+            <a href="/.auth/logout"
+              style={css("height:33px;padding:0 15px;border:1px solid #D3DBE3;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;text-decoration:none")}>
+              ออกจากระบบ
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!auth && !demo) {
+    return (
+      <div style={css("min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F4F6F8;padding:24px")}>
+        <div style={css("max-width:420px;background:#fff;border:1px solid #E3E8EE;border-radius:8px;padding:28px 30px")}>
+          <div style={css("font-size:15px;font-weight:700;color:#0F2B46;margin-bottom:10px")}>ยังไม่ได้ลงชื่อเข้าใช้</div>
+          <div style={css("font-size:13px;color:#5A6B7D;line-height:1.75")}>
+            ระบบยังไม่ได้รับข้อมูลผู้ใช้จาก Microsoft ลองเข้าใหม่อีกครั้ง
+            ถ้ายังไม่ได้ ให้แจ้งผู้ดูแลระบบ
+          </div>
+          <a href="/.auth/login/aad"
+            style={css("display:inline-flex;align-items:center;height:34px;padding:0 16px;margin-top:18px;border:1px solid #0F2B46;background:#0F2B46;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;text-decoration:none")}>
+            เข้าสู่ระบบด้วย Microsoft
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   if (!auth) {
     return (
       <Login
@@ -1354,7 +1452,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
           }
           setAuth(account);
           setLoginErr("");
-          setScreen("workspace");
+          setScreen("myjob");
           setTab("MY JOBS");
           setWs(EMPTY_WS);
           setToast("Signed in as " + account.full + " · " + account.role);
@@ -1371,6 +1469,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
         screen={screen}
         onNavigate={go}
         navCounts={navCounts}
+        allowed={isCarrier ? CARRIER_SCREENS : undefined}
         collapsed={collapsed}
         onToggleSidebar={() => setCollapsed((c) => !c)}
         gq={gq}
@@ -1554,7 +1653,7 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
                   canEdit={canEditJob}
                   onAssign={assignTruck}
                   onOpen={(job) => {
-                    setScreen("workspace");
+                    setScreen("myjob");
                     setWs((prev) => ({ ...prev, cat: job.cat, date: "ALL" }));
                     setTab("PENDING");
                     setDrawer(job.key);
@@ -1569,6 +1668,9 @@ export function SCMOSApp({ initialUser, signOutHref }: Props) {
             )}
             {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
             {screen === "admin" && <Administration onToast={setToast} />}
+            {screen === "abs" && <Abs />}
+            {screen === "carrier" && <CarrierPortal onToast={setToast} />}
+            {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
             )}

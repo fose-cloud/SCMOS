@@ -58,7 +58,7 @@ export function Today({ onDrill }: { onDrill: (screen: string) => void }) {
         <span style={css("font-size:12px;color:#7B8CA0")}>{board.date}</span>
       </div>
 
-      <Row figures={board.volume} onDrill={() => onDrill("workspace")} />
+      <Row figures={board.volume} onDrill={() => onDrill("myjob")} />
       <Row figures={board.performance} onDrill={() => onDrill("kpi")} percent />
       <Row figures={board.attention} onDrill={() => onDrill("carpar")} />
     </div>

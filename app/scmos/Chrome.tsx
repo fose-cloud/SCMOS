@@ -1,8 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { badge, css } from "./theme";
-import { NAV, type Screen } from "./nav";
+import { HEADINGS, NAV, SUB_NAV, type Screen } from "./nav";
 import type { SearchGroup, SearchHit } from "./search";
 
 export type HeaderAction = { label: string; style: string; go: () => void };
@@ -28,6 +28,11 @@ type Props = {
   screen: Screen;
   onNavigate: (screen: Screen) => void;
   navCounts: Record<string, number>;
+  /**
+   * When set, the only screens this account may open. Everything else is left
+   * out of the rail entirely rather than shown and refused.
+   */
+  allowed?: Screen[];
   collapsed: boolean;
   onToggleSidebar: () => void;
   gq: string;
@@ -59,6 +64,32 @@ type Props = {
 };
 
 export function Chrome(p: Props) {
+  /**
+   * Whether the drawer is open. It means something only on a narrow screen,
+   * where the stylesheet turns the rail into an overlay; on a wide one the
+   * class does nothing and the rail is the column it always was.
+   *
+   * This deliberately does not ask JavaScript how wide the screen is. The first
+   * version did — `matchMedia` and a change listener — and it was wrong in a way
+   * worth remembering: when the event does not arrive, and it can not, the
+   * layout stays as it was. A phone then gets the desktop rail, 248 of its 375
+   * pixels go to a menu, 117 are left for the work, and nothing short of a
+   * reload puts it right. A media query needs no event and cannot miss one.
+   */
+  const [drawer, setDrawer] = useState(false);
+  // Navigating covers the thing the user just asked to see, so the drawer
+  // closes behind them.
+  useEffect(() => { setDrawer(false); }, [p.screen]);
+
+  /**
+   * Which branches the user has folded open or shut.
+   *
+   * Only the ones they have actually clicked. Everything else falls back to
+   * "open if that is where you are", so arriving on a sub-screen shows you
+   * where you are without a click, and folding one shut keeps it shut.
+   */
+  const [folded, setFolded] = useState<Partial<Record<Screen, boolean>>>({});
+
   return (
     <div style={css("display:flex;flex-direction:column;height:100vh;min-height:100vh;overflow:hidden;color:#16232F")}>
       <header style={css("flex:none;height:60px;background:#0A2240;display:flex;align-items:center;gap:0;padding:0 20px 0 0;border-bottom:1px solid #071A31;z-index:40")}>
@@ -68,28 +99,37 @@ export function Chrome(p: Props) {
           looked empty. Drop the real artwork in and swap this block back to an
           <img> when it is available.
         */}
-        <div style={css("width:248px;flex:none;height:60px;display:flex;align-items:center;gap:12px;padding-left:20px;border-right:1px solid #1B3A5C")}>
-          <div style={css("display:flex;flex-direction:column;line-height:1")}>
-            <span style={css("font-size:17px;font-weight:700;color:#fff;letter-spacing:.14em")}>LESCHACO</span>
-            <span style={css("font-size:8.5px;color:#7FA5CC;letter-spacing:.13em;margin-top:3px")}>THAILAND</span>
+        <div className="brand-band" style={css("width:248px;flex:none;height:60px;display:flex;align-items:center;gap:12px;padding-left:20px;border-right:1px solid #1B3A5C")}>
+          {/* A phone header has room for one name, not a company band and a
+              product band and a rule between them. SCMOS is the one that tells
+              somebody which application they are looking at. */}
+          <div className="only-wide" style={css("display:flex;align-items:center;gap:12px")}>
+            <div style={css("display:flex;flex-direction:column;line-height:1")}>
+              <span style={css("font-size:17px;font-weight:700;color:#fff;letter-spacing:.14em")}>LESCHACO</span>
+              <span style={css("font-size:8.5px;color:#7FA5CC;letter-spacing:.13em;margin-top:3px")}>THAILAND</span>
+            </div>
+            <div style={css("width:1px;height:24px;background:#2C4E75")} />
           </div>
-          <div style={css("width:1px;height:24px;background:#2C4E75")} />
           <div style={css("display:flex;flex-direction:column;line-height:1.05")}>
             <span style={css("font-size:15px;font-weight:700;color:#fff;letter-spacing:.06em")}>SCMOS</span>
-            <span style={css("font-size:9px;color:#7FA5CC;letter-spacing:.04em")}>SUBCONTRACT MGMT</span>
+            <span className="only-wide" style={css("font-size:9px;color:#7FA5CC;letter-spacing:.04em")}>SUBCONTRACT MGMT</span>
           </div>
         </div>
 
         <button
           className="hdr-btn"
-          onClick={p.onToggleSidebar}
-          aria-label={p.collapsed ? "Expand navigation" : "Collapse navigation"}
+          // One button, right on both: it opens the drawer and it narrows the
+          // column, and each of those is inert on the screen where the other
+          // applies. Nothing here has to know which screen it is on.
+          onClick={() => { setDrawer((open) => !open); p.onToggleSidebar(); }}
+          aria-label={drawer ? "ปิดเมนู" : "เปิดเมนู"}
+          aria-expanded={drawer}
           style={css("margin-left:14px;width:32px;height:32px;flex:none;border:1px solid #24476E;background:#0E2B4F;border-radius:4px;color:#B9CFE5;cursor:pointer;font-size:13px")}
         >
           ☰
         </button>
 
-        <div style={css("margin-left:16px;flex:1;max-width:520px;position:relative;display:flex;align-items:center")}>
+        <div className="search-band" style={css("margin-left:16px;flex:1;min-width:0;max-width:520px;position:relative;display:flex;align-items:center")}>
           <span style={css("position:absolute;left:12px;font-size:13px;color:#7FA5CC")}>⌕</span>
           <input
             value={p.gq}
@@ -101,8 +141,12 @@ export function Chrome(p: Props) {
               // container number that only one job carries.
               if (e.key === "Enter" && p.searchGroups[0]?.hits[0]) p.onSearchHit(p.searchGroups[0].hits[0]);
             }}
-            placeholder="ค้นหาทุกเมนู — เลขตู้, Job/ABS, ทะเบียน, คนขับ, ลูกค้า, ผู้ขนส่ง, ชื่อหน้าจอ…"
-            style={css("width:100%;height:36px;border-radius:4px;border:1px solid #24476E;background:#0E2B4F;color:#fff;font-size:12.5px;padding:0 12px 0 32px;outline:none")}
+            placeholder="ค้นหา — เลขตู้, Job/ABS, ทะเบียน, คนขับ, ลูกค้า, ผู้ขนส่ง, ชื่อหน้าจอ…"
+            // `min-width:0` is what lets a flex child actually shrink; an input
+            // has an intrinsic width of about twenty characters and will hold
+            // the whole bar open past the edge of the screen without it.
+            style={css("width:100%;min-width:0;height:36px;border-radius:4px;border:1px solid #24476E;background:#0E2B4F;color:#fff;" +
+              "font-size:12.5px;padding:0 12px 0 32px;outline:none")}
           />
           {!!p.gq && (
             <button
@@ -157,15 +201,15 @@ export function Chrome(p: Props) {
           )}
         </div>
 
-        <div style={css("flex:1")} />
+        <div className="only-wide" style={css("flex:1")} />
 
-        <div style={css("display:flex;align-items:center;gap:8px")}>
+        <div className="header-actions" style={css("flex:none;display:flex;align-items:center;gap:8px")}>
           <button
             className="hdr-btn"
             onClick={p.onToggleNotif}
             style={css("position:relative;height:34px;padding:0 12px;border:1px solid #24476E;background:#0E2B4F;border-radius:4px;color:#D6E5F2;cursor:pointer;font-size:12.5px;display:flex;align-items:center;gap:7px")}
           >
-            ◔ Alerts
+            ◔<span className="only-wide"> Alerts</span>
             <span style={css(
               "background:" + (p.alertTone === "red" ? "#D64545" : p.alertTone === "amber" ? "#B45309" : "#2E7DD1") +
               ";color:#fff;border-radius:9px;padding:1px 6px;font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace",
@@ -190,7 +234,11 @@ export function Chrome(p: Props) {
                 {p.userInit}
               </span>
             )}
-            <span style={css("display:flex;flex-direction:column;line-height:1.25")}>
+            {/* On a phone the avatar carries the identity on its own; the name
+                and the role are the two blocks that push the whole bar off the
+                right-hand edge, and they are already in the profile panel a tap
+                away. */}
+            <span className="only-wide" style={css("display:flex;flex-direction:column;line-height:1.25")}>
               <span style={css("font-size:12.5px;color:#fff;font-weight:600")}>{p.userName}</span>
               <span style={css("font-size:10.5px;color:#7FA5CC")}>{p.userRole}</span>
             </span>
@@ -216,23 +264,57 @@ export function Chrome(p: Props) {
       </header>
 
       <div style={css("flex:1;display:flex;min-height:0")}>
-        <nav style={css("flex:none;width:" + (p.collapsed ? "64px" : "248px") + ";background:#071A31;display:flex;flex-direction:column;border-right:1px solid #143254;transition:width .16s ease;overflow:hidden")}>
+        {/* Tapping the page behind the drawer shuts it — the gesture everybody
+            already knows, and the only one available when the menu covers the
+            button that opened it. */}
+        {drawer && (
+          <div className="rail-scrim" onClick={() => setDrawer(false)}
+            style={css("display:none;position:fixed;inset:0;background:rgba(4,16,30,.45);z-index:44")} />
+        )}
+
+        <nav className={"app-rail" + (drawer ? " is-open" : "")}
+          style={css("flex:none;width:" + (p.collapsed ? "64px" : "248px") +
+            ";background:#071A31;display:flex;flex-direction:column;border-right:1px solid #143254;transition:width .16s ease;overflow:hidden")}>
           <div style={css("flex:1;overflow-y:auto;padding:10px 0")}>
-            {NAV.map(([key, label, th, rects]) => {
-              const active = p.screen === key;
+            {NAV.filter(([key]) => !p.allowed || p.allowed.includes(key))
+              .map(([key, label, th, rects]) => {
+              const active = p.screen === key && !HEADINGS.includes(key);
               const count = p.navCounts[key];
+              const children = (SUB_NAV[key] ?? [])
+                .filter(([child]) => !p.allowed || p.allowed.includes(child));
+              const onChild = children.some(([child]) => child === p.screen);
+              // The user's own choice wins; otherwise open when this branch is
+              // where they are. A dropdown that collapses out from under the
+              // screen you are looking at is one you must reopen to see where
+              // you stand.
+              const openBranch = folded[key] ?? (active || onChild);
+              // A heading has nothing of its own to open. Clicking it works the
+              // fold, and it never draws itself as the current page — the child
+              // the user is actually on does that.
+              const heading = HEADINGS.includes(key);
+              // Inside the drawer there is room for labels again, so the
+              // collapsed icon-only rail is not what should be drawn there.
+              // Inside the drawer there is room for labels again, and the
+              // stylesheet gives the rail that width there, so the icon-only
+              // form is a desktop idea only.
+              const tight = p.collapsed;
               return (
+                <div key={key + "-branch"} style={css("position:relative")}>
                 <button
                   key={key}
                   type="button"
                   aria-label={label}
                   aria-current={active ? "page" : undefined}
                   className={active ? undefined : "nav-item"}
-                  onClick={() => p.onNavigate(key)}
+                  onClick={() => (heading
+                    ? setFolded((was) => ({ ...was, [key]: !openBranch }))
+                    : p.onNavigate(key))}
+                  aria-expanded={heading ? openBranch : undefined}
                   style={css(
                     "width:100%;text-align:left;font-family:inherit;border:0;" +
                     "display:flex;align-items:center;gap:12px;padding:" +
-                    (p.collapsed ? "10px 0;justify-content:center;" : "8px 18px;") +
+                    (tight ? "10px 0;justify-content:center;"
+                      : "8px " + (children.length && !tight ? "34px" : "18px") + " 8px 18px;") +
                     "cursor:pointer;border-left:3px solid " + (active ? "#4E9BE8" : "transparent") +
                     ";background:" + (active ? "#123A66" : "transparent") +
                     ";color:" + (active ? "#fff" : "#C4D6E6") + ";transition:background .12s",
@@ -241,18 +323,83 @@ export function Chrome(p: Props) {
                   <span style={css("flex:none;display:flex;color:" + (active ? "#4E9BE8" : "#7FA5CC"))}>
                     <NavIcon rects={rects} color={active ? "#4E9BE8" : "#7FA5CC"} />
                   </span>
-                  {!p.collapsed && (
+                  {!tight && (
                     <span style={css("display:flex;flex-direction:column;line-height:1.2;min-width:0")}>
                       <span style={css("font-size:13px;font-weight:500;white-space:nowrap")}>{label}</span>
                       <span style={css("font-size:10px;color:#5D82A8;white-space:nowrap")}>{th}</span>
                     </span>
                   )}
-                  {!p.collapsed && !!count && (
+                  {!tight && !!count && (
                     <span style={css("margin-left:auto;background:" + (key === "incident" ? "#D64545" : "#1B4A7A") + ";color:#fff;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>
                       {count}
                     </span>
                   )}
                 </button>
+
+                {/* The fold. A sibling of the nav button rather than inside it,
+                    because a button within a button is not something a browser
+                    or a screen reader can make sense of — and because the two
+                    do different things: one goes somewhere, one opens a list. */}
+                {children.length > 0 && !tight && (
+                  <button
+                    type="button"
+                    onClick={() => setFolded((was) => ({ ...was, [key]: !openBranch }))}
+                    aria-expanded={openBranch}
+                    aria-label={(openBranch ? "ย่อเมนูย่อยของ " : "กางเมนูย่อยของ ") + label}
+                    style={css("position:absolute;right:6px;top:5px;width:24px;height:24px;border:0;" +
+                      "background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;" +
+                      "color:" + (active || onChild ? "#4E9BE8" : "#7FA5CC") + ";font-size:10px;line-height:1;" +
+                      "transform:rotate(" + (openBranch ? "0deg" : "-90deg") + ");transition:transform .14s")}
+                  >
+                    ▼
+                  </button>
+                )}
+
+                {/* The sub-menu. Only drawn when this branch is open and the
+                    rail is wide — collapsed, there is no room for a label, and
+                    an unlabelled indent is just a smaller mystery. */}
+                {/* Collapsed, the fold has nowhere to live and no label to
+                    read, so the children simply stand on their own as icons.
+                    Hiding them would put three screens behind a rail width. */}
+                {children.length > 0 && (openBranch || tight) && children.map(([child, childLabel, childTh, childRects]) => {
+                  const on = p.screen === child;
+                  const childCount = p.navCounts[child];
+                  return (
+                    <button
+                      key={child}
+                      type="button"
+                      aria-label={childLabel}
+                      title={tight ? childLabel : undefined}
+                      aria-current={on ? "page" : undefined}
+                      className={on ? undefined : "nav-item"}
+                      onClick={() => p.onNavigate(child)}
+                      style={css(
+                        "width:100%;text-align:left;font-family:inherit;border:0;" +
+                        "display:flex;align-items:center;gap:10px;padding:" +
+                        (tight ? "9px 0;justify-content:center;" : "6px 18px 6px 36px;") +
+                        "cursor:pointer;border-left:3px solid " + (on ? "#4E9BE8" : "transparent") +
+                        ";background:" + (on ? "#123A66" : "transparent") +
+                        ";color:" + (on ? "#fff" : "#A9C3DA") + ";transition:background .12s",
+                      )}
+                    >
+                      <span style={css("flex:none;display:flex;opacity:" + (tight ? "1" : ".85"))}>
+                        <NavIcon rects={childRects} color={on ? "#4E9BE8" : "#6E93BC"} />
+                      </span>
+                      {!tight && (
+                        <span style={css("display:flex;flex-direction:column;line-height:1.2;min-width:0")}>
+                          <span style={css("font-size:12.5px;font-weight:500;white-space:nowrap")}>{childLabel}</span>
+                          <span style={css("font-size:9.5px;color:#5D82A8;white-space:nowrap")}>{childTh}</span>
+                        </span>
+                      )}
+                      {!tight && !!childCount && (
+                        <span style={css("margin-left:auto;background:#1B4A7A;color:#fff;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>
+                          {childCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                </div>
               );
             })}
           </div>
@@ -267,7 +414,7 @@ export function Chrome(p: Props) {
 
         <main style={css("flex:1;min-width:0;overflow-y:auto;background:#EEF2F6")}>
           <div style={css("background:#fff;border-bottom:1px solid #D8E0E8;padding:16px 24px 0;position:sticky;top:0;z-index:30")}>
-            <div style={css("display:flex;align-items:flex-start;gap:20px")}>
+            <div className="page-head" style={css("display:flex;align-items:flex-start;gap:20px")}>
               <div style={css("flex:1;min-width:0")}>
                 <div style={css("font-size:11px;color:#8496A8;letter-spacing:.06em;margin-bottom:5px;font-family:'IBM Plex Mono',monospace")}>
                   {p.crumb}
@@ -278,14 +425,19 @@ export function Chrome(p: Props) {
                 </div>
                 <p style={css("margin:6px 0 0;font-size:12.5px;color:#64748B;max-width:900px;text-wrap:pretty")}>{p.blurb}</p>
               </div>
-              <div style={css("display:flex;gap:8px;align-items:center;padding-top:10px")}>
+              <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:10px")}>
                 {p.actions.map((a) => (
                   <button key={a.label} onClick={a.go} style={css(a.style)}>{a.label}</button>
                 ))}
               </div>
             </div>
 
-            <div style={css("display:flex;gap:2px;margin-top:14px")}>
+            {/* The strip scrolls, not the page. Reaching CALENDAR by dragging the
+                whole of `main` sideways takes the title and the breadcrumb with
+                it, and you arrive at the tab having lost the heading that says
+                what you are looking at. */}
+            <div style={css("display:flex;gap:2px;margin-top:14px;overflow-x:auto;scrollbar-width:thin;" +
+              "-webkit-overflow-scrolling:touch;padding-bottom:2px")}>
               {p.tabs.map((t) => (
                 <button
                   key={t.label}
@@ -296,7 +448,10 @@ export function Chrome(p: Props) {
                     ";background:" + (t.active ? "#fff" : "transparent") +
                     ";color:" + (t.active ? "#0A2240" : "#64748B") +
                     ";font-size:12.5px;font-weight:" + (t.active ? "600" : "400") +
-                    ";border-radius:4px 4px 0 0;cursor:pointer;margin-bottom:-1px",
+                    // A flex child shrinks by default, so without these the
+                    // eight tabs squeeze into unreadable slivers instead of
+                    // staying their own width and scrolling.
+                    ";border-radius:4px 4px 0 0;cursor:pointer;margin-bottom:-1px;flex:none;white-space:nowrap",
                   )}
                 >
                   {t.label}

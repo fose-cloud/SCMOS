@@ -18,7 +18,7 @@ export const DEFAULT_PANELS: PanelPrefs = { kpi: true, process: false, team: fal
 
 export type Prefs = {
   /** Screen to open after sign-in. */
-  landing: "workspace" | "dashboard";
+  landing: "myjob" | "dashboard";
   /** Rows per page in every table. */
   perPage: number;
   /** Start with the navigation rail collapsed. */
@@ -29,7 +29,7 @@ export type Prefs = {
 export const PER_PAGE_OPTIONS = [25, 50, 100, 200];
 
 export const DEFAULT_PREFS: Prefs = {
-  landing: "workspace",
+  landing: "myjob",
   perPage: 25,
   collapsed: false,
   panels: DEFAULT_PANELS,
@@ -53,7 +53,7 @@ export function loadPrefs(): Prefs {
     const raw = JSON.parse(store.getItem(KEY) ?? "{}") as Partial<Prefs>;
     const panels = (raw.panels ?? {}) as Partial<PanelPrefs>;
     return {
-      landing: raw.landing === "dashboard" ? "dashboard" : "workspace",
+      landing: raw.landing === "dashboard" ? "dashboard" : "myjob",
       perPage: PER_PAGE_OPTIONS.indexOf(Number(raw.perPage)) >= 0 ? Number(raw.perPage) : DEFAULT_PREFS.perPage,
       collapsed: raw.collapsed === true,
       panels: {
