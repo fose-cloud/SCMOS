@@ -45,6 +45,8 @@ public static class JobsEndpoints
         // WorkspaceService for why this exists alongside the full read.
         group.MapGet("/page", async (string? tab, string? cat, string? year, string? month,
             string? day, string? q, string? sort, string? dir, int? page, int? per,
+            string? assignee, string? customer, string? trucker, string? type, string? status,
+            string? kpi,
             HttpContext context, IUserAccessor users, WorkspaceService workspace,
             CancellationToken token) =>
         {
@@ -68,7 +70,14 @@ public static class JobsEndpoints
                 // Whose jobs count as "mine" is the API's answer, not a value the
                 // caller may pass — otherwise any signed-in person could ask for
                 // somebody else's workspace by naming their id.
-                OpId: user.OperatorId), token);
+                OpId: user.OperatorId,
+                Assignee: assignee ?? "ALL",
+                Owner: "",
+                Customer: customer ?? "ALL",
+                Trucker: trucker ?? "ALL",
+                Type: type ?? "ALL",
+                Status: status ?? "ALL",
+                Kpi: kpi ?? "ALL"), token);
 
             return Results.Json(new
             {

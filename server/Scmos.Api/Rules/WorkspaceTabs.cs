@@ -87,7 +87,12 @@ public static class WorkspaceTabs
     public readonly record struct JobView(
         string Key, string Cat, string OwnerId, string Date, string Status,
         string Reason, string Type, string Container, string Seal, string Customer,
-        string Trucker, string JobCode, JsonElement Raw)
+        string Trucker, string JobCode,
+        /// <summary>The operator's display name, which the assignee picker matches on.</summary>
+        string Owner,
+        string Abs, string Booking, string Licence, string Driver,
+        string Destination, string Sid,
+        JsonElement Raw)
     {
         public static JobView From(JsonElement row)
         {
@@ -107,6 +112,8 @@ public static class WorkspaceTabs
                 key, Text(row, "cat"), Text(row, "opId"), Text(row, "date"),
                 Text(row, "status"), Text(row, "reason"), Text(row, "type"), Text(row, "container"),
                 Text(row, "seal"), Text(row, "customer"), Text(row, "trucker"), Text(row, "jobCode"),
+                Text(row, "op"), Text(row, "abs"), Text(row, "booking"), Text(row, "licence"),
+                Text(row, "driver"), Text(row, "destination"), Text(row, "sid"),
                 row);
         }
     }

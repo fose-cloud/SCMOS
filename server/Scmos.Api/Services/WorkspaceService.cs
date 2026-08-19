@@ -20,9 +20,21 @@ namespace Scmos.Api.Services;
 /// </summary>
 public class WorkspaceService(JobsRepository jobs)
 {
+    /// <param name="Assignee">
+    /// "My Work", an operator's display name, or ALL. Ignored on the MY JOBS
+    /// tab, which is already narrowed to one person.
+    /// </param>
+    /// <param name="Kpi">
+    /// The drill-down from the panel above the grid: Mine, Imp, Exp, Del, Wait,
+    /// Conf, Run, Delay, Done. Two of the browser's drills — Act and Fmt — are
+    /// deliberately absent: they filter on validation computed in the browser,
+    /// and answering them here means proving two validators agree first.
+    /// </param>
     public record Query(
         string Tab, string Cat, string Year, string Month, string Day,
-        string Search, string SortKey, string SortDir, int Page, int Per, string OpId);
+        string Search, string SortKey, string SortDir, int Page, int Per, string OpId,
+        string Assignee, string Owner, string Customer, string Trucker, string Type,
+        string Status, string Kpi);
 
     public record Page(
         IReadOnlyList<JsonElement> Rows,
@@ -80,6 +92,12 @@ public class WorkspaceService(JobsRepository jobs)
 
         var matching = inCategory
             .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
+            .Where(job => MatchesAssignee(job, query))
+            .Where(job => Is(job.Customer, query.Customer))
+            .Where(job => Is(job.Trucker, query.Trucker))
+            .Where(job => Is(job.Type, query.Type))
+            .Where(job => Is(job.Status, query.Status))
+            .Where(job => MatchesKpi(job, query))
             .Where(job => MatchesSearch(job, query.Search))
             .ToList();
 
@@ -106,6 +124,45 @@ public class WorkspaceService(JobsRepository jobs)
 
         return new Page(rows, sorted.Count, pageCount, page, counts, dates, updatedAt);
     }
+
+    /// <summary>An exact-value filter, where ALL or empty means no filter.</summary>
+    private static bool Is(string value, string wanted) =>
+        wanted.Length == 0 || wanted == "ALL"
+        || string.Equals(value, wanted, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whose work to show. MY JOBS is already one person's, so the picker does
+    /// not narrow it further — matching what the screen does rather than
+    /// producing an empty grid when both are set.
+    /// </summary>
+    private static bool MatchesAssignee(WorkspaceTabs.JobView job, Query query)
+    {
+        if (query.Tab == WorkspaceTabs.MyJobs) return true;
+        if (query.Assignee.Length == 0 || query.Assignee == "ALL") return true;
+
+        return query.Assignee == "My Work"
+            ? query.OpId.Length > 0 && string.Equals(job.OwnerId, query.OpId, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(job.Owner, query.Assignee, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesKpi(WorkspaceTabs.JobView job, Query query) => query.Kpi switch
+    {
+        "" or "ALL" => true,
+        "Mine" => query.OpId.Length > 0 && string.Equals(job.OwnerId, query.OpId, StringComparison.OrdinalIgnoreCase),
+        "Imp" => string.Equals(job.Cat, "IMPORT", StringComparison.OrdinalIgnoreCase),
+        "Exp" => string.Equals(job.Cat, "EXPORT", StringComparison.OrdinalIgnoreCase),
+        "Del" => string.Equals(job.Cat, "DELIVERY", StringComparison.OrdinalIgnoreCase),
+        "Wait" => JobRules.IsWaiting(job.Status),
+        "Conf" => JobRules.IsConfirmed(job.Status),
+        "Run" => JobRules.IsRunning(job.Status),
+        "Delay" => JobRules.IsDelayed(job.Status),
+        "Done" => JobRules.IsDone(job.Status),
+
+        // Act and Fmt read validation this side has not been shown to agree on.
+        // Answering them with something close would be worse than not answering:
+        // the screen would show a plausible number nobody could reconcile.
+        _ => true,
+    };
 
     private static bool MatchesCategory(WorkspaceTabs.JobView job, string cat) =>
         cat.Length == 0 || cat == "ALL"
@@ -137,8 +194,12 @@ public class WorkspaceService(JobsRepository jobs)
         var q = search.Trim();
         if (q.Length == 0) return true;
 
-        return Has(job.Key) || Has(job.JobCode) || Has(job.Container) || Has(job.Customer)
-               || Has(job.Trucker) || Has(job.Status) || Has(job.Date);
+        // The same twelve the workspace searches. A narrower list here would
+        // quietly stop finding jobs by seal or by driver, which is most of what
+        // the box is used for.
+        return Has(job.JobCode) || Has(job.Abs) || Has(job.Booking) || Has(job.Customer)
+               || Has(job.Container) || Has(job.Seal) || Has(job.Licence) || Has(job.Driver)
+               || Has(job.Trucker) || Has(job.Destination) || Has(job.Owner) || Has(job.Sid);
 
         bool Has(string value) => value.Contains(q, StringComparison.OrdinalIgnoreCase);
     }
