@@ -45,6 +45,11 @@ jobs:
         run: |
           cp -r .next/static .next/standalone/.next/static
           cp -r public .next/standalone/public
+          # The delivered plan seeds an empty database on a laptop. Served as a
+          # static file it is the register — customer names, driver names,
+          # driver phone numbers — handed to anyone App Service Login lets past
+          # the door, without passing the API that decides who may read it.
+          rm -f .next/standalone/public/data/ops.json
 
       - uses: actions/upload-artifact@v4
         with:

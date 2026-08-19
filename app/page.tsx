@@ -12,6 +12,11 @@ export default async function Home() {
     <SCMOSApp
       initialUser={user ? toAccount(user) : null}
       signOutHref={user ? SIGN_OUT_PATH : null}
+      // The demo gate — pick any of the accounts, no password — is how this ran
+      // on a laptop before there was a sign-in at all. Deployed there is a real
+      // one, so it must not exist: a build that offers both has a second door,
+      // and the second door is the one without a lock.
+      demo={process.env.NODE_ENV !== "production"}
     />
   );
 }

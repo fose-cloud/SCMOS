@@ -49,6 +49,20 @@ public class AuthOptions
     public string RoleMap { get; set; } = "";
 
     /// <summary>
+    /// Whether somebody the directory has never heard of may use the system at
+    /// all.
+    ///
+    /// False, and it must stay false anywhere the sign-in page accepts more
+    /// than one tenant. The old answer was to hand them <c>Viewer</c>, which
+    /// was a fair reading of "we do not know you yet" while the only people who
+    /// could reach the door were the two accounts in this tenant. Multi-tenant
+    /// sign-in turns that same line into: anyone in the world holding a
+    /// Microsoft account may read the register — customer names, driver names,
+    /// driver phone numbers — because read-only is still read.
+    /// </summary>
+    public bool AllowUnknown { get; set; }
+
+    /// <summary>
     /// Every assignment, from both forms. <see cref="RoleMap"/> is applied second
     /// so a host-level setting can correct a value baked into a config file.
     /// </summary>
@@ -71,7 +85,20 @@ public class AuthOptions
 
 public interface IUserAccessor
 {
+    /// <summary>
+    /// The caller, when they are allowed in. Null covers both "not signed in"
+    /// and "signed in, but nobody has granted this person anything" — from an
+    /// endpoint's point of view those are the same answer, and keeping them the
+    /// same answer is what stops the next endpoint from forgetting to ask.
+    /// </summary>
     AppUser? Current(HttpContext context);
+
+    /// <summary>
+    /// Whoever signed in, recognised or not. Only <c>/api/me</c> needs this,
+    /// and only so the screen can tell somebody why they are being refused
+    /// instead of bouncing them back to a sign-in page they already passed.
+    /// </summary>
+    AppUser? Identity(HttpContext context);
 }
 
 /// <summary>
@@ -100,16 +127,19 @@ public class UserAccessor(
     /// anybody at all, so an unreachable directory degrades to "nobody is
     /// recognised" — which the screen already explains — rather than throwing.
     /// </summary>
+    private IReadOnlyList<Data.StaffMember>? _directory;
+
     private IReadOnlyList<Data.StaffMember> Directory()
     {
+        if (_directory is not null) return _directory;
         try
         {
-            return db.Staff.AsNoTracking().Where(person => person.Active).ToList();
+            return _directory = db.Staff.AsNoTracking().Where(person => person.Active).ToList();
         }
         catch (Exception problem)
         {
             log.LogError(problem, "Could not read the staff directory; nobody will be recognised.");
-            return [];
+            return _directory = [];
         }
     }
 
@@ -120,6 +150,19 @@ public class UserAccessor(
     private const string DevUserHeader = "X-Scmos-Dev-User";
 
     public AppUser? Current(HttpContext context)
+    {
+        var user = Identity(context);
+        if (user is null) return null;
+        if (user.Recognised || _options.AllowUnknown) return user;
+
+        // Worth a line in the log: this is what an administrator looks at when
+        // somebody says "I signed in and it says I have no access".
+        log.LogWarning("Refused {Email}: signed in, but not in the staff directory or Auth:RoleMap.",
+            user.Email.Length > 0 ? user.Email : user.UserId);
+        return null;
+    }
+
+    public AppUser? Identity(HttpContext context)
     {
         return _options.Mode switch
         {
@@ -189,19 +232,17 @@ public class UserAccessor(
             string.Equals(person.Account, account, StringComparison.OrdinalIgnoreCase));
         return known is null
             ? Build(account, "", account, "development")
-            : new AppUser(known.Id, "", known.Name, known.Role, known.Id, "development");
+            : new AppUser(known.Id, "", known.Name, known.Role, known.Id, "development", Recognised: true);
     }
 
     /// <summary>
     /// The one place a signed-in identity becomes a role and an owner id.
     ///
-    /// Order: an explicit <c>Auth:Roles</c> entry, then the staff directory,
-    /// then <see cref="Rules.Roles.Viewer"/> — not the default operator role.
-    /// Somebody the directory has never heard of is a person nobody has added
-    /// yet, and read-only is the honest answer to that. Giving them a writer
-    /// role instead produces an account that looks like an operator, owns no
-    /// jobs, and can still report fleet capacity — which is worse than an
-    /// obvious lack of access somebody fixes in a minute.
+    /// Order: an explicit <c>Auth:Roles</c> entry, then the staff directory.
+    /// A person in neither is not given a role at all — <see cref="Current"/>
+    /// refuses them. The role below is only what they would hold if
+    /// <see cref="AuthOptions.AllowUnknown"/> were ever turned on, and
+    /// <see cref="Rules.Roles.Viewer"/> is the least it could be.
     /// </summary>
     private AppUser Build(string userId, string email, string displayName, string source)
     {
@@ -210,9 +251,10 @@ public class UserAccessor(
         // The app setting wins over the table on purpose. It is the way back in
         // when the directory says nobody is an administrator — a lockout the
         // Administration screen cannot fix from inside.
-        var role = _options.AllRoles().TryGetValue(email, out var configured) && configured.Length > 0
+        var mapped = _options.AllRoles().TryGetValue(email, out var configured) && configured.Length > 0
             ? configured
-            : matched?.Role ?? Rules.Roles.Viewer;
+            : null;
+        var role = mapped ?? matched?.Role ?? Rules.Roles.Viewer;
 
         return new AppUser(
             userId.Length > 0 ? userId : email,
@@ -220,7 +262,11 @@ public class UserAccessor(
             displayName.Length > 0 ? displayName : NameFromEmail(email),
             role,
             matched?.Id ?? "",
-            source);
+            source,
+            // Two ways in, and both are somebody's decision: a row in the staff
+            // table, or a line in Auth:RoleMap. Neither one is "arrived at the
+            // sign-in page and got through it".
+            Recognised: mapped is not null || matched is not null);
     }
 
     private static string NameFromEmail(string email)

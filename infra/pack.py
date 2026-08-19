@@ -41,6 +41,14 @@ def skip_dirs(target, root, dirs):
     return [d for d in dirs if not (d.startswith("win") or d.startswith("osx"))]
 
 
+# The delivered plan, with real customer names, driver names and driver phone
+# numbers in it. It is git-ignored, seeds an empty database locally, and has no
+# business being served as a static file: App Service Login lets every signed-in
+# person fetch it, and static files never reach the API that decides who may
+# read the register. Deployed, the register lives in the database.
+NEVER_DEPLOY = {"public/data/ops.json"}
+
+
 def pack(target):
     source, name = TARGETS[target]
     if not os.path.isdir(source):
@@ -62,6 +70,9 @@ def pack(target):
             for filename in files:
                 full = os.path.join(root, filename)
                 entry = os.path.relpath(full, source).replace(os.sep, "/")
+                if entry in NEVER_DEPLOY:
+                    print(f"  skipped {entry} — real operational data, not a static asset")
+                    continue
                 archive.write(full, entry)
                 count += 1
 
@@ -71,6 +82,10 @@ def pack(target):
         bad = [n for n in names if "\\" in n]
         if bad:
             raise SystemExit(f"{len(bad)} entries contain a backslash — the zip is unusable on Linux")
+
+        leaked = sorted(NEVER_DEPLOY.intersection(names))
+        if leaked:
+            raise SystemExit(f"{leaked} is in the package — it must never be served as a static file")
 
         expected = "Scmos.Api.dll" if target == "api" else "server.js"
         if not any(n.endswith(expected) for n in names):

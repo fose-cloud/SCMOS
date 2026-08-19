@@ -11,7 +11,17 @@ public record AppUser(
     /// <summary>Directory id (OP-01…). Empty when the account is not one of the eight.</summary>
     string OperatorId,
     /// <summary>Where the identity came from — "webapp" for App Service Web App Login.</summary>
-    string Source)
+    string Source,
+    /// <summary>
+    /// Whether somebody deliberately put this person in the staff directory or
+    /// the role map.
+    ///
+    /// Signing in and being allowed in are two different questions, and they
+    /// only looked like one question while a single tenant could reach the
+    /// door. Once sign-in accepts more than one tenant, "authenticated" stops
+    /// meaning anything about who this is.
+    /// </summary>
+    bool Recognised = false)
 {
     public bool IsSupervisor => Roles.IsSupervisor(Role);
 

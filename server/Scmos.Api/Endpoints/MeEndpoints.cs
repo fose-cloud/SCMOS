@@ -14,8 +14,15 @@ public static class MeEndpoints
     {
         routes.MapGet("/api/me", (HttpContext context, IUserAccessor users) =>
         {
-            var user = users.Current(context);
+            // The one endpoint that asks who signed in rather than who is
+            // allowed in. Somebody refused at the door has already passed
+            // Microsoft's sign-in page, so answering "sign in" would send them
+            // round a loop that cannot end. They need to be told their name is
+            // not on the list, and who can put it there.
+            var user = users.Identity(context);
             if (user is null) return Results.Json(new { account = (object?)null });
+
+            var authorised = users.Current(context) is not null;
 
             var parts = user.DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var initials = (parts.Length > 1
@@ -41,10 +48,12 @@ public static class MeEndpoints
                 // against. The screens need it to decide what to render, and a
                 // second list kept in the browser would eventually grant a
                 // button the API refuses — or hide one it allows.
-                can = Enum.GetValues<Capability>()
-                    .Where(capability => capability != Capability.None && user.Can(capability))
-                    .Select(capability => capability.ToString())
-                    .ToArray(),
+                can = authorised
+                    ? Enum.GetValues<Capability>()
+                        .Where(capability => capability != Capability.None && user.Can(capability))
+                        .Select(capability => capability.ToString())
+                        .ToArray()
+                    : [],
                 scope = Roles.Find(user.Role) is { } definition
                     ? new { en = definition.ScopeEn, th = definition.ScopeTh }
                     : null,
@@ -53,6 +62,10 @@ public static class MeEndpoints
                 // like theirs — which is correct, and looks exactly like a
                 // broken system unless the screen is told to say so.
                 known = user.OperatorId.Length > 0,
+                // Signed in, but nobody has granted this account anything. Every
+                // other endpoint refuses them; this says so in one word so the
+                // screen can stop rather than render an app made of errors.
+                authorised,
                 source = user.Source,
             });
         }).WithTags("Identity");
