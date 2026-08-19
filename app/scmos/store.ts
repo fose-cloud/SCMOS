@@ -46,6 +46,61 @@ export async function loadJobs(): Promise<LoadResult> {
   }
 }
 
+/** What one page of the register looks like, as the API answers it. */
+export type JobPage = {
+  jobs: Record<string, string>[];
+  total: number;
+  pageCount: number;
+  page: number;
+  /** Live count for every tab, over the whole register, not just this page. */
+  counts: Record<string, number>;
+  /** Every date in the current selection, for the calendar strip. */
+  dates: string[];
+  updatedAt: string;
+};
+
+export type PageQuery = {
+  tab: string; cat?: string; year?: string; month?: string; day?: string;
+  q?: string; sort?: string; dir?: string; page?: number; per?: number;
+};
+
+/**
+ * One page of the register, filtered and counted by the API.
+ *
+ * The alternative — and what this replaces — is fetching all 2,626 jobs and
+ * throwing away 2,601 of them: 2.6 MB on every load, most of it other people's
+ * work. This asks for the twenty-five rows the screen is about to draw and the
+ * counts that go on the tab strip, and gets 20 KB.
+ *
+ * Notice what is not in the query: whose jobs count as "mine". The API decides
+ * that from the signed-in identity. If it were a parameter, anybody could read
+ * a colleague's workspace by naming their operator id.
+ */
+export async function loadJobsPage(query: PageQuery): Promise<JobPage | null> {
+  const params = new URLSearchParams({ tab: query.tab });
+  if (query.cat) params.set("cat", query.cat);
+  if (query.year) params.set("year", query.year);
+  if (query.month) params.set("month", query.month);
+  if (query.day) params.set("day", query.day);
+  if (query.q) params.set("q", query.q);
+  if (query.sort) params.set("sort", query.sort);
+  if (query.dir) params.set("dir", query.dir);
+  params.set("page", String(query.page ?? 1));
+  params.set("per", String(query.per ?? 25));
+
+  try {
+    const response = await apiFetch(`${API}/page?${params}`, {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    return await response.json() as JobPage;
+  } catch {
+    // The caller falls back to the full register, which is slower and still
+    // correct — a page that cannot be fetched must not empty the screen.
+    return null;
+  }
+}
+
 /** Reads the delivered plan file, used to seed an empty database. */
 export async function loadPlanFile(): Promise<RawOps> {
   const response = await fetch("/data/ops.json");
