@@ -421,6 +421,19 @@ export function Administration({ onToast }: { onToast: (m: string) => void }) {
                             <Mini label="ลบ" tone="#B42318" busy={busy}
                               onClick={() => void remove(person)} />
                           )}
+                          {/* Offered whenever the row has an email. Whether an
+                              invitation is the right thing for this account is
+                              the API's judgement — it refuses a directory
+                              account with the reason, which is more use than a
+                              button that is quietly missing. */}
+                          {!!person.email && (
+                            <Mini label="ส่งคำเชิญ" tone="#1D4E80" busy={busy}
+                              onClick={async () => {
+                                if (!window.confirm(`ส่งอีเมลคำเชิญเข้าใช้งานระบบไปที่
+${person.email}?`)) return;
+                                await create2(`/${person.id}/invite`);
+                              }} />
+                          )}
                           <Mini label="รหัสใหม่" tone="#B45309" busy={busy}
                             onClick={async () => {
                               if (!window.confirm(`ออกรหัสผ่านชั่วคราวใหม่ให้ ${person.name}?

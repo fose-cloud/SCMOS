@@ -129,6 +129,43 @@ public static class StaffEndpoints
             });
         });
 
+        // Sending the invitation on its own, for somebody already in the
+        // directory. Creating a person and inviting them is one action; this is
+        // the second half by itself, for the row that was added before the API
+        // could build sign-ins, or the invitation that never arrived.
+        group.MapPost("/{id}/invite", async (string id, HttpContext context, IUserAccessor users,
+            StaffService staff, SignInAccountService accounts, AuditService audit,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AdministerData))
+                return ApiResults.Error("ส่งคำเชิญได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
+
+            var person = (await staff.ListAsync(token)).FirstOrDefault(p => p.Id == id);
+            if (person is null) return ApiResults.Error("ไม่พบผู้ใช้", StatusCodes.Status404NotFound);
+            if (person.Email.Trim().Length == 0)
+                return ApiResults.Error("แถวนี้ยังไม่มีอีเมล — ใส่อีเมลก่อนจึงจะส่งคำเชิญได้",
+                    StatusCodes.Status400BadRequest);
+
+            // A directory account of this organisation has no invitation to
+            // send: it already has a way in, and the person needs a password
+            // rather than a link.
+            if (person.Email.Contains('@') && person.Email.EndsWith(".onmicrosoft.com", StringComparison.OrdinalIgnoreCase)
+                && !person.Email.Contains("#EXT#", StringComparison.OrdinalIgnoreCase))
+                return ApiResults.Error(
+                    "บัญชีนี้เป็นบัญชีขององค์กรอยู่แล้ว ไม่ต้องเชิญ — ถ้าเข้าไม่ได้ให้ใช้ปุ่มออกรหัสใหม่",
+                    StatusCodes.Status400BadRequest);
+
+            var invited = await accounts.InviteAsync(person.Email, person.Name, token);
+            if (!invited.Ok) return ApiResults.Error(invited.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Register, "staff", id, person.Name,
+                "invitation", "", person.Email, "ผู้ดูแลระบบส่งคำเชิญเข้าใช้งาน", token);
+
+            return Results.Json(new { message = invited.Message });
+        });
+
         group.MapDelete("/{id}", async (string id, HttpContext context, IUserAccessor users,
             StaffService staff, AuditService audit, CancellationToken token) =>
         {
