@@ -31,6 +31,13 @@ public class StoredDocument
     public long? CaseId { get; set; }
 
     /// <summary>
+    /// The driver, for a certificate or a photograph of them. A fourth owner
+    /// rather than filing under their carrier: the paperwork belongs to the
+    /// person, follows them if they move, and some drivers have no carrier.
+    /// </summary>
+    public int? DriverId { get; set; }
+
+    /// <summary>
     /// The folder it went in: Booking · ECard · POD · Images · Invoice · CARPAR
     /// for a job; Audit · Insurance · License · Training · Contract for a
     /// supplier. Controlled — see <see cref="Rules.BlobPaths.JobFolders"/>.

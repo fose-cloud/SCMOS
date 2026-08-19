@@ -118,6 +118,125 @@ public static class TrainingEndpoints
             return Results.Json(new { message = $"เพิ่มคนขับ {name} แล้ว", id = driver.Id });
         });
 
+        /// <summary>
+        /// One form, one action: the driver, the certificate and the photograph.
+        ///
+        /// Split into three calls it would be three ways to end up half-entered
+        /// — a driver with no training, a certificate with no photograph, a
+        /// photograph uploaded against a driver the next call failed to create.
+        /// The driver is found rather than duplicated when the licence number is
+        /// already known, which is what stops the same person accumulating a row
+        /// per course.
+        /// </summary>
+        group.MapPost("/entry", async (HttpContext context, IUserAccessor users,
+            CarrierService carriers, ScmosDbContext db, TrainingService training,
+            DocumentService documents, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!await MayWriteAsync(user, carriers, token))
+                return ApiResults.Error("ไม่มีสิทธิ์บันทึกการอบรม", StatusCodes.Status403Forbidden);
+            if (!context.Request.HasFormContentType)
+                return ApiResults.Error("ต้องส่งเป็น multipart form", StatusCodes.Status415UnsupportedMediaType);
+
+            var form = await context.Request.ReadFormAsync(token);
+            string Text(string name) => form[name].ToString().Trim();
+
+            var driverName = Text("driverName");
+            if (driverName.Length == 0)
+                return ApiResults.Error("ต้องระบุชื่อ-สกุลคนขับรถ", StatusCodes.Status400BadRequest);
+            if (!int.TryParse(Text("courseId"), out var courseId) || courseId <= 0)
+                return ApiResults.Error("ต้องเลือกหลักสูตร", StatusCodes.Status400BadRequest);
+
+            var scope = await ScopeOfAsync(user, carriers, token);
+            var supplierId = scope
+                ?? (int.TryParse(Text("supplierId"), out var chosen) && chosen > 0 ? chosen : null);
+
+            var idNo = Text("driverIdNo");
+
+            // Found, not duplicated. Without the licence number there is nothing
+            // reliable to match on — two drivers share a name far more often
+            // than a number — so a nameless-number entry creates a new row and
+            // says so rather than guessing which existing person was meant.
+            var driver = idNo.Length > 0
+                ? await db.Drivers.FirstOrDefaultAsync(d => d.DriverIdNo == idNo, token)
+                : null;
+
+            var createdDriver = driver is null;
+            if (driver is null)
+            {
+                driver = new Driver
+                {
+                    Name = driverName, DriverIdNo = idNo, Phone = Text("phone"),
+                    SupplierId = supplierId, Note = Text("note"),
+                    CreatedBy = user.Signature, CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedBy = user.Signature, UpdatedAt = DateTimeOffset.UtcNow,
+                };
+                db.Drivers.Add(driver);
+                await db.SaveChangesAsync(token);
+            }
+            else if (scope is not null && driver.SupplierId != scope)
+            {
+                return ApiResults.Error("เลขบัตร/ใบขับขี่นี้เป็นของคนขับบริษัทอื่น",
+                    StatusCodes.Status403Forbidden);
+            }
+
+            // The photograph, when one was attached. A failure here does not
+            // lose the training record — the certificate is the point, the
+            // picture is help.
+            var photo = form.Files["photo"];
+            if (photo is not null && photo.Length > 0)
+            {
+                var stored = await documents.AddToDriverAsync(driver.Id, "Other", "รูปพนักงานขับรถ",
+                    "", "", photo, user, token);
+                if (stored.Ok && stored.Document is not null)
+                {
+                    driver.PhotoDocumentId = stored.Document.Id;
+                    driver.UpdatedBy = user.Signature;
+                    driver.UpdatedAt = DateTimeOffset.UtcNow;
+                    await db.SaveChangesAsync(token);
+                }
+            }
+
+            long? certificateId = null;
+            var certificate = form.Files["certificate"];
+            if (certificate is not null && certificate.Length > 0)
+            {
+                var stored = await documents.AddToDriverAsync(driver.Id, "Training", "ใบรับรองการอบรม",
+                    Text("expiryDate"), Text("remark"), certificate, user, token);
+                if (stored.Ok && stored.Document is not null) certificateId = stored.Document.Id;
+            }
+
+            var result = await training.RecordAsync(new DriverTraining
+            {
+                DriverId = driver.Id,
+                CourseId = courseId,
+                Customer = Text("customer"),
+                TrainingDate = Text("trainingDate"),
+                ExpiryDate = Text("expiryDate"),
+                CertificateNo = Text("certificateNo"),
+                Provider = Text("provider"),
+                Remark = Text("remark"),
+                DocumentId = certificateId,
+            }, user, token);
+
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Register, "driver-training",
+                result.Id.ToString(), driverName, "training", "",
+                $"{Text("trainingDate")} → {Text("expiryDate")}", Text("remark"), token);
+
+            return Results.Json(new
+            {
+                message = createdDriver
+                    ? $"เพิ่มคนขับ {driverName} และบันทึกการอบรมแล้ว"
+                    : $"บันทึกการอบรมของ {driverName} แล้ว",
+                driverId = driver.Id,
+                id = result.Id,
+                createdDriver,
+            });
+        }).DisableAntiforgery();
+
         group.MapGet("/drivers/{id:int}", async (int id, string? customer, HttpContext context,
             IUserAccessor users, CarrierService carriers, ScmosDbContext db, TrainingService training,
             CancellationToken token) =>

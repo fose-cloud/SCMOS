@@ -32,6 +32,15 @@ public class Driver
     /// <summary>The carrier this driver runs for, when they run for one.</summary>
     public int? SupplierId { get; set; }
 
+    /// <summary>
+    /// A photograph of the driver, so somebody checking a certificate at a gate
+    /// can see they are looking at the right person. Stored like every other
+    /// file — a row in the document register with the blob behind it — rather
+    /// than as a loose path, so access and retention answer the same way for it
+    /// as for everything else.
+    /// </summary>
+    public long? PhotoDocumentId { get; set; }
+
     /// <summary>Set false rather than deleting; the training history stays readable.</summary>
     public bool Active { get; set; } = true;
 

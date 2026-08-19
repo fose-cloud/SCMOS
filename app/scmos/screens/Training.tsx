@@ -31,6 +31,12 @@ type CourseState = {
 type Driver = { id: number; name: string; driverIdNo: string; phone: string; supplierId: number | null };
 type Course = { id: number; code: string; name: string; validMonths: number };
 type Requirement = { id: number; customer: string; courseId: number; course: string; code: string; mandatory: boolean };
+type Supplier = { id: number; code: string; name: string };
+
+const BLANK = {
+  customer: "", supplierId: "", driverName: "", driverIdNo: "", phone: "",
+  courseId: "", trainingDate: "", expiryDate: "", certificateNo: "", provider: "", remark: "",
+};
 
 const TONE: Record<string, { bg: string; border: string; text: string; th: string }> = {
   VALID: { bg: "#EDF7F1", border: "#BFE0CD", text: "#16794C", th: "ยังใช้ได้" },
@@ -47,23 +53,32 @@ export function Training({ onToast }: { onToast: (message: string) => void }) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [openDriver, setOpenDriver] = useState<number | null>(null);
-  const [profile, setProfile] = useState<{ name: string; courses: CourseState[] } | null>(null);
+  const [profile, setProfile] = useState<
+    { name: string; photoDocumentId: number | null; courses: CourseState[] } | null>(null);
   const [customer, setCustomer] = useState("");
   const [failure, setFailure] = useState("");
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ ...BLANK });
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [certificate, setCertificate] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [s, d, c, r] = await Promise.all([
+      const [s, d, c, r, v] = await Promise.all([
         apiFetch(`/api/training/summary?customer=${encodeURIComponent(customer)}`),
         apiFetch("/api/training/drivers"),
         apiFetch("/api/training/courses"),
         apiFetch("/api/training/requirements"),
+        apiFetch("/api/suppliers"),
       ]);
       if (!s.ok) { setFailure(`API ตอบ ${s.status}`); return; }
       setSummary(await s.json() as Summary);
       setDrivers(d.ok ? await d.json() as Driver[] : []);
       setCourses(c.ok ? await c.json() as Course[] : []);
       setRequirements(r.ok ? await r.json() as Requirement[] : []);
+      setSuppliers(v.ok ? await v.json() as Supplier[] : []);
       setFailure("");
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
@@ -77,9 +92,45 @@ export function Training({ onToast }: { onToast: (message: string) => void }) {
     void (async () => {
       const response = await apiFetch(
         `/api/training/drivers/${openDriver}?customer=${encodeURIComponent(customer)}`);
-      setProfile(response.ok ? await response.json() as { name: string; courses: CourseState[] } : null);
+      setProfile(response.ok
+        ? await response.json() as { name: string; photoDocumentId: number | null; courses: CourseState[] }
+        : null);
     })();
   }, [openDriver, customer]);
+
+  /**
+   * One request for the driver, the certificate and the photograph.
+   *
+   * Sent as a form rather than JSON because two of the three are files, and
+   * splitting it into three calls would be three ways to end up half-entered:
+   * a driver with no training, or a photograph filed against a driver the next
+   * call failed to create.
+   */
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const body = new FormData();
+      Object.entries(form).forEach(([key, value]) => { if (value) body.append(key, value); });
+      if (photo) body.append("photo", photo);
+      if (certificate) body.append("certificate", certificate);
+
+      const response = await apiFetch("/api/training/entry", { method: "POST", body });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "บันทึกไม่สำเร็จ");
+      if (response.ok) {
+        // Customer, carrier and course stay behind: the next certificate is
+        // usually the next driver on the same course for the same customer.
+        setForm((was) => ({
+          ...BLANK, customer: was.customer, supplierId: was.supplierId, courseId: was.courseId,
+        }));
+        setPhoto(null);
+        setCertificate(null);
+        setAdding(false);
+        await load();
+      }
+    } finally { setBusy(false); }
+  }
 
   if (failure) {
     return (
@@ -115,6 +166,95 @@ export function Training({ onToast }: { onToast: (message: string) => void }) {
           สถานะคำนวณจากวันหมดอายุทุกครั้งที่เปิดหน้า ไม่มีงานเบื้องหลังที่ต้องรัน
         </div>
       </div>
+
+      <div style={css("display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
+        <button onClick={() => setAdding((v) => !v)}
+          style={css("height:33px;padding:0 16px;border:1px solid #16794C;background:" +
+            (adding ? "#fff" : "#16794C") + ";color:" + (adding ? "#16794C" : "#fff") +
+            ";border-radius:5px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
+          {adding ? "ยกเลิก" : "+ บันทึกการอบรม"}
+        </button>
+        <span style={css("font-size:11.5px;color:#7B8CA0")}>
+          กรอกครั้งเดียว — สร้างคนขับใหม่ให้เองถ้ายังไม่มีในทะเบียน
+        </span>
+      </div>
+
+      {adding && (
+        <div style={css("background:#F8FAFC;border:1px solid #D3DBE3;border-radius:6px;padding:15px 17px")}>
+          <div style={css("display:flex;gap:9px;flex-wrap:wrap")}>
+            <Field label="ชื่อลูกค้า" width="190px">
+              <select value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} style={INPUT}>
+                <option value="">— เลือกลูกค้า —</option>
+                {customers.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </Field>
+            <Field label="บริษัทขนส่ง" width="190px">
+              <select value={form.supplierId} onChange={(e) => setForm({ ...form, supplierId: e.target.value })} style={INPUT}>
+                <option value="">— ไม่ระบุ —</option>
+                {suppliers.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </Field>
+            <Field label="ชื่อ-สกุลคนขับรถ *" width="210px">
+              <input value={form.driverName} onChange={(e) => setForm({ ...form, driverName: e.target.value })}
+                placeholder="นายสมชาย ใจดี" style={INPUT} />
+            </Field>
+            <Field label="เลขบัตร / ใบขับขี่" width="170px">
+              <input value={form.driverIdNo} onChange={(e) => setForm({ ...form, driverIdNo: e.target.value })}
+                placeholder="ใช้จับคู่คนเดิม" style={INPUT} />
+            </Field>
+            <Field label="เบอร์โทร" width="140px">
+              <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={INPUT} />
+            </Field>
+            <Field label="หลักสูตร *" width="200px">
+              <select value={form.courseId} onChange={(e) => setForm({ ...form, courseId: e.target.value })} style={INPUT}>
+                <option value="">— เลือกหลักสูตร —</option>
+                {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </Field>
+            <Field label="วันที่อบรม *" width="150px">
+              <input value={form.trainingDate} onChange={(e) => setForm({ ...form, trainingDate: e.target.value })}
+                placeholder="วว/ดด/ปปปป" style={INPUT} />
+            </Field>
+            <Field label="วันที่หมดอายุ" width="150px">
+              <input value={form.expiryDate} onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+                placeholder="เว้นว่างให้คิดให้" style={INPUT} />
+            </Field>
+            <Field label="เลขใบรับรอง" width="160px">
+              <input value={form.certificateNo} onChange={(e) => setForm({ ...form, certificateNo: e.target.value })} style={INPUT} />
+            </Field>
+            <Field label="ผู้จัดอบรม" width="180px">
+              <input value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} style={INPUT} />
+            </Field>
+            <Field label="หมายเหตุ" width="220px">
+              <input value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} style={INPUT} />
+            </Field>
+            <Field label="รูปพนักงานขับรถ" width="200px">
+              <input type="file" accept="image/*"
+                onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
+                style={css("font-size:11.5px;font-family:inherit;width:100%")} />
+            </Field>
+            <Field label="ไฟล์ใบรับรอง" width="200px">
+              <input type="file" accept="image/*,application/pdf"
+                onChange={(e) => setCertificate(e.target.files?.[0] ?? null)}
+                style={css("font-size:11.5px;font-family:inherit;width:100%")} />
+            </Field>
+          </div>
+
+          <div style={css("display:flex;gap:9px;align-items:center;margin-top:13px;flex-wrap:wrap")}>
+            <button onClick={() => void save()}
+              disabled={busy || !form.driverName.trim() || !form.courseId || !form.trainingDate.trim()}
+              style={css("height:33px;padding:0 17px;border:1px solid #16794C;background:" +
+                (busy || !form.driverName.trim() || !form.courseId || !form.trainingDate.trim()
+                  ? "#C3CFDB" : "#16794C") +
+                ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
+              บันทึก
+            </button>
+            <span style={css("font-size:11.5px;color:#7B8CA0;line-height:1.6")}>
+              เว้นวันหมดอายุไว้ ระบบจะคิดจากอายุหลักสูตรให้ · เลขบัตรคือสิ่งที่กันคนเดิมถูกเพิ่มซ้ำ
+            </span>
+          </div>
+        </div>
+      )}
 
       <div style={css("display:flex;gap:7px;flex-wrap:wrap")}>
         {([["dashboard", "ภาพรวม"], ["drivers", `คนขับ ${drivers.length}`],
@@ -198,8 +338,17 @@ export function Training({ onToast }: { onToast: (message: string) => void }) {
 
           {profile && (
             <div style={css("margin-top:14px;padding-top:14px;border-top:1px solid #E9EFF5")}>
-              <div style={css("font-size:13px;font-weight:650;color:#0F2B46;margin-bottom:9px")}>
-                {profile.name} — {customer || "ทุกหลักสูตร"}
+              <div style={css("display:flex;gap:12px;align-items:center;margin-bottom:11px")}>
+                {/* Served through the document endpoint, never the blob URL —
+                    the container is private and stays that way. */}
+                {profile.photoDocumentId && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={`/api/documents/${profile.photoDocumentId}/content`} alt=""
+                    style={css("width:52px;height:52px;border-radius:5px;object-fit:cover;border:1px solid #E3E8EE;flex:none")} />
+                )}
+                <div style={css("font-size:13px;font-weight:650;color:#0F2B46")}>
+                  {profile.name} — {customer || "ทุกหลักสูตร"}
+                </div>
               </div>
               <div style={css("display:flex;flex-direction:column;gap:6px")}>
                 {profile.courses.map((state) => {
@@ -268,6 +417,19 @@ export function Training({ onToast }: { onToast: (message: string) => void }) {
         </div>
       )}
     </div>
+  );
+}
+
+const INPUT = css("height:31px;width:100%;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff");
+
+function Field({ label, width, children }: { label: string; width: string; children: React.ReactNode }) {
+  return (
+    <label style={css("display:flex;flex-direction:column;gap:4px;width:" + width)}>
+      <span style={css("font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }
 

@@ -99,6 +99,43 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     }
 
     /// <summary>
+    /// A driver's own paperwork — a certificate, or a photograph of them.
+    ///
+    /// Filed under the driver rather than whichever carrier employed them the
+    /// day it was scanned: the certificate belongs to the person, follows them
+    /// if they move, and some drivers have no carrier at all.
+    /// </summary>
+    public async Task<DocumentResult> AddToDriverAsync(int driverId, string folder, string kind,
+        string expiryDate, string note, IFormFile file, AppUser user, CancellationToken token)
+    {
+        var driver = await db.Drivers.AsNoTracking()
+            .FirstOrDefaultAsync(row => row.Id == driverId, token);
+        if (driver is null) return new DocumentResult(false, "ไม่พบคนขับรายนี้");
+
+        var expiry = expiryDate.Trim();
+        if (expiry.Length > 0 && Formats.DateNumber(expiry) == 0)
+            return new DocumentResult(false, "วันหมดอายุต้องเป็นรูปแบบ DD/MM/YYYY");
+
+        // Keyed on the licence number, falling back to the row id, so a driver
+        // with no number recorded still files somewhere findable rather than
+        // under a folder called UNKNOWN with everybody else.
+        var key = BlobPaths.ForDriver(
+            driver.DriverIdNo.Trim().Length > 0 ? driver.DriverIdNo : $"ID-{driver.Id}",
+            folder, file.FileName);
+
+        return await StoreAsync(key, file, user, token, document =>
+        {
+            document.Scope = "driver";
+            document.DriverId = driver.Id;
+            document.Folder = folder.Trim().Length > 0 ? folder.Trim() : "Training";
+            document.Kind = kind.Trim();
+            document.ExpiryDate = expiry;
+            document.Note = note.Trim();
+            document.Customer = driver.Name;
+        });
+    }
+
+    /// <summary>
     /// Attaches evidence to a CAR/PAR case.
     ///
     /// It lands in the job's own CARPAR folder when the case came from a job, so

@@ -263,6 +263,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.DriverIdNo).HasColumnName("driver_id_no").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.Phone).HasColumnName("phone").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
+            entry.Property(e => e.PhotoDocumentId).HasColumnName("photo_document_id");
             entry.Property(e => e.Active).HasColumnName("active").HasDefaultValue(true);
             entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(400).HasDefaultValue("");
             entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
@@ -342,6 +343,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(120).HasDefaultValue("");
             entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
             entry.Property(e => e.CaseId).HasColumnName("case_id");
+            entry.Property(e => e.DriverId).HasColumnName("driver_id");
             entry.Property(e => e.Folder).HasColumnName("folder").HasMaxLength(30);
             entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.Year).HasColumnName("year").HasMaxLength(4).HasDefaultValue("");

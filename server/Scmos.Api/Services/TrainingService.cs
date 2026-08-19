@@ -26,6 +26,12 @@ public class TrainingService(ScmosDbContext db)
     public record DriverProfile(
         int DriverId, string Name, string DriverIdNo, string Phone,
         int? SupplierId, string SupplierName, bool Active,
+        /// <summary>
+        /// The photograph, for a screen that shows who the certificate belongs
+        /// to. Served through the document endpoint like every other file, so
+        /// the blob stays private and the same permission answers for it.
+        /// </summary>
+        long? PhotoDocumentId,
         IReadOnlyList<CourseState> Courses);
 
     /// <param name="Blocking">
@@ -111,7 +117,7 @@ public class TrainingService(ScmosDbContext db)
             .ToList();
 
         return new DriverProfile(driver.Id, driver.Name, driver.DriverIdNo, driver.Phone,
-            driver.SupplierId, supplierName, driver.Active, courses);
+            driver.SupplierId, supplierName, driver.Active, driver.PhotoDocumentId, courses);
     }
 
     private static CourseState Describe(TrainingCourse course, bool mandatory, DriverTraining? record)
