@@ -67,6 +67,17 @@ public static partial class Formats
     }
 
     /// <summary>DD/MM/YYYY to a sortable integer, or 0 when it will not parse.</summary>
+    /// <summary>
+    /// A date the way the plan writes it: <c>dd/MM/yyyy</c>, Gregorian year.
+    ///
+    /// The workspace compares a job's date to "today" as text, because that is
+    /// what the register stores. Formatting it here rather than at each call
+    /// site keeps the comparison honest — one leading zero in the wrong place
+    /// and the TODAY tab is empty every day of the month before the tenth.
+    /// </summary>
+    public static string PlanDate(DateOnly day) => day.ToString("dd/MM/yyyy",
+        System.Globalization.CultureInfo.InvariantCulture);
+
     public static int DateNumber(string? value)
     {
         var text = Clean(value);

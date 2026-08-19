@@ -1,4 +1,6 @@
+using System.IO.Compression;
 using Azure.Identity;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
 using Scmos.Api.Data;
@@ -38,6 +40,7 @@ builder.Services.AddDbContext<ScmosDbContext>(options =>
     }));
 
 builder.Services.AddScoped<JobsRepository>();
+builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<KpiService>();
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<WorkflowService>();
@@ -52,6 +55,7 @@ builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<RiskService>();
 builder.Services.AddScoped<CapacityService>();
+builder.Services.AddScoped<CarrierService>();
 builder.Services.AddScoped<VerificationService>();
 builder.Services.AddScoped<AiGateway>();
 // The audit trail records the caller's address and session, which only the
@@ -60,6 +64,8 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<PreRunOptions>(builder.Configuration.GetSection(PreRunOptions.Section));
 builder.Services.AddScoped<IUserAccessor, UserAccessor>();
 builder.Services.AddScoped<StaffService>();
+builder.Services.AddHttpClient("graph");
+builder.Services.AddScoped<SignInAccountService>();
 builder.Services.AddSingleton<IFileStore, BlobFileStore>();
 builder.Services.AddSingleton<IDocumentExtractor, DocumentExtractor>();
 
@@ -73,6 +79,30 @@ if (!string.IsNullOrWhiteSpace(telemetry))
 {
     builder.Services.AddApplicationInsightsTelemetry(options => options.ConnectionString = telemetry);
 }
+
+// The register goes out as one JSON document of every job — 2.6 MB of it, and
+// it was leaving uncompressed because ASP.NET Core does not compress anything
+// unless told to. JSON of this shape is enormously repetitive (the same forty
+// field names on two thousand rows), so this is close to a tenfold reduction
+// for one registration, and it is felt hardest by exactly the people who were
+// complaining: a phone on mobile data.
+//
+// `EnableForHttps` is required — the default is to compress only plain HTTP,
+// which in practice means never, since every request here arrives over TLS.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    // Gzip only, and measured rather than assumed. Brotli is the better
+    // algorithm in general, but .NET offers it at quality 1 or quality 11 and
+    // nothing between: quality 1 left this payload at 608 KB where gzip's fast
+    // level reached 326 KB, and quality 11 would spend seconds of CPU per
+    // request on a B1 instance. Browsers prefer brotli when it is offered, so
+    // registering it here would have handed every one of them the worse of the
+    // two.
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(["application/json"]);
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
 
 builder.Services.AddHealthChecks().AddDbContextCheck<ScmosDbContext>("database");
 builder.Services.AddProblemDetails();
@@ -126,6 +156,8 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+// Ahead of everything that writes a body, or there is nothing left to compress.
+app.UseResponseCompression();
 app.UseExceptionHandler();
 if (allowedOrigins.Length > 0) app.UseCors();
 
@@ -142,6 +174,7 @@ app.MapAudit();
 app.MapDashboard();
 app.MapStaff();
 app.MapCapacity();
+app.MapCarrier();
 app.MapVerification();
 app.MapUploads();
 app.MapOperations();

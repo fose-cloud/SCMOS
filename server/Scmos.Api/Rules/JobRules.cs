@@ -16,19 +16,29 @@ public record Issue(string Field, string Label, string Value, string Message, st
 /// </summary>
 public static partial class JobRules
 {
-    [GeneratedRegex(@"waiting truck|new|scheduled", RegexOptions.IgnoreCase)]
+    // These read a status written the old way, before the controlled codes. They
+    // are anchored, and that is the whole point: an unanchored `complet` calls
+    // "Not completed" finished, and an unanchored `delivered` calls "Partially
+    // delivered" finished too. The browser has been anchored for some time and
+    // carries the reasoning — DELIVERED means the goods arrived and the
+    // paperwork has not, so treating it as done reported 228 running jobs as
+    // complete. This side had drifted looser, which mattered because the KPI
+    // engine reads IsDone: `gate-in` was listed as finished here while the
+    // workspace counted it as running, so the same job was complete on one
+    // screen and in transit on another.
+    [GeneratedRegex(@"^(waiting truck|waiting information|new|scheduled)$", RegexOptions.IgnoreCase)]
     private static partial Regex Waiting();
 
-    [GeneratedRegex(@"truck confirmed|driver assigned|truck assigned", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(truck confirmed|driver assigned|truck assigned)$", RegexOptions.IgnoreCase)]
     private static partial Regex Confirmed();
 
-    [GeneratedRegex(@"transit|arrived|loading|pickup|departed|gate", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"transit|arrived|loading|pickup|departed|gate|empty return", RegexOptions.IgnoreCase)]
     private static partial Regex Running();
 
     [GeneratedRegex(@"delay", RegexOptions.IgnoreCase)]
     private static partial Regex Delayed();
 
-    [GeneratedRegex(@"complet|delivered|gate-in", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(completed|delivery completed|delivered)$", RegexOptions.IgnoreCase)]
     private static partial Regex Done();
 
     [GeneratedRegex(@"6WH|4WH|10W|COMBINE", RegexOptions.IgnoreCase)]

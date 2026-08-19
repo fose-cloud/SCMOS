@@ -25,10 +25,61 @@ public static class JobsEndpoints
 
         group.MapGet("", async (HttpContext context, IUserAccessor users, JobsRepository jobs, CancellationToken token) =>
         {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+
+            // A carrier does not get the register. This endpoint answers with
+            // every job for every customer, including what each competitor was
+            // assigned and at what rate; a subcontractor account has its own
+            // scoped view at /api/carrier and no business here.
+            if (string.Equals(user.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase))
+                return ApiResults.Error("บัญชีผู้รับเหมาดูงานได้ที่หน้างานของบริษัทตัวเอง",
+                    StatusCodes.Status403Forbidden);
+
             var (json, _) = await jobs.LoadAsync(token);
             // Written verbatim: the rows are already JSON and were checked on the way out.
             return Results.Text(json, "application/json");
+        });
+
+        // One page of the register, filtered and counted here. See
+        // WorkspaceService for why this exists alongside the full read.
+        group.MapGet("/page", async (string? tab, string? cat, string? year, string? month,
+            string? day, string? q, string? sort, string? dir, int? page, int? per,
+            HttpContext context, IUserAccessor users, WorkspaceService workspace,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (string.Equals(user.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase))
+                return ApiResults.Error("บัญชีผู้รับเหมาดูงานได้ที่หน้างานของบริษัทตัวเอง",
+                    StatusCodes.Status403Forbidden);
+
+            var result = await workspace.ReadAsync(new WorkspaceService.Query(
+                Tab: tab ?? WorkspaceTabs.MyJobs,
+                Cat: cat ?? "ALL",
+                Year: year ?? "ALL",
+                Month: month ?? "ALL",
+                Day: day ?? "ALL",
+                Search: q ?? "",
+                SortKey: sort ?? "",
+                SortDir: dir ?? "asc",
+                Page: page ?? 1,
+                Per: per ?? 25,
+                // Whose jobs count as "mine" is the API's answer, not a value the
+                // caller may pass — otherwise any signed-in person could ask for
+                // somebody else's workspace by naming their id.
+                OpId: user.OperatorId), token);
+
+            return Results.Json(new
+            {
+                jobs = result.Rows,
+                total = result.Total,
+                pageCount = result.PageCount,
+                page = result.CurrentPage,
+                counts = result.Counts,
+                dates = result.Dates,
+                updatedAt = result.UpdatedAt,
+            });
         });
 
         group.MapPut("", async (SaveRequest body, HttpContext context, IUserAccessor users,
