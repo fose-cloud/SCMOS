@@ -3,7 +3,7 @@ export type Screen =
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
-  | "loreal" | "carrier" | "myjob";
+  | "loreal" | "carrier" | "myjob" | "training";
 
 /**
  * The menu, in the order the work happens.
@@ -33,6 +33,7 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["vendor", "Add New Vendor", "เพิ่มผู้ขนส่งใหม่", [[2, 6, 5, 8], [8, 3, 6, 3], [8, 8, 6, 3], [8, 12, 6, 2]]],
   ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
   ["quotation", "Rate Quotation", "ขอใบเสนอราคา", [[2, 2, 10, 12], [4, 5, 6, 1.5], [4, 8, 6, 1.5], [4, 11, 4, 1.5]]],
+  ["training", "Customer Training Control", "อบรมคนขับ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 7]]],
   ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
   ["abs", "ABS", "ระบบ ABS", [[2, 2, 12, 12], [5, 5, 6, 6]]],
   ["admin", "Administration", "ผู้ดูแลระบบ", [[2, 2, 5, 5], [9, 2, 5, 5], [9, 9, 5, 5]]],
@@ -109,6 +110,7 @@ export const META: Record<string, [string, string, string]> = {
   quotation: ["Rate Quotation", "ขอใบเสนอราคา", "เทียบราคาผู้ขนส่งสำหรับเส้นทางและประเภทรถที่ต้องการ ตามราคาน้ำมันปัจจุบัน — อ่านจากตารางราคาใน Azure SQL"],
   documents: ["Document Register", "ทะเบียนเอกสาร", "Controlled operational and compliance documents with expiry monitoring."],
   reports: ["Management Reports", "รายงานผู้บริหาร", "Standard report catalogue with daily, weekly, monthly, yearly and custom periods."],
+  training: ["Customer Training Control", "การอบรมพนักงานขับรถ", "ข้อกำหนดของลูกค้าแต่ละราย ใบรับรองของคนขับ และวันหมดอายุ — สถานะคำนวณจากวันที่ทุกครั้งที่เปิดหน้า ไม่มีงานเบื้องหลังที่ต้องรัน และคนขับที่หลักสูตรบังคับหมดอายุจะรับงานของลูกค้ารายนั้นไม่ได้"],
   carrier: ["งานของบริษัท", "Carrier Portal", "งานที่ลูกค้าส่งมาให้บริษัทนี้ กดรับพร้อมแจ้งทะเบียนรถ คนขับ และเบอร์โทร แล้วข้อมูลจะขึ้นที่หน้างานของเจ้าของงานทันที"],
   loreal: ["L'OREAL Truck Report", "รายงานรถลูกค้า L'OREAL", "ฟอร์มเดียวกับที่ส่งลูกค้าทุกเดือน ดึงจากทะเบียนงานจริง — ช่องที่ระบบยังไม่มีที่มาจะเว้นว่างและบอกไว้ ไม่เดาแทน"],
   abs: ["ABS", "ระบบ ABS", "หน้าจอยังว่าง รอเชื่อมกับ API ของโปรแกรม ABS — เมนู เส้นทาง และการตรวจสิทธิ์พร้อมแล้ว"],

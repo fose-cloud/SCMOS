@@ -59,7 +59,7 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
   subcontractors: true, carpar: true, incident: true, assistant: true,
   vendor: true, evaluation: true, quotation: true,
-  capacity: true, documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true,
+  capacity: true, documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true, training: true,
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
@@ -70,6 +70,7 @@ import { Workspace, workspaceTabCounts, type WsState } from "./scmos/screens/Wor
 import { Abs } from "./scmos/screens/Abs";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
+import { Training } from "./scmos/screens/Training";
 import { Login } from "./scmos/overlays/Login";
 import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toast, type Field, type StoredDoc } from "./scmos/overlays/Overlays";
 import type { Alert, WsTarget } from "./scmos/alerts";
@@ -1670,6 +1671,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "admin" && <Administration onToast={setToast} />}
             {screen === "abs" && <Abs />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
+            {screen === "training" && <Training onToast={setToast} />}
             {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
