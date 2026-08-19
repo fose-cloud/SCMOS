@@ -56,6 +56,7 @@ builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<RiskService>();
 builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<CarrierService>();
+builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<VerificationService>();
 builder.Services.AddScoped<AiGateway>();
 // The audit trail records the caller's address and session, which only the
@@ -175,6 +176,7 @@ app.MapDashboard();
 app.MapStaff();
 app.MapCapacity();
 app.MapCarrier();
+app.MapTraining();
 app.MapVerification();
 app.MapUploads();
 app.MapOperations();

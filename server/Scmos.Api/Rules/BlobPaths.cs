@@ -44,6 +44,18 @@ public static class BlobPaths
         ["Audit", "Insurance", "License", "Training", "Contract", "Other"];
 
     /// <summary>
+    /// Where a driver's training certificates go.
+    ///
+    /// Their own tree, not the carrier's `Training` folder. A certificate
+    /// belongs to the driver — it follows them if they move carrier, and some
+    /// drivers have no carrier at all — so filing it under whichever company
+    /// employed them the day it was scanned would put the same person's
+    /// paperwork in several places and lose it when they moved.
+    /// </summary>
+    public static readonly string[] DriverFolders =
+        ["Training", "License", "Medical", "Other"];
+
+    /// <summary>
     /// The folder a written kind means.
     ///
     /// The spellings on the left are the ones already in the system — the
@@ -109,6 +121,18 @@ public static class BlobPaths
     public static string ForSupplier(string code, string folder, string fileName) =>
         string.Join('/', Root, "Supplier", Segment(code, "UNKNOWN-SUPPLIER"),
             SupplierFolder(folder), FileName(fileName));
+
+    /// <summary>
+    /// A driver's paperwork: <c>SCMOS/Driver/{idNo}/{folder}/{file}</c>.
+    ///
+    /// Keyed on the licence or national id rather than the name, because two
+    /// drivers share a name more often than a number, and because a name that
+    /// gets respelled would otherwise scatter one person's certificates across
+    /// several folders.
+    /// </summary>
+    public static string ForDriver(string driverIdNo, string folder, string fileName) =>
+        string.Join('/', Root, "Driver", Segment(driverIdNo, "UNKNOWN-DRIVER"),
+            Folder(folder, DriverFolders, JobAliases), FileName(fileName));
 
     /// <summary>
     /// A monthly report: <c>SCMOS/Report/{year}/{period}/{file}</c>.

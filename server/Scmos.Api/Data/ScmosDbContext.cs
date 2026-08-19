@@ -22,6 +22,14 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Who may sign in, and as what.</summary>
     public DbSet<StaffMember> Staff => Set<StaffMember>();
 
+    public DbSet<Driver> Drivers => Set<Driver>();
+    public DbSet<TrainingCourse> TrainingCourses => Set<TrainingCourse>();
+    public DbSet<CustomerTrainingRequirement> CustomerTrainingRequirements
+        => Set<CustomerTrainingRequirement>();
+
+    /// <summary>Append-only in practice: renewal writes a new row, never an update.</summary>
+    public DbSet<DriverTraining> DriverTrainings => Set<DriverTraining>();
+
     /// <summary>Append-only. Nothing in the codebase deletes from it.</summary>
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
@@ -244,6 +252,85 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => e.Email).IsUnique().HasDatabaseName("staff_email_idx")
                 .HasFilter("[email] <> ''");
             entry.HasIndex(e => e.Account).HasDatabaseName("staff_account_idx");
+        });
+
+        model.Entity<Driver>(entry =>
+        {
+            entry.ToTable("drivers");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Name).HasColumnName("name").HasMaxLength(160);
+            entry.Property(e => e.DriverIdNo).HasColumnName("driver_id_no").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.Phone).HasColumnName("phone").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
+            entry.Property(e => e.Active).HasColumnName("active").HasDefaultValue(true);
+            entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            // The licence number is what a certificate is issued against, so it
+            // is the value the register is searched by and the one that stops
+            // the same person being entered twice under two spellings.
+            entry.HasIndex(e => e.DriverIdNo).IsUnique().HasDatabaseName("drivers_id_no_idx")
+                .HasFilter("[driver_id_no] <> ''");
+            entry.HasIndex(e => e.SupplierId).HasDatabaseName("drivers_supplier_idx");
+        });
+
+        model.Entity<TrainingCourse>(entry =>
+        {
+            entry.ToTable("training_courses");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Code).HasColumnName("code").HasMaxLength(40);
+            entry.Property(e => e.Name).HasColumnName("name").HasMaxLength(200);
+            entry.Property(e => e.ValidMonths).HasColumnName("valid_months").HasDefaultValue(12);
+            entry.Property(e => e.Active).HasColumnName("active").HasDefaultValue(true);
+            entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(400).HasDefaultValue("");
+            entry.HasIndex(e => e.Code).IsUnique().HasDatabaseName("training_course_code_idx");
+        });
+
+        model.Entity<CustomerTrainingRequirement>(entry =>
+        {
+            entry.ToTable("customer_training_requirements");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(200);
+            entry.Property(e => e.CourseId).HasColumnName("course_id");
+            entry.Property(e => e.ValidMonths).HasColumnName("valid_months");
+            entry.Property(e => e.Mandatory).HasColumnName("mandatory").HasDefaultValue(true);
+            entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            // One row per customer per course; asking for the same course twice
+            // is a data-entry slip, not two requirements.
+            entry.HasIndex(e => new { e.Customer, e.CourseId }).IsUnique()
+                .HasDatabaseName("customer_course_idx");
+        });
+
+        model.Entity<DriverTraining>(entry =>
+        {
+            entry.ToTable("driver_training");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.DriverId).HasColumnName("driver_id");
+            entry.Property(e => e.CourseId).HasColumnName("course_id");
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.TrainingDate).HasColumnName("training_date").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.ExpiryDate).HasColumnName("expiry_date").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.CertificateNo).HasColumnName("certificate_no").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.Provider).HasColumnName("provider").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.Remark).HasColumnName("remark").HasMaxLength(600).HasDefaultValue("");
+            entry.Property(e => e.DocumentId).HasColumnName("document_id");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.Voided).HasColumnName("voided").HasDefaultValue(false);
+            entry.Property(e => e.VoidReason).HasColumnName("void_reason").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.VoidedBy).HasColumnName("voided_by").HasMaxLength(120).HasDefaultValue("");
+            // The question asked constantly is "what is this driver's latest
+            // record for this course", so that is what the index answers.
+            entry.HasIndex(e => new { e.DriverId, e.CourseId }).HasDatabaseName("driver_training_idx");
+            entry.HasIndex(e => e.ExpiryDate).HasDatabaseName("driver_training_expiry_idx");
         });
 
         model.Entity<StoredDocument>(entry =>

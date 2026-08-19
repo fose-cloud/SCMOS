@@ -1,0 +1,349 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Scmos.Api.Auth;
+using Scmos.Api.Data;
+using Scmos.Api.Rules;
+using Scmos.Api.Services;
+
+namespace Scmos.Api.Endpoints;
+
+/// <summary>
+/// Driver training, and whether it lets somebody run a customer's work.
+///
+/// Two kinds of caller write here. LESCHACO's own team maintains the whole
+/// register; a carrier maintains their own drivers through their portal and
+/// must not see anybody else's — the same boundary the carrier portal draws,
+/// for the same reason.
+/// </summary>
+public static class TrainingEndpoints
+{
+    public record CourseBody(string? Code, string? Name, int? ValidMonths, string? Note);
+    public record RequirementBody(string? Customer, int? CourseId, int? ValidMonths, bool? Mandatory, string? Note);
+    public record DriverBody(string? Name, string? DriverIdNo, string? Phone, int? SupplierId, string? Note);
+    public record RecordBody(
+        int? DriverId, int? CourseId, string? Customer, string? TrainingDate, string? ExpiryDate,
+        string? CertificateNo, string? Provider, string? Remark, long? DocumentId);
+    public record VoidBody(string? Reason);
+
+    public static void MapTraining(this IEndpointRouteBuilder routes)
+    {
+        var group = routes.MapGroup("/api/training").WithTags("Training");
+
+        /// The bands, so the screens colour by the same numbers the API judges by.
+        group.MapGet("/rules", () => Results.Json(new
+        {
+            statuses = TrainingRules.All.Select(status => new
+            {
+                code = status,
+                th = TrainingRules.Thai[status],
+            }),
+            alertDays = TrainingRules.AlertDays,
+            bands = new
+            {
+                valid = "มากกว่า 60 วัน",
+                attention = "31–60 วัน",
+                expiringSoon = "1–30 วัน",
+                expired = "หมดอายุแล้ว",
+            },
+        }));
+
+        group.MapGet("/summary", async (string? customer, HttpContext context, IUserAccessor users,
+            TrainingService training, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            return Results.Json(await training.SummaryAsync(customer ?? "", token));
+        });
+
+        group.MapGet("/drivers", async (string? q, int? supplierId, HttpContext context,
+            IUserAccessor users, CarrierService carriers, ScmosDbContext db, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+
+            var scope = await ScopeOfAsync(user, carriers, token);
+            var query = db.Drivers.AsNoTracking().Where(driver => driver.Active);
+
+            // A carrier sees their own drivers and nobody else's.
+            if (scope is { } onlySupplier) query = query.Where(driver => driver.SupplierId == onlySupplier);
+            else if (supplierId is { } wanted) query = query.Where(driver => driver.SupplierId == wanted);
+
+            var search = (q ?? "").Trim();
+            if (search.Length > 0)
+            {
+                query = query.Where(driver =>
+                    driver.Name.Contains(search) || driver.DriverIdNo.Contains(search));
+            }
+
+            return Results.Json(await query.OrderBy(driver => driver.Name).Take(400).ToListAsync(token));
+        });
+
+        group.MapPost("/drivers", async ([FromBody] DriverBody body, HttpContext context,
+            IUserAccessor users, CarrierService carriers, ScmosDbContext db, AuditService audit,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!await MayWriteAsync(user, carriers, token))
+                return ApiResults.Error("ไม่มีสิทธิ์เพิ่มคนขับ", StatusCodes.Status403Forbidden);
+
+            var name = (body.Name ?? "").Trim();
+            if (name.Length == 0) return ApiResults.Error("ต้องระบุชื่อคนขับ", StatusCodes.Status400BadRequest);
+
+            var idNo = (body.DriverIdNo ?? "").Trim();
+            if (idNo.Length > 0 && await db.Drivers.AnyAsync(d => d.DriverIdNo == idNo, token))
+                return ApiResults.Error("เลขบัตร/ใบขับขี่นี้มีคนขับอยู่แล้ว", StatusCodes.Status400BadRequest);
+
+            // A carrier's own portal can only add their own drivers; it does not
+            // get to file somebody under another company.
+            var scope = await ScopeOfAsync(user, carriers, token);
+
+            var driver = new Driver
+            {
+                Name = name,
+                DriverIdNo = idNo,
+                Phone = (body.Phone ?? "").Trim(),
+                SupplierId = scope ?? body.SupplierId,
+                Note = (body.Note ?? "").Trim(),
+                CreatedBy = user.Signature, CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedBy = user.Signature, UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            db.Drivers.Add(driver);
+            await db.SaveChangesAsync(token);
+
+            await audit.RecordAsync(user, AuditActions.Register, "driver", driver.Id.ToString(),
+                name, "driver", "", idNo, body.Note ?? "", token);
+
+            return Results.Json(new { message = $"เพิ่มคนขับ {name} แล้ว", id = driver.Id });
+        });
+
+        group.MapGet("/drivers/{id:int}", async (int id, string? customer, HttpContext context,
+            IUserAccessor users, CarrierService carriers, ScmosDbContext db, TrainingService training,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!await MaySeeDriverAsync(user, carriers, db, id, token))
+                return ApiResults.Error("คนขับรายนี้ไม่ได้อยู่กับบริษัทของคุณ", StatusCodes.Status403Forbidden);
+
+            var profile = await training.ProfileAsync(id, customer ?? "", token);
+            return profile is null
+                ? ApiResults.Error("ไม่พบคนขับรายนี้", StatusCodes.Status404NotFound)
+                : Results.Json(profile);
+        });
+
+        /// The question the assignment screen asks before putting a driver on a job.
+        group.MapGet("/eligibility", async (int driverId, string customer, HttpContext context,
+            IUserAccessor users, TrainingService training, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+
+            var result = await training.CheckAsync(driverId, customer ?? "", token);
+            return result is null
+                ? ApiResults.Error("ไม่พบคนขับรายนี้", StatusCodes.Status404NotFound)
+                : Results.Json(result);
+        });
+
+        group.MapGet("/history/{driverId:int}", async (int driverId, HttpContext context,
+            IUserAccessor users, CarrierService carriers, ScmosDbContext db, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!await MaySeeDriverAsync(user, carriers, db, driverId, token))
+                return ApiResults.Error("คนขับรายนี้ไม่ได้อยู่กับบริษัทของคุณ", StatusCodes.Status403Forbidden);
+
+            // Everything ever recorded, voided rows included — this is the view
+            // an auditor asks for, and hiding the withdrawn ones would answer a
+            // different question than the one they came with.
+            var rows = await db.DriverTrainings.AsNoTracking()
+                .Where(record => record.DriverId == driverId)
+                .OrderByDescending(record => record.Id)
+                .ToListAsync(token);
+
+            return Results.Json(rows);
+        });
+
+        group.MapPost("/records", async ([FromBody] RecordBody body, HttpContext context,
+            IUserAccessor users, CarrierService carriers, ScmosDbContext db, TrainingService training,
+            AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!await MayWriteAsync(user, carriers, token))
+                return ApiResults.Error("ไม่มีสิทธิ์บันทึกการอบรม", StatusCodes.Status403Forbidden);
+            if (body.DriverId is not { } driverId)
+                return ApiResults.Error("ต้องระบุคนขับ", StatusCodes.Status400BadRequest);
+            if (!await MaySeeDriverAsync(user, carriers, db, driverId, token))
+                return ApiResults.Error("คนขับรายนี้ไม่ได้อยู่กับบริษัทของคุณ", StatusCodes.Status403Forbidden);
+
+            var result = await training.RecordAsync(new DriverTraining
+            {
+                DriverId = driverId,
+                CourseId = body.CourseId ?? 0,
+                Customer = (body.Customer ?? "").Trim(),
+                TrainingDate = (body.TrainingDate ?? "").Trim(),
+                ExpiryDate = (body.ExpiryDate ?? "").Trim(),
+                CertificateNo = (body.CertificateNo ?? "").Trim(),
+                Provider = (body.Provider ?? "").Trim(),
+                Remark = (body.Remark ?? "").Trim(),
+                DocumentId = body.DocumentId,
+            }, user, token);
+
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Register, "driver-training",
+                result.Id.ToString(), body.CertificateNo ?? "", "training", "",
+                $"{body.TrainingDate} → {body.ExpiryDate}", body.Remark ?? "", token);
+
+            return Results.Json(new { message = result.Message, id = result.Id });
+        });
+
+        group.MapPost("/records/{id:long}/void", async (long id, [FromBody] VoidBody body,
+            HttpContext context, IUserAccessor users, TrainingService training, AuditService audit,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("ยกเลิกรายการอบรมได้เฉพาะผู้ดูแลผู้รับเหมา",
+                    StatusCodes.Status403Forbidden);
+
+            var result = await training.VoidAsync(id, body.Reason ?? "", user, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Update, "driver-training", id.ToString(),
+                "", "voided", "", "true", body.Reason ?? "", token);
+
+            return Results.Json(new { message = result.Message });
+        });
+
+        /* ------------------------------------------------- courses and rules */
+
+        group.MapGet("/courses", async (ScmosDbContext db, HttpContext context, IUserAccessor users,
+            CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await db.TrainingCourses.AsNoTracking()
+                .OrderBy(course => course.Name).ToListAsync(token));
+        });
+
+        group.MapPost("/courses", async ([FromBody] CourseBody body, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("เพิ่มหลักสูตรได้เฉพาะผู้ดูแลผู้รับเหมา", StatusCodes.Status403Forbidden);
+
+            var code = (body.Code ?? "").Trim().ToUpperInvariant();
+            var name = (body.Name ?? "").Trim();
+            if (code.Length == 0 || name.Length == 0)
+                return ApiResults.Error("ต้องระบุรหัสและชื่อหลักสูตร", StatusCodes.Status400BadRequest);
+            if (await db.TrainingCourses.AnyAsync(course => course.Code == code, token))
+                return ApiResults.Error("รหัสหลักสูตรนี้มีอยู่แล้ว", StatusCodes.Status400BadRequest);
+
+            var course = new TrainingCourse
+            {
+                Code = code, Name = name,
+                ValidMonths = Math.Max(1, body.ValidMonths ?? 12),
+                Note = (body.Note ?? "").Trim(),
+            };
+            db.TrainingCourses.Add(course);
+            await db.SaveChangesAsync(token);
+            return Results.Json(new { message = $"เพิ่มหลักสูตร {name} แล้ว", id = course.Id });
+        });
+
+        group.MapGet("/requirements", async (string? customer, ScmosDbContext db, HttpContext context,
+            IUserAccessor users, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+
+            var query = db.CustomerTrainingRequirements.AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(customer))
+                query = query.Where(requirement => requirement.Customer == customer);
+
+            var requirements = await query.ToListAsync(token);
+            var courses = await db.TrainingCourses.AsNoTracking().ToListAsync(token);
+
+            return Results.Json(requirements.Select(requirement => new
+            {
+                requirement.Id,
+                requirement.Customer,
+                requirement.CourseId,
+                course = courses.FirstOrDefault(course => course.Id == requirement.CourseId)?.Name ?? "",
+                code = courses.FirstOrDefault(course => course.Id == requirement.CourseId)?.Code ?? "",
+                validMonths = requirement.ValidMonths
+                              ?? courses.FirstOrDefault(course => course.Id == requirement.CourseId)?.ValidMonths
+                              ?? 12,
+                requirement.Mandatory,
+                requirement.Note,
+            }).OrderBy(item => item.Customer).ThenBy(item => item.course));
+        });
+
+        group.MapPost("/requirements", async ([FromBody] RequirementBody body, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("กำหนดข้อบังคับได้เฉพาะผู้ดูแลผู้รับเหมา", StatusCodes.Status403Forbidden);
+
+            var customer = (body.Customer ?? "").Trim();
+            if (customer.Length == 0 || body.CourseId is not { } courseId)
+                return ApiResults.Error("ต้องระบุลูกค้าและหลักสูตร", StatusCodes.Status400BadRequest);
+
+            var existing = await db.CustomerTrainingRequirements
+                .FirstOrDefaultAsync(r => r.Customer == customer && r.CourseId == courseId, token);
+
+            if (existing is null)
+            {
+                db.CustomerTrainingRequirements.Add(new CustomerTrainingRequirement
+                {
+                    Customer = customer, CourseId = courseId,
+                    ValidMonths = body.ValidMonths, Mandatory = body.Mandatory ?? true,
+                    Note = (body.Note ?? "").Trim(),
+                    UpdatedBy = user.Signature, UpdatedAt = DateTimeOffset.UtcNow,
+                });
+            }
+            else
+            {
+                existing.ValidMonths = body.ValidMonths;
+                existing.Mandatory = body.Mandatory ?? true;
+                existing.Note = (body.Note ?? "").Trim();
+                existing.UpdatedBy = user.Signature;
+                existing.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            await db.SaveChangesAsync(token);
+            await audit.RecordAsync(user, AuditActions.Update, "training-requirement", customer,
+                customer, "requirement", "", courseId.ToString(), body.Note ?? "", token);
+
+            return Results.Json(new { message = $"บันทึกข้อบังคับของ {customer} แล้ว" });
+        });
+    }
+
+    /// <summary>The supplier a carrier account is confined to, or null for staff.</summary>
+    private static async Task<int?> ScopeOfAsync(AppUser user, CarrierService carriers,
+        CancellationToken token) =>
+        (await carriers.CompanyOfAsync(user, token))?.Id;
+
+    /// <summary>
+    /// Staff with supplier management, or a carrier maintaining their own
+    /// people. Everyone else reads only.
+    /// </summary>
+    private static async Task<bool> MayWriteAsync(AppUser user, CarrierService carriers,
+        CancellationToken token) =>
+        user.Can(Capability.ManageSuppliers) || await ScopeOfAsync(user, carriers, token) is not null;
+
+    private static async Task<bool> MaySeeDriverAsync(AppUser user, CarrierService carriers,
+        ScmosDbContext db, int driverId, CancellationToken token)
+    {
+        var scope = await ScopeOfAsync(user, carriers, token);
+        if (scope is null) return true;
+
+        var driver = await db.Drivers.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == driverId, token);
+        return driver?.SupplierId == scope;
+    }
+}
