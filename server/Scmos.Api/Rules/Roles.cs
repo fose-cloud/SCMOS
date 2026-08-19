@@ -60,6 +60,15 @@ public enum Capability
     AdministerData = 1 << 13,
 
     /// <summary>
+    /// Keep the training register, and go past its refusal when the day
+    /// requires it.
+    ///
+    /// One capability rather than two, because it is one team: the people who
+    /// arrange carriers record the certificates and are the only ones who can
+    /// judge whether a substitute driver is acceptable. Splitting it would have
+    /// produced a role that can enter a certificate and not act on it, which
+    /// nobody asked for.
+    ///
     /// Put a driver on a customer's work when their training does not allow it.
     ///
     /// The block is the point of the training module, so this is the exception
@@ -72,7 +81,7 @@ public enum Capability
     /// untrained driver onto a customer's site is the one thing this control
     /// exists to stop.
     /// </summary>
-    OverrideTraining = 1 << 14,
+    ManageTraining = 1 << 14,
 }
 
 /// <param name="Name">The role as it is written on an account.</param>
@@ -95,7 +104,7 @@ public static class Roles
 
     private const Capability OperationGrants =
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
-        | Capability.OverrideTraining;
+        | Capability.ManageTraining;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar

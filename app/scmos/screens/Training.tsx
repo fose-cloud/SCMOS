@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
 import { css } from "../theme";
 
@@ -38,6 +39,50 @@ const BLANK = {
   courseId: "", trainingDate: "", expiryDate: "", certificateNo: "", provider: "", remark: "",
 };
 
+type ImportRow = {
+  customer: string; supplier: string; driverName: string; driverIdNo: string;
+  phone: string; course: string; trainingDate: string; expiryDate: string;
+  certificateNo: string; provider: string; remark: string;
+};
+
+/**
+ * The column headings this reads, in Thai or English.
+ *
+ * Matched loosely — case and spacing ignored — because the file comes from
+ * whoever keeps the training register, and refusing "Driver Name " over a
+ * trailing space would make the feature useless on the first real file.
+ */
+const COLUMNS: Record<keyof ImportRow, string[]> = {
+  customer: ["customer", "ลูกค้า", "ชื่อลูกค้า"],
+  supplier: ["supplier", "carrier", "บริษัทขนส่ง", "ผู้ขนส่ง", "ผู้รับเหมา"],
+  driverName: ["driver", "drivername", "driver name", "ชื่อคนขับ", "ชื่อ-สกุล", "ชื่อ-สกุลคนขับรถ", "พนักงานขับรถ"],
+  driverIdNo: ["driverid", "driver id", "licenceno", "licence", "license", "เลขบัตร", "ใบขับขี่", "เลขที่ใบขับขี่"],
+  phone: ["phone", "tel", "เบอร์", "เบอร์โทร", "โทรศัพท์"],
+  course: ["course", "training", "trainingcourse", "หลักสูตร", "การอบรม"],
+  trainingDate: ["trainingdate", "training date", "วันที่อบรม", "วันอบรม"],
+  expiryDate: ["expiry", "expirydate", "expiry date", "วันหมดอายุ", "วันที่หมดอายุ"],
+  certificateNo: ["certificate", "certificateno", "certno", "เลขใบรับรอง", "เลขที่ใบรับรอง"],
+  provider: ["provider", "trainingprovider", "ผู้จัดอบรม", "สถาบัน"],
+  remark: ["remark", "note", "หมายเหตุ"],
+};
+
+const norm = (value: string) => value.toLowerCase().replace(/[\s._-]/g, "");
+
+/**
+ * A date as the register writes it.
+ *
+ * Excel hands dates back as Date objects when `cellDates` is on, and as text
+ * when the column was formatted as text — which, in a register somebody
+ * maintains by hand, it usually is.
+ */
+function asDate(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(value.getDate())}/${pad(value.getMonth() + 1)}/${value.getFullYear()}`;
+  }
+  return String(value ?? "").trim();
+}
+
 const TONE: Record<string, { bg: string; border: string; text: string; th: string }> = {
   VALID: { bg: "#EDF7F1", border: "#BFE0CD", text: "#16794C", th: "ยังใช้ได้" },
   ATTENTION: { bg: "#FFFBEB", border: "#F5E0A3", text: "#8A6D0B", th: "ใกล้ครบกำหนด" },
@@ -71,6 +116,17 @@ export function Training({ onToast, registerCustomers }: {
   const [photo, setPhoto] = useState<File | null>(null);
   const [certificate, setCertificate] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * What a spreadsheet turned into, before any of it is sent.
+   *
+   * Shown rather than imported straight away, because a training register
+   * arrives as somebody's own spreadsheet and the first import is always the
+   * one that reveals a column meant something else. Rows that cannot be read
+   * are listed with the reason instead of being dropped quietly.
+   */
+  const [preview, setPreview] = useState<{
+    ok: ImportRow[]; bad: { row: number; why: string }[]; fileName: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -140,6 +196,110 @@ export function Training({ onToast, registerCustomers }: {
     } finally { setBusy(false); }
   }
 
+  /**
+   * Reads the spreadsheet without sending anything.
+   *
+   * A row needs a driver, a course and a training date to be worth sending; the
+   * rest is optional and the API fills an absent expiry from the course's
+   * validity. Anything short of that is listed with what is missing, so the
+   * person fixing the file knows which line to look at.
+   */
+  async function readFile(file: File) {
+    try {
+      const book = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+      const sheet = book.Sheets[book.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+      const ok: ImportRow[] = [];
+      const bad: { row: number; why: string }[] = [];
+
+      rows.forEach((raw, index) => {
+        const pick = (field: keyof ImportRow) => {
+          const want = COLUMNS[field].map(norm);
+          const key = Object.keys(raw).find((header) => want.includes(norm(header)));
+          return key ? raw[key] : "";
+        };
+
+        const entry: ImportRow = {
+          customer: String(pick("customer") ?? "").trim(),
+          supplier: String(pick("supplier") ?? "").trim(),
+          driverName: String(pick("driverName") ?? "").trim(),
+          driverIdNo: String(pick("driverIdNo") ?? "").trim(),
+          phone: String(pick("phone") ?? "").trim(),
+          course: String(pick("course") ?? "").trim(),
+          trainingDate: asDate(pick("trainingDate")),
+          expiryDate: asDate(pick("expiryDate")),
+          certificateNo: String(pick("certificateNo") ?? "").trim(),
+          provider: String(pick("provider") ?? "").trim(),
+          remark: String(pick("remark") ?? "").trim(),
+        };
+
+        const missing: string[] = [];
+        if (!entry.driverName) missing.push("ชื่อคนขับ");
+        if (!entry.course) missing.push("หลักสูตร");
+        if (!entry.trainingDate) missing.push("วันที่อบรม");
+
+        // A course the catalogue has never heard of is refused rather than
+        // created: a typo would otherwise become a course nobody requires and
+        // every driver would appear to have passed something meaningless.
+        if (!missing.length && !courses.some((c) =>
+          norm(c.name) === norm(entry.course) || norm(c.code) === norm(entry.course))) {
+          missing.push(`ไม่รู้จักหลักสูตร "${entry.course}"`);
+        }
+
+        if (missing.length) bad.push({ row: index + 2, why: missing.join(", ") });
+        else ok.push(entry);
+      });
+
+      setPreview({ ok, bad, fileName: file.name });
+      if (!ok.length && !bad.length) onToast("ไฟล์นี้ไม่มีข้อมูลที่อ่านได้");
+    } catch (error) {
+      onToast("อ่านไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  /** Sends the rows that read cleanly, one at a time, and reports what landed. */
+  async function importRows() {
+    if (!preview || busy) return;
+    setBusy(true);
+    let saved = 0;
+    const failed: string[] = [];
+    try {
+      for (const row of preview.ok) {
+        const course = courses.find((c) =>
+          norm(c.name) === norm(row.course) || norm(c.code) === norm(row.course));
+        const supplier = suppliers.find((v) => norm(v.name) === norm(row.supplier)
+          || norm(v.code) === norm(row.supplier));
+
+        const body = new FormData();
+        body.append("driverName", row.driverName);
+        body.append("courseId", String(course!.id));
+        body.append("trainingDate", row.trainingDate);
+        if (row.customer) body.append("customer", row.customer);
+        if (supplier) body.append("supplierId", String(supplier.id));
+        if (row.driverIdNo) body.append("driverIdNo", row.driverIdNo);
+        if (row.phone) body.append("phone", row.phone);
+        if (row.expiryDate) body.append("expiryDate", row.expiryDate);
+        if (row.certificateNo) body.append("certificateNo", row.certificateNo);
+        if (row.provider) body.append("provider", row.provider);
+        if (row.remark) body.append("remark", row.remark);
+
+        const response = await apiFetch("/api/training/entry", { method: "POST", body });
+        if (response.ok) saved += 1;
+        else {
+          const reply = await response.json().catch(() => ({})) as { error?: string };
+          failed.push(`${row.driverName}: ${reply.error ?? response.status}`);
+        }
+      }
+
+      onToast(failed.length
+        ? `บันทึก ${saved} รายการ · ไม่สำเร็จ ${failed.length} — ${failed[0]}`
+        : `บันทึกครบ ${saved} รายการ`);
+      setPreview(null);
+      await load();
+    } finally { setBusy(false); }
+  }
+
   if (failure) {
     return (
       <div style={css("background:#fff;border:1px solid #F0D8B8;border-left:3px solid #B45309;border-radius:6px;padding:20px 22px")}>
@@ -186,10 +346,56 @@ export function Training({ onToast, registerCustomers }: {
             ";border-radius:5px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
           {adding ? "ยกเลิก" : "+ บันทึกการอบรม"}
         </button>
+        <label style={css("height:33px;padding:0 15px;border:1px solid #1D4E80;background:#fff;color:#1D4E80;border-radius:5px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center")}>
+          นำเข้าจาก Excel
+          <input type="file" accept=".xlsx,.xls,.csv"
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void readFile(f); }}
+            style={css("display:none")} />
+        </label>
         <span style={css("font-size:11.5px;color:#7B8CA0")}>
           กรอกครั้งเดียว — สร้างคนขับใหม่ให้เองถ้ายังไม่มีในทะเบียน
         </span>
       </div>
+
+      {preview && (
+        <div style={css("background:#fff;border:1px solid #BBD5EE;border-left:3px solid #1D4E80;border-radius:6px;padding:15px 17px")}>
+          <div style={css("font-size:13px;font-weight:650;color:#0F2B46")}>
+            {preview.fileName} — อ่านได้ {preview.ok.length} แถว
+            {preview.bad.length > 0 ? ` · ข้าม ${preview.bad.length} แถว` : ""}
+          </div>
+
+          {preview.bad.length > 0 && (
+            <div style={css("margin-top:9px;background:#FFF8F0;border:1px solid #F0D8B8;border-radius:5px;padding:9px 11px;font-size:11.5px;color:#8A5A12;line-height:1.7;max-height:150px;overflow-y:auto")}>
+              {preview.bad.slice(0, 12).map((item) => (
+                <div key={item.row}>แถว {item.row}: {item.why}</div>
+              ))}
+              {preview.bad.length > 12 && <div>… อีก {preview.bad.length - 12} แถว</div>}
+            </div>
+          )}
+
+          {preview.ok.length > 0 && (
+            <div style={css("margin-top:9px;font-size:11.5px;color:#5A6B7D;line-height:1.7")}>
+              ตัวอย่าง: {preview.ok.slice(0, 3).map((r) => `${r.driverName} · ${r.course} · ${r.trainingDate}`).join(" | ")}
+            </div>
+          )}
+
+          <div style={css("display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:center")}>
+            <button onClick={() => void importRows()} disabled={busy || preview.ok.length === 0}
+              style={css("height:32px;padding:0 16px;border:1px solid #16794C;background:" +
+                (busy || preview.ok.length === 0 ? "#C3CFDB" : "#16794C") +
+                ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
+              {busy ? "กำลังนำเข้า…" : `นำเข้า ${preview.ok.length} รายการ`}
+            </button>
+            <button onClick={() => setPreview(null)} disabled={busy}
+              style={css("height:32px;padding:0 14px;border:1px solid #D3DBE3;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
+              ยกเลิก
+            </button>
+            <span style={css("font-size:11.5px;color:#7B8CA0;line-height:1.6")}>
+              คอลัมน์ที่อ่าน: ลูกค้า · บริษัทขนส่ง · ชื่อคนขับ · เลขบัตร · หลักสูตร · วันที่อบรม · วันหมดอายุ · เลขใบรับรอง · ผู้จัดอบรม · หมายเหตุ
+            </span>
+          </div>
+        </div>
+      )}
 
       {adding && (
         <div style={css("background:#F8FAFC;border:1px solid #D3DBE3;border-radius:6px;padding:15px 17px")}>

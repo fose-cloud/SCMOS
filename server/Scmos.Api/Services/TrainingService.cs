@@ -225,7 +225,7 @@ public class TrainingService(ScmosDbContext db)
         var check = await CheckAsync(driverId, customer, token);
         if (check is null) return null;
 
-        var mayOverride = by.Can(Capability.OverrideTraining);
+        var mayOverride = by.Can(Capability.ManageTraining);
 
         if (check.Eligible)
         {

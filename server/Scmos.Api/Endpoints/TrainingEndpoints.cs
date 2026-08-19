@@ -288,7 +288,7 @@ public static class TrainingEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!user.Can(Capability.OverrideTraining))
+            if (!user.Can(Capability.ManageTraining))
                 return ApiResults.Error(
                     "ข้ามข้อกำหนดการอบรมได้เฉพาะทีมที่ดูแลผู้รับเหมา ตั้งแต่ระดับปฏิบัติการขึ้นไป",
                     StatusCodes.Status403Forbidden);
@@ -507,7 +507,7 @@ public static class TrainingEndpoints
     /// </summary>
     private static async Task<bool> MayWriteAsync(AppUser user, CarrierService carriers,
         CancellationToken token) =>
-        user.Can(Capability.ManageSuppliers) || await ScopeOfAsync(user, carriers, token) is not null;
+        user.Can(Capability.ManageTraining) || await ScopeOfAsync(user, carriers, token) is not null;
 
     private static async Task<bool> MaySeeDriverAsync(AppUser user, CarrierService carriers,
         ScmosDbContext db, int driverId, CancellationToken token)

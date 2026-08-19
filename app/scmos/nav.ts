@@ -3,7 +3,8 @@ export type Screen =
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
-  | "loreal" | "carrier" | "myjob" | "training";
+  | "loreal" | "carrier" | "myjob" | "training"
+  | "partners" | "commercial" | "quality";
 
 /**
  * The menu, in the order the work happens.
@@ -18,23 +19,14 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["dashboard", "Dashboard", "แดชบอร์ด", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
   ["workspace", "Workspace", "พื้นที่คีย์งาน", [[2, 2, 12, 4], [2, 8, 5, 6], [9, 8, 5, 2], [9, 12, 5, 2]]],
   // A heading, not a destination — see HEADINGS below.
-  ["docverify", "Document Verification", "ตรวจสอบเอกสาร", [[3, 2, 10, 12], [5, 6, 6, 1.5], [5, 9, 4, 1.5]]],
-  ["subcontractors", "Supplier", "ผู้รับเหมาช่วง", [[2, 6, 4, 8], [7, 3, 4, 11], [12, 8, 2, 6]]],
-  ["capacity", "Capacity", "วางแผนกำลังรถ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
-  ["rates", "Rate Management", "อัตราค่าขนส่ง", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
-  ["billing", "Billing Control", "ควบคุมการวางบิล", [[2, 4, 12, 8], [4, 7, 4, 2]]],
+  ["partners", "Subcontractor", "ผู้รับเหมาช่วง", [[2, 6, 4, 8], [7, 3, 4, 11], [12, 8, 2, 6]]],
+  ["commercial", "Rate & Billing", "ราคาและการวางบิล", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
+  ["quality", "Incident & CAR/PAR", "คุณภาพและข้อบกพร่อง", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
   ["kpi", "KPI", "ตัวชี้วัด", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12], [2, 2, 2, 2]]],
-  ["incident", "Incident", "เหตุผิดปกติ", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
-  ["carpar", "CAR / PAR", "การแก้ไข/ป้องกัน", [[7, 2, 2, 8], [7, 12, 2, 2]]],
   ["audit", "Audit", "ประวัติการใช้งาน", [[2, 2, 12, 2], [2, 6, 12, 2], [2, 10, 8, 2]]],
   ["documents", "Document Center", "ศูนย์เอกสาร", [[3, 2, 10, 12], [5, 5, 6, 1], [5, 8, 6, 1], [5, 11, 4, 1]]],
   ["reports", "Reports", "รายงาน", [[2, 2, 12, 2], [2, 6, 12, 1.5], [2, 9.5, 9, 1.5], [2, 13, 6, 1.5]]],
   ["assistant", "AI Assistant", "ผู้ช่วย AI", [[4, 3, 8, 8], [6, 12, 4, 2], [2, 5, 2, 2], [12, 5, 2, 2]]],
-  ["vendor", "Add New Vendor", "เพิ่มผู้ขนส่งใหม่", [[2, 6, 5, 8], [8, 3, 6, 3], [8, 8, 6, 3], [8, 12, 6, 2]]],
-  ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
-  ["quotation", "Rate Quotation", "ขอใบเสนอราคา", [[2, 2, 10, 12], [4, 5, 6, 1.5], [4, 8, 6, 1.5], [4, 11, 4, 1.5]]],
-  ["training", "Customer Training Control", "อบรมคนขับ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 7]]],
-  ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
   ["abs", "ABS", "ระบบ ABS", [[2, 2, 12, 12], [5, 5, 6, 6]]],
   ["admin", "Administration", "ผู้ดูแลระบบ", [[2, 2, 5, 5], [9, 2, 5, 5], [9, 9, 5, 5]]],
 ];
@@ -47,6 +39,30 @@ export const NAV: [Screen, string, string, number[][]][] = [
  * Workspace does, and somebody looking for it will look there. It nests.
  */
 export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]][]>> = {
+  // Everything about a carrier: who they are, whether they may be used, what
+  // they can carry, and their own way in.
+  partners: [
+    ["subcontractors", "Supplier Register", "ทะเบียนผู้รับเหมา", [[2, 6, 4, 8], [7, 3, 4, 11], [12, 8, 2, 6]]],
+    ["vendor", "Add New Vendor", "เพิ่มผู้ขนส่งใหม่", [[2, 6, 5, 8], [8, 3, 6, 3], [8, 8, 6, 3], [8, 12, 6, 2]]],
+    ["training", "Training Control", "อบรมคนขับ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 7]]],
+    ["capacity", "Capacity", "วางแผนกำลังรถ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
+    ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
+    ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
+  ],
+
+  // What a journey costs and what is billed for it.
+  commercial: [
+    ["rates", "Rate Management", "อัตราค่าขนส่ง", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
+    ["quotation", "Rate Quotation", "ขอใบเสนอราคา", [[2, 2, 10, 12], [4, 5, 6, 1.5], [4, 8, 6, 1.5], [4, 11, 4, 1.5]]],
+    ["billing", "Billing Control", "ควบคุมการวางบิล", [[2, 4, 12, 8], [4, 7, 4, 2]]],
+  ],
+
+  // When something went wrong, and what was done about it.
+  quality: [
+    ["incident", "Incident", "เหตุผิดปกติ", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
+    ["carpar", "CAR / PAR", "การแก้ไข/ป้องกัน", [[7, 2, 2, 8], [7, 12, 2, 2]]],
+  ],
+
   // Still in the order the work happens — a booking is taken, the run is
   // watched, the truck is checked the night before. They sit under Workspace
   // because that is the screen they are all about, and the top-level list is
@@ -58,6 +74,7 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["booking", "Booking", "จองรถบรรทุก", [[2, 3, 10, 7], [12, 6, 2, 4], [3, 12, 3, 2], [10, 12, 3, 2]]],
     ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
     ["prerun", "Pre-Run", "ตรวจก่อนออกงาน", [[2, 3, 12, 2], [2, 7, 8, 2], [2, 11, 5, 2], [11, 9, 3, 5]]],
+    ["docverify", "Document Verification", "ตรวจสอบเอกสาร", [[3, 2, 10, 12], [5, 6, 6, 1.5], [5, 9, 4, 1.5]]],
     ["loreal", "L'OREAL", "รายงานตู้ลูกค้า", [[2, 2, 12, 3], [2, 7, 12, 1.5], [2, 11, 8, 1.5]]],
   ],
 };
@@ -70,7 +87,7 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
  * still navigated would open a page with nothing on it, and the only way to
  * learn that is to click it.
  */
-export const HEADINGS: Screen[] = ["workspace"];
+export const HEADINGS: Screen[] = ["workspace", "partners", "commercial", "quality"];
 
 /**
  * What a carrier's account is allowed to open.
@@ -110,6 +127,9 @@ export const META: Record<string, [string, string, string]> = {
   quotation: ["Rate Quotation", "ขอใบเสนอราคา", "เทียบราคาผู้ขนส่งสำหรับเส้นทางและประเภทรถที่ต้องการ ตามราคาน้ำมันปัจจุบัน — อ่านจากตารางราคาใน Azure SQL"],
   documents: ["Document Register", "ทะเบียนเอกสาร", "Controlled operational and compliance documents with expiry monitoring."],
   reports: ["Management Reports", "รายงานผู้บริหาร", "Standard report catalogue with daily, weekly, monthly, yearly and custom periods."],
+  partners: ["Subcontractor", "ผู้รับเหมาช่วง", "ทะเบียนผู้ขนส่ง การอบรม กำลังรถ และการประเมิน"],
+  commercial: ["Rate & Billing", "ราคาและการวางบิล", "อัตราค่าขนส่ง ใบเสนอราคา และการควบคุมการวางบิล"],
+  quality: ["Incident & CAR/PAR", "คุณภาพและข้อบกพร่อง", "เหตุผิดปกติที่เกิดขึ้นจริง และการแก้ไขป้องกันที่ตามมา"],
   training: ["Customer Training Control", "การอบรมพนักงานขับรถ", "ข้อกำหนดของลูกค้าแต่ละราย ใบรับรองของคนขับ และวันหมดอายุ — สถานะคำนวณจากวันที่ทุกครั้งที่เปิดหน้า ไม่มีงานเบื้องหลังที่ต้องรัน และคนขับที่หลักสูตรบังคับหมดอายุจะรับงานของลูกค้ารายนั้นไม่ได้"],
   carrier: ["งานของบริษัท", "Carrier Portal", "งานที่ลูกค้าส่งมาให้บริษัทนี้ กดรับพร้อมแจ้งทะเบียนรถ คนขับ และเบอร์โทร แล้วข้อมูลจะขึ้นที่หน้างานของเจ้าของงานทันที"],
   loreal: ["L'OREAL Truck Report", "รายงานรถลูกค้า L'OREAL", "ฟอร์มเดียวกับที่ส่งลูกค้าทุกเดือน ดึงจากทะเบียนงานจริง — ช่องที่ระบบยังไม่มีที่มาจะเว้นว่างและบอกไว้ ไม่เดาแทน"],
