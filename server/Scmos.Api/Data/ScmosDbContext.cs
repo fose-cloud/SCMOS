@@ -22,6 +22,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Who may sign in, and as what.</summary>
     public DbSet<StaffMember> Staff => Set<StaffMember>();
 
+    /// <summary>Append-only in spirit: a grant is revoked, never removed.</summary>
+    public DbSet<JobDelegation> JobDelegations => Set<JobDelegation>();
+
     public DbSet<Driver> Drivers => Set<Driver>();
     public DbSet<TrainingCourse> TrainingCourses => Set<TrainingCourse>();
     public DbSet<CustomerTrainingRequirement> CustomerTrainingRequirements
@@ -252,6 +255,26 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => e.Email).IsUnique().HasDatabaseName("staff_email_idx")
                 .HasFilter("[email] <> ''");
             entry.HasIndex(e => e.Account).HasDatabaseName("staff_account_idx");
+        });
+
+        model.Entity<JobDelegation>(entry =>
+        {
+            entry.ToTable("job_delegations");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.OwnerId).HasColumnName("owner_id").HasMaxLength(20);
+            entry.Property(e => e.DelegateId).HasColumnName("delegate_id").HasMaxLength(20);
+            entry.Property(e => e.FromDate).HasColumnName("from_date").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.ToDate).HasColumnName("to_date").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.Revoked).HasColumnName("revoked").HasDefaultValue(false);
+            entry.Property(e => e.RevokedBy).HasColumnName("revoked_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.RevokedAt).HasColumnName("revoked_at");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            // The question asked on every write: who is this person covering for.
+            entry.HasIndex(e => e.DelegateId).HasDatabaseName("delegation_delegate_idx");
+            entry.HasIndex(e => e.OwnerId).HasDatabaseName("delegation_owner_idx");
         });
 
         model.Entity<Driver>(entry =>

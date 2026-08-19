@@ -140,14 +140,23 @@ public class JobsRepository(ScmosDbContext db)
     /// person to fix, not a locked one, and a new job has no previous owner to
     /// take it from.
     /// </summary>
+    /// <param name="alsoFor">
+    /// Owners this person is standing in for today, from a delegation. Empty
+    /// for almost everybody — it is a holiday arrangement, not a role — and the
+    /// caller reads it from <c>DelegationService</c> so the same answer applies
+    /// here as on the screen.
+    /// </param>
     public async Task<IReadOnlyList<string>> OthersJobsAsync(IReadOnlyList<string> keys, string ownerId,
-        CancellationToken token)
+        CancellationToken token, IReadOnlyList<string>? alsoFor = null)
     {
         var wanted = keys.Select(key => Text(key, 80)).Where(key => key.Length > 0).Distinct().ToList();
         if (wanted.Count == 0) return [];
 
+        var mine = new List<string> { ownerId };
+        if (alsoFor is not null) mine.AddRange(alsoFor.Where(id => id.Length > 0));
+
         return await db.OperationJobs.AsNoTracking()
-            .Where(job => wanted.Contains(job.Key) && job.OwnerId != "" && job.OwnerId != ownerId)
+            .Where(job => wanted.Contains(job.Key) && job.OwnerId != "" && !mine.Contains(job.OwnerId))
             .Select(job => job.Key)
             .ToListAsync(token);
     }

@@ -340,7 +340,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const [identity, setIdentity] = useState<
     { role: string; opId: string; name: string; init: string; known: boolean;
-      full: string; authorised: boolean } | null>(null);
+      full: string; authorised: boolean; actingFor: string[] } | null>(null);
   const [can, setCan] = useState<Set<string>>(new Set());
   /**
    * Whether the capability list ever arrived.
@@ -370,6 +370,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           can?: string[];
           known?: boolean;
           authorised?: boolean;
+          actingFor?: string[];
         };
         if (cancelled) return;
 
@@ -386,6 +387,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             // account it answered for was one it had let in. Defaulting to
             // refused would lock out a working deployment mid-upgrade.
             authorised: body.authorised !== false,
+            actingFor: body.actingFor ?? [],
           });
         }
         setIdentityState("ready");
@@ -413,6 +415,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     : base;
 
   const able = (capability: string) => can.has(capability);
+  const actingFor = identity?.actingFor ?? [];
   /**
    * A carrier's account. Their menu is their own, and the register screens are
    * not in it — the API refuses them, and a rail full of buttons that refuse is
@@ -492,7 +495,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * long as the app made up its own accounts, and would have handed every
    * operator an empty workspace the day Web App Login was switched on.
    */
-  const owns = (job: Job) => !!me.opId && job.opId === me.opId;
+  /**
+   * Mine to work on — my own, and anybody's I am covering for today.
+   *
+   * The list comes from `/api/me`, which reads the same service the API checks
+   * before accepting a write. Deciding it here from a second copy of the rule
+   * is how the grid ends up offering an edit the server then refuses.
+   */
+  const owns = (job: Job) =>
+    (!!me.opId && job.opId === me.opId)
+    || (!!job.opId && actingFor.includes(job.opId));
 
   /** What the dashboard reports on: the register narrowed to the chosen period. */
   const periodJobs = useMemo(
@@ -1815,6 +1827,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       {settingsOpen && (
         <SettingsModal
           me={me}
+          onToast={setToast}
           profile={profile}
           onProfile={updateProfile}
           onAvatar={pickAvatar}

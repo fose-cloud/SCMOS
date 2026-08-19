@@ -12,7 +12,8 @@ public static class MeEndpoints
 {
     public static void MapMe(this IEndpointRouteBuilder routes)
     {
-        routes.MapGet("/api/me", (HttpContext context, IUserAccessor users) =>
+        routes.MapGet("/api/me", async (HttpContext context, IUserAccessor users,
+            Services.DelegationService delegations, CancellationToken token) =>
         {
             // The one endpoint that asks who signed in rather than who is
             // allowed in. Somebody refused at the door has already passed
@@ -61,6 +62,10 @@ public static class MeEndpoints
                 // person. Their workspace will be empty and nothing will look
                 // like theirs — which is correct, and looks exactly like a
                 // broken system unless the screen is told to say so.
+                // Whose jobs this person is covering today. The grid reads it to
+                // decide which rows to make editable; the API checks the same
+                // service before accepting the write, so the two cannot drift.
+                actingFor = await delegations.ActingForAsync(user.OperatorId, token),
                 known = user.OperatorId.Length > 0,
                 // Signed in, but nobody has granted this account anything. Every
                 // other endpoint refuses them; this says so in one word so the

@@ -1,6 +1,7 @@
 "use client";
 
-import type { ChangeEvent, DragEvent } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent, type DragEvent } from "react";
+import { apiFetch } from "../api";
 import { badge, css } from "../theme";
 import type { Alert, WsTarget } from "../alerts";
 import type { Account } from "../nav";
@@ -215,6 +216,7 @@ export function SettingsModal(p: {
   onChange: (prefs: Prefs) => void;
   /** Supervisors and above may reload the whole plan from the delivered file. */
   canReload: boolean;
+  onToast: (message: string) => void;
   onReloadPlan: () => void;
   onCleanup: () => void;
   onDuplicates: () => void;
@@ -357,6 +359,23 @@ export function SettingsModal(p: {
                 signed in with, because the two live at different addresses and
                 the wrong one simply says the account does not exist.
               */}
+              {/*
+                Handing your work to a colleague while you are away.
+
+                Both dates are required and there is no "until further notice".
+                A grant with no end is a permanent change of who works whose
+                jobs wearing a holiday's clothes, and the person who set it will
+                not remember to take it off. It expires by comparing its dates
+                to today, so nothing has to run overnight for it to end.
+              */}
+              <div>
+                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>มอบสิทธิ์แก้ไขงานของฉัน</div>
+                <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
+                  สำหรับช่วงลา — คนที่รับมอบจะแก้งานของคุณได้เฉพาะในช่วงวันที่กำหนด
+                </div>
+                <Delegations me={p.me} onToast={p.onToast} />
+              </div>
+
               <div>
                 <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>รหัสผ่านและความปลอดภัย</div>
                 <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
@@ -639,5 +658,115 @@ export function DocsDrawer(p: {
         )}
       </div>
     </aside>
+  );
+}
+
+type Grant = {
+  id: number; ownerId: string; ownerName: string; delegateId: string; delegateName: string;
+  fromDate: string; toDate: string; reason: string; status: string;
+};
+
+/**
+ * The grants you have made and the ones you have been given.
+ *
+ * Both directions in one list on purpose: knowing whose work you are covering
+ * matters as much as knowing who is covering yours, and somebody who has been
+ * given cover without being told would otherwise find rows they can edit and no
+ * explanation for why.
+ */
+function Delegations({ me, onToast }: { me: Account; onToast: (message: string) => void }) {
+  const [grants, setGrants] = useState<Grant[]>([]);
+  const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
+  const [form, setForm] = useState({ delegateId: "", fromDate: "", toDate: "", reason: "" });
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const response = await apiFetch("/api/delegations", { headers: { accept: "application/json" } });
+    if (response.ok) setGrants(((await response.json()) as { grants: Grant[] }).grants);
+    const staff = await apiFetch("/api/staff", { headers: { accept: "application/json" } });
+    if (staff.ok) {
+      const body = await staff.json() as { people: { id: string; name: string; active: boolean }[] };
+      setPeople(body.people.filter((person) => person.active && person.id !== me.opId));
+    }
+  }, [me.opId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function grant() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/delegations", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form),
+      });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "มอบสิทธิ์ไม่สำเร็จ");
+      if (response.ok) { setForm({ delegateId: "", fromDate: "", toDate: "", reason: "" }); await load(); }
+    } finally { setBusy(false); }
+  }
+
+  async function revoke(id: number) {
+    if (!window.confirm("ยกเลิกการมอบสิทธิ์นี้ทันที?")) return;
+    const response = await apiFetch(`/api/delegations/${id}/revoke`, { method: "POST" });
+    const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+    onToast(reply.message ?? reply.error ?? "ยกเลิกไม่สำเร็จ");
+    await load();
+  }
+
+  const tone = (status: string) =>
+    status === "กำลังใช้งาน" ? "#16794C" : status === "รอถึงกำหนด" ? "#B45309" : "#94A3B8";
+
+  const box = "height:31px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;outline:none;font-family:inherit";
+
+  return (
+    <div>
+      <div style={css("display:flex;gap:7px;flex-wrap:wrap;align-items:center")}>
+        <select value={form.delegateId} onChange={(e) => setForm({ ...form, delegateId: e.target.value })}
+          style={css(box + ";min-width:150px")}>
+          <option value="">— เลือกผู้รับมอบ —</option>
+          {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+        </select>
+        <input value={form.fromDate} onChange={(e) => setForm({ ...form, fromDate: e.target.value })}
+          placeholder="เริ่ม วว/ดด/ปปปป" style={css(box + ";width:130px")} />
+        <input value={form.toDate} onChange={(e) => setForm({ ...form, toDate: e.target.value })}
+          placeholder="ถึง วว/ดด/ปปปป" style={css(box + ";width:130px")} />
+        <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}
+          placeholder="เหตุผล เช่น ลาพักร้อน" style={css(box + ";flex:1;min-width:150px")} />
+        <button onClick={() => void grant()}
+          disabled={busy || !form.delegateId || !form.fromDate || !form.toDate || form.reason.trim().length < 4}
+          style={css("height:31px;padding:0 14px;border:1px solid #0A2240;background:" +
+            (busy || !form.delegateId || !form.fromDate || !form.toDate || form.reason.trim().length < 4
+              ? "#C3CFDB" : "#0A2240") +
+            ";color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
+          มอบสิทธิ์
+        </button>
+      </div>
+
+      {grants.length > 0 && (
+        <div style={css("margin-top:10px;display:flex;flex-direction:column;gap:5px")}>
+          {grants.map((item) => {
+            const outgoing = item.ownerId === me.opId;
+            return (
+              <div key={item.id}
+                style={css("display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#F8FAFC;border:1px solid #E3E8EE;border-radius:4px;padding:7px 10px")}>
+                <span style={css("font-size:11.5px;color:#0F2B46;flex:1;min-width:190px")}>
+                  {outgoing
+                    ? <>ให้ <b>{item.delegateName}</b> แก้งานของคุณ</>
+                    : <>คุณแก้งานของ <b>{item.ownerName}</b> ได้</>}
+                  {" "}{item.fromDate}–{item.toDate} · {item.reason}
+                </span>
+                <span style={css("font-size:11px;font-weight:600;color:" + tone(item.status))}>{item.status}</span>
+                {outgoing && item.status !== "ยกเลิกแล้ว" && item.status !== "หมดอายุแล้ว" && (
+                  <button onClick={() => void revoke(item.id)}
+                    style={css("height:25px;padding:0 10px;border:1px solid #B42318;background:#fff;color:#B42318;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                    ยกเลิก
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

@@ -92,6 +92,7 @@ public static class JobsEndpoints
         });
 
         group.MapPut("", async (SaveRequest body, HttpContext context, IUserAccessor users,
+            DelegationService delegations,
             JobsRepository jobs, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
@@ -118,7 +119,10 @@ public static class JobsEndpoints
             // what the screen offers rather than about what can happen.
             if (!user.Can(Capability.EditAnyJob))
             {
-                var others = await jobs.OthersJobsAsync(keys, user.OperatorId, token);
+                // Jobs belonging to somebody who asked this person to cover for
+                // them are not "somebody else's" for as long as the grant runs.
+                var acting = await delegations.ActingForAsync(user.OperatorId, token);
+                var others = await jobs.OthersJobsAsync(keys, user.OperatorId, token, acting);
                 if (others.Count > 0)
                     return ApiResults.Error(
                         $"แก้ไม่ได้ — {others.Count} งานในชุดนี้เป็นของผู้อื่น",
@@ -152,7 +156,8 @@ public static class JobsEndpoints
         // DELETE never infers a body, so it has to be asked for by name. The
         // workspace sends one: either the keys to remove or `all` to wipe.
         group.MapDelete("", async ([FromBody] DeleteRequest? body, HttpContext context, IUserAccessor users,
-            JobsRepository jobs, AuditService audit, CancellationToken token) =>
+            JobsRepository jobs, DelegationService delegations, AuditService audit,
+            CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
@@ -182,7 +187,8 @@ public static class JobsEndpoints
 
             if (!user.Can(Capability.EditAnyJob))
             {
-                var others = await jobs.OthersJobsAsync(wanted, user.OperatorId, token);
+                var acting = await delegations.ActingForAsync(user.OperatorId, token);
+                var others = await jobs.OthersJobsAsync(wanted, user.OperatorId, token, acting);
                 if (others.Count > 0)
                     return ApiResults.Error(
                         $"ลบไม่ได้ — {others.Count} งานในชุดนี้เป็นของผู้อื่น",
