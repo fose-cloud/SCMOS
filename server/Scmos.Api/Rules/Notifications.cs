@@ -19,6 +19,8 @@ public enum AlertKind
     DocumentUnclear,
     PodMissing,
     SupplierDocumentExpiring,
+    DriverTrainingExpiring,
+    DriverTrainingExpired,
     AuditExpiring,
     CarParOverdue,
     CapacityShortage,
@@ -83,6 +85,18 @@ public static class Notifications
 
         new(AlertKind.SupplierDocumentExpiring, "Supplier document expiring", "เอกสารผู้ขนส่งใกล้หมดอายุ",
             AlertLevel.Warning, "ขอเอกสารฉบับใหม่ก่อนหมดอายุ", "subcontractors"),
+
+        // Sixty days is the agreed notice: long enough to book a course and
+        // still have the driver on the roster when it runs.
+        new(AlertKind.DriverTrainingExpiring, "Driver training expiring",
+            "การอบรมคนขับใกล้หมดอายุ",
+            AlertLevel.Warning, "จัดอบรมต่ออายุก่อนหมดอายุ", "training"),
+
+        // Already lapsed, which is a different problem: that driver cannot be
+        // put on the customer's work at all until it is renewed.
+        new(AlertKind.DriverTrainingExpired, "Driver training expired",
+            "การอบรมคนขับหมดอายุแล้ว",
+            AlertLevel.Critical, "คนขับรายนี้รับงานของลูกค้าที่กำหนดไม่ได้", "training"),
 
         new(AlertKind.AuditExpiring, "Audit expiring", "ผลตรวจประเมินใกล้หมดอายุ",
             AlertLevel.Information, "นัดตรวจประเมินรอบใหม่", "evaluation"),

@@ -199,6 +199,44 @@ public class TrainingService(ScmosDbContext db)
             TrainingRules.Compliance(valid, total));
     }
 
+    /// <summary>
+    /// The answer the assignment screen acts on.
+    ///
+    /// Refused by default when a mandatory course has lapsed or was never
+    /// taken. The refusal is not the end of it: the team that arranges carriers
+    /// can go ahead anyway, because a substitute driver at six in the morning is
+    /// a real situation and a system that simply says no gets worked around
+    /// outside the system, where nobody can see it. What it cannot be is quiet
+    /// — going ahead takes a reason, and the reason is recorded against the job
+    /// with the name of whoever gave it.
+    /// </summary>
+    public record Gate(
+        bool Allowed, bool Blocked, bool MayOverride, string Message,
+        IReadOnlyList<CourseState> Blocking, IReadOnlyList<CourseState> Warning);
+
+    public async Task<Gate?> GateAsync(int driverId, string customer, AppUser by, CancellationToken token)
+    {
+        var check = await CheckAsync(driverId, customer, token);
+        if (check is null) return null;
+
+        var mayOverride = by.Can(Capability.OverrideTraining);
+
+        if (check.Eligible)
+        {
+            var soon = check.Warning.Count > 0;
+            return new Gate(true, false, mayOverride,
+                soon
+                    ? $"อบรมครบ แต่มี {check.Warning.Count} หลักสูตรใกล้หมดอายุ"
+                    : "อบรมครบตามที่ลูกค้ากำหนด",
+                [], check.Warning);
+        }
+
+        var names = string.Join(", ", check.Blocking.Select(state => state.Name));
+        return new Gate(false, true, mayOverride,
+            $"Training Expired — Driver is not eligible for this customer · ติดที่ {names}",
+            check.Blocking, check.Warning);
+    }
+
     /* -------------------------------------------------------------- writes */
 
     /// <summary>

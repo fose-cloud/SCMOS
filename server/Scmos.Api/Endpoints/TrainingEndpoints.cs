@@ -24,6 +24,7 @@ public static class TrainingEndpoints
         int? DriverId, int? CourseId, string? Customer, string? TrainingDate, string? ExpiryDate,
         string? CertificateNo, string? Provider, string? Remark, long? DocumentId);
     public record VoidBody(string? Reason);
+    public record OverrideBody(int? DriverId, string? Customer, string? JobKey, string? Reason);
 
     public static void MapTraining(this IEndpointRouteBuilder routes)
     {
@@ -143,6 +144,59 @@ public static class TrainingEndpoints
             return result is null
                 ? ApiResults.Error("ไม่พบคนขับรายนี้", StatusCodes.Status404NotFound)
                 : Results.Json(result);
+        });
+
+        /// The gate itself: what the assignment screen shows, and whether this
+        /// person may go past it.
+        group.MapGet("/gate", async (int driverId, string customer, HttpContext context,
+            IUserAccessor users, TrainingService training, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+
+            var gate = await training.GateAsync(driverId, customer ?? "", user, token);
+            return gate is null
+                ? ApiResults.Error("ไม่พบคนขับรายนี้", StatusCodes.Status404NotFound)
+                : Results.Json(gate);
+        });
+
+        /// Going ahead anyway. The record is the whole value of the exception:
+        /// without it an override is indistinguishable from the control never
+        /// having been there.
+        group.MapPost("/override", async ([FromBody] OverrideBody body, HttpContext context,
+            IUserAccessor users, TrainingService training, AuditService audit,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.OverrideTraining))
+                return ApiResults.Error(
+                    "ข้ามข้อกำหนดการอบรมได้เฉพาะทีมที่ดูแลผู้รับเหมา ตั้งแต่ระดับปฏิบัติการขึ้นไป",
+                    StatusCodes.Status403Forbidden);
+
+            var reason = (body.Reason ?? "").Trim();
+            if (reason.Length < 10)
+                return ApiResults.Error("ต้องระบุเหตุผลอย่างน้อย 10 ตัวอักษร — เหตุผลนี้จะถูกบันทึกไว้",
+                    StatusCodes.Status400BadRequest);
+            if (body.DriverId is not { } driverId)
+                return ApiResults.Error("ต้องระบุคนขับ", StatusCodes.Status400BadRequest);
+
+            var gate = await training.GateAsync(driverId, body.Customer ?? "", user, token);
+            if (gate is null) return ApiResults.Error("ไม่พบคนขับรายนี้", StatusCodes.Status404NotFound);
+            if (!gate.Blocked)
+                return ApiResults.Error("คนขับรายนี้ผ่านข้อกำหนดอยู่แล้ว ไม่ต้องข้าม",
+                    StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Update, "training-override",
+                body.JobKey ?? driverId.ToString(),
+                gate.Blocking.Count > 0 ? string.Join(", ", gate.Blocking.Select(b => b.Name)) : "",
+                "training", "blocked", "allowed", reason, token);
+
+            return Results.Json(new
+            {
+                message = "บันทึกการข้ามข้อกำหนดแล้ว — เหตุผลถูกเก็บไว้ในประวัติการใช้งาน",
+                blocking = gate.Blocking.Select(b => b.Name),
+            });
         });
 
         group.MapGet("/history/{driverId:int}", async (int driverId, HttpContext context,

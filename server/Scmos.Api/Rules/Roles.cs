@@ -58,6 +58,21 @@ public enum Capability
 
     /// <summary>Replace the register wholesale, run the cleanup pass.</summary>
     AdministerData = 1 << 13,
+
+    /// <summary>
+    /// Put a driver on a customer's work when their training does not allow it.
+    ///
+    /// The block is the point of the training module, so this is the exception
+    /// to it — and every use is recorded with a reason and a name. Held from
+    /// Operation User upward, which is the team that arranges carriers and the
+    /// only one that can judge whether a substitute driver is acceptable.
+    ///
+    /// Deliberately not held by the <see cref="Roles.Subcontractor"/> role. That
+    /// account belongs to the carrier, and letting a carrier wave their own
+    /// untrained driver onto a customer's site is the one thing this control
+    /// exists to stop.
+    /// </summary>
+    OverrideTraining = 1 << 14,
 }
 
 /// <param name="Name">The role as it is written on an account.</param>
@@ -79,7 +94,8 @@ public static class Roles
     private const Capability Read = Capability.ViewDashboard | Capability.ViewTeam;
 
     private const Capability OperationGrants =
-        Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates;
+        Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
+        | Capability.OverrideTraining;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar

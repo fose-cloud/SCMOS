@@ -166,6 +166,45 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi)
                 $"คิดจาก {measure.Base} งานที่วัดได้", measure.Id, "kpi", AlertLevel.Warning));
         }
 
+        /* ---- driver training ---- */
+        // Counted per certificate, not per driver: one driver with two lapsed
+        // courses is two pieces of work, and the number the team acts on is the
+        // number of certificates to chase.
+        var trainingToday = DateOnly.FromDateTime(DateTime.Now);
+        var certificates = await db.DriverTrainings.AsNoTracking()
+            .Where(record => !record.Voided)
+            .Select(record => new { record.DriverId, record.CourseId, record.ExpiryDate })
+            .ToListAsync(token);
+
+        var activeDrivers = await db.Drivers.AsNoTracking()
+            .Where(driver => driver.Active).Select(driver => driver.Id).ToListAsync(token);
+        var active = activeDrivers.ToHashSet();
+
+        // Only the most recent certificate per driver and course counts. An
+        // older one that has lapsed is history, not a thing to chase.
+        var current = certificates
+            .Where(record => active.Contains(record.DriverId))
+            .GroupBy(record => (record.DriverId, record.CourseId))
+            .Select(group => group
+                .OrderByDescending(record => TrainingRules.ParseDate(record.ExpiryDate) ?? DateOnly.MinValue)
+                .First())
+            .ToList();
+
+        var expiringSoon = current.Count(record =>
+            TrainingRules.DaysLeft(record.ExpiryDate, trainingToday) is int days && days > 0 && days <= 60);
+        var alreadyExpired = current.Count(record =>
+            TrainingRules.DaysLeft(record.ExpiryDate, trainingToday) is int days && days <= 0);
+
+        Add(alerts, AlertKind.DriverTrainingExpiring, expiringSoon,
+            $"{expiringSoon} ใบรับรองจะหมดอายุภายใน 60 วัน",
+            "จัดอบรมต่ออายุก่อนถึงกำหนด มิฉะนั้นคนขับจะรับงานของลูกค้าที่กำหนดไม่ได้",
+            "", "training");
+
+        Add(alerts, AlertKind.DriverTrainingExpired, alreadyExpired,
+            $"{alreadyExpired} ใบรับรองหมดอายุแล้ว",
+            "คนขับที่ถือใบเหล่านี้รับงานของลูกค้าที่กำหนดหลักสูตรนั้นไม่ได้",
+            "", "training");
+
         var raised = alerts.Where(alert => alert.Count > 0 || alert.Level == nameof(AlertLevel.Information)).ToList();
         return new AlertFeed(
             raised.OrderByDescending(alert => alert.Level == nameof(AlertLevel.Critical))
