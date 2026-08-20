@@ -27,9 +27,33 @@ public static class WorkspaceTabs
     public const string Completed = "COMPLETED";
     public const string Calendar = "CALENDAR";
 
+    /// <summary>Cancelled, or moved off the date it was first planned for.</summary>
+    public const string CancelMoved = "CANCEL / MOVED";
+
     /// <summary>In the order the strip draws them.</summary>
     public static readonly string[] All =
-        [MyJobs, Pending, Today, Tomorrow, Delay, DocumentMissing, Completed, Calendar];
+        [MyJobs, Pending, Today, Tomorrow, Delay, CancelMoved, DocumentMissing, Completed, Calendar];
+
+    /// <summary>
+    /// Not happening. One reading of the status, in one place, because the
+    /// question is now asked by four tab rules and the grid's colouring.
+    /// </summary>
+    public static bool IsCancelled(JobView job) =>
+        string.Equals(job.Status.Trim(), JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Moved at least once from the date it was first planned for.
+    ///
+    /// `origDate` is written the first time the plan date changes and never
+    /// again, so this stays true for the rest of the job's life however many
+    /// times it moves afterwards — which is the point. A customer who has moved
+    /// one shipment four times should not fall off this list on the fifth.
+    /// </summary>
+    public static bool WasMoved(JobView job)
+    {
+        var from = job.OrigDate.Trim();
+        return from.Length > 0 && !string.Equals(from, job.Date.Trim(), StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Whether one job belongs on one tab.
@@ -41,17 +65,29 @@ public static class WorkspaceTabs
     public static bool Matches(string tab, JobView job, string opId, DateOnly today) => tab switch
     {
         MyJobs => opId.Length > 0 && string.Equals(job.OwnerId, opId, StringComparison.OrdinalIgnoreCase),
-        Pending => !JobRules.IsDone(job.Status),
-        Today => job.Date == Formats.PlanDate(today),
-        Tomorrow => job.Date == Formats.PlanDate(today.AddDays(1)),
+
+        // A cancelled job is not work waiting to be done, and it used to sit in
+        // PENDING for the rest of its life looking like some — IsDone answers
+        // only for COMPLETED, so nothing ever took it out. It keeps its place in
+        // MY JOBS and CALENDAR, where the questions are what belongs to whom and
+        // what was planned, and leaves the lists that mean "still to do".
+        Pending => !JobRules.IsDone(job.Status) && !IsCancelled(job),
+        Today => job.Date == Formats.PlanDate(today) && !IsCancelled(job),
+        Tomorrow => job.Date == Formats.PlanDate(today.AddDays(1)) && !IsCancelled(job),
 
         // A delay is the status saying so, or a reason somebody wrote down. Not
         // "action required" — that bucket is mostly missing values, and calling
         // those delays would put seventeen hundred jobs behind a word that is
         // supposed to mean something.
-        Delay => JobRules.IsDelayed(job.Status) || job.Reason.Trim().Length > 0,
+        //
+        // A postponement is not a delay either: a delay is a job that missed its
+        // plan, a postponement is a plan that changed before it was missed. Two
+        // different conversations with two different people, so two tabs.
+        Delay => (JobRules.IsDelayed(job.Status) || job.Reason.Trim().Length > 0) && !IsCancelled(job),
 
-        DocumentMissing => IsDocumentMissing(job),
+        CancelMoved => IsCancelled(job) || WasMoved(job),
+
+        DocumentMissing => IsDocumentMissing(job) && !IsCancelled(job),
         Completed => JobRules.IsDone(job.Status),
 
         // The calendar is not a filter over jobs; it is a list of dates. Every
@@ -87,6 +123,8 @@ public static class WorkspaceTabs
     public readonly record struct JobView(
         string Key, string Cat, string OwnerId, string Date, string Status,
         string Reason, string Type, string Container, string Seal, string Customer,
+        /// <summary>Where the job was first planned for, written once when the date moves.</summary>
+        string OrigDate, string MoveReason, string MoveBy, string CancelReason,
         string Trucker, string JobCode,
         /// <summary>The operator's display name, which the assignee picker matches on.</summary>
         string Owner,
@@ -111,7 +149,9 @@ public static class WorkspaceTabs
             return new JobView(
                 key, Text(row, "cat"), Text(row, "opId"), Text(row, "date"),
                 Text(row, "status"), Text(row, "reason"), Text(row, "type"), Text(row, "container"),
-                Text(row, "seal"), Text(row, "customer"), Text(row, "trucker"), Text(row, "jobCode"),
+                Text(row, "seal"), Text(row, "customer"),
+                Text(row, "origDate"), Text(row, "moveReason"), Text(row, "moveBy"), Text(row, "cancelReason"),
+                Text(row, "trucker"), Text(row, "jobCode"),
                 Text(row, "op"), Text(row, "abs"), Text(row, "booking"), Text(row, "licence"),
                 Text(row, "driver"), Text(row, "destination"), Text(row, "sid"),
                 row);

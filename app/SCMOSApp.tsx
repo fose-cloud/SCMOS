@@ -76,7 +76,7 @@ import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toas
 import type { Alert, WsTarget } from "./scmos/alerts";
 import { globalSearch, type SearchHit } from "./scmos/search";
 import { DEFAULT_PREFS, EMPTY_PROFILE, loadPrefs, loadProfile, readAvatar, savePrefs, saveProfile, type Prefs, type Profile } from "./scmos/settings";
-import { AddJobModal, AssignModal, JobDrawer } from "./scmos/overlays/WorkspaceOverlays";
+import { AddJobModal, AssignModal, JobChangeModal, JobDrawer } from "./scmos/overlays/WorkspaceOverlays";
 
 const EMPTY_FILTERS: Filters = { dir: "All", cust: "All", sub: "All", truck: "All", status: "All", month: "All" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
@@ -175,6 +175,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // ---- workspace ---------------------------------------------------------
   const [ws, setWs] = useState(EMPTY_WS);
   const [drawer, setDrawer] = useState<string | null>(null);
+  /** The job whose date is being moved or which is being called off, and which of the two. */
+  const [changing, setChanging] = useState<{ key: string; mode: "move" | "cancel" } | null>(null);
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [addCat, setAddCat] = useState<string | null>(null);
   const [addForm, setAddForm] = useState<Record<string, string>>({});
@@ -1439,6 +1441,51 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     touch();
   }
 
+  /**
+   * The plan changed: the job moved to another day, or it is not happening.
+   *
+   * Both go down the same path as any other edit — normalised, written to the
+   * job's own history, saved through the API that checks who owns it — because
+   * a cancellation that skipped the audit trail would be the one change nobody
+   * could account for.
+   *
+   * `origDate` is written once and never overwritten. It is where the job was
+   * *first* meant to go, not where it was before this hop; the hops themselves
+   * are already in the history. A shipment moved four times should still show
+   * the date it was originally booked for, which is the number the customer
+   * conversation is actually about.
+   */
+  function applyJobChange(job: Job, mode: "move" | "cancel",
+                          change: { date: string; moveBy: string; reason: string }) {
+    if (!ops) return;
+    if (!canEditJob(job)) {
+      setToast("แก้ไม่ได้ — งานนี้เป็นของ " + job.op);
+      return;
+    }
+
+    if (mode === "move") {
+      const from = job.date;
+      if (!job.origDate) job.origDate = from;
+      job.date = change.date;
+      job.moveBy = change.moveBy;
+      job.moveReason = change.reason;
+      pushAct(job, "เลื่อนวันส่งงาน (" + change.moveBy + ")", from, change.date);
+    } else {
+      const before = job.status;
+      job.status = "CANCELLED";
+      job.cancelReason = change.reason;
+      pushAct(job, "ยกเลิกงาน", before, "CANCELLED · " + change.reason);
+    }
+
+    flagJob(job);
+    persist([job], change.reason);
+    setChanging(null);
+    touch();
+    setToast(mode === "move"
+      ? "เลื่อนเป็น " + change.date + " แล้ว · ดูได้ในแท็บ CANCEL / MOVED"
+      : "ยกเลิกงานแล้ว · งานยังอยู่ในระบบ ดูได้ในแท็บ CANCEL / MOVED");
+  }
+
   // ---- add / assign ------------------------------------------------------
   function saveAddJob() {
     if (!ops) return;
@@ -1458,6 +1505,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       container: "", seal: "", tare: "", licence: "", driver: "", contact: "", arrDate: "", arrTime: "",
       closingDate: "", closingTime: "", reason: "", remark: "", ot: "", pickupPlan: "", cs: "",
       incident: "", freightType: "",
+      origDate: "", moveReason: "", moveBy: "", cancelReason: "",
       status: cat === "DELIVERY" ? "Scheduled" : "Waiting Truck",
       hist: [], flags: [], action: true, prio: "MEDIUM", issues: [], fixes: [],
       ...addForm,
@@ -1533,6 +1581,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
 
   const selectedShip = sel !== null ? db.ships.find((x) => x.id === sel) ?? null : null;
   const drawerJob = drawer && ops ? ops.jobs.find((x) => x.key === drawer) ?? null : null;
+  const changingJob = changing && ops ? ops.jobs.find((x) => x.key === changing.key) ?? null : null;
   const assignJob = assignFor && ops ? ops.jobs.find((x) => x.key === assignFor) ?? null : null;
   const delayJob = opsDelay && ops ? ops.jobs.find((x) => x.key === opsDelay) ?? null : null;
   const delayShip = delayFor !== null ? db.ships.find((x) => x.id === delayFor) ?? null : null;
@@ -2009,7 +2058,18 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             }
             setAssignFor(drawerJob.key);
           }}
+          onMove={() => setChanging({ key: drawerJob.key, mode: "move" })}
+          onCancelJob={() => setChanging({ key: drawerJob.key, mode: "cancel" })}
           onDelete={() => { void removeJobs([drawerJob.key]); }}
+        />
+      )}
+
+      {changingJob && changing && (
+        <JobChangeModal
+          job={changingJob}
+          mode={changing.mode}
+          onApply={(change) => applyJobChange(changingJob, changing.mode, change)}
+          onClose={() => setChanging(null)}
         />
       )}
 

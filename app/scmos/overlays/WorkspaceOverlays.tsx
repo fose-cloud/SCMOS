@@ -1,8 +1,8 @@
 "use client";
 
-import type { ChangeEvent, DragEvent } from "react";
+import { useState, type ChangeEvent, type DragEvent } from "react";
 import { badge, css, opTone } from "../theme";
-import type { Job, Masters } from "../ops";
+import { isCancelled, MOVED_BY, wasMoved, type Job, type Masters } from "../ops";
 
 /* ---------------------------------------------------------- job drawer */
 
@@ -14,6 +14,8 @@ export function JobDrawer(p: {
   onEdit: () => void;
   onDuplicate: () => void;
   onReassign: () => void;
+  onMove: () => void;
+  onCancelJob: () => void;
   onDelete: () => void;
 }) {
   const { job: j } = p;
@@ -58,6 +60,30 @@ export function JobDrawer(p: {
       </div>
 
       <div style={css("flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:16px")}>
+        {(isCancelled(j) || wasMoved(j)) && (
+          <div style={css("border:1px solid " + (isCancelled(j) ? "#F3C3BE" : "#F5E3C7") +
+            ";background:" + (isCancelled(j) ? "#FDF6F5" : "#FFFAEF") +
+            ";border-radius:5px;padding:11px 13px;display:flex;flex-direction:column;gap:5px")}>
+            <span style={css("font-size:11.5px;font-weight:600;color:" + (isCancelled(j) ? "#B42318" : "#B45309"))}>
+              {isCancelled(j) ? "งานนี้ถูกยกเลิก" : "งานนี้ถูกเลื่อนวัน"}
+            </span>
+            {isCancelled(j)
+              ? <span style={css("font-size:11.5px;color:#475569")}>{j.cancelReason || "ไม่ได้ระบุเหตุผล"}</span>
+              : (
+                <>
+                  <span style={css("font-size:11.5px;color:#475569")}>
+                    เดิม <b>{j.origDate}</b> → ปัจจุบัน <b>{j.date}</b>
+                    {j.moveBy ? " · ผู้ขอเลื่อน: " + j.moveBy : ""}
+                  </span>
+                  <span style={css("font-size:11.5px;color:#475569")}>{j.moveReason || "ไม่ได้ระบุเหตุผล"}</span>
+                </>
+              )}
+            <span style={css("font-size:10.5px;color:#94A3B8")}>
+              ทุกครั้งที่เลื่อนถูกบันทึกไว้ในประวัติด้านล่าง · วันเดิมคือวันแรกที่วางแผนไว้ ไม่ใช่ครั้งก่อนหน้า
+            </span>
+          </div>
+        )}
+
         {!!j.issues.length && (
           <div style={css("border:1px solid #F3C3BE;background:#FDF6F5;border-radius:5px;padding:11px 13px;display:flex;flex-direction:column;gap:9px")}>
             <div style={css("display:flex;align-items:center;gap:8px")}>
@@ -131,6 +157,18 @@ export function JobDrawer(p: {
         </button>
         <button className="ghost-btn" onClick={p.onDuplicate} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Duplicate</button>
         <button className="ghost-btn" onClick={p.onReassign} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Reassign</button>
+        {p.canEdit && !isCancelled(j) && (
+          <>
+            <button className="ghost-btn" onClick={p.onMove}
+              style={css("height:34px;padding:0 12px;border:1px solid #F5E3C7;background:#FFFAEF;color:#B45309;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+              เลื่อนวัน
+            </button>
+            <button className="ghost-btn" onClick={p.onCancelJob}
+              style={css("height:34px;padding:0 12px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+              ยกเลิกงาน
+            </button>
+          </>
+        )}
         {p.canEdit && (
           <button
             onClick={p.onDelete}
@@ -141,6 +179,114 @@ export function JobDrawer(p: {
         )}
       </div>
     </aside>
+  );
+}
+
+/* ------------------------------------------------ postpone / cancel modal */
+
+/**
+ * Moving a job's date, or calling it off.
+ *
+ * Both ask for a reason and neither proceeds without one. That is not ceremony:
+ * a date that moved with nothing recorded against it is the thing nobody can
+ * explain at the end of the month, and the two questions this whole feature
+ * exists to answer — who keeps moving the dates, and what is actually being
+ * cancelled — cannot be answered out of a blank box.
+ *
+ * Cancelling is a status change, not a delete. The job stays, its history stays,
+ * and it stays countable; it simply stops appearing on the lists that mean
+ * "still to do".
+ */
+export function JobChangeModal(p: {
+  job: Job;
+  mode: "move" | "cancel";
+  onApply: (change: { date: string; moveBy: string; reason: string }) => void;
+  onClose: () => void;
+}) {
+  const moving = p.mode === "move";
+  const [date, setDate] = useState(p.job.date);
+  const [moveBy, setMoveBy] = useState(MOVED_BY[0]);
+  const [reason, setReason] = useState("");
+
+  const dateOk = /^\d{2}\/\d{2}\/\d{4}$/.test(date.trim());
+  const moved = dateOk && date.trim() !== p.job.date.trim();
+  const ready = reason.trim().length >= 3 && (!moving || moved);
+
+  const box = "height:32px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12.5px;padding:0 9px;outline:none;font-family:inherit;width:100%";
+  const label = "font-size:11px;color:#64748B;margin-bottom:4px;display:block";
+  const tone = moving ? "#B45309" : "#B42318";
+
+  return (
+    <div style={css("position:fixed;inset:0;background:rgba(7,26,49,.48);z-index:65;display:flex;align-items:center;justify-content:center;padding:40px")}>
+      <div style={css("background:#fff;border-radius:6px;width:460px;max-width:100%;box-shadow:0 24px 60px rgba(7,26,49,.3);animation:tin .16s ease")}>
+        <div style={css("padding:15px 20px;background:" + tone + ";border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center;gap:10px")}>
+          <div style={css("min-width:0")}>
+            <div style={css("font-size:14px;font-weight:600;color:#fff")}>
+              {moving ? "เลื่อนวันส่งงาน" : "ยกเลิกงาน"}
+            </div>
+            <div style={css("font-size:11px;color:#FFE7CC;word-break:break-word")}>
+              {p.job.customer} · {p.job.jobCode || p.job.abs || p.job.jobNo || p.job.key}
+            </div>
+          </div>
+          <button onClick={p.onClose} aria-label="Close" style={css("width:28px;height:28px;flex:none;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;border-radius:4px;cursor:pointer")}>✕</button>
+        </div>
+
+        <div style={css("padding:16px 20px;display:flex;flex-direction:column;gap:12px")}>
+          {moving && (
+            <>
+              <div>
+                <span style={css(label)}>วันปัจจุบัน</span>
+                <div style={css("font-size:13px;font-family:'IBM Plex Mono',monospace;color:#0A2240;font-weight:600")}>
+                  {p.job.date || "—"}
+                  {p.job.origDate && p.job.origDate !== p.job.date
+                    ? "   (วันแรกที่วางแผน " + p.job.origDate + ")" : ""}
+                </div>
+              </div>
+              <div>
+                <span style={css(label)}>วันใหม่ · วว/ดด/ปปปป</span>
+                <input value={date} onChange={(e) => setDate(e.target.value)} placeholder="24/07/2026"
+                  style={css(box + ";font-family:'IBM Plex Mono',monospace")} />
+                {date.trim().length > 0 && !dateOk && (
+                  <span style={css("font-size:11px;color:#B42318")}>ต้องเป็นรูปแบบ วว/ดด/ปปปป</span>
+                )}
+              </div>
+              <div>
+                <span style={css(label)}>ใครขอเลื่อน</span>
+                <select value={moveBy} onChange={(e) => setMoveBy(e.target.value)} style={css(box)}>
+                  {MOVED_BY.map((who) => <option key={who} value={who}>{who}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
+          <div>
+            <span style={css(label)}>{moving ? "เหตุผลที่เลื่อน" : "เหตุผลที่ยกเลิก"} · จำเป็น</span>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
+              placeholder={moving ? "เช่น ลูกค้าแจ้งเลื่อนโหลดสินค้า" : "เช่น ลูกค้ายกเลิกการจอง"}
+              style={css("width:100%;border:1px solid #D8E0E8;border-radius:4px;padding:8px 9px;font-size:12.5px;outline:none;font-family:inherit;resize:vertical")} />
+          </div>
+
+          <span style={css("font-size:11px;color:#94A3B8;line-height:1.5")}>
+            {moving
+              ? "งานจะย้ายไปวันใหม่ และขึ้นในแท็บ CANCEL / MOVED พร้อมวันเดิม"
+              : "งานจะเปลี่ยนสถานะเป็น CANCELLED และหายจาก PENDING · TODAY · TOMORROW แต่ไม่ถูกลบ"}
+          </span>
+        </div>
+
+        <div style={css("padding:13px 20px;border-top:1px solid #E9EFF5;background:#FBFCFD;display:flex;justify-content:flex-end;gap:9px;border-radius:0 0 6px 6px")}>
+          <button className="ghost-btn" onClick={p.onClose} style={css("height:34px;padding:0 16px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>ปิด</button>
+          <button
+            onClick={() => p.onApply({ date: date.trim(), moveBy, reason: reason.trim() })}
+            disabled={!ready}
+            style={css("height:34px;padding:0 18px;border:1px solid " + (ready ? tone : "#D8E0E8") +
+              ";background:" + (ready ? tone : "#EDF1F5") + ";color:" + (ready ? "#fff" : "#94A3B8") +
+              ";border-radius:4px;font-size:12.5px;font-weight:600;cursor:" + (ready ? "pointer" : "not-allowed"))}
+          >
+            {moving ? "ยืนยันเลื่อนวัน" : "ยืนยันยกเลิก"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -61,6 +61,28 @@ export type Job = {
   incident: string;
   freightType: string;
   status: string;
+
+  /**
+   * A job whose plan date moved, and a job that is not happening.
+   *
+   * Both were possible before and neither was visible. CANCELLED has always been
+   * on the status ladder, so a job could be cancelled and then sat in PENDING
+   * for the rest of its life looking like work. A postponement was an edit to
+   * `date` — the old date survived only in the change history, so "this customer
+   * has moved the same shipment four times" was a thing you could only learn by
+   * opening four jobs and reading.
+   *
+   * `origDate` is written once, the first time the date moves, and never again:
+   * it is where the job was *originally* meant to go, not where it was last
+   * week. Every hop in between is in the history.
+   */
+  origDate: string;
+  /** Why it moved, in the operator's words. */
+  moveReason: string;
+  /** Who asked for it to move — see MOVED_BY. Countable, unlike free text. */
+  moveBy: string;
+  /** Why it is not happening. Separate from moveReason so neither overwrites the other. */
+  cancelReason: string;
   // delivery-only
   wh?: string;
   jobNo?: string;
@@ -109,7 +131,29 @@ const EDITABLE_BLANK = {
   returnLoc: "", emptyReturn: "", container: "", seal: "", tare: "", licence: "",
   driver: "", contact: "", arrDate: "", arrTime: "", closingDate: "", closingTime: "",
   reason: "", ot: "", pickupPlan: "", cs: "", incident: "", freightType: "",
+  origDate: "", moveReason: "", moveBy: "", cancelReason: "",
 };
+
+/**
+ * Who asked for the date to move.
+ *
+ * A fixed list, for the same reason the delay categories are fixed: free text
+ * gives a thousand spellings of "the customer" and nothing anyone can count.
+ * Which side keeps moving the dates is the question this field exists to
+ * answer, and it can only answer it if the answers are comparable.
+ */
+export const MOVED_BY = ["ลูกค้า", "ผู้ขนส่ง", "LESCHACO", "อื่นๆ"];
+
+/** Not happening. The status is the record; this is the one place that reads it. */
+export function isCancelled(j: Pick<Job, "status">): boolean {
+  return (j.status || "").trim().toUpperCase() === "CANCELLED";
+}
+
+/** Moved at least once from the date it was first planned for. */
+export function wasMoved(j: Pick<Job, "origDate" | "date">): boolean {
+  const from = (j.origDate || "").trim();
+  return from.length > 0 && from !== (j.date || "").trim();
+}
 
 function uniqueSorted(values: (string | undefined)[]) {
   return [...new Set(values.filter((v): v is string => !!v && v.trim() !== ""))].sort((a, b) =>
@@ -156,7 +200,10 @@ function flagJob(j: Job) {
     if (j.cat === "EXPORT" && !j.seal) fl.push("Seal missing");
     if (!j.arrTime) fl.push("Arrival time missing");
   }
-  const done = STATUS_RE.done.test(j.status);
+  // Cancelled counts as settled alongside done: chasing a licence plate for a
+  // job that is not happening is noise, and it was the reason the missing-value
+  // flags stopped being worth reading.
+  const done = STATUS_RE.done.test(j.status) || isCancelled(j);
   j.flags = done ? [] : fl;
 
   j.issues = validateJob(j as unknown as Record<string, unknown>);

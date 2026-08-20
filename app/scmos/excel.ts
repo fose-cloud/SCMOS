@@ -105,6 +105,13 @@ const ALL_COLUMNS: Column[] = [
   { header: "Seal", pick: (j) => j.seal },
   { header: "Tare", pick: (j) => j.tare },
   { header: "Remark", pick: (j) => j.remark },
+  // What happened to the plan. Only on the mixed layout, which is the one that
+  // has to carry every field or a round trip drops data; the three operator
+  // layouts stay the shape their own sheets have always been.
+  { header: "Original Date", pick: (j) => j.origDate },
+  { header: "Moved By", pick: (j) => j.moveBy },
+  { header: "Move Reason", pick: (j) => j.moveReason },
+  { header: "Cancel Reason", pick: (j) => j.cancelReason },
 ];
 
 export function columnsFor(layout: string): Column[] {
@@ -401,6 +408,10 @@ const HEADER_ALIASES: Record<string, string[]> = {
   closingDate: ["CLOSING DATE", "CLOSING"],
   closingTime: ["CLOSING TIME"],
   status: ["STATUS", "สถานะ"],
+  origDate: ["ORIGINAL DATE", "ORIG DATE", "PLAN DATE ORIGINAL", "วันเดิม"],
+  moveBy: ["MOVED BY", "REQUESTED BY", "ผู้ขอเลื่อน"],
+  moveReason: ["MOVE REASON", "POSTPONE REASON", "เหตุผลที่เลื่อน"],
+  cancelReason: ["CANCEL REASON", "CANCELLATION REASON", "เหตุผลที่ยกเลิก"],
   reason: ["REASON", "REASON / DELAY", "DELAY", "DELAY REASON", "สาเหตุ",
     // The operators' own spelling, in every import sheet they keep.
     "REASON/DEALEY", "REASON/DELAY"],
@@ -638,6 +649,7 @@ const BLANK_JOB: Omit<Job, "key" | "id" | "cat" | "op"> = {
   returnLoc: "", emptyReturn: "", weight: "", container: "", seal: "", tare: "", licence: "",
   driver: "", contact: "", arrDate: "", arrTime: "", closingDate: "", closingTime: "",
   reason: "", remark: "", ot: "", pickupPlan: "", cs: "", incident: "", freightType: "",
+  origDate: "", moveReason: "", moveBy: "", cancelReason: "",
   status: "", hist: [], flags: [], action: false, prio: "MEDIUM", issues: [], fixes: [],
 };
 

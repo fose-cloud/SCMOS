@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
-import { STATUS_RE, type Job, type Ops } from "../ops";
+import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
 import { JobCards } from "../JobCards";
@@ -98,12 +98,12 @@ const CATEGORIES = ["ALL", "IMPORT", "EXPORT", "DELIVERY"];
 
 const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
-  IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan"], ["CS"], ["Incident Report"], ["Assigned To"]],
-  EXPORT: [["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Incident Report"], ["Assigned To"]],
-  DELIVERY: [["Priority"], ["Own"], ["W/H"], ["Job No."], ["Pickup Date"], ["SID No."], ["Customer"], ["Province"], ["ZIP"], ["Pallet"], ["Weight KG"], ["4W"], ["6W"], ["10W"], ["Trailer"], ["Transport Cost"], ["Status"], ["Remark"], ["Assigned To"]],
+  IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
+  EXPORT: [["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Incident Report"], ["Change"], ["Assigned To"]],
+  DELIVERY: [["Priority"], ["Own"], ["W/H"], ["Job No."], ["Pickup Date"], ["SID No."], ["Customer"], ["Province"], ["ZIP"], ["Pallet"], ["Weight KG"], ["4W"], ["6W"], ["10W"], ["Trailer"], ["Transport Cost"], ["Status"], ["Remark"], ["Change"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
-  ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plant Loading"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan"], ["CS"], ["Incident Report"], ["Assigned To"]],
+  ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plant Loading"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
 };
 
 const KPI_DEFS: [string, string, string, string][] = [
@@ -301,15 +301,24 @@ function documentMissing(job: Job): boolean {
  */
 export const WORKSPACE_TABS: Record<string, (job: Job, opId: string) => boolean> = {
   "MY JOBS": (job, opId) => !!opId && job.opId === opId,
-  PENDING: (job) => !RE.done.test(job.status),
-  TODAY: (job) => job.date === planDate(0),
-  TOMORROW: (job) => job.date === planDate(1),
+  // A cancelled job is not work waiting to be done, and it used to sit in
+  // PENDING for the rest of its life looking like some. It keeps its place in
+  // MY JOBS and CALENDAR, where the question is what belongs to whom and what
+  // was planned, and leaves the three lists that mean "still to do".
+  PENDING: (job) => !RE.done.test(job.status) && !isCancelled(job),
+  TODAY: (job) => job.date === planDate(0) && !isCancelled(job),
+  TOMORROW: (job) => job.date === planDate(1) && !isCancelled(job),
   // A delay is the status saying so, or a reason somebody wrote down. Not
   // "action required" — that bucket is mostly missing values, and calling those
   // delays would put 1,758 jobs behind a word that should mean something.
-  DELAY: (job) => RE.delayed.test(job.status) || !!(job.reason ?? "").trim(),
-  "DOCUMENT MISSING": documentMissing,
+  //
+  // A postponement is not a delay either: a delay is a job that missed its
+  // plan, a postponement is a plan that changed before it was missed. They are
+  // different conversations with different people, so they get different tabs.
+  DELAY: (job) => (RE.delayed.test(job.status) || !!(job.reason ?? "").trim()) && !isCancelled(job),
+  "DOCUMENT MISSING": (job) => documentMissing(job) && !isCancelled(job),
   COMPLETED: (job) => RE.done.test(job.status),
+  "CANCEL / MOVED": (job) => isCancelled(job) || wasMoved(job),
 };
 
 /** Tab labels carry live counts; the header renders them, so this is exported. */
@@ -743,6 +752,27 @@ export function Workspace(p: Props) {
   const setPage = (layout: string, page: number) =>
     setPaging({ sig: filterSignature, pages: { ...pages, [layout]: page } });
 
+  /**
+   * What changed about the plan, in one column.
+   *
+   * Cancelled and postponed share a column because they are the same question —
+   * "is this still happening as booked?" — and because a job is one or the
+   * other far more often than both. The colour does the work at a glance; the
+   * words are there for the person who then has to ring somebody about it.
+   */
+  const changeCell = (j: Job): Cell => {
+    if (isCancelled(j)) {
+      return cell("ยกเลิก" + (j.cancelReason ? " · " + j.cancelReason : ""),
+        { color: "#B42318", w: 190 });
+    }
+    if (wasMoved(j)) {
+      const who = j.moveBy ? " (" + j.moveBy + ")" : "";
+      return cell("เลื่อนจาก " + j.origDate + who + (j.moveReason ? " · " + j.moveReason : ""),
+        { color: "#B45309", w: 190 });
+    }
+    return cell("", { mute: true });
+  };
+
   const rowCells = (j: Job, layout: string): Cell[] => {
     // Which layout the following cells belong to, so `ed` records the column
     // order against the right one.
@@ -775,6 +805,7 @@ export function Workspace(p: Props) {
         ed(j, "reason", { w: 180, color: j.reason ? "#B45309" : null }),
         ed(j, "pickupPlan", { w: 180, mute: true }), ed(j, "cs", { mono: true }),
         ed(j, "incident", { w: 170, color: j.incident ? "#B42318" : null }),
+        changeCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -790,6 +821,7 @@ export function Workspace(p: Props) {
         ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }), stCell(j),
         ed(j, "remark", { w: 180, mute: true }),
         ed(j, "incident", { w: 170, color: j.incident ? "#B42318" : null }),
+        changeCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -807,7 +839,8 @@ export function Workspace(p: Props) {
         ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
         ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtr", { mono: true, align: "right" }),
         cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right", bold: true }),
-        stCell(j), ed(j, "remark", { w: 170, mute: true }), cell(j.op, { bold: mine, mute: !mine }),
+        stCell(j), ed(j, "remark", { w: 170, mute: true }), changeCell(j),
+      cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
     return head.concat([
@@ -824,6 +857,7 @@ export function Workspace(p: Props) {
       ed(j, "reason", { w: 170, color: j.reason ? "#B45309" : null }), ed(j, "remark", { w: 170, mute: true }),
       ed(j, "pickupPlan", { w: 170, mute: true }), ed(j, "cs", { mono: true }),
       ed(j, "incident", { w: 160, color: j.incident ? "#B42318" : null }),
+      changeCell(j),
       cell(j.op, { bold: mine, mute: !mine }),
     ]);
   };
@@ -877,10 +911,24 @@ export function Workspace(p: Props) {
     const rows: TableRow[] = pg.slice.map((j) => ({
       key: j.key,
       go: () => p.onDrawer(j.key),
-      title: mineJ(j) ? "Your job — editable" : "Assigned to: " + j.op + " · View Only",
+      title: isCancelled(j) ? "ยกเลิกแล้ว" + (j.cancelReason ? " — " + j.cancelReason : "")
+        : wasMoved(j) ? "เลื่อนจาก " + j.origDate + (j.moveReason ? " — " + j.moveReason : "")
+          : mineJ(j) ? "Your job — editable" : "Assigned to: " + j.op + " · View Only",
+      // A cancelled row is faded and struck through, a moved one carries an
+      // amber edge. Ownership still wins the tick and the border it already had:
+      // a row you have selected has to look selected whatever else is true of
+      // it, or the bulk actions act on rows you cannot see you picked.
       style: "cursor:pointer;background:" +
-        (picked.has(j.key) ? "#FFF7DE" : mineJ(j) ? "#F4F8FC" : "#fff") +
-        ";border-left:3px solid " + (picked.has(j.key) ? "#D89614" : mineJ(j) ? "#2E7DD1" : "transparent"),
+        (picked.has(j.key) ? "#FFF7DE"
+          : isCancelled(j) ? "#F4F6F8"
+            : wasMoved(j) ? "#FFFCF4"
+              : mineJ(j) ? "#F4F8FC" : "#fff") +
+        ";border-left:3px solid " +
+        (picked.has(j.key) ? "#D89614"
+          : isCancelled(j) ? "#B42318"
+            : wasMoved(j) ? "#D89614"
+              : mineJ(j) ? "#2E7DD1" : "transparent") +
+        (isCancelled(j) ? ";opacity:.62;text-decoration:line-through" : ""),
       cells: [checkCell(j)].concat(rowCells(j, section.layout)),
     }));
 

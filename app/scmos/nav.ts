@@ -142,7 +142,7 @@ export const TAB_DEFS: Record<string, string[]> = {
   // JOBS narrows to the person — the rest show the whole team, because seeing
   // what the team is carrying is the point, and ownership controls editing
   // rather than looking.
-  myjob: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
+  myjob: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "CANCEL / MOVED", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
   // TODAY leads: the first question anyone opening the system has is what is
   // happening now, and it is the one tab whose every figure comes from the API.
   dashboard: ["TODAY", "Executive", "Operational", "Wall Board"],
