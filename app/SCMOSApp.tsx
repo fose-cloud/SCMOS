@@ -92,6 +92,22 @@ const EMPTY_WS = {
 
 const EMPTY_DELAY = { reason: "", party: "", start: "", eta: "", next: "", note: "" };
 
+/**
+ * How long to wait before each further attempt at the first load, in ms.
+ *
+ * Sized against the real thing rather than a guess: a paused database was timed
+ * at 110 seconds to come back, and the attempt that met it head-on sat unanswered
+ * for two minutes before that. So the ladder holds 170 seconds of waiting across
+ * seven attempts, and each attempt's own request time is on top of it — a failed
+ * one during a resume tends to hang rather than refuse, which buys more room
+ * again. Long enough for the worst resume seen; short enough that somebody whose
+ * network is genuinely down is told so rather than left watching.
+ *
+ * Out here rather than in the component so the effect that reads it needs no
+ * dependency on it.
+ */
+const WAKE_DELAYS = [0, 5_000, 10_000, 20_000, 30_000, 45_000, 60_000];
+
 type Props = {
   /** Verified identity from App Service Web App Login; null in local dev. */
   initialUser: Account | null;
@@ -184,7 +200,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const db = useMemo(() => buildDb(), []);
   const [ops, setOps] = useState<Ops | null>(null);
   /** How the plan is getting to the database, reported in the workspace header. */
-  const [sync, setSync] = useState<{ state: "idle" | "saving" | "saved" | "error" | "off"; at: string; message: string }>(
+  const [sync, setSync] = useState<{ state: "idle" | "waking" | "saving" | "saved" | "error" | "off"; at: string; message: string }>(
     { state: "idle", at: "", message: "" },
   );
   // Jobs and shipments are edited in place; bump this to re-render after a mutation.
@@ -255,7 +271,30 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const stored = await loadJobs();
+      // Azure SQL serverless pauses itself after an hour with nobody on it, and
+      // waking takes about two minutes — 110 seconds, measured, during which
+      // requests either hang or come back 503 because the API's one worker is
+      // sitting on them. A single attempt used to settle the question: the app
+      // announced it had no database, fell through to a plan file that is
+      // deliberately not deployed, and showed an empty workspace until somebody
+      // thought to reload. The first person in each morning met that, and an
+      // import keyed into that workspace went nowhere.
+      //
+      // So it asks again, with enough patience for a resume, and says which of
+      // the two is happening. Only the last attempt is allowed to conclude that
+      // there is no database.
+      let stored = await loadJobs();
+      for (let attempt = 1; attempt < WAKE_DELAYS.length; attempt++) {
+        // "file-only" is the API not answering. An empty register answers.
+        if (cancelled || stored.source !== "file-only") break;
+        setSync({
+          state: "waking", at: "",
+          message: `ฐานข้อมูลกำลังเริ่มทำงาน — ครั้งที่ ${attempt}/${WAKE_DELAYS.length - 1} · ${stored.error}`,
+        });
+        await new Promise((resume) => setTimeout(resume, WAKE_DELAYS[attempt]));
+        if (cancelled) return;
+        stored = await loadJobs();
+      }
       if (cancelled) return;
 
       if (stored.jobs?.length) {
