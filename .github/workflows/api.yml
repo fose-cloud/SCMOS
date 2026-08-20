@@ -133,8 +133,14 @@ jobs:
             base="https://${{ vars.API_APP_NAME }}-$SLOT.azurewebsites.net"
           fi
           echo "Checking $base/health"
+          # /health checks the database, and the database pauses itself after an
+          # hour with nobody on it. Waking it was timed at 110 seconds, during
+          # which the API answers nothing at all — a ten-second attempt reads
+          # that as a dead deployment. One patient call to wake it first, so the
+          # loop below is measuring the deployment rather than the resume.
+          curl -s -o /dev/null --max-time 180 "$base/health" || true
           for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$base/health" || true)
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$base/health" || true)
             [ "$code" = "200" ] && { echo "healthy"; exit 0; }
             echo "  attempt $i: $code"
             sleep 10

@@ -96,7 +96,15 @@ jobs:
           for i in $(seq 1 12); do
             # 200 is the app, 302 is Web App Login redirecting an anonymous
             # caller to Entra — both mean the site is up. Anything else is not.
-            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$base" || true)
+            #
+            # The User-Agent is not decoration. Web App Login only redirects
+            # callers it takes for a browser; everything else gets a bare 401,
+            # so this check called a healthy site broken on every run. Measured
+            # against the deployed app: no UA and "curl/8.0" both give 401,
+            # anything beginning "Mozilla/5.0" gives 302. Accept headers make no
+            # difference either way.
+            agent="Mozilla/5.0 (compatible; SCMOS-smoke/1.0)"
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 -H "User-Agent: $agent" "$base" || true)
             case "$code" in
               200|302) echo "up ($code)"; exit 0 ;;
             esac

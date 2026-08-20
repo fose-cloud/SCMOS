@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { badge, css } from "./theme";
 import { HEADINGS, NAV, SUB_NAV, type Screen } from "./nav";
 import type { SearchGroup, SearchHit } from "./search";
@@ -79,7 +79,17 @@ export function Chrome(p: Props) {
   const [drawer, setDrawer] = useState(false);
   // Navigating covers the thing the user just asked to see, so the drawer
   // closes behind them.
-  useEffect(() => { setDrawer(false); }, [p.screen]);
+  //
+  // Adjusted while rendering rather than in an effect. React finishes this pass
+  // and re-runs with the new value before it paints, so the drawer is never on
+  // screen over the page it was covering; an effect would close it one frame
+  // late, which on a phone is a visible flick of the old menu over the new
+  // screen.
+  const [drawerOver, setDrawerOver] = useState(p.screen);
+  if (drawerOver !== p.screen) {
+    setDrawerOver(p.screen);
+    setDrawer(false);
+  }
 
   /**
    * Which branches the user has folded open or shut.
@@ -268,8 +278,12 @@ export function Chrome(p: Props) {
             already knows, and the only one available when the menu covers the
             button that opened it. */}
         {drawer && (
-          <div className="rail-scrim" onClick={() => setDrawer(false)}
-            style={css("display:none;position:fixed;inset:0;background:rgba(4,16,30,.45);z-index:44")} />
+          // A button rather than a div: it is a control, and made of one it
+          // answers Escape and the keyboard as well as the tap, which a div
+          // with an onClick never did.
+          <button type="button" className="rail-scrim" aria-label="ปิดเมนู"
+            onClick={() => setDrawer(false)}
+            style={css("display:none;position:fixed;inset:0;border:0;padding:0;background:rgba(4,16,30,.45);z-index:44;cursor:pointer")} />
         )}
 
         <nav className={"app-rail" + (drawer ? " is-open" : "")}

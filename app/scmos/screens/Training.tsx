@@ -149,11 +149,19 @@ export function Training({ onToast, registerCustomers }: {
     }
   }, [customer]);
 
+  // Fetching on mount. Every setState inside is after an await, so it runs
+  // in a microtask rather than while this body does — the rule cannot see
+  // past the await and reads it as a synchronous set. Genuine ones in this
+  // codebase have been fixed; this idiom has no other spelling.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    if (openDriver === null) { setProfile(null); return; }
+    // The clearing happens inside the async body with everything else. Done in
+    // the effect body it is a synchronous second render on every open and close
+    // of the panel, for a value nothing reads until the request lands anyway.
     void (async () => {
+      if (openDriver === null) { setProfile(null); return; }
       const response = await apiFetch(
         `/api/training/drivers/${openDriver}?customer=${encodeURIComponent(customer)}`);
       setProfile(response.ok

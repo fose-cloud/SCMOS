@@ -49,6 +49,11 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     setRefused(body.error || `เปิดหน้างานไม่ได้ (${response.status})`);
   }, []);
 
+  // Fetching on mount. Every setState inside is after an await, so it runs
+  // in a microtask rather than while this body does — the rule cannot see
+  // past the await and reads it as a synchronous set. Genuine ones in this
+  // codebase have been fixed; this idiom has no other spelling.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
   async function answer(job: CarrierJob, path: "accept" | "decline", body: unknown) {

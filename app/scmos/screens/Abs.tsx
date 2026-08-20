@@ -28,8 +28,10 @@ const ENDPOINT = "/api/abs/status";
 export function Abs() {
   const [probe, setProbe] = useState<Probe>({ state: "checking", detail: "" });
 
+  // No "checking" set in here: that is the state this screen already opens in,
+  // and setting it again on mount is a second render before the first has been
+  // painted. The retry button below arms it, because there it is a real change.
   const check = useCallback(async () => {
-    setProbe({ state: "checking", detail: "" });
     try {
       const response = await apiFetch(ENDPOINT, { headers: { accept: "application/json" } });
       if (response.status === 404) {
@@ -50,6 +52,11 @@ export function Abs() {
     }
   }, []);
 
+  // Fetching on mount. Every setState inside is after an await, so it runs
+  // in a microtask rather than while this body does — the rule cannot see
+  // past the await and reads it as a synchronous set. Genuine ones in this
+  // codebase have been fixed; this idiom has no other spelling.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void check(); }, [check]);
 
   const tone = probe.state === "ready" ? "ok" : probe.state === "error" || probe.state === "denied" ? "warn" : "idle";
@@ -74,7 +81,10 @@ export function Abs() {
             : probe.state === "denied" ? "เรียก API ไม่ผ่านสิทธิ์"
             : "เรียก API ไม่สำเร็จ"
         }
-        action={probe.state === "checking" ? undefined : { label: "ตรวจอีกครั้ง", onClick: () => void check() }}
+        action={probe.state === "checking" ? undefined : {
+          label: "ตรวจอีกครั้ง",
+          onClick: () => { setProbe({ state: "checking", detail: "" }); void check(); },
+        }}
       >
         {probe.detail || "…"}
         <div style={css("margin-top:9px;font-size:11.5px;color:#7B8CA0")}>
