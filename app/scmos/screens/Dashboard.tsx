@@ -34,6 +34,8 @@ type Props = {
   period: Period;
   onPeriod: (period: Period) => void;
   loaded: boolean;
+  /** What to say while there is nothing to draw — see loadingNote in SCMOSApp. */
+  note?: string;
   tab: string;
   onDrill: (patch: Drill) => void;
 };
@@ -259,7 +261,7 @@ const DEMO_BADGE = (
 
 /* ------------------------------------------------------------- dashboard */
 
-export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, loaded, tab, onDrill }: Props) {
+export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, loaded, note, tab, onDrill }: Props) {
   const s = opsStats(jobs);
   const total = s.jobs.length;
   const pct = (n: number) => (total ? Math.round((n / total) * 100) + "%" : "—");
@@ -267,7 +269,7 @@ export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, l
   if (!loaded) {
     return (
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
-        Loading operation data…
+        {note ?? "Loading operation data…"}
       </div>
     );
   }

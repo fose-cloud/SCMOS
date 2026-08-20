@@ -255,6 +255,21 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     saveTimer.current = setTimeout(() => { void flush(); }, 700);
   }, [flush]);
 
+  /**
+   * What the empty screen says while there is no register to draw.
+   *
+   * "Loading operation data…" is true of a request in flight and a lie about a
+   * database that is taking two minutes to start or one that never answered.
+   * The sync badge that says which of the three it is only renders once the
+   * register has arrived, so during the wait it is not on screen — which is
+   * exactly when somebody wants to know.
+   */
+  const loadingNote = sync.state === "waking"
+    ? "กำลังปลุกฐานข้อมูล… ครั้งแรกของวันใช้เวลาราวสองนาที ไม่ต้องรีเฟรช"
+    : sync.state === "off"
+      ? `เปิดข้อมูลไม่ได้ — ${sync.message || "ต่อฐานข้อมูลไม่ได้"} · รีเฟรชหน้าเพื่อลองใหม่`
+      : "Loading operation data…";
+
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setToast = useCallback((message: string) => {
     setToastValue(message);
@@ -1734,6 +1749,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 period={period}
                 onPeriod={setPeriod}
                 loaded={!!ops}
+                note={loadingNote}
                 tab={activeTab}
                 // Every figure on the dashboard is a way into the workspace:
                 // clicking one lands on the same jobs it counted.
@@ -1776,8 +1792,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onBulkDelete={(keys) => { void removeJobs(keys); }}
                   onView={(v) => { workspaceView.current = v; }}
                 />
-              : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
-                  Loading operation data…
+              : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:" +
+                  (sync.state === "off" ? "#B42318" : "#94A3B8"))}>
+                  {loadingNote}
                 </div>)}
 
             {screen === "kpi" && (
