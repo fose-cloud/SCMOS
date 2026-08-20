@@ -68,7 +68,13 @@ const EXPORT_COLUMNS: Column[] = [
   { header: "Licence", pick: (j) => j.licence },
   { header: "Driver", pick: (j) => j.driver },
   { header: "Driver Contact", pick: (j) => j.contact },
-  { header: "Arrival", pick: (j) => j.arrTime },
+  // "Arrival" used to be this layout's only arrival column and it carried the
+  // time, so an export sheet written here and read back came in with a time and
+  // no date — which the standard then flagged on every row, because it judges
+  // arrDate on an export job exactly as it does on an import one. The
+  // operators' own export sheets have carried both columns all along.
+  { header: "Arr. Date", pick: (j) => j.arrDate },
+  { header: "Arr. Time", pick: (j) => j.arrTime },
   { header: "Status", pick: (j) => j.status },
   { header: "Remark", pick: (j) => j.remark },
 ];
@@ -77,6 +83,13 @@ const DELIVERY_COLUMNS: Column[] = [
   { header: "W/H", pick: (j) => j.wh ?? "" },
   { header: "Job No.", pick: (j) => j.jobNo ?? "" },
   { header: "Pickup Date", pick: (j) => j.date },
+  // Same rule as the other two layouts: a category exports every date and time
+  // the standard is willing to judge it on, or a round trip quietly drops the
+  // value and the check fires against a blank the file never got the chance to
+  // fill.
+  { header: "Plan Time", pick: (j) => j.planTime },
+  { header: "Arr. Date", pick: (j) => j.arrDate },
+  { header: "Arr. Time", pick: (j) => j.arrTime },
   { header: "SID No.", pick: (j) => j.sid ?? "" },
   { header: "Customer", pick: (j) => j.customer },
   { header: "Province", pick: (j) => j.province ?? "" },

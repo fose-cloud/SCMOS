@@ -26,8 +26,24 @@ public static partial class Formats
     [GeneratedRegex(@"^[A-Z]{4}\d{7}$")]
     private static partial Regex ContainerPattern();
 
-    [GeneratedRegex(@"^(-|—|–|n/a|none|null|ไม่มี)$", RegexOptions.IgnoreCase)]
+    /// <summary>
+    /// The operators' several ways of writing "there isn't one". Kept identical
+    /// to BLANK_VALUE in app/scmos/standard.ts: this list had drifted from it —
+    /// the browser blanked "--" and "na" and this did not, this blanked an en
+    /// dash and "null" and the browser did not — so the same cell could be empty
+    /// on screen and malformed in the register.
+    /// </summary>
+    [GeneratedRegex(@"^(-+|—|–|n/?a|none|null|ไม่มี)$", RegexOptions.IgnoreCase)]
     private static partial Regex BlankPattern();
+
+    /// <summary>
+    /// Zero-width and non-breaking characters pasted in from Excel and LINE.
+    /// One real driver number ends in U+200B, which silently fails every match.
+    /// The browser has stripped these since the standard was written; this did
+    /// not, so that number was accepted there and flagged here.
+    /// </summary>
+    [GeneratedRegex(@"[\u200B-\u200D\uFEFF\u00A0]")]
+    private static partial Regex InvisiblePattern();
 
     [GeneratedRegex(@"^\d+(\.\d+)?$")]
     private static partial Regex NumberPattern();
@@ -62,7 +78,7 @@ public static partial class Formats
     /// </summary>
     public static string Clean(string? value)
     {
-        var text = (value ?? "").Trim();
+        var text = InvisiblePattern().Replace(value ?? "", "").Trim();
         return BlankPattern().IsMatch(text) ? "" : text;
     }
 

@@ -69,6 +69,18 @@ export function clean(value: unknown): string {
 }
 
 /**
+ * The operators' several ways of writing "there isn't one".
+ *
+ * Treating these as data is how a blank column becomes a false KPI. The same
+ * list exists in Formats.Clean on the API, and the two had drifted: the browser
+ * blanked "--" and "na" while the API did not, and the API blanked an en dash
+ * and "null" while the browser did not. A value one side calls empty and the
+ * other calls malformed is a job that is fine on screen and flagged in the
+ * register, or the reverse. Change one, change the other.
+ */
+export const BLANK_VALUE = /^(-+|—|–|n\/?a|none|null|ไม่มี)$/i;
+
+/**
  * "70-4466 สุโขทัย" · "74-6705.ส.ป" · "700-4761กทม" -> the plate alone.
  * Matches the whole Thai block, not just ก-ฮ: province names carry vowels and
  * tone marks (สุโขทัย) that sit outside the consonant range.
@@ -231,8 +243,7 @@ export function normaliseJob(job: Record<string, unknown>): Fix[] {
     if (value !== raw) job[rule.field] = value;
     if (!value) continue;
 
-    // The operators' several ways of writing "there isn't one".
-    if (/^(-+|—|n\/?a|none|ไม่มี)$/i.test(value)) {
+    if (BLANK_VALUE.test(value)) {
       job[rule.field] = "";
       continue;
     }
