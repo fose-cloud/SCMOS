@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
+import { RateInquiry } from "./RateInquiry";
 
 /**
  * What this journey costs, by carrier.
@@ -31,6 +32,15 @@ export function Quotation({ diesel, onDiesel, onToast }: {
   const [vehicle, setVehicle] = useState("20F");
   const [quotes, setQuotes] = useState<Quote[] | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Two halves of the same job, on one screen.
+   *
+   * Raising an inquiry is asking a carrier what a journey will cost; the
+   * comparison below is reading back what they have already agreed. The screen
+   * opens on the question, because that is the one somebody arrives here to do
+   * — the rate book answers itself.
+   */
+  const [view, setView] = useState<"inquiry" | "compare">("inquiry");
 
   async function ask() {
     if (busy) return;
@@ -56,6 +66,28 @@ export function Quotation({ diesel, onDiesel, onToast }: {
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
+      <div style={css("display:flex;gap:7px;flex-wrap:wrap")}>
+        {([
+          ["inquiry", "ขอราคาใหม่", "Rate Inquiry"],
+          ["compare", "เทียบราคาที่มีอยู่", "Rate Comparison"],
+        ] as ["inquiry" | "compare", string, string][]).map(([key, th, en]) => {
+          const on = view === key;
+          return (
+            <button key={key} onClick={() => setView(key)}
+              style={css("height:34px;padding:0 15px;border:1px solid " + (on ? "#0A2240" : "#E2E8F0") +
+                ";background:" + (on ? "#0A2240" : "#fff") + ";color:" + (on ? "#fff" : "#64748B") +
+                ";border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit;font-weight:" +
+                (on ? "600" : "400"))}>
+              {th} <span style={css("opacity:.7;font-size:11px")}>· {en}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {view === "inquiry" && <RateInquiry onToast={onToast} />}
+
+      {view === "compare" && (
+        <>
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
         <div style={css("display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end")}>
           <Field label="ลูกค้า" width="220px">
@@ -128,6 +160,8 @@ export function Quotation({ diesel, onDiesel, onToast }: {
             </div>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

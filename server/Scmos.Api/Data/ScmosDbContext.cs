@@ -46,6 +46,11 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
 
     public DbSet<FuelBand> FuelBands => Set<FuelBand>();
     public DbSet<RateLane> RateLanes => Set<RateLane>();
+
+    /// <summary>The request side of the rate book: what was asked, and of whom.</summary>
+    public DbSet<RateInquiry> RateInquiries => Set<RateInquiry>();
+    public DbSet<RateInquiryLane> RateInquiryLanes => Set<RateInquiryLane>();
+    public DbSet<RateInquiryPrice> RateInquiryPrices => Set<RateInquiryPrice>();
     public DbSet<RatePrice> RatePrices => Set<RatePrice>();
     public DbSet<RateSurcharge> RateSurcharges => Set<RateSurcharge>();
 
@@ -275,6 +280,57 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             // The question asked on every write: who is this person covering for.
             entry.HasIndex(e => e.DelegateId).HasDatabaseName("delegation_delegate_idx");
             entry.HasIndex(e => e.OwnerId).HasDatabaseName("delegation_owner_idx");
+        });
+
+        model.Entity<RateInquiry>(entry =>
+        {
+            entry.ToTable("rate_inquiries");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Number).HasColumnName("number");
+            entry.Property(e => e.InquiredOn).HasColumnName("inquired_on").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Requestor).HasColumnName("requestor").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.RequestorId).HasColumnName("requestor_id").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.FuelBand).HasColumnName("fuel_band").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.Status).HasColumnName("status").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            // "What did we ask for this customer" and "what have I raised" are
+            // the two questions the screen opens with.
+            entry.HasIndex(e => e.Customer).HasDatabaseName("rate_inquiry_customer_idx");
+            entry.HasIndex(e => new { e.RequestorId, e.Id }).HasDatabaseName("rate_inquiry_requestor_idx");
+        });
+
+        model.Entity<RateInquiryLane>(entry =>
+        {
+            entry.ToTable("rate_inquiry_lanes");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.InquiryId).HasColumnName("inquiry_id");
+            entry.Property(e => e.FromPlace).HasColumnName("from_place").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.ToPlace).HasColumnName("to_place").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.County).HasColumnName("county").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.Carriers).HasColumnName("carriers").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.Fcl).HasColumnName("fcl").HasDefaultValue(false);
+            entry.Property(e => e.Lcl).HasColumnName("lcl").HasDefaultValue(false);
+            entry.Property(e => e.Remark).HasColumnName("remark").HasMaxLength(600).HasDefaultValue("");
+            entry.HasIndex(e => e.InquiryId).HasDatabaseName("rate_inquiry_lane_inquiry_idx");
+        });
+
+        model.Entity<RateInquiryPrice>(entry =>
+        {
+            entry.ToTable("rate_inquiry_prices");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.LaneId).HasColumnName("lane_id");
+            entry.Property(e => e.Vehicle).HasColumnName("vehicle").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Price).HasColumnName("price");
+            // One price per vehicle per lane: a second figure for the same box is
+            // a correction, and a correction that leaves the old number behind
+            // makes the lane unreadable.
+            entry.HasIndex(e => new { e.LaneId, e.Vehicle }).IsUnique()
+                .HasDatabaseName("rate_inquiry_price_lane_vehicle_idx");
         });
 
         model.Entity<Driver>(entry =>

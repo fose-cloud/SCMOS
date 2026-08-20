@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Scmos.Api.Data;
 
@@ -11,9 +12,11 @@ using Scmos.Api.Data;
 namespace Scmos.Api.Data.Migrations
 {
     [DbContext(typeof(ScmosDbContext))]
-    partial class ScmosDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260820082152_RateInquiry")]
+    partial class RateInquiry
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
