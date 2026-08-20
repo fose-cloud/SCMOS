@@ -1,6 +1,6 @@
 import { dupKey } from "./excel";
 import { flagJob, type Job } from "./ops";
-import { clean, normaliseDate, normaliseJob } from "./standard";
+import { clean, legacyStatus, normaliseDate, normaliseJob } from "./standard";
 import { STATUS_LADDER } from "./theme";
 
 /**
@@ -41,34 +41,13 @@ function asDayFirst(value: string): string | null {
   return String(day).padStart(2, "0") + "/" + String(month).padStart(2, "0") + "/" + year;
 }
 
-/**
- * Free-text statuses seen in the July upload, mapped onto the ladder they mean.
- * The wording is kept on the job as a remark, so the operator's own note is not
- * lost and a wrong mapping can be spotted and corrected.
+/*
+ * The status table that used to live here mapped Thai onto the *old* English
+ * status words and then checked the result against the *new* code ladder, so
+ * every lookup missed and the pass had been silently mapping nothing. Reading
+ * free-text status now belongs to `legacyStatus` in the data standard, which
+ * the import uses too — one table, one answer, on both paths in.
  */
-const STATUS_MAP: [RegExp, string, string?][] = [
-  [/^ได้รับงาน/, "Truck Confirmed"],
-  [/^รอรถ|รถอัพเดท|รออัพเดท/, "Waiting Truck"],
-  [/^กำลังรอรับตู้|^รอรับตู้/, "Truck Confirmed"],
-  [/ได้ตู้แล้ว|กำลังเดินทาง|ออกจากท่า/, "In Transit"],
-  [/^ถึงโรงงาน|^ถึงลูกค้า/, "Arrived Customer", "Arrived Plant"],
-  [/^รอการ์ด|^รอเอกสาร|^รอข้อมูล/, "Waiting Information"],
-  [/^ส่งมอบเสร็จ|^ส่งเสร็จ/, "Delivery Completed"],
-  [/^เสร็จ|^ปิดงาน/, "Completed"],
-  [/^ยกเลิก/, "Cancelled"],
-  [/^ล่าช้า|^ดีเลย์/, "Delayed"],
-];
-
-function mapStatus(status: string, cat: string): string | null {
-  const ladder = STATUS_LADDER[cat] ?? STATUS_LADDER.IMPORT;
-  if (ladder.indexOf(status) >= 0) return null;
-  for (const [test, importValue, exportValue] of STATUS_MAP) {
-    if (!test.test(status)) continue;
-    const target = cat === "EXPORT" && exportValue ? exportValue : importValue;
-    return ladder.indexOf(target) >= 0 ? target : null;
-  }
-  return null;
-}
 
 /** Plan-time cells carrying the pickup note rather than a loading time. */
 const PICKUP_TEXT = /รับตู้|น\.\s*$|\d{1,2}\.\d{2}\.\d{2}/;
@@ -157,7 +136,7 @@ export function cleanupJobs(jobs: Job[]): { report: CleanupReport; changed: Job[
 
     // ---- free-text status ----------------------------------------------
     const status = clean(job.status);
-    const mapped = status ? mapStatus(status, job.cat) : null;
+    const mapped = legacyStatus(status, job.cat);
     if (mapped) {
       job.status = mapped;
       job.remark = [clean(job.remark), "สถานะเดิม: " + status].filter(Boolean).join(" · ");

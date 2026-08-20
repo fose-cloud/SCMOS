@@ -200,10 +200,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   /** Why the pending batch is being written, when the change needed explaining. */
   const pendingReason = useRef("");
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
     const batch = [...dirty.current.values()];
     dirty.current.clear();
-    if (!batch.length) return;
+    if (!batch.length) return { ok: true, message: "" };
     const reason = pendingReason.current;
     pendingReason.current = "";
     setSync((prev) => (prev.state === "off" ? prev : { state: "saving", at: prev.at, message: "" }));
@@ -211,7 +211,21 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     setSync((prev) => (prev.state === "off" ? prev
       : result.ok ? { state: "saved", at: nowHM(), message: "" }
         : { state: "error", at: prev.at, message: result.message }));
+    return result;
   }, []);
+
+  /**
+   * Writes everything pending now, and waits for it.
+   *
+   * The debounce is right for typing down a column and wrong for anything that
+   * then goes and asks the server what it holds. The workspace grid is drawn
+   * from the API's answer, so a caller that changes the view has to know the
+   * write is already in the register.
+   */
+  const flushNow = useCallback(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    return flush();
+  }, [flush]);
 
   /**
    * Every edit lands in the database. Writes are batched over a short window so
@@ -1300,7 +1314,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * written field by field onto the job already on the board (with the change
    * history to match), and everything else comes in as a new job.
    */
-  function confirmImport() {
+  async function confirmImport() {
     if (!ops || !importPreview?.jobs.length) return;
     const { jobs: parsed, dups, fileName } = importPreview;
     const matched = new Map(dups.map((dup) => [dup.key, dup]));
@@ -1342,6 +1356,23 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     persist(fresh.concat(dups.filter((d) => dupChoice[d.key] === "overwrite").map((d) => d.existing)));
     const errors = fresh.filter((j) => j.issues.some((i) => i.severity === "error")).length;
     closeImport();
+
+    // The write, waited for, before anything asks the server a question.
+    //
+    // Everything below this line — the tab, the cleared filters, `touch` —
+    // makes the workspace refetch, and the workspace draws what the API
+    // returns rather than what is in this array. They used to run while the
+    // save was still 700ms away from being sent, so the refetch fetched the
+    // register without the import in it and nothing ever looked again: the
+    // toast said 284 jobs had arrived and the grid under it showed none of
+    // them until the operator reloaded the page.
+    setToast("กำลังบันทึกงานที่นำเข้า…");
+    const written = await flushNow();
+    if (!written.ok) {
+      setToast("นำเข้าไม่สำเร็จ — บันทึกลงฐานข้อมูลไม่ได้: " + written.message);
+      return;
+    }
+
     setTab("PENDING");
     setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL" }));
     setPage(1);

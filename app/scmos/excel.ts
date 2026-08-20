@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { opIdForName } from "./nav";
 import { opsStats, STATUS_RE, type Job } from "./ops";
 import type { RateBook } from "./rates";
-import { normaliseJob, validateJob, clean, type Fix, type Issue } from "./standard";
+import { DEFAULT_STATUS, legacyStatus, normaliseJob, validateJob, clean, type Fix, type Issue } from "./standard";
 import { STATUS_LADDER, STATUS_TH } from "./theme";
 import { dowOf, pad } from "./util";
 
@@ -377,6 +377,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   booking: ["BOOKING", "BOOKING NO", "BOOKING NO."],
   product: ["PRODUCT", "PRODUCT / DG", "DG", "PRODUCT/DG"],
   fclLcl: ["FCL/LCL", "FCL / LCL", "FCLLCL"],
+  agent: ["AGENT", "SHIPPING AGENT"],
   destination: ["DESTINATION", "DELIVERY", "DELIVERY LOCATION", "ปลายทาง"],
   plant: ["PLANT", "PLANT LOADING", "LOADING PLANT"],
   planTime: ["PLAN TIME", "PLANLOADING TIME", "PLAN LOADING TIME", "TIME LOAD", "เวลา"],
@@ -386,7 +387,11 @@ const HEADER_ALIASES: Record<string, string[]> = {
   emptyReturn: ["EMPTY RETURN", "RETURN EMPTY"],
   weight: ["WEIGHT", "TOTAL WEIGHT", "WEIGHT KG", "KGS", "GW", "น้ำหนัก"],
   container: ["CONTAINER", "CONTAINER NO", "CONTAINER NO.", "NO CONTAINER", "CONT NO"],
-  seal: ["SEAL", "SEAL NO", "SEAL NO."],
+  // "NO SEAL" reads as an absence and is not one — it is how the export
+  // sheets head the seal column, exactly as they head the container column
+  // "NO CONTAINER". Without it every export job imported with no seal and
+  // then raised a "Seal missing" flag against itself.
+  seal: ["SEAL", "SEAL NO", "SEAL NO.", "NO SEAL"],
   tare: ["TARE", "TARE WEIGHT"],
   licence: ["LICENCE", "LICENSE", "PLATE", "TRUCK PLATE", "ทะเบียน", "ทะเบียนรถ"],
   driver: ["DRIVER", "DRIVER NAME", "คนขับ", "พนักงานขับรถ"],
@@ -396,9 +401,13 @@ const HEADER_ALIASES: Record<string, string[]> = {
   closingDate: ["CLOSING DATE", "CLOSING"],
   closingTime: ["CLOSING TIME"],
   status: ["STATUS", "สถานะ"],
-  reason: ["REASON", "REASON / DELAY", "DELAY", "DELAY REASON", "สาเหตุ"],
-  remark: ["REMARK", "REMARKS", "NOTE", "หมายเหตุ"],
-  ot: ["OT", "OVERTIME"],
+  reason: ["REASON", "REASON / DELAY", "DELAY", "DELAY REASON", "สาเหตุ",
+    // The operators' own spelling, in every import sheet they keep.
+    "REASON/DEALEY", "REASON/DELAY"],
+  remark: ["REMARK", "REMARKS", "NOTE", "หมายเหตุ", "REMARKS 1", "REMARK 1"],
+  ot: ["OT", "OVERTIME", "TIME/OT", "OT/TIME"],
+  freightType: ["FREIGHT TYPE", "FREIGHT"],
+  incident: ["INCIDENT REPORT", "INCIDENT"],
   cs: ["CS"],
   pickupPlan: ["PICKUP PLAN", "PICK UP PLAN"],
   op: ["OWNER", "ASSIGNED TO", "OPERATOR", "ผู้รับผิดชอบ"],
@@ -416,10 +425,25 @@ const HEADER_ALIASES: Record<string, string[]> = {
   cost: ["COST", "TRANSPORT COST", "ค่าขนส่ง"],
 };
 
+/**
+ * One spelling of a column heading, used both to build the alias table and to
+ * look a header up in it.
+ *
+ * Both sides have to strip the same things or an alias can never match, and
+ * they did not: the lookup dropped a trailing dot while the table kept it, so
+ * "ABS.NO." — the heading on every export sheet the operators keep — could
+ * never be found, and every export job came in with no ABS number. That also
+ * quietly broke duplicate matching, which falls back to customer and time when
+ * a job has no number of its own.
+ */
+function normaliseHeader(header: unknown): string {
+  return String(header ?? "").toUpperCase().replace(/\s+/g, " ").trim().replace(/[:.]+$/, "");
+}
+
 const NORMALISED_ALIASES = new Map<string, string>();
 for (const [field, names] of Object.entries(HEADER_ALIASES)) {
   for (const name of names) {
-    const key = name.toUpperCase().replace(/\s+/g, " ").trim();
+    const key = normaliseHeader(name);
     // Earlier fields win, so "JOB NO" maps to jobCode rather than jobNo unless
     // it is the only claimant.
     if (!NORMALISED_ALIASES.has(key)) NORMALISED_ALIASES.set(key, field);
@@ -430,23 +454,68 @@ for (const [field, names] of Object.entries(HEADER_ALIASES)) {
 const DERIVED_HEADERS = new Set(["PRIORITY", "DATA ISSUES"]);
 
 function headerToField(header: string): string | null {
-  const key = String(header ?? "").toUpperCase().replace(/\s+/g, " ").trim().replace(/[:.]+$/, "");
-  return NORMALISED_ALIASES.get(key) ?? null;
+  return NORMALISED_ALIASES.get(normaliseHeader(header)) ?? null;
 }
 
 function isDerivedHeader(header: string): boolean {
-  return DERIVED_HEADERS.has(String(header ?? "").toUpperCase().replace(/\s+/g, " ").trim());
+  return DERIVED_HEADERS.has(normaliseHeader(header));
 }
 
 const CATEGORIES = new Set(["IMPORT", "EXPORT", "DELIVERY"]);
 
-/** Excel stores dates and times as numbers; render them in the house format. */
-function cellToText(value: unknown, field: string): string {
+/**
+ * An Excel serial number as its calendar parts, in UTC arithmetic.
+ *
+ * `XLSX.SSF.parse_date_code` used to be called here and would have thrown the
+ * moment it was reached: the package ships SSF in its CommonJS build and not in
+ * the ESM one, which is the build the browser is given, so `XLSX.SSF` is
+ * undefined there. It was never reached only because the workbook was being
+ * read as formatted text, which is the thing this file no longer does.
+ *
+ * Day zero is 30 December 1899 — the offset that makes Excel's 1900 leap-year
+ * bug come out right for every date since — and everything is read back in UTC
+ * so no local timezone can move a plan date by a day.
+ */
+function fromSerial(serial: number): { d: number; m: number; y: number; H: number; M: number } | null {
+  if (!Number.isFinite(serial) || serial <= 0 || serial > 2958466) return null;
+  const days = Math.floor(serial);
+  // To the nearest minute. 08:00 is stored as 0.333333…, which is 07:59:59.99
+  // if the remainder is simply truncated.
+  const minutes = Math.round((serial - days) * 1440);
+  const at = new Date(Date.UTC(1899, 11, 30) + days * 86_400_000 + minutes * 60_000);
+  return {
+    d: at.getUTCDate(), m: at.getUTCMonth() + 1, y: at.getUTCFullYear(),
+    H: at.getUTCHours(), M: at.getUTCMinutes(),
+  };
+}
+
+/**
+ * Excel stores dates and times as numbers; render them in the house format.
+ *
+ * `raw` is the same cell unformatted, and for a date or a time column it is the
+ * only trustworthy reading. The formatted text is whatever the column happens
+ * to be *displaying*: the operators' export sheets are formatted `d/m/yy`, so
+ * 1 July 2026 arrives as "1/7/26", which reads equally well as 7 January. The
+ * data standard is right to refuse to guess at that — but it never should have
+ * been asked, because the workbook knew the answer all along.
+ */
+function cellToText(value: unknown, field: string, raw?: unknown): string {
+  // Only for dates and times, and only when the raw cell really is a value
+  // rather than text somebody typed. Everywhere else the formatted reading is
+  // the better one — it keeps a leading zero the number itself has lost.
+  if (/date|time/i.test(field) && (typeof raw === "number" || raw instanceof Date)) value = raw;
+
   if (value === null || value === undefined) return "";
   if (value instanceof Date) {
-    return field.toLowerCase().includes("time")
-      ? `${pad(value.getHours())}:${pad(value.getMinutes())}`
-      : `${pad(value.getDate())}/${pad(value.getMonth() + 1)}/${value.getFullYear()}`;
+    if (!/time/i.test(field)) {
+      return `${pad(value.getDate())}/${pad(value.getMonth() + 1)}/${value.getFullYear()}`;
+    }
+    // An Excel time becomes a Date on an 1899 epoch, and in 1899 Bangkok ran on
+    // local mean time — 6h42m04s off UTC. 08:00 comes back as 07:59:56, so the
+    // minute has to be rounded rather than truncated.
+    const seconds = value.getHours() * 3600 + value.getMinutes() * 60 + value.getSeconds();
+    const minutes = Math.round(seconds / 60);
+    return `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
   }
   if (typeof value === "number") {
     // Serial times are the fractional part of a day.
@@ -454,7 +523,7 @@ function cellToText(value: unknown, field: string): string {
       const minutes = Math.round(value * 24 * 60);
       return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
     }
-    const parsed = XLSX.SSF.parse_date_code(value);
+    const parsed = fromSerial(value);
     if (parsed && /date/i.test(field)) return `${pad(parsed.d)}/${pad(parsed.m)}/${parsed.y}`;
     if (parsed && /time/i.test(field)) return `${pad(parsed.H)}:${pad(parsed.M)}`;
     return String(value);
@@ -587,7 +656,10 @@ export async function parseWorkbook(
   defaultOwner: string,
   existing: Job[] = [],
 ): Promise<ImportPreview> {
-  const book = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  // No `cellDates`: a date left as its serial number converts through
+  // `fromSerial` below, which is exact. Turned into a Date first it goes
+  // through the local timezone, which is where 08:00 became 07:59.
+  const book = XLSX.read(await file.arrayBuffer(), { type: "array" });
 
   const jobs: Job[] = [];
   const allFixes: Fix[] = [];
@@ -599,9 +671,13 @@ export async function parseWorkbook(
 
   for (const sheetName of book.SheetNames) {
     const cat = /export/i.test(sheetName) ? "EXPORT" : /deliver/i.test(sheetName) ? "DELIVERY" : "IMPORT";
-    const matrix = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], {
-      header: 1, raw: false, defval: null, blankrows: false,
-    });
+    const shape = { header: 1, defval: null, blankrows: false } as const;
+    const matrix = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], { ...shape, raw: false });
+    // The same cells as the workbook stores them, for the date and time columns.
+    // Consulted only while the two readings line up row for row; if they ever
+    // did not, the formatted one stands alone rather than pairing rows wrongly.
+    const unformatted = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], { ...shape, raw: true });
+    const raws = unformatted.length === matrix.length ? unformatted : [];
     if (!matrix.length) continue;
 
     // The header is the first row carrying several recognisable column names.
@@ -624,6 +700,7 @@ export async function parseWorkbook(
 
     for (let r = headerRow + 1; r < matrix.length; r++) {
       const cells = matrix[r] || [];
+      const rawCells = raws[r] || [];
       if (cells.filter((c) => clean(c) !== "").length < 2) continue;
 
       const job = { ...BLANK_JOB, key: "", id: "", cat, op: defaultOwner } as Job;
@@ -632,7 +709,7 @@ export async function parseWorkbook(
 
       fields.forEach((field, idx) => {
         if (!field) return;
-        const text = cellToText(cells[idx], field);
+        const text = cellToText(cells[idx], field, rawCells[idx]);
         if (!text) return;
         record[field] = text;
         rowFields.add(field);
@@ -654,7 +731,14 @@ export async function parseWorkbook(
       job.key = key;
       job.id = key;
       job.hist = [];
-      if (!job.status) job.status = cat === "DELIVERY" ? "Scheduled" : "Waiting Truck";
+      // The status the file carries, read onto the ladder; a row that carries
+      // none starts where an unworked plan row actually is — waiting on a
+      // carrier. The old default was the words "Waiting Truck", which is not a
+      // code on any ladder, so every row this importer has ever produced landed
+      // carrying a status the app itself marked invalid.
+      const onLadder = legacyStatus(job.status, job.cat);
+      if (onLadder) job.status = onLadder;
+      if (!job.status) job.status = DEFAULT_STATUS;
       if (!job.op) job.op = defaultOwner;
       // The workbook names an operator; ownership is decided on the id behind it.
       job.opId = opIdForName(job.op);

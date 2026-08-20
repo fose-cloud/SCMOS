@@ -280,6 +280,99 @@ export function statusesFor(cat: string): string[] {
   return STATUS_LADDER[cat] || STATUS_LADDER.IMPORT;
 }
 
+/**
+ * The free-text status the plan files carry, as the ladder code it means.
+ *
+ * Two vocabularies reach us. The operators type Thai — "รอรถ", "ส่งมอบเสร็จ" —
+ * and the older English exports carry phrases like "Waiting Truck" that were
+ * the status set before it became a controlled one. Both are read here, in one
+ * place, because this used to be answered twice: the import invented its own
+ * default and cleanup.ts kept a table that mapped Thai onto the *old* English
+ * words and then checked them against the *new* code ladder, so it matched
+ * nothing at all and had been quietly doing nothing.
+ *
+ * Anything unrecognised returns null and the original text stays on the job,
+ * flagged. Guessing would turn "Delay due to Traffic" into a stage nobody
+ * chose; leaving it visible puts it in front of the person who knows.
+ *
+ * Mirrors JobStatus.FromLegacy on the server — the API stores what it is sent,
+ * so the two have to agree. Change one, change the other.
+ */
+const THAI_STATUS: [RegExp, string, string?][] = [
+  [/^ได้รับงาน/, "truck confirmed"],
+  [/^รอรถ|รถอัพเดท|รออัพเดท/, "waiting truck"],
+  [/^กำลังรอรับตู้|^รอรับตู้/, "truck confirmed"],
+  [/ได้ตู้แล้ว|กำลังเดินทาง|ออกจากท่า/, "in transit"],
+  [/^ถึงโรงงาน|^ถึงลูกค้า/, "arrived customer", "arrived plant"],
+  [/^รอการ์ด|^รอเอกสาร|^รอข้อมูล/, "waiting information"],
+  [/^ส่งมอบเสร็จ|^ส่งเสร็จ/, "delivery completed"],
+  [/^เสร็จ|^ปิดงาน/, "completed"],
+  [/^ยกเลิก/, "cancelled"],
+  [/^ล่าช้า|^ดีเลย์/, "delayed"],
+];
+
+const LEGACY_STATUS: Record<string, string> = {
+  "new": "RECEIVED",
+  "waiting information": "WAITING_CS",
+  "waiting truck": "WAITING_SUPPLIER",
+  "scheduled": "WAITING_SUPPLIER",
+  "truck confirmed": "SUPPLIER_CONFIRMED",
+  "truck assigned": "TRUCK_ASSIGNED",
+  "driver assigned": "TRUCK_ASSIGNED",
+  "empty pickup": "PICKED_UP",
+  "container pickup": "PICKED_UP",
+  "pickup": "PICKED_UP",
+  "arrived plant": "PICKED_UP",
+  "loading": "LOADING",
+  "loading completed": "LOADING",
+  "departed port": "IN_TRANSIT",
+  "departed plant": "IN_TRANSIT",
+  "in transit": "IN_TRANSIT",
+  "arrived customer": "DELIVERED",
+  "delivery started": "DELIVERED",
+  "port return": "DELIVERED",
+  "empty return pending": "DELIVERED",
+  "delivered": "DELIVERED",
+  "empty returned": "CONTAINER_RETURNED",
+  "gate-in completed": "CONTAINER_RETURNED",
+  "delivery completed": "COMPLETED",
+  "completed": "COMPLETED",
+  "cancelled": "CANCELLED",
+  // A delay says a job stopped but not where it stopped, so it becomes a hold,
+  // which is what it actually is. The stage still needs a person.
+  "delayed": "HOLD",
+};
+
+/**
+ * The status a job should carry, or null to leave what it has alone.
+ *
+ * Null means two different things and both are correct: the value is already a
+ * ladder code, or it is text nobody here can safely read.
+ */
+export function legacyStatus(value: unknown, cat: string): string | null {
+  const text = clean(value);
+  if (!text) return null;
+
+  const ladder = statusesFor(cat);
+  if (ladder.indexOf(text) >= 0) return null;
+
+  let phrase = text.toLowerCase();
+  for (const [test, importPhrase, exportPhrase] of THAI_STATUS) {
+    if (!test.test(text)) continue;
+    phrase = cat === "EXPORT" && exportPhrase ? exportPhrase : importPhrase;
+    break;
+  }
+
+  const code = LEGACY_STATUS[phrase];
+  // A code off the wrong ladder is not an answer — LOADING is a real step for
+  // an export and meaningless for an import, and writing it anyway would put a
+  // job on a rung its own category does not have.
+  return code && ladder.indexOf(code) >= 0 ? code : null;
+}
+
+/** What a row imported with no status of its own starts as: waiting on a carrier. */
+export const DEFAULT_STATUS = "WAITING_SUPPLIER";
+
 export function validateJob(job: Record<string, unknown>): Issue[] {
   const issues: Issue[] = [];
   const cat = String(job.cat ?? "IMPORT");
