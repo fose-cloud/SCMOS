@@ -1,27 +1,21 @@
-name: API
+﻿name: API
 
 on:
   push:
-    branches: [main]
+    branches: [azure-dotnet-migration]
     paths:
       - "server/**"
       - ".github/workflows/api.yml"
+
   pull_request:
     paths:
       - "server/**"
       - ".github/workflows/api.yml"
-  # Any branch, to a slot. This is how a change is tried before it is merged —
-  # the push trigger above only ever fires on main, so without this the only way
-  # to see the code running on Azure was to release it.
+
   workflow_dispatch:
     inputs:
-      slot:
-        description: "Deployment slot (staging, or production to release)"
-        type: choice
-        options: [staging, production]
-        default: staging
       migrate:
-        description: "Apply EF migrations to that slot's database"
+        description: "Apply EF migrations to the production database"
         type: boolean
         default: true
 
@@ -32,23 +26,25 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - run: dotnet restore ${{ env.PROJECT }}
+      - name: Restore
+        run: dotnet restore ${{ env.PROJECT }}
 
-      # Warnings are errors here and nowhere else: the API is small enough that
-      # a warning means something, and nobody reads a build log that is noisy.
-      - run: dotnet build ${{ env.PROJECT }} --configuration Release --no-restore -warnaserror
+      - name: Build
+        run: dotnet build ${{ env.PROJECT }} --configuration Release --no-restore -warnaserror
 
-      - run: dotnet publish ${{ env.PROJECT }} --configuration Release --no-build --output publish
+      - name: Publish
+        run: dotnet publish ${{ env.PROJECT }} --configuration Release --no-build --output publish
 
-      # The migration bundle travels with the build, so the deploy job applies
-      # exactly the schema this code was compiled against and needs no SDK.
       - name: Build migration bundle
         run: |
           dotnet tool install --global dotnet-ef
@@ -58,92 +54,82 @@ jobs:
             --self-contained -r linux-x64 \
             --output publish/migrate
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload API artifact
+        uses: actions/upload-artifact@v4
         with:
           name: api
           path: publish
 
   deploy:
     needs: build
-    if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/azure-dotnet-migration'
+      )
+
     runs-on: ubuntu-latest
-    # A push to main releases; a manual run defaults to staging and says so.
-    environment: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
+
+    environment: production
+
     permissions:
       id-token: write
       contents: read
-    env:
-      SLOT: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
+
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download API artifact
+        uses: actions/download-artifact@v4
         with:
           name: api
           path: publish
 
-      - uses: azure/login@v2
+      - name: Azure Login
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Which database this slot's migrations go to.
-      #
-      # Staging gets its own connection string and nothing else. If it is not
-      # set the deploy fails rather than falling back to production — a staging
-      # deploy that quietly applies unreleased schema to the live database is
-      # the worst thing this workflow could do, and a fallback is exactly how
-      # that happens.
-      #
-      # Both secrets arrive as step environment variables rather than through a
-      # step output: an output is written to a file on the runner and carried
-      # between steps, and a connection string has no business making that trip.
-      - name: Apply migrations
+      - name: Apply database migrations
         if: github.event_name == 'push' || inputs.migrate
         env:
-          PRODUCTION_CONNECTION: ${{ secrets.SCMOS_SQL_CONNECTION }}
-          STAGING_CONNECTION: ${{ secrets.SCMOS_SQL_CONNECTION_STAGING }}
+          CONNECTION_STRING: ${{ secrets.SCMOS_SQL_CONNECTION }}
         run: |
-          if [ "$SLOT" = "production" ]; then
-            connection="$PRODUCTION_CONNECTION"
-          else
-            connection="$STAGING_CONNECTION"
-          fi
-
-          if [ -z "$connection" ]; then
-            echo "::error::No connection string for slot '$SLOT'."
-            echo "Set SCMOS_SQL_CONNECTION_STAGING to a database this slot may change."
-            echo "Refusing to fall back to the production connection."
+          if [ -z "$CONNECTION_STRING" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
             exit 1
           fi
 
           chmod +x publish/migrate
-          ./publish/migrate --connection "$connection"
+          ./publish/migrate --connection "$CONNECTION_STRING"
 
-      - uses: azure/webapps-deploy@v3
+      - name: Deploy API to Azure App Service
+        uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ vars.API_APP_NAME }}
-          slot-name: ${{ env.SLOT }}
           package: publish
 
       - name: Smoke test
         run: |
-          if [ "$SLOT" = "production" ]; then
-            base="https://${{ vars.API_APP_NAME }}.azurewebsites.net"
-          else
-            base="https://${{ vars.API_APP_NAME }}-$SLOT.azurewebsites.net"
-          fi
+          base="https://${{ vars.API_APP_NAME }}.azurewebsites.net"
+
           echo "Checking $base/health"
-          # /health checks the database, and the database pauses itself after an
-          # hour with nobody on it. Waking it was timed at 110 seconds, during
-          # which the API answers nothing at all — a ten-second attempt reads
-          # that as a dead deployment. One patient call to wake it first, so the
-          # loop below is measuring the deployment rather than the resume.
+
           curl -s -o /dev/null --max-time 180 "$base/health" || true
+
           for i in $(seq 1 12); do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$base/health" || true)
-            [ "$code" = "200" ] && { echo "healthy"; exit 0; }
-            echo "  attempt $i: $code"
+
+            if [ "$code" = "200" ]; then
+              echo "API healthy"
+              exit 0
+            fi
+
+            echo "Attempt $i: HTTP $code"
             sleep 10
           done
-          echo "::error::$base/health never returned 200 — the slot is up but unhealthy."
+
+          echo "::error::$base/health never returned HTTP 200."
           exit 1
