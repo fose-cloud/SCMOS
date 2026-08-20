@@ -32,6 +32,7 @@ import { Incidents } from "./scmos/screens/Incidents";
 import { Assistant } from "./scmos/screens/Assistant";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
+import { Postpone } from "./scmos/screens/Postpone";
 import { Today } from "./scmos/screens/Today";
 import { CapacityBoard } from "./scmos/screens/CapacityBoard";
 import { Documents } from "./scmos/screens/Documents";
@@ -1926,6 +1927,15 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
             {screen === "quotation" && <Quotation diesel={diesel} onDiesel={setDiesel} onToast={setToast} />}
+
+            {screen === "postpone" && (
+              <Postpone
+                me={{ opId: me.opId, name: me.name }}
+                // The same drawer the workspace opens, so a job looked at here
+                // is edited the way it is edited anywhere else.
+                onOpenJob={(key) => setDrawer(key)}
+              />
+            )}
 
             {NOT_BUILT[screen] && <NotBuilt detail={NOT_BUILT[screen]} />}
 

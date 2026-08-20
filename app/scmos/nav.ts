@@ -3,7 +3,7 @@ export type Screen =
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
-  | "loreal" | "carrier" | "myjob" | "training"
+  | "loreal" | "carrier" | "myjob" | "training" | "postpone"
   | "partners" | "commercial" | "quality";
 
 /**
@@ -71,6 +71,10 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
   // three screens nobody can reach.
   workspace: [
     ["myjob", "My Job", "งานของฉัน", [[2, 2, 12, 4], [2, 8, 5, 6], [9, 8, 5, 2], [9, 12, 5, 2]]],
+    // Next to My Job because it is the same jobs, and separate from it because
+    // it is the opposite question: every tab on My Job means "still to do", and
+    // this means "not happening as booked".
+    ["postpone", "Postpone / Cancel", "เลื่อน / ยกเลิก", [[2, 3, 5, 10], [9, 3, 5, 4], [9, 9, 5, 4], [2, 2, 12, 1]]],
     ["booking", "Booking", "จองรถบรรทุก", [[2, 3, 10, 7], [12, 6, 2, 4], [3, 12, 3, 2], [10, 12, 3, 2]]],
     ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
     ["prerun", "Pre-Run", "ตรวจก่อนออกงาน", [[2, 3, 12, 2], [2, 7, 8, 2], [2, 11, 5, 2], [11, 9, 3, 5]]],
@@ -109,6 +113,7 @@ export const ALL_NAV: [Screen, string, string, number[][]][] = [
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน", "Executive = ภาพรวมทั้งแผน · Operational = สิ่งที่ต้องทำวันนี้ · Wall Board = จอแสดงผลหน้างาน — ทุกตัวเลขคิดจากงานจริงใน Operation Workspace คลิกตัวเลขเพื่อเปิดงานชุดนั้นใน Workspace และกด Export Excel เพื่อดึงออกเป็นไฟล์"],
   myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
+  postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก", "งานที่แผนเปลี่ยนไปจากที่จองไว้ — เลื่อนวันโหลด/ส่ง หรือยกเลิก · เปิดจาก My Job แล้วกดปุ่ม “เลื่อนวัน” หรือ “ยกเลิกงาน” · งานที่ยกเลิกไม่ถูกลบ ยังค้นและนับได้"],
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
   subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง", "Approved carrier register with fleet, insurance, licence and safety validity."],
@@ -142,7 +147,7 @@ export const TAB_DEFS: Record<string, string[]> = {
   // JOBS narrows to the person — the rest show the whole team, because seeing
   // what the team is carrying is the point, and ownership controls editing
   // rather than looking.
-  myjob: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "CANCEL / MOVED", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
+  myjob: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
   // TODAY leads: the first question anyone opening the system has is what is
   // happening now, and it is the one tab whose every figure comes from the API.
   dashboard: ["TODAY", "Executive", "Operational", "Wall Board"],
