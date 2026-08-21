@@ -251,7 +251,7 @@ export function ImportModal(p: {
               {p.saving ? "กำลังบันทึกลงฐานข้อมูล…" : p.busy ? "กำลังอ่านไฟล์…" : "วางไฟล์ .xlsx ที่นี่ หรือคลิกเพื่อเลือก"}
             </span>
             <span style={css("font-size:11px;color:#64748B;line-height:1.45")}>
-              อ่านทุกชีตในไฟล์ · ชีตที่ชื่อมี EXPORT จะถูกจัดเป็นงานส่งออก ที่เหลือเป็นงานนำเข้า
+              อ่านทุกชีตในไฟล์ · รู้จัก IMPORT / EXPORT / DELIVERY ทั้งชื่อย่อ ภาษาไทย และรูปแบบคอลัมน์
             </span>
             <input type="file" accept=".xlsx,.xls" disabled={p.busy || p.saving} onChange={p.onFile} style={{ display: "none" }} />
           </label>
@@ -281,8 +281,15 @@ export function ImportModal(p: {
 
               <div style={css("font-size:11.5px;color:#475569;line-height:1.6")}>
                 <b>ไฟล์:</b> {p.preview.fileName}<br />
+                <b>ประเภทงาน:</b> Import {p.preview.categoryCounts.IMPORT} · Export {p.preview.categoryCounts.EXPORT} · Delivery {p.preview.categoryCounts.DELIVERY}<br />
                 <b>คอลัมน์ที่จับคู่ได้ {p.preview.mappedHeaders.length}:</b> {p.preview.mappedHeaders.slice(0, 14).join(", ") || "—"}
               </div>
+
+              {p.preview.categoryCounts.EXPORT === 0 && p.preview.jobs.some((job) => !!job.abs || !!job.booking || !!job.closingDate) && (
+                <div style={css("border:1px solid #F3C3BE;background:#FDF6F5;border-radius:5px;padding:10px 12px;font-size:11.5px;color:#B42318")}>
+                  พบคอลัมน์ที่ใช้กับงานส่งออก แต่ยังจัดเป็น Export ไม่ได้ — กรุณาตรวจคอลัมน์ Category หรือชื่อชีตก่อนนำเข้า
+                </div>
+              )}
 
               {!!p.preview.unmappedHeaders.length && (
                 <div style={css("border:1px solid #F5E3C7;background:#FFFAEF;border-radius:5px;padding:10px 12px")}>

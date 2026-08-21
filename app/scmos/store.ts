@@ -137,6 +137,10 @@ export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ 
       const body = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(body.error || "HTTP " + response.status);
     }
+    const body = await response.json().catch(() => ({})) as { saved?: number };
+    const expected = new Set(jobs.map((job) => job.key).filter(Boolean)).size;
+    if (typeof body.saved !== "number") throw new Error("API ไม่ได้ยืนยันจำนวนงานที่บันทึก");
+    if (body.saved !== expected) throw new Error(`ฐานข้อมูลบันทึกได้ ${body.saved} จาก ${expected} งาน`);
     return { ok: true, message: "" };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
