@@ -66,7 +66,7 @@ import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
 import { BillingAging, Reports } from "./scmos/screens/Panels";
 import { Booking } from "./scmos/screens/Booking";
-import { Workspace, workspaceTabCounts, type WsState } from "./scmos/screens/Workspace";
+import { Workspace, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
 
 import { Abs } from "./scmos/screens/Abs";
 import { Loreal } from "./scmos/screens/Loreal";
@@ -108,6 +108,23 @@ const EMPTY_DELAY = { reason: "", party: "", start: "", eta: "", next: "", note:
  * dependency on it.
  */
 const WAKE_DELAYS = [0, 5_000, 10_000, 20_000, 30_000, 45_000, 60_000];
+
+/** Screens whose tools genuinely need the whole register in the browser. */
+const REGISTER_SCREENS = new Set<Screen>([
+  "myjob", "monitoring", "booking", "training", "loreal", "prerun", "postpone",
+]);
+
+function selectedTab(screen: Screen, tab: string): string {
+  const tabs = TAB_DEFS[screen] ?? [];
+  return tab && tabs.includes(tab) ? tab : tabs[0] ?? "";
+}
+
+function screenNeedsRegister(screen: Screen, tab: string): boolean {
+  // TODAY has its own compact API answer. The other dashboard tabs calculate
+  // charts over arbitrary periods and therefore still need the full register.
+  if (screen === "dashboard") return selectedTab(screen, tab) !== "TODAY";
+  return REGISTER_SCREENS.has(screen);
+}
 
 type Props = {
   /** Verified identity from App Service Web App Login; null in local dev. */
@@ -281,13 +298,31 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   }, []);
 
   /**
-   * The plan comes from the register once it holds anything. An empty one is seeded
-   * from `public/data/ops.json` so the July plan is keyed exactly once; if the
-   * database cannot be reached at all the app still opens on the file, and says
-   * so, rather than showing an empty workspace.
+   * Loads the complete register only when the current feature needs it.
+   *
+   * TODAY, supplier, document and administration screens have compact endpoints
+   * of their own. Downloading 2.6 MB of jobs before those screens could render
+   * made every visit pay for data it might never use. Workspace still starts its
+   * page request immediately; this background read fills its summary panels,
+   * export, duplicate detection and editing tools.
    */
+  const registerNeeded = screenNeedsRegister(screen, tab)
+    || gq.trim().length > 0
+    || importOpen;
+  const registerLoadStarted = useRef(false);
+  const appMounted = useRef(true);
   useEffect(() => {
-    let cancelled = false;
+    // React Strict Mode mounts, cleans up and mounts effects again in
+    // development. Resetting here keeps the second setup alive while the final
+    // cleanup still prevents an async load writing after a real unmount.
+    appMounted.current = true;
+    return () => { appMounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!registerNeeded || registerLoadStarted.current) return;
+    registerLoadStarted.current = true;
+
     (async () => {
       // Azure SQL serverless pauses itself after an hour with nobody on it, and
       // waking takes about two minutes — 110 seconds, measured, during which
@@ -304,16 +339,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       let stored = await loadJobs();
       for (let attempt = 1; attempt < WAKE_DELAYS.length; attempt++) {
         // "file-only" is the API not answering. An empty register answers.
-        if (cancelled || stored.source !== "file-only") break;
+        if (!appMounted.current || stored.source !== "file-only") break;
         setSync({
           state: "waking", at: "",
           message: `ฐานข้อมูลกำลังเริ่มทำงาน — ครั้งที่ ${attempt}/${WAKE_DELAYS.length - 1} · ${stored.error}`,
         });
         await new Promise((resume) => setTimeout(resume, WAKE_DELAYS[attempt]));
-        if (cancelled) return;
+        if (!appMounted.current) return;
         stored = await loadJobs();
       }
-      if (cancelled) return;
+      if (!appMounted.current) return;
 
       if (stored.jobs?.length) {
         setOps(prep({ jobs: stored.jobs }));
@@ -325,13 +360,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       try {
         raw = await loadPlanFile();
       } catch {
-        if (!cancelled) {
+        if (appMounted.current) {
           setOps({ jobs: [], masters: { customers: [], truckers: [], operators: ["Watsana", "Uthai", "Ananya", "Jiratchaya", "Maliwan"], cyYards: [], warehouses: [], provinces: [] } });
           setSync({ state: "off", at: "", message: "อ่านไฟล์แผนไม่สำเร็จ" });
         }
         return;
       }
-      if (cancelled) return;
+      if (!appMounted.current) return;
 
       const prepared = prep(raw);
       setOps(prepared);
@@ -343,13 +378,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       // First run against an empty register: hand it the delivered plan.
       setSync({ state: "saving", at: "", message: "" });
       const seeded = await saveJobs(prepared.jobs, meRef.current);
-      if (cancelled) return;
+      if (!appMounted.current) return;
       setSync(seeded.ok
         ? { state: "saved", at: nowHM(), message: "seeded" }
         : { state: "error", at: "", message: seeded.message });
     })();
-    return () => { cancelled = true; };
-  }, []);
+  }, [registerNeeded]);
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
@@ -590,6 +624,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     [gq, ops, db, revision],
   );
 
+  // The header feed is secondary to the page the person came to see. On TODAY,
+  // wait for that compact response before asking the API to calculate every
+  // notification rule; on register-backed screens, wait for the register read.
+  // This prevents several full-register calculations competing during startup.
+  const [primaryContentSettled, setPrimaryContentSettled] = useState(false);
+  const showingToday = screen === "dashboard" && selectedTab(screen, tab) === "TODAY";
+  const notificationsReady = identityState === "ready"
+    && (showingToday ? primaryContentSettled : registerNeeded ? ops !== null : true);
+  const settlePrimaryContent = useCallback(() => setPrimaryContentSettled(true), []);
+
   /**
    * Alerts come from the API now.
    *
@@ -600,31 +644,37 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const [alerts, setAlerts] = useState<Alert[]>([]);
   useEffect(() => {
+    if (!notificationsReady) return;
     let cancelled = false;
     (async () => {
-      const response = await apiFetch("/api/notifications", { headers: { accept: "application/json" } });
-      if (!response.ok || cancelled) return;
-      const feed = await response.json() as {
-        alerts: { kind: string; level: string; english: string; thai: string; action: string;
-                  screen: string; title: string; detail: string; targetId: string; count: number }[];
-      };
-      if (cancelled) return;
-      setAlerts(feed.alerts.map((alert) => ({
-        id: alert.kind,
-        level: alert.level as Alert["level"],
-        title: alert.title,
-        th: alert.thai,
-        body: alert.detail ? `${alert.detail} · ${alert.action}` : alert.action,
-        count: alert.count,
-        // Every alert names the screen that answers it; the workspace ones also
-        // land on the job the count is about.
-        target: { tab: "PENDING", screen: alert.screen, jobKey: alert.targetId },
-      })));
+      try {
+        const response = await apiFetch("/api/notifications", { headers: { accept: "application/json" } });
+        if (!response.ok || cancelled) return;
+        const feed = await response.json() as {
+          alerts: { kind: string; level: string; english: string; thai: string; action: string;
+                    screen: string; title: string; detail: string; targetId: string; count: number }[];
+        };
+        if (cancelled) return;
+        setAlerts(feed.alerts.map((alert) => ({
+          id: alert.kind,
+          level: alert.level as Alert["level"],
+          title: alert.title,
+          th: alert.thai,
+          body: alert.detail ? `${alert.detail} · ${alert.action}` : alert.action,
+          count: alert.count,
+          // Every alert names the screen that answers it; the workspace ones also
+          // land on the job the count is about.
+          target: { tab: "PENDING", screen: alert.screen, jobKey: alert.targetId },
+        })));
+      } catch {
+        // A missing notification badge must not turn into an unhandled rejection
+        // or block the primary screen. The next register change retries it.
+      }
     })();
-    // The feed is a view of the register, so it is re-read whenever the register
-    // changes underneath it.
+    // The feed is re-read after a local edit. Loading the register itself does
+    // not change it, so `ops` is deliberately not a dependency.
     return () => { cancelled = true; };
-  }, [revision, ops]);
+  }, [revision, notificationsReady]);
 
   const criticalAlerts = alerts.filter((a) => a.level === "Critical").length;
 
@@ -852,7 +902,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [sectionPages, setSectionPages] = useState<Record<string, number>>({});
 
   const [serverPages, setServerPages] =
-    useState<Record<string, { jobs: Job[]; total: number; pageCount: number }> | undefined>(undefined);
+    useState<Record<string, WorkspaceServerPage> | undefined>(undefined);
 
   useEffect(() => {
     if (!isWorkspace) return;
@@ -875,7 +925,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       // not be.
       if (answers.some((answer) => answer === null)) { setServerPages(undefined); return; }
 
-      const next: Record<string, { jobs: Job[]; total: number; pageCount: number }> = {};
+      const next: Record<string, WorkspaceServerPage> = {};
       wanted.forEach((cat, index) => {
         const answer = answers[index]!;
         // Through `prep`, because the grid draws fields it derives — the
@@ -885,6 +935,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           jobs: prep({ jobs: answer.jobs }).jobs,
           total: answer.total,
           pageCount: answer.pageCount,
+          counts: answer.counts,
+          dates: answer.dates,
         };
       });
       setServerPages(next);
@@ -903,11 +955,37 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   }, [activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
       ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q, prefs.perPage]);
 
+  const workspacePageOps = useMemo(() => {
+    if (!serverPages) return null;
+    const jobs = Object.values(serverPages).flatMap((answer) => answer.jobs);
+    // Page rows already came through `prep`; the second pass only rebuilds the
+    // small master lists Workspace expects while the full register is pending.
+    // An answered empty page is still ready state, not another loading state.
+    return prep({ jobs: jobs as unknown as RawOps["jobs"] });
+  }, [serverPages]);
+  const workspaceOps = ops ?? workspacePageOps;
+
   const wsCounts = useMemo(
-    () => (isWorkspace ? workspaceTabCounts(ops, me.opId, ws.cat) : {}),
+    () => {
+      if (!isWorkspace) return {};
+      if (ops) return workspaceTabCounts(ops, me.opId, ws.cat);
+      if (!serverPages) return {};
+
+      const answers = Object.values(serverPages);
+      const counts: Record<string, number> = {};
+      answers.forEach((answer) => {
+        Object.entries(answer.counts).forEach(([name, count]) => {
+          counts[name] = (counts[name] ?? 0) + count;
+        });
+      });
+      // Calendar counts distinct dates; adding category counts would count the
+      // same day two or three times in a mixed workspace.
+      counts.CALENDAR = new Set(answers.flatMap((answer) => answer.dates)).size;
+      return counts;
+    },
     // `revision` is deliberate — see the note on `filtered` above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isWorkspace, ops, me.name, ws.cat, revision],
+    [isWorkspace, ops, serverPages, me.opId, ws.cat, revision],
   );
 
   const tabs: TabItem[] = tabList.map((t) => ({
@@ -1787,7 +1865,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 bypasses the period bar the other three tabs share — "today" is
                 not a filter over a chosen period, it is the day itself. */}
             {screen === "dashboard" && activeTab === "TODAY" && (
-              <Today onDrill={(next) => go(next as Screen)} />
+              <Today onDrill={(next) => go(next as Screen)} onSettled={settlePrimaryContent} />
             )}
 
             {screen === "dashboard" && activeTab !== "TODAY" && (
@@ -1807,9 +1885,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               />
             )}
 
-            {isWorkspace && (ops
+            {isWorkspace && (workspaceOps
               ? <Workspace
-                  ops={ops}
+                  ops={workspaceOps}
                   me={me}
                   ws={wsState}
                   set={(patch) => {
@@ -1821,15 +1899,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                     if (Object.keys(rest).length) setWs((prev) => ({ ...prev, ...rest }));
                     if (patch.page === undefined && (patch.cat || patch.cust || patch.trucker || patch.date || patch.kpi || patch.assignee)) setPage(1);
                   }}
-                  onDrawer={setDrawer}
+                  onDrawer={ops ? setDrawer : () => setToast("กำลังโหลดข้อมูลสรุปก่อนเปิดรายละเอียด…")}
                   onDelay={setOpsDelay}
                   onSaveCell={saveCell}
                   onSetField={setField}
                   onStatusChange={changeJobStatus}
                   onSort={() => undefined}
-                  canEdit={canEditJob}
+                  canEdit={(job) => !!ops && canEditJob(job)}
                   canAssign={able("AssignJobs")}
                   serverPages={serverPages}
+                  fullRegisterLoaded={!!ops}
                   sectionPages={sectionPages}
                   onSectionPage={(layout, next) =>
                     setSectionPages((was) => ({ ...was, [layout]: next }))}

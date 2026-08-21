@@ -39,6 +39,8 @@ builder.Services.AddDbContext<ScmosDbContext>(options =>
         sql.CommandTimeout(120);
     }));
 
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<JobRegisterCache>();
 builder.Services.AddScoped<JobsRepository>();
 builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<KpiService>();

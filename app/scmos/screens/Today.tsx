@@ -29,20 +29,30 @@ const TONE: Record<string, string> = {
   openIncident: "#B42318", openCarPar: "#B45309", documentWarning: "#B45309", capacityRisk: "#B42318",
 };
 
-export function Today({ onDrill }: { onDrill: (screen: string) => void }) {
+export function Today({ onDrill, onSettled }: {
+  onDrill: (screen: string) => void;
+  /** Lets secondary startup work wait until the primary board has answered. */
+  onSettled: () => void;
+}) {
   const [board, setBoard] = useState<Board | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const response = await apiFetch("/api/dashboard/today", { headers: { accept: "application/json" } });
-      if (cancelled) return;
-      if (!response.ok) { setError("HTTP " + response.status); return; }
-      setBoard(await response.json() as Board);
+      try {
+        const response = await apiFetch("/api/dashboard/today", { headers: { accept: "application/json" } });
+        if (cancelled) return;
+        if (!response.ok) { setError("HTTP " + response.status); return; }
+        setBoard(await response.json() as Board);
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        if (!cancelled) onSettled();
+      }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [onSettled]);
 
   if (error) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-left:3px solid #B42318;border-radius:5px;padding:20px;font-size:12.5px;color:#B42318")}>อ่านแดชบอร์ดไม่สำเร็จ · {error}</div>;

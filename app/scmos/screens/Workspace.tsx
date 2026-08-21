@@ -69,7 +69,9 @@ type Props = {
    * and checked against these ones on every tab and category before this was
    * wired up.
    */
-  serverPages?: Record<string, { jobs: Job[]; total: number; pageCount: number }>;
+  serverPages?: Record<string, WorkspaceServerPage>;
+  /** Summary panels and editing become authoritative once this is true. */
+  fullRegisterLoaded: boolean;
   /**
    * Which page each section is on, and how to change it.
    *
@@ -92,6 +94,14 @@ type Props = {
   onBulkDelete: (keys: string[]) => void;
   /** Reports what is currently on screen so Export writes exactly that. */
   onView: (view: { jobs: Job[]; layout: string }) => void;
+};
+
+export type WorkspaceServerPage = {
+  jobs: Job[];
+  total: number;
+  pageCount: number;
+  counts: Record<string, number>;
+  dates: string[];
 };
 
 const CATEGORIES = ["ALL", "IMPORT", "EXPORT", "DELIVERY"];
@@ -337,6 +347,11 @@ export function Workspace(p: Props) {
   const { ops, me, ws } = p;
   const all = ops.jobs;
   const M = ops.masters;
+  const server = p.serverPages;
+  const complete = p.fullRegisterLoaded;
+  const serverTotal = server
+    ? Object.values(server).reduce((sum, answer) => sum + answer.total, 0)
+    : 0;
 
   // On the owner id, never the display name — the same rule the rest of the app
   // uses. This copy was missed when ownership moved off names, which would have
@@ -664,8 +679,6 @@ export function Workspace(p: Props) {
   // Every tab is category-mixed now, so the grid splits import from export on
   // all of them unless a category is chosen above it.
   const splitMixed = ws.cat === "ALL";
-  const server = p.serverPages;
-
   // With the server answering, the sections are the ones it answered for — it
   // was asked per category, and a category it returned nothing for is a section
   // with no rows, exactly as an empty filter result is here.
@@ -1020,13 +1033,22 @@ export function Workspace(p: Props) {
             >
               {c}
               <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:" + (ws.cat === c ? "#9FD0FF" : "#7FA5CC"))}>
-                {inCat(c).length}
+                {complete
+                  ? inCat(c).length
+                  : c === "ALL" ? serverTotal : server?.[c]?.total ?? "…"}
               </span>
             </button>
           ))}
         </div>
       </div>
 
+      {!complete && (
+        <div style={css("background:#F4F8FC;border:1px solid #BBD5EE;border-left:3px solid #2E7DD1;border-radius:5px;padding:10px 14px;font-size:11.5px;color:#475569")}>
+          ตารางพร้อมแล้วจากข้อมูลแบบแบ่งหน้า · กำลังโหลดข้อมูลสรุป ตัวเลือกทั้งหมด และสิทธิ์แก้ไขในพื้นหลัง
+        </div>
+      )}
+
+      {complete && (<>
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap")}>
         <button onClick={() => step(-1)} aria-label="Previous day" style={css("width:30px;height:31px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#475569;cursor:pointer;font-size:13px")}>‹</button>
         {dates.slice(anchorIndex, anchorIndex + 7).map((d) => {
@@ -1104,12 +1126,13 @@ export function Workspace(p: Props) {
           )}
         </span>
       </div>
+      </>)}
 
       {/* What is narrowing the grid, in one line, with a way out of each. */}
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:9px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
         <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em")}>กำลังดู</span>
-        <span style={css("font-size:12.5px;font-weight:600;color:#0A2240;font-family:'IBM Plex Mono',monospace")}>{list.length}</span>
-        <span style={css("font-size:11.5px;color:#64748B")}>จาก {all.length} งาน</span>
+        <span style={css("font-size:12.5px;font-weight:600;color:#0A2240;font-family:'IBM Plex Mono',monospace")}>{complete ? list.length : serverTotal}</span>
+        <span style={css("font-size:11.5px;color:#64748B")}>จาก {complete ? all.length : serverTotal} งาน</span>
 
         {activeFilters.length ? activeFilters.map(([label, value, clear]) => (
           <button
@@ -1123,7 +1146,9 @@ export function Workspace(p: Props) {
             <span style={css("color:#94A3B8")}>✕</span>
           </button>
         )) : (
-          <span style={css("font-size:11.5px;color:#94A3B8")}>ยังไม่ได้กรองอะไร — เห็นงานทั้งแผน</span>
+          <span style={css("font-size:11.5px;color:#94A3B8")}>
+            {complete ? "ยังไม่ได้กรองอะไร — เห็นงานทั้งแผน" : "แสดงหน้าข้อมูลล่าสุดจากเซิร์ฟเวอร์"}
+          </span>
         )}
 
         {activeFilters.length > 1 && (
@@ -1133,15 +1158,15 @@ export function Workspace(p: Props) {
         )}
 
         <span style={css("margin-left:auto;display:flex;gap:6px;flex-wrap:wrap")}>
-          {([["kpi", "KPI"], ["process", "ขั้นตอนงาน"], ["team", "ภาระทีม"], ["filters", "ตัวกรอง"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
+          {complete ? ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"], ["team", "ภาระทีม"], ["filters", "ตัวกรอง"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
             <button key={key} onClick={panel(key)} style={css(foldStyle(p.panels[key]))}>
               {p.panels[key] ? "▾" : "▸"} {label}
             </button>
-          ))}
+          )) : <span style={css("font-size:11px;color:#2E7DD1")}>กำลังเตรียมข้อมูลสรุป…</span>}
         </span>
       </div>
 
-      {p.panels.kpi && (
+      {complete && p.panels.kpi && (
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px")}>
         {KPI_DEFS.map((k) => (
           <button
@@ -1165,7 +1190,7 @@ export function Workspace(p: Props) {
       </div>
       )}
 
-      {ws.tab !== "CALENDAR" ? (
+      {complete && (ws.tab !== "CALENDAR" ? (
         <div style={css("display:flex;flex-direction:column;gap:13px")}>
           {p.panels.process && (
           <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
@@ -1348,7 +1373,7 @@ export function Workspace(p: Props) {
             ))}
           </div>
         </div>
-      )}
+      ))}
 
       {/* One bar for the whole selection, however many grids it spans. */}
       {!!pickedJobs.length && (

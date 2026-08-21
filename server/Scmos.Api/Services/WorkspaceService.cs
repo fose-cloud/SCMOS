@@ -18,7 +18,7 @@ namespace Scmos.Api.Services;
 /// come from the same pass as the rows, so the strip cannot promise a number
 /// the grid then fails to show.
 /// </summary>
-public class WorkspaceService(JobsRepository jobs)
+public class WorkspaceService(JobRegisterCache register)
 {
     /// <param name="Assignee">
     /// "My Work", an operator's display name, or ALL. Ignored on the MY JOBS
@@ -47,20 +47,8 @@ public class WorkspaceService(JobsRepository jobs)
 
     public async Task<Page> ReadAsync(Query query, CancellationToken token)
     {
-        var (json, _) = await jobs.LoadAsync(token);
-        using var document = JsonDocument.Parse(json);
-
-        if (!document.RootElement.TryGetProperty("jobs", out var all)
-            || all.ValueKind != JsonValueKind.Array)
-        {
-            return new Page([], 0, 0, 1, new Dictionary<string, int>(), [], default);
-        }
-
-        var updatedAt = document.RootElement.TryGetProperty("updatedAt", out var stamp)
-                        && stamp.ValueKind == JsonValueKind.String
-                        && DateTimeOffset.TryParse(stamp.GetString(), out var parsed)
-            ? parsed
-            : default;
+        var snapshot = await register.ReadAsync(token);
+        var updatedAt = snapshot.UpdatedAt;
 
         // One "today" for the whole answer. Reading the clock per job would let
         // a request that straddles midnight count a job on TODAY and then leave
@@ -71,9 +59,9 @@ public class WorkspaceService(JobsRepository jobs)
         // shows what is on that tab *within* the category you are looking at,
         // which is what the browser did.
         var inCategory = new List<WorkspaceTabs.JobView>();
-        foreach (var row in all.EnumerateArray())
+        foreach (var row in snapshot.Rows)
         {
-            var job = WorkspaceTabs.JobView.From(row);
+            var job = WorkspaceTabs.JobView.From(row.Raw);
             if (job.Key.Length == 0) continue;
             if (!MatchesCategory(job, query.Cat)) continue;
             if (!MatchesPeriod(job, query)) continue;
