@@ -1073,28 +1073,28 @@ export function Workspace(p: Props) {
       )}
 
       {complete && (<>
-      <section className="operation-calendar" style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 14px")}>
-        <div className="operation-calendar-head" style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px")}>
-          <div style={css("min-width:190px")}>
-            <div style={css("font-size:10px;font-weight:700;color:#64748B;letter-spacing:.08em;text-transform:uppercase")}>ปฏิทินงาน</div>
-            <div style={css("display:flex;align-items:baseline;gap:8px;margin-top:2px")}>
-              <strong style={css("font-size:17px;color:#0A2240")}>{monthLabel(String(calendarCursor.month).padStart(2, "0"))} {calendarCursor.year}</strong>
-              <span style={css("font-size:11px;color:#64748B")}>{calendarMonthTotal.toLocaleString("en-US")} งาน</span>
+      <section className="operation-calendar" style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:9px 11px")}>
+        <div className="operation-calendar-head" style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px")}>
+          <div style={css("min-width:165px")}>
+            <div style={css("font-size:9px;font-weight:700;color:#64748B;letter-spacing:.08em;text-transform:uppercase")}>ปฏิทินงาน</div>
+            <div style={css("display:flex;align-items:baseline;gap:6px;margin-top:1px")}>
+              <strong style={css("font-size:15px;color:#0A2240")}>{monthLabel(String(calendarCursor.month).padStart(2, "0"))} {calendarCursor.year}</strong>
+              <span style={css("font-size:10px;color:#64748B")}>{calendarMonthTotal.toLocaleString("en-US")} งาน</span>
             </div>
           </div>
 
-          <div style={css("display:flex;align-items:center;gap:6px")}>
+          <div style={css("display:flex;align-items:center;gap:4px")}>
             <button
               type="button"
               aria-label="เดือนก่อนหน้า"
               onClick={() => browseCalendar(-1)}
-              style={css("width:34px;height:32px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#334155;cursor:pointer;font-size:16px")}
+              style={css("width:30px;height:28px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#334155;cursor:pointer;font-size:15px")}
             >‹</button>
             <button
               type="button"
               aria-label="เดือนถัดไป"
               onClick={() => browseCalendar(1)}
-              style={css("width:34px;height:32px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#334155;cursor:pointer;font-size:16px")}
+              style={css("width:30px;height:28px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#334155;cursor:pointer;font-size:15px")}
             >›</button>
           </div>
 
@@ -1102,28 +1102,28 @@ export function Workspace(p: Props) {
             type="button"
             onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })}
             style={css(
-              "height:32px;padding:0 14px;border:1px solid " + (ws.date === "ALL" && ws.year === "ALL" && ws.month === "ALL" ? "#0A2240" : "#D8E0E8") +
+              "height:28px;padding:0 11px;border:1px solid " + (ws.date === "ALL" && ws.year === "ALL" && ws.month === "ALL" ? "#0A2240" : "#D8E0E8") +
               ";background:" + (ws.date === "ALL" && ws.year === "ALL" && ws.month === "ALL" ? "#0A2240" : "#fff") +
               ";color:" + (ws.date === "ALL" && ws.year === "ALL" && ws.month === "ALL" ? "#fff" : "#475569") +
-              ";border-radius:4px;font-size:12px;cursor:pointer;font-weight:600",
+              ";border-radius:4px;font-size:11px;cursor:pointer;font-weight:600",
             )}
           >
             ทุกวันที่
           </button>
 
-          <span style={css("margin-left:auto;font-size:11.5px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>
+          <span style={css("margin-left:auto;font-size:10.5px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>
             {ws.date === "ALL" ? "เลือกวันที่มีงานเพื่อกรองตาราง" : dowOf(anchor) + " " + anchor + " · " + (dateCount[anchor] || 0).toLocaleString("en-US") + " งาน"}
           </span>
         </div>
 
         <div className="operation-calendar-scroll" style={css("overflow-x:auto;padding-bottom:2px")}>
-          <div className="operation-calendar-grid" style={css("display:grid;grid-template-columns:repeat(7,minmax(78px,1fr));min-width:610px;border-top:1px solid #E2E8F0;border-left:1px solid #E2E8F0")}>
+          <div className="operation-calendar-grid" style={css("display:grid;grid-template-columns:repeat(7,minmax(64px,1fr));min-width:500px;border-top:1px solid #E2E8F0;border-left:1px solid #E2E8F0")}>
             {["จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส.", "อา."].map((weekday, index) => (
               <div
                 key={weekday}
                 style={css(
-                  "height:27px;display:flex;align-items:center;justify-content:center;border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;" +
-                  "font-size:10px;font-weight:700;letter-spacing:.06em;color:" + (index > 4 ? "#B45309" : "#64748B") + ";background:#F8FAFC",
+                  "height:22px;display:flex;align-items:center;justify-content:center;border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;" +
+                  "font-size:9px;font-weight:700;letter-spacing:.06em;color:" + (index > 4 ? "#B45309" : "#64748B") + ";background:#F8FAFC",
                 )}
               >{weekday}</div>
             ))}
@@ -1146,16 +1146,16 @@ export function Workspace(p: Props) {
                   })}
                   className="operation-calendar-day"
                   style={css(
-                    "font-family:inherit;min-height:58px;padding:7px 8px;border:0;border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;" +
+                    "font-family:inherit;min-height:42px;padding:4px 6px;border:0;border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;" +
                     "display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;text-align:left;" +
                     "background:" + (active ? "#0A2240" : day.inMonth ? "#fff" : "#F8FAFC") + ";" +
                     "color:" + (active ? "#fff" : day.inMonth ? "#334155" : "#94A3B8") + ";" +
                     "cursor:" + (count ? "pointer" : "default") + ";opacity:" + (!day.inMonth && !count ? ".58" : "1"),
                   )}
                 >
-                  <span style={css("font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>{day.day}</span>
+                  <span style={css("font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>{day.day}</span>
                   <span style={css(
-                    "font-size:10px;font-weight:" + (count ? "600" : "400") + ";color:" +
+                    "font-size:9px;font-weight:" + (count ? "600" : "400") + ";color:" +
                     (active ? "#DCEBFA" : count ? "#2E7DD1" : "#A7B3C0"),
                   )}>
                     {count ? count.toLocaleString("en-US") + " งาน" : "—"}
