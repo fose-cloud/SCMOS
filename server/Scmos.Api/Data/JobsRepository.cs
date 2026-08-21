@@ -20,7 +20,7 @@ namespace Scmos.Api.Data;
 public class JobsRepository(ScmosDbContext db, JobRegisterCache register)
 {
     /// <summary>What one save may carry. The workspace never sends more in one go.</summary>
-    public const int Limit = 5000;
+    public const int MaxSaveBatch = 5000;
 
     /// <summary>Operator name to owner id, read once per save. See SaveAsync.</summary>
     private Dictionary<string, string> _directory = new(StringComparer.OrdinalIgnoreCase);

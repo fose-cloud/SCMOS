@@ -123,8 +123,8 @@ public static class JobsEndpoints
 
             var incoming = body.Jobs ?? [];
             if (incoming.Count == 0) return Results.Json(new { saved = 0 });
-            if (incoming.Count > JobsRepository.Limit)
-                return ApiResults.Error($"Too many jobs in one save (max {JobsRepository.Limit})", StatusCodes.Status413PayloadTooLarge);
+            if (incoming.Count > JobsRepository.MaxSaveBatch)
+                return ApiResults.Error($"Too many jobs in one save (max {JobsRepository.MaxSaveBatch})", StatusCodes.Status413PayloadTooLarge);
 
             var keys = incoming.Select(job => Key(job)).Where(key => key.Length > 0).ToList();
 

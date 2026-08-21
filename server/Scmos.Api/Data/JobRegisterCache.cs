@@ -54,7 +54,10 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache)
                 .OrderBy(job => job.WorkDate == "" ? 1 : 0)
                 .ThenBy(job => job.WorkDate)
                 .ThenBy(job => job.Key)
-                .Take(JobsRepository.Limit)
+                // MaxSaveBatch limits one request, not the register. Capping this
+                // query hid every row after 5,000 from Workspace and duplicate
+                // detection while Staff still counted those rows directly in SQL.
+                // A successful import must therefore remain visible here in full.
                 .Select(job => new { job.Key, job.Trucker, job.Data, job.UpdatedAt })
                 .ToListAsync(token);
 
