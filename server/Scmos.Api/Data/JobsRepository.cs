@@ -17,7 +17,7 @@ namespace Scmos.Api.Data;
 /// One row per job key, so every save is an upsert and re-saving the same job
 /// twice is harmless.
 /// </summary>
-public class JobsRepository(ScmosDbContext db)
+public class JobsRepository(ScmosDbContext db, JobRegisterCache register)
 {
     /// <summary>What one save may carry. The workspace never sends more in one go.</summary>
     public const int Limit = 5000;
@@ -47,37 +47,8 @@ public class JobsRepository(ScmosDbContext db)
     /// </summary>
     public async Task<(string Json, int Count)> LoadAsync(CancellationToken token)
     {
-        // Rows with no usable date sort last. They used to lead every list — an
-        // empty string sorts before every date — so the grid opened on the least
-        // useful rows in the register.
-        var rows = await db.OperationJobs
-            .AsNoTracking()
-            .OrderBy(job => job.WorkDate == "" ? 1 : 0)
-            .ThenBy(job => job.WorkDate)
-            .ThenBy(job => job.Key)
-            .Take(Limit)
-            .Select(job => new { job.Data, job.UpdatedAt })
-            .ToListAsync(token);
-
-        var builder = new StringBuilder(rows.Count * 900);
-        builder.Append("{\"jobs\":[");
-
-        var count = 0;
-        DateTimeOffset updatedAt = default;
-        foreach (var row in rows)
-        {
-            if (!IsWellFormed(row.Data)) continue;
-            if (count > 0) builder.Append(',');
-            builder.Append(row.Data);
-            if (row.UpdatedAt > updatedAt) updatedAt = row.UpdatedAt;
-            count++;
-        }
-
-        builder.Append("],\"count\":").Append(count).Append(",\"updatedAt\":");
-        builder.Append(JsonSerializer.Serialize(count == 0 ? "" : Iso(updatedAt)));
-        builder.Append('}');
-
-        return (builder.ToString(), count);
+        var snapshot = await register.ReadAsync(token);
+        return (snapshot.Json, snapshot.Count);
     }
 
     /// <summary>
@@ -264,6 +235,7 @@ public class JobsRepository(ScmosDbContext db)
             if (opened) await connection.CloseAsync();
         }
 
+        register.Invalidate();
         return (table.Rows.Count, now);
     }
 
@@ -351,10 +323,16 @@ public class JobsRepository(ScmosDbContext db)
                 .Where(job => chunk.Contains(job.Key))
                 .ExecuteDeleteAsync(token);
         }
+        if (removed > 0) register.Invalidate();
         return removed;
     }
 
-    public Task<int> ClearAsync(CancellationToken token) => db.OperationJobs.ExecuteDeleteAsync(token);
+    public async Task<int> ClearAsync(CancellationToken token)
+    {
+        var removed = await db.OperationJobs.ExecuteDeleteAsync(token);
+        if (removed > 0) register.Invalidate();
+        return removed;
+    }
 
     private static async Task Execute(SqlConnection connection, string sql, CancellationToken token)
     {
@@ -480,6 +458,4 @@ public class JobsRepository(ScmosDbContext db)
         }
     }
 
-    private static string Iso(DateTimeOffset value) =>
-        value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
 }

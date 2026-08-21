@@ -30,7 +30,7 @@ public record TodayBoard(
 /// nearest planned day instead of showing five zeroes that look like a quiet
 /// morning.
 /// </summary>
-public class DashboardService(ScmosDbContext db, KpiEngine kpi)
+public class DashboardService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache register)
 {
     public async Task<TodayBoard> TodayAsync(string? onDate, CancellationToken token)
     {
@@ -40,8 +40,8 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi)
             : DateTimeOffset.Now.ToString("dd/MM/yyyy");
         var todayNumber = Formats.DateNumber(today);
 
-        var rows = await db.OperationJobs.AsNoTracking().Select(job => job.Data).ToListAsync(token);
-        var all = rows.Select(JobRecord.From).OfType<JobRecord>().ToList();
+        var snapshot = await register.ReadAsync(token);
+        var all = snapshot.Rows.Select(row => row.Record).OfType<JobRecord>().ToList();
 
         var jobs = all.Where(job => Formats.DateNumber(job.Date) == todayNumber).ToList();
         var note = "";

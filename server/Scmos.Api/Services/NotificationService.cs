@@ -27,16 +27,15 @@ public record AlertFeed(IReadOnlyList<Alert> Alerts, int Critical, int Warning, 
 /// Alerts are grouped rather than listed one per job. "84 jobs missing a plate"
 /// is actionable; eighty-four separate rows are a wall somebody scrolls past.
 /// </summary>
-public class NotificationService(ScmosDbContext db, KpiEngine kpi)
+public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache register)
 {
     public async Task<AlertFeed> BuildAsync(string? ownerId, CancellationToken token)
     {
         var alerts = new List<Alert>();
         var today = Formats.DateNumber(DateTimeOffset.Now.ToString("dd/MM/yyyy"));
 
-        var rows = await db.OperationJobs.AsNoTracking()
-            .Select(job => job.Data).ToListAsync(token);
-        var jobs = rows.Select(JobRecord.From).OfType<JobRecord>().ToList();
+        var snapshot = await register.ReadAsync(token);
+        var jobs = snapshot.Rows.Select(row => row.Record).OfType<JobRecord>().ToList();
 
         // Narrowed to one person's work when asked. A supervisor wants the
         // team's alerts; an operator opening their own workspace wants theirs.

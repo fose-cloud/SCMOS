@@ -71,4 +71,20 @@ public class JobRecord
             return null;
         }
     }
+
+    /// <summary>
+    /// Reads a row that has already been validated into a JSON element. Shared
+    /// register snapshots use this overload so every row is parsed only once.
+    /// </summary>
+    public static JobRecord? From(JsonElement json)
+    {
+        try
+        {
+            return json.Deserialize<JobRecord>(Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }

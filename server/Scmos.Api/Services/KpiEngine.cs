@@ -65,20 +65,18 @@ public record KpiEngineReport(
 /// that would answer a measure do not exist yet, the measure says so and names
 /// what it needs.
 /// </summary>
-public class KpiEngine(ScmosDbContext db, IOptions<PreRunOptions> preRun)
+public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IOptions<PreRunOptions> preRun)
 {
     private readonly int _sla = preRun.Value.SlaMinutes > 0 ? preRun.Value.SlaMinutes : PreRun.DefaultSlaMinutes;
 
     public async Task<KpiEngineReport> BuildAsync(Period period, CancellationToken token)
     {
-        var rows = await db.OperationJobs.AsNoTracking()
-            .Select(job => new { job.Key, job.Trucker, job.Data })
-            .ToListAsync(token);
+        var rows = (await register.ReadAsync(token)).Rows;
 
         var jobs = new List<(string Key, string Carrier, JobRecord Record)>();
         foreach (var row in rows)
         {
-            var record = JobRecord.From(row.Data);
+            var record = row.Record;
             if (record is null || !InPeriod(record, period)) continue;
             jobs.Add((row.Key, row.Trucker.Trim().ToUpperInvariant(), record));
         }

@@ -65,7 +65,7 @@ public record PreRunResult(bool Ok, string Message);
 /// so a job moved or reassigned during the day is on the right list without
 /// anybody maintaining a second copy of it.
 /// </summary>
-public class PreRunService(ScmosDbContext db, IOptions<PreRunOptions> options)
+public class PreRunService(ScmosDbContext db, JobRegisterCache register, IOptions<PreRunOptions> options)
 {
     private readonly int _sla = options.Value.SlaMinutes > 0
         ? options.Value.SlaMinutes
@@ -199,6 +199,7 @@ public class PreRunService(ScmosDbContext db, IOptions<PreRunOptions> options)
         if (changed) await ApplyToJob(check, by, token);
 
         await db.SaveChangesAsync(token);
+        if (changed) register.Invalidate();
         var met = PreRun.MetSla(check.SentAt, check.RespondedAt, now, _sla);
         return new PreRunResult(true,
             (changed ? "บันทึกการแก้ไขจากผู้ขนส่งแล้ว" : "ผู้ขนส่งยืนยันแล้ว") +

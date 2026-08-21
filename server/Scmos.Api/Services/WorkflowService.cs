@@ -42,7 +42,7 @@ public record WorkflowOutcome(bool Ok, string Message, JobWorkflow? State);
 /// this existed — the plan's own status decides the starting position, so the
 /// workflow begins from where the work really got to.
 /// </summary>
-public class WorkflowService(ScmosDbContext db)
+public class WorkflowService(ScmosDbContext db, JobRegisterCache register)
 {
     /// <summary>
     /// How many measured runs a carrier needs before their on-time rate is
@@ -188,6 +188,7 @@ public class WorkflowService(ScmosDbContext db)
         await Record(jobKey, "advance", stage, next.Value, "", note, by, token);
         await SyncStatus(jobKey, next.Value, token);
         await db.SaveChangesAsync(token);
+        register.Invalidate();
 
         return new WorkflowOutcome(true, $"ไปยังขั้นตอน: {Workflow.Info(next.Value).Thai}",
             await ReadAsync(jobKey, token));
@@ -294,6 +295,7 @@ public class WorkflowService(ScmosDbContext db)
             $"{(previous.Length > 0 ? previous + " → " : "")}{name}", by, token);
 
         await db.SaveChangesAsync(token);
+        register.Invalidate();
         return new WorkflowOutcome(true, $"มอบหมายงานให้ {name} แล้ว", await ReadAsync(jobKey, token));
     }
 
