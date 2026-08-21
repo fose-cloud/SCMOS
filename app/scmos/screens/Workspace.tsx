@@ -6,6 +6,7 @@ import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
 import { JobCards } from "../JobCards";
+import { calendarMonthGrid, calendarMonthOf, shiftCalendarMonth, type CalendarMonth } from "../calendar";
 import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, dowOf, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
@@ -379,18 +380,46 @@ export function Workspace(p: Props) {
     .filter(Boolean) as string[])].sort();
   const undated = catBase.filter((j) => !partsOf(j.date)).length;
 
-  // ---- date strip -------------------------------------------------------
+  // ---- date calendar ----------------------------------------------------
   const dateCount: Record<string, number> = {};
   base.forEach((j) => { if (j.date) dateCount[j.date] = (dateCount[j.date] || 0) + 1; });
   const dates = Object.keys(dateCount).sort((a, b) => dnum(a) - dnum(b));
   const busiest = dates.length ? dates.reduce((x, y) => (dateCount[y] > dateCount[x] ? y : x), dates[0]) : "";
   const anchor = ws.date !== "ALL" && dateCount[ws.date] !== undefined ? ws.date : busiest;
-  const anchorIndex = Math.max(0, dates.indexOf(anchor) - 3);
-  const step = (n: number) => {
-    const i = dates.indexOf(anchor);
-    const target = dates[Math.min(dates.length - 1, Math.max(0, i + n))];
-    if (target) p.set({ date: target, page: 1 });
-  };
+
+  // Calendar browsing must not silently filter the register. It reads counts
+  // from the whole category and applies year/month/day only after a day is
+  // clicked. The existing period pickers keep controlling the same state.
+  const calendarDateCount: Record<string, number> = {};
+  catBase.forEach((j) => {
+    const parts = partsOf(j.date);
+    if (!parts) return;
+    const date = `${parts.d}/${parts.m}/${parts.y}`;
+    calendarDateCount[date] = (calendarDateCount[date] || 0) + 1;
+  });
+  const selectedCalendarMonth = calendarMonthOf(ws.date);
+  const filteredCalendarMonth = ws.year !== "ALL" && ws.month !== "ALL"
+    ? { year: Number(ws.year), month: Number(ws.month) }
+    : null;
+  const fallbackCalendarMonth = calendarMonthOf(busiest) ?? { year: new Date().getUTCFullYear(), month: new Date().getUTCMonth() + 1 };
+  const calendarDefault = selectedCalendarMonth ?? filteredCalendarMonth ?? fallbackCalendarMonth;
+  const calendarBasis = selectedCalendarMonth
+    ? "date:" + ws.date
+    : filteredCalendarMonth
+      ? "period:" + ws.year + "-" + ws.month
+      : "data:" + (busiest || calendarDefault.year + "-" + calendarDefault.month);
+  const [calendarBrowse, setCalendarBrowse] = useState<{ basis: string; value: CalendarMonth } | null>(null);
+  const calendarCursor = calendarBrowse?.basis === calendarBasis ? calendarBrowse.value : calendarDefault;
+  const browseCalendar = (delta: number) => setCalendarBrowse({
+    basis: calendarBasis,
+    value: shiftCalendarMonth(calendarCursor, delta),
+  });
+
+  const calendarCells = calendarMonthGrid(calendarCursor);
+  const calendarMonthTotal = calendarCells.reduce(
+    (sum, day) => sum + (day.inMonth ? (calendarDateCount[day.date] || 0) : 0),
+    0,
+  );
 
   const scope = ws.date === "ALL" ? base : base.filter((j) => j.date === anchor);
 
@@ -1049,42 +1078,99 @@ export function Workspace(p: Props) {
       )}
 
       {complete && (<>
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap")}>
-        <button onClick={() => step(-1)} aria-label="Previous day" style={css("width:30px;height:31px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#475569;cursor:pointer;font-size:13px")}>‹</button>
-        {dates.slice(anchorIndex, anchorIndex + 7).map((d) => {
-          const active = ws.date !== "ALL" && d === anchor;
-          return (
+      <section className="operation-calendar" style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 14px")}>
+        <div className="operation-calendar-head" style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px")}>
+          <div style={css("min-width:190px")}>
+            <div style={css("font-size:10px;font-weight:700;color:#64748B;letter-spacing:.08em;text-transform:uppercase")}>ปฏิทินงาน</div>
+            <div style={css("display:flex;align-items:baseline;gap:8px;margin-top:2px")}>
+              <strong style={css("font-size:17px;color:#0A2240")}>{monthLabel(String(calendarCursor.month).padStart(2, "0"))} {calendarCursor.year}</strong>
+              <span style={css("font-size:11px;color:#64748B")}>{calendarMonthTotal.toLocaleString("en-US")} งาน</span>
+            </div>
+          </div>
+
+          <div style={css("display:flex;align-items:center;gap:6px")}>
             <button
-              key={d}
               type="button"
-              onClick={() => p.set({ date: d, page: 1 })}
-              style={css(
-                "font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:74px;padding:6px 10px;border:1px solid " +
-                (active ? "#2E7DD1" : "#E2E8F0") + ";background:" + (active ? "#0A2240" : "#fff") +
-                ";color:" + (active ? "#fff" : "#334155") + ";border-radius:4px;cursor:pointer",
-              )}
-            >
-              <span style={css("font-size:9.5px;letter-spacing:.06em;opacity:.75")}>{dowOf(d)}</span>
-              <span style={css("font-size:12.5px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>{d.slice(0, 5)}</span>
-              <span style={css("font-size:9.5px;opacity:.75")}>{dateCount[d]} jobs</span>
-            </button>
-          );
-        })}
-        <button onClick={() => step(1)} aria-label="Next day" style={css("width:30px;height:31px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#475569;cursor:pointer;font-size:13px")}>›</button>
-        <button
-          onClick={() => p.set({ date: "ALL", page: 1 })}
-          style={css(
-            "height:31px;padding:0 14px;border:1px solid " + (ws.date === "ALL" ? "#0A2240" : "#D8E0E8") +
-            ";background:" + (ws.date === "ALL" ? "#0A2240" : "#fff") + ";color:" + (ws.date === "ALL" ? "#fff" : "#475569") +
-            ";border-radius:4px;font-size:12px;cursor:pointer;font-weight:600",
-          )}
-        >
-          All dates
-        </button>
-        <span style={css("margin-left:auto;font-size:11.5px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>
-          {ws.date === "ALL" ? "All operation dates" : dowOf(anchor) + " " + anchor}
-        </span>
-      </div>
+              aria-label="เดือนก่อนหน้า"
+              onClick={() => browseCalendar(-1)}
+              style={css("width:34px;height:32px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#334155;cursor:pointer;font-size:16px")}
+            >‹</button>
+            <button
+              type="button"
+              aria-label="เดือนถัดไป"
+              onClick={() => browseCalendar(1)}
+              style={css("width:34px;height:32px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#334155;cursor:pointer;font-size:16px")}
+            >›</button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })}
+            style={css(
+              "height:32px;padding:0 14px;border:1px solid " + (ws.date === "ALL" && ws.year === "ALL" && ws.month === "ALL" ? "#0A2240" : "#D8E0E8") +
+              ";background:" + (ws.date === "ALL" && ws.year === "ALL" && ws.month === "ALL" ? "#0A2240" : "#fff") +
+              ";color:" + (ws.date === "ALL" && ws.year === "ALL" && ws.month === "ALL" ? "#fff" : "#475569") +
+              ";border-radius:4px;font-size:12px;cursor:pointer;font-weight:600",
+            )}
+          >
+            ทุกวันที่
+          </button>
+
+          <span style={css("margin-left:auto;font-size:11.5px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>
+            {ws.date === "ALL" ? "เลือกวันที่มีงานเพื่อกรองตาราง" : dowOf(anchor) + " " + anchor + " · " + (dateCount[anchor] || 0).toLocaleString("en-US") + " งาน"}
+          </span>
+        </div>
+
+        <div className="operation-calendar-scroll" style={css("overflow-x:auto;padding-bottom:2px")}>
+          <div className="operation-calendar-grid" style={css("display:grid;grid-template-columns:repeat(7,minmax(78px,1fr));min-width:610px;border-top:1px solid #E2E8F0;border-left:1px solid #E2E8F0")}>
+            {["จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส.", "อา."].map((weekday, index) => (
+              <div
+                key={weekday}
+                style={css(
+                  "height:27px;display:flex;align-items:center;justify-content:center;border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;" +
+                  "font-size:10px;font-weight:700;letter-spacing:.06em;color:" + (index > 4 ? "#B45309" : "#64748B") + ";background:#F8FAFC",
+                )}
+              >{weekday}</div>
+            ))}
+
+            {calendarCells.map((day) => {
+              const count = calendarDateCount[day.date] || 0;
+              const active = ws.date !== "ALL" && day.date === anchor;
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  disabled={!count}
+                  aria-label={day.date + (count ? " มี " + count + " งาน" : " ไม่มีงาน")}
+                  aria-pressed={active}
+                  onClick={() => p.set({
+                    year: String(day.year),
+                    month: String(day.month).padStart(2, "0"),
+                    date: day.date,
+                    page: 1,
+                  })}
+                  className="operation-calendar-day"
+                  style={css(
+                    "font-family:inherit;min-height:58px;padding:7px 8px;border:0;border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;" +
+                    "display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;text-align:left;" +
+                    "background:" + (active ? "#0A2240" : day.inMonth ? "#fff" : "#F8FAFC") + ";" +
+                    "color:" + (active ? "#fff" : day.inMonth ? "#334155" : "#94A3B8") + ";" +
+                    "cursor:" + (count ? "pointer" : "default") + ";opacity:" + (!day.inMonth && !count ? ".58" : "1"),
+                  )}
+                >
+                  <span style={css("font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>{day.day}</span>
+                  <span style={css(
+                    "font-size:10px;font-weight:" + (count ? "600" : "400") + ";color:" +
+                    (active ? "#DCEBFA" : count ? "#2E7DD1" : "#A7B3C0"),
+                  )}>
+                    {count ? count.toLocaleString("en-US") + " งาน" : "—"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
 
       {/* ปี → เดือน → วัน, the same period model the dashboard reports on. */}
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
