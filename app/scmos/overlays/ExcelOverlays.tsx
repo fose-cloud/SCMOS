@@ -184,6 +184,8 @@ function DuplicatePanel(p: {
 export function ImportModal(p: {
   preview: ImportPreview | null;
   busy: boolean;
+  saving: boolean;
+  registerReady: boolean;
   error: string;
   dragOver: boolean;
   decisions: Record<string, DupDecision>;
@@ -205,7 +207,23 @@ export function ImportModal(p: {
   const overwriting = counted("overwrite");
   const skipping = counted("skip");
   const adding = (p.preview?.jobs.length ?? 0) - dups.length + counted("new");
-  const ready = !!p.preview && p.preview.rows > 0 && pending === 0;
+  const ready = !!p.preview && p.preview.rows > 0 && pending === 0 && p.registerReady && !p.busy && !p.saving;
+  const statusMessage = p.saving
+    ? "กำลังบันทึกลงฐานข้อมูล… กรุณาอย่าปิดหน้าต่างนี้"
+    : !p.registerReady
+      ? "กำลังโหลดทะเบียนงาน… เมื่อพร้อมแล้วจึงจะนำเข้าได้"
+      : pending
+        ? `ยังมีงานซ้ำอีก ${pending} รายการที่ต้องเลือกก่อนนำเข้า`
+        : errors
+          ? "งานที่รูปแบบผิดจะถูกนำเข้าพร้อมธงเตือน แก้ในตารางได้ทีหลัง"
+          : dups.length
+            ? `ทับของเดิม ${overwriting} · ข้าม ${skipping} · เพิ่มใหม่ ${adding}`
+            : "ข้อมูลจะถูกเพิ่มเข้าไปในงานที่มีอยู่ ไม่ทับของเดิม";
+  const confirmLabel = p.saving
+    ? "กำลังบันทึกลงฐานข้อมูล…"
+    : dups.length
+      ? `นำเข้า ${adding} งาน` + (overwriting ? ` · ทับ ${overwriting}` : "")
+      : `นำเข้า ${p.preview?.rows ?? 0} งาน`;
 
   return (
     <div style={css("position:fixed;inset:0;background:rgba(7,26,49,.48);z-index:66;display:flex;align-items:center;justify-content:center;padding:40px")}>
@@ -215,7 +233,7 @@ export function ImportModal(p: {
             <div style={css("font-size:14.5px;font-weight:600;color:#fff")}>Import from Excel</div>
             <div style={css("font-size:11px;color:#7FA5CC")}>นำเข้าแผนงานจากไฟล์ Excel · ตรวจรูปแบบให้อัตโนมัติ</div>
           </div>
-          <button onClick={p.onClose} aria-label="Close" style={css("width:28px;height:28px;border:1px solid #24476E;background:#0E2B4F;color:#B9CFE5;border-radius:4px;cursor:pointer")}>✕</button>
+          <button onClick={p.onClose} disabled={p.saving} aria-label="Close" style={css("width:28px;height:28px;border:1px solid #24476E;background:#0E2B4F;color:#B9CFE5;border-radius:4px;cursor:pointer")}>✕</button>
         </div>
 
         <div style={css("padding:18px 22px;display:flex;flex-direction:column;gap:14px")}>
@@ -230,12 +248,12 @@ export function ImportModal(p: {
           >
             <span style={css("font-size:20px;color:#2E7DD1")}>⬆</span>
             <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>
-              {p.busy ? "กำลังอ่านไฟล์…" : "วางไฟล์ .xlsx ที่นี่ หรือคลิกเพื่อเลือก"}
+              {p.saving ? "กำลังบันทึกลงฐานข้อมูล…" : p.busy ? "กำลังอ่านไฟล์…" : "วางไฟล์ .xlsx ที่นี่ หรือคลิกเพื่อเลือก"}
             </span>
             <span style={css("font-size:11px;color:#64748B;line-height:1.45")}>
               อ่านทุกชีตในไฟล์ · ชีตที่ชื่อมี EXPORT จะถูกจัดเป็นงานส่งออก ที่เหลือเป็นงานนำเข้า
             </span>
-            <input type="file" accept=".xlsx,.xls" onChange={p.onFile} style={{ display: "none" }} />
+            <input type="file" accept=".xlsx,.xls" disabled={p.busy || p.saving} onChange={p.onFile} style={{ display: "none" }} />
           </label>
 
           {!!p.error && (
@@ -327,17 +345,11 @@ export function ImportModal(p: {
         </div>
 
         <div style={css("padding:14px 22px;border-top:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;gap:12px;background:#FBFCFD;border-radius:0 0 6px 6px")}>
-          <span style={css("font-size:11.5px;color:" + (pending ? "#B45309" : "#64748B"))}>
-            {pending
-              ? `ยังมีงานซ้ำอีก ${pending} รายการที่ต้องเลือกก่อนนำเข้า`
-              : errors
-                ? "งานที่รูปแบบผิดจะถูกนำเข้าพร้อมธงเตือน แก้ในตารางได้ทีหลัง"
-                : dups.length
-                  ? `ทับของเดิม ${overwriting} · ข้าม ${skipping} · เพิ่มใหม่ ${adding}`
-                  : "ข้อมูลจะถูกเพิ่มเข้าไปในงานที่มีอยู่ ไม่ทับของเดิม"}
+          <span style={css("font-size:11.5px;color:" + (pending && !p.saving ? "#B45309" : "#64748B"))}>
+            {statusMessage}
           </span>
           <div style={css("display:flex;gap:9px")}>
-            <button className="ghost-btn" onClick={p.onClose} style={css("height:36px;padding:0 18px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:13px;color:#475569;cursor:pointer")}>ยกเลิก</button>
+            <button className="ghost-btn" onClick={p.onClose} disabled={p.saving} style={css("height:36px;padding:0 18px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:13px;color:#475569;cursor:pointer")}>ยกเลิก</button>
             <button
               onClick={p.onConfirm}
               disabled={!ready}
@@ -347,9 +359,7 @@ export function ImportModal(p: {
                 ";border-radius:4px;font-size:13px;font-weight:600;cursor:" + (ready ? "pointer" : "not-allowed"),
               )}
             >
-              {dups.length
-                ? `นำเข้า ${adding} งาน` + (overwriting ? ` · ทับ ${overwriting}` : "")
-                : `นำเข้า ${p.preview?.rows ?? 0} งาน`}
+              {confirmLabel}
             </button>
           </div>
         </div>

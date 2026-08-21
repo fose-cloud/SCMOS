@@ -6,8 +6,8 @@ import type { Job, RawOps } from "./ops";
  *
  * `public/data/ops.json` is the plan as delivered; Azure SQL is the plan as
  * worked. The database wins once it holds anything, and is seeded from the file
- * the first time so nobody has to key the July plan again. Every save is an
- * upsert of whole jobs, so a failed save loses nothing but the last edit.
+ * the first time so nobody has to key the July plan again. Saves are whole-job
+ * upserts, and the client queue keeps a failed batch available for retry.
  */
 
 export type LoadResult = {
