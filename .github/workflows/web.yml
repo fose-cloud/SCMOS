@@ -50,11 +50,18 @@ jobs:
           # driver phone numbers — handed to anyone App Service Login lets past
           # the door, without passing the API that decides who may read it.
           rm -f .next/standalone/public/data/ops.json
+          echo "$GITHUB_SHA" > .next/standalone/deployment-version.txt
+          test -f .next/standalone/.next/BUILD_ID
 
       - uses: actions/upload-artifact@v4
         with:
           name: web
           path: .next/standalone
+          # Next's executable bundle lives under `.next`. upload-artifact v4.4+
+          # excludes hidden directories unless this is explicit; without it,
+          # Azure receives server.js but keeps serving the previous `.next`.
+          include-hidden-files: true
+
 
   deploy:
     needs: build
@@ -72,6 +79,11 @@ jobs:
           name: web
           path: standalone
 
+      - name: Verify the deployment package
+        run: |
+          test -f standalone/.next/BUILD_ID
+          test "$(cat standalone/deployment-version.txt)" = "$GITHUB_SHA"
+
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -84,6 +96,21 @@ jobs:
           slot-name: ${{ env.SLOT }}
           package: standalone
           startup-command: "node server.js"
+
+      - name: Verify the deployed commit
+        run: |
+          if [ "$SLOT" = "production" ]; then
+            kudu="https://${{ vars.WEB_APP_NAME }}.scm.azurewebsites.net"
+          else
+            kudu="https://${{ vars.WEB_APP_NAME }}-$SLOT.scm.azurewebsites.net"
+          fi
+          token=$(az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv)
+          actual=$(curl -fsS -H "Authorization: Bearer $token" "$kudu/api/vfs/site/wwwroot/deployment-version.txt" | tr -d '\r\n')
+          if [ "$actual" != "$GITHUB_SHA" ]; then
+            echo "::error::Azure serves commit '$actual', expected '$GITHUB_SHA'."
+            exit 1
+          fi
+          echo "Azure serves commit $actual"
 
       - name: Smoke test
         run: |
