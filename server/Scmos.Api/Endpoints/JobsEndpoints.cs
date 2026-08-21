@@ -41,6 +41,21 @@ public static class JobsEndpoints
             return Results.Text(json, "application/json");
         });
 
+        // Cancelled or moved, straight from SQL. See JobsRepository.ChangedAsync
+        // for why this does not go through the workspace's paging endpoint.
+        group.MapGet("/changed", async (HttpContext context, IUserAccessor users,
+            JobsRepository jobs, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (string.Equals(user.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase))
+                return ApiResults.Error("บัญชีผู้รับเหมาดูงานได้ที่หน้างานของบริษัทตัวเอง",
+                    StatusCodes.Status403Forbidden);
+
+            var (json, _) = await jobs.ChangedAsync(token);
+            return Results.Text(json, "application/json");
+        });
+
         // One page of the register, filtered and counted here. See
         // WorkspaceService for why this exists alongside the full read.
         group.MapGet("/page", async (string? tab, string? cat, string? year, string? month,

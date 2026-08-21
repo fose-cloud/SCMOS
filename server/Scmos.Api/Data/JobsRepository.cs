@@ -267,6 +267,77 @@ public class JobsRepository(ScmosDbContext db)
         return (table.Rows.Count, now);
     }
 
+    /// <summary>
+    /// The jobs whose plan changed: cancelled, or moved off the date they were
+    /// first planned for.
+    ///
+    /// Filtered in SQL rather than in memory, which is the whole point of it
+    /// existing. The obvious way to answer this was to ask the workspace's paging
+    /// endpoint for the CANCEL / MOVED tab, and that endpoint reads the entire
+    /// register — every job, two and a half megabytes of JSON — parses it, and
+    /// counts all nine tabs, before returning the handful of rows the screen
+    /// wanted. It is the right shape for a grid that draws one tab and needs the
+    /// numbers on the other eight; it is the wrong shape for a screen that needs
+    /// neither.
+    ///
+    /// <c>status</c> is a real column, so the cancelled half is an indexed
+    /// predicate. <c>origDate</c> lives inside the stored JSON, so the moved half
+    /// goes through JSON_VALUE — which returns null for a row that will not
+    /// parse, exactly as the rest of this class skips those rather than failing
+    /// the read.
+    /// </summary>
+    public async Task<(string Json, int Count)> ChangedAsync(CancellationToken token)
+    {
+        var connection = (SqlConnection)db.Database.GetDbConnection();
+        var opened = connection.State != ConnectionState.Open;
+        if (opened) await connection.OpenAsync(token);
+
+        var rows = new List<string>();
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandTimeout = 120;
+            command.CommandText = """
+                SELECT data
+                FROM operation_jobs
+                WHERE status = @cancelled
+                   -- The CASE rather than a bare JSON_VALUE: a row whose data
+                   -- will not parse makes JSON_VALUE raise, and this class has
+                   -- always skipped those rather than failing the whole read.
+                   -- CASE is the one form whose evaluation order is guaranteed.
+                   OR ISNULL(CASE WHEN ISJSON(data) = 1
+                                  THEN JSON_VALUE(data, '$.origDate') END, '') <> ''
+                ORDER BY CASE WHEN work_date = '' THEN 1 ELSE 0 END, work_date DESC, [key]
+                """;
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@cancelled";
+            parameter.Value = "CANCELLED";
+            command.Parameters.Add(parameter);
+
+            await using var reader = await command.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token))
+            {
+                var data = reader.GetString(0);
+                if (IsWellFormed(data)) rows.Add(data);
+            }
+        }
+        finally
+        {
+            if (opened) await connection.CloseAsync();
+        }
+
+        var builder = new StringBuilder(rows.Count * 900 + 64);
+        builder.Append("{\"jobs\":[");
+        for (var index = 0; index < rows.Count; index++)
+        {
+            if (index > 0) builder.Append(',');
+            builder.Append(rows[index]);
+        }
+        builder.Append("],\"count\":").Append(rows.Count).Append('}');
+
+        return (builder.ToString(), rows.Count);
+    }
+
     public async Task<int> DeleteAsync(IReadOnlyList<string> keys, CancellationToken token)
     {
         var wanted = keys.Select(key => Text(key, 80)).Where(key => key.Length > 0).Distinct().ToList();

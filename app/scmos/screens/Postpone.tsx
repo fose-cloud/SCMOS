@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isCancelled, prep, wasMoved, type Job } from "../ops";
-import { loadJobsPage } from "../store";
+import { loadChangedJobs } from "../store";
 import { badge, css } from "../theme";
 
 /**
@@ -15,9 +15,12 @@ import { badge, css } from "../theme";
  * happening as booked, and which somebody has to explain to a customer rather
  * than dispatch.
  *
- * The rows come from the API's own CANCEL / MOVED rule, the same one the
- * workspace counted with. The screen moved; the definition did not, so a job
- * here and a job the API calls changed are the same set.
+ * The rows come from an endpoint of its own, which filters them in SQL. The
+ * first version asked the workspace's paging endpoint for the CANCEL / MOVED
+ * tab, and that endpoint reads the whole register and counts all nine tabs
+ * before answering — right for a grid that draws one tab and shows the numbers
+ * on the others, wrong for a screen that wants a handful of rows and none of
+ * the counts. It took over a minute in front of a real user.
  */
 
 type Filter = "ALL" | "MOVED" | "CANCELLED";
@@ -32,15 +35,16 @@ export function Postpone({ me, onOpenJob }: {
   const [mineOnly, setMineOnly] = useState(false);
 
   const load = useCallback(async () => {
-    const page = await loadJobsPage({ tab: "CANCEL / MOVED", cat: "ALL", page: 1, per: 200 });
-    if (page === null) {
+    setJobs(null);
+    setFailure("");
+    const rows = await loadChangedJobs();
+    if (rows === null) {
       setFailure("อ่านข้อมูลจาก API ไม่ได้ — ลองใหม่อีกครั้ง");
       return;
     }
     // Through `prep` because the grid draws fields it derives — the priority,
     // the validation marks — and stored rows carry none of them.
-    setJobs(prep({ jobs: page.jobs }).jobs);
-    setFailure("");
+    setJobs(prep({ jobs: rows }).jobs);
   }, []);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
@@ -87,11 +91,7 @@ export function Postpone({ me, onOpenJob }: {
   }
 
   if (!jobs) {
-    return (
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
-        กำลังโหลดงานที่เลื่อนและยกเลิก…
-      </div>
-    );
+    return <Waiting onRetry={() => { void load(); }} />;
   }
 
   const chip = (key: Filter, label: string, count: number, colour: string) => {
@@ -225,3 +225,40 @@ export function Postpone({ me, onOpenJob }: {
 }
 
 const CELL = "padding:9px 12px;border-bottom:1px solid #F1F5F9;vertical-align:middle";
+
+/**
+ * The wait, with something to do in it.
+ *
+ * A placeholder that only ever says "loading" is indistinguishable from one
+ * that will never finish, and this screen sat on exactly that for over a
+ * minute. After ten seconds it says the database may be starting up — the one
+ * cause that genuinely takes minutes here — and offers the retry that a person
+ * would otherwise get by reloading the whole page.
+ */
+function Waiting({ onRetry }: { onRetry: () => void }) {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setSeconds((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:30px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:9px")}>
+      <span style={css("font-size:12.5px;color:#94A3B8")}>
+        กำลังโหลดงานที่เลื่อนและยกเลิก… {seconds > 3 ? `(${seconds} วินาที)` : ""}
+      </span>
+      {seconds >= 10 && (
+        <>
+          <span style={css("font-size:11.5px;color:#B45309;max-width:420px;line-height:1.6")}>
+            นานกว่าปกติ — ฐานข้อมูลอาจกำลังเริ่มทำงานหลังพักตัว ซึ่งใช้เวลาราวสองนาที ไม่ต้องรีเฟรชหน้า
+          </span>
+          <button onClick={onRetry}
+            style={css("height:30px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit")}>
+            ลองใหม่
+          </button>
+        </>
+      )}
+    </div>
+  );
+}

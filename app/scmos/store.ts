@@ -143,6 +143,26 @@ export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ 
   }
 }
 
+/**
+ * The jobs whose plan changed: cancelled, or moved off their first date.
+ *
+ * Its own endpoint rather than the workspace's paging one. That endpoint reads
+ * the whole register and counts all nine tabs before answering, which is right
+ * for a grid that draws one tab and shows the numbers on the others, and wrong
+ * for a screen that wants a handful of rows and none of the counts — asking it
+ * for this took over a minute. The API filters these in SQL instead.
+ */
+export async function loadChangedJobs(): Promise<Record<string, string>[] | null> {
+  try {
+    const response = await apiFetch(`${API}/changed`, { headers: { accept: "application/json" } });
+    if (!response.ok) return null;
+    const body = await response.json() as { jobs?: Record<string, string>[] };
+    return body.jobs ?? [];
+  } catch {
+    return null;
+  }
+}
+
 /** Removes specific jobs — used when merging duplicates away. */
 export async function deleteJobs(keys: string[], by: string): Promise<{ ok: boolean; message: string }> {
   if (!keys.length) return { ok: true, message: "" };
