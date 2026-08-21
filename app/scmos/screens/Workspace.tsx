@@ -438,10 +438,10 @@ export function Workspace(p: Props) {
         .map((s) => ({ status: s, th: "นอกลำดับสถานะ", n: statusCount[s], step: "!", off: true })),
     );
 
-  const rankedOptionsOf = (key: "customer" | "trucker" | "type") => {
+  const topOf = (key: "customer" | "trucker" | "type", n: number) => {
     const m: Record<string, number> = {};
     base.forEach((j) => { const v = j[key]; if (v) m[v] = (m[v] || 0) + 1; });
-    return Object.keys(m).sort((a, b) => m[b] - m[a] || a.localeCompare(b));
+    return Object.keys(m).sort((a, b) => m[b] - m[a]).slice(0, n);
   };
 
   // ---- row filtering ----------------------------------------------------
@@ -729,7 +729,7 @@ export function Workspace(p: Props) {
   if (ws.year !== "ALL") activeFilters.push(["ปี", ws.year, () => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })]);
   if (ws.month !== "ALL") activeFilters.push(["เดือน", monthLabel(ws.month), () => p.set({ month: "ALL", date: "ALL", page: 1 })]);
   if (ws.date !== "ALL") activeFilters.push(["วันที่", anchor, () => p.set({ date: "ALL", page: 1 })]);
-  if (ws.tab !== "MY JOBS" && ws.assignee !== "All Team") activeFilters.push(["ผู้รับผิดชอบ", ws.assignee, () => p.set({ assignee: "All Team", page: 1 })]);
+  if (ws.assignee !== "All Team") activeFilters.push(["ผู้รับผิดชอบ", ws.assignee, () => p.set({ assignee: "All Team", page: 1 })]);
   if (ws.cust !== "ALL") activeFilters.push(["ลูกค้า", ws.cust, () => p.set({ cust: "ALL", page: 1 })]);
   if (ws.trucker !== "ALL") activeFilters.push(["ผู้ขนส่ง", ws.trucker, () => p.set({ trucker: "ALL", page: 1 })]);
   if (ws.type !== "ALL") activeFilters.push(["ประเภทรถ/ตู้", ws.type, () => p.set({ type: "ALL", page: 1 })]);
@@ -983,6 +983,11 @@ export function Workspace(p: Props) {
       width: Math.min(100, set.length * 7),
     };
   });
+
+  const chipStyle = (active: boolean, activeBorder: string, activeBg: string) =>
+    "height:26px;padding:0 11px;border:1px solid " + (active ? activeBorder : "#E2E8F0") +
+    ";background:" + (active ? activeBg : "#fff") + ";color:" + (active ? "#0A2240" : "#64748B") +
+    ";border-radius:3px;font-size:11px;cursor:pointer;font-weight:" + (active ? "600" : "400");
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
@@ -1284,59 +1289,54 @@ export function Workspace(p: Props) {
           )}
 
           {p.panels.filters && (
-          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;overflow-x:auto")}>
-            <div style={css("display:grid;grid-template-columns:minmax(170px,1.15fr) repeat(3,minmax(150px,1fr)) auto auto;align-items:end;gap:10px;min-width:1030px")}>
-              {([
-                ["ผู้รับผิดชอบ", ws.tab === "MY JOBS" ? "My Work" : ws.assignee, ["All Team", "My Work", ...M.operators], (v: string) => p.set({ assignee: v, page: 1 }), ws.tab === "MY JOBS", "#0A2240"],
-                ["ลูกค้า", ws.cust, ["ALL", ...rankedOptionsOf("customer")], (v: string) => p.set({ cust: v, page: 1 }), false, "#2E7DD1"],
-                ["ผู้ขนส่ง", ws.trucker, ["ALL", ...rankedOptionsOf("trucker")], (v: string) => p.set({ trucker: v, page: 1 }), false, "#16794C"],
-                ["ประเภทรถ / ตู้", ws.type, ["ALL", ...rankedOptionsOf("type")], (v: string) => p.set({ type: v, page: 1 }), false, "#B45309"],
-              ] as [string, string, string[], (value: string) => void, boolean, string][]).map(([label, value, options, onPick, disabled, tone]) => {
-                const active = value !== "ALL" && value !== "All Team";
-                return (
-                  <label key={label} style={css("display:flex;flex-direction:column;gap:5px;min-width:0")}>
-                    <span style={css("font-size:10px;font-weight:700;color:#64748B;letter-spacing:.05em")}>{label}</span>
-                    <select
-                      value={value}
-                      disabled={disabled}
-                      onChange={(e) => onPick(e.target.value)}
-                      style={css(
-                        "width:100%;height:34px;border:1px solid " + (active ? tone : "#D8E0E8") +
-                        ";border-radius:4px;background:" + (disabled ? "#F1F5F9" : active ? "#F4F8FC" : "#fff") +
-                        ";color:#16232F;padding:0 30px 0 9px;font-size:12px;font-weight:" + (active ? "600" : "400") +
-                        ";outline:none;cursor:" + (disabled ? "not-allowed" : "pointer"),
-                      )}
-                    >
-                      {options.map((option) => (
-                        <option key={option} value={option}>
-                          {option === "ALL" || option === "All Team" ? "ทั้งหมด" : option === "My Work" ? "งานของฉัน" : option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                );
-              })}
-
-              <button
-                type="button"
-                disabled={ws.cust === "ALL" && ws.trucker === "ALL" && ws.type === "ALL" && (ws.tab === "MY JOBS" || ws.assignee === "All Team")}
-                onClick={() => p.set({ assignee: "All Team", cust: "ALL", trucker: "ALL", type: "ALL", page: 1 })}
-                style={css(
-                  "height:34px;padding:0 13px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;color:#475569;" +
-                  "font-size:11.5px;font-weight:600;white-space:nowrap;cursor:pointer",
-                )}
-              >
-                ล้างตัวกรอง
-              </button>
-
-              <span style={css("height:34px;display:flex;align-items:center;gap:10px;white-space:nowrap;font-size:10.5px;color:#64748B")}>
-                <span style={css("display:flex;align-items:center;gap:5px")}>
-                  <span style={css("width:10px;height:10px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} /> แก้ไขได้
+          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;flex-direction:column;gap:9px")}>
+            <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>ASSIGNED</span>
+              {["All Team", "My Work"].concat(M.operators).map((a) => (
+                <button
+                  key={a}
+                  onClick={() => p.set({ assignee: a, page: 1 })}
+                  style={css(
+                    "height:28px;padding:0 13px;border:1px solid " + (ws.assignee === a ? "#0A2240" : "#D8E0E8") +
+                    ";background:" + (ws.assignee === a ? "#0A2240" : "#fff") + ";color:" + (ws.assignee === a ? "#fff" : "#475569") +
+                    ";border-radius:14px;font-size:11.5px;cursor:pointer;font-weight:" + (ws.assignee === a ? "600" : "400"),
+                  )}
+                >
+                  {a}
+                </button>
+              ))}
+              <span style={css("margin-left:auto;display:flex;align-items:center;gap:12px")}>
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
+                  MY JOB — editable
                 </span>
-                <span style={css("display:flex;align-items:center;gap:5px")}>
-                  <span style={css("width:10px;height:10px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} /> ดูอย่างเดียว
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
+                  TEAM JOB — view only
                 </span>
               </span>
+            </div>
+
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>CUSTOMER</span>
+              {["ALL"].concat(topOf("customer", 11)).map((c) => (
+                <button key={c} onClick={() => p.set({ cust: c, page: 1 })} style={css(chipStyle(ws.cust === c, "#2E7DD1", "#E7F0FA"))}>{c}</button>
+              ))}
+            </div>
+
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TRUCKER</span>
+              {["ALL"].concat(topOf("trucker", 12)).map((c) => (
+                <button key={c} onClick={() => p.set({ trucker: c, page: 1 })} style={css(chipStyle(ws.trucker === c, "#16794C", "#E3F4EB"))}>{c}</button>
+              ))}
+            </div>
+
+            {/* Truck / container type — the monitor's TRUCK TYPE filter, on real values. */}
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TYPE</span>
+              {["ALL"].concat(topOf("type", 12)).map((c) => (
+                <button key={c} onClick={() => p.set({ type: c, page: 1 })} style={css(chipStyle(ws.type === c, "#B45309", "#FDF2DF"))}>{c}</button>
+              ))}
             </div>
           </div>
           )}
