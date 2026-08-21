@@ -58,11 +58,6 @@ button { cursor: pointer; }
 .row-hover:hover { background: #F4F8FC !important; }
 .card-hover:hover { border-color: #2E7DD1 !important; }
 .pick-hover:hover { background: #F8FAFC !important; border-color: #C7D6E4 !important; }
-.operation-calendar-day:not(:disabled):hover {
-  background: #EAF3FC !important;
-  box-shadow: inset 0 0 0 1px #2E7DD1;
-}
-.operation-calendar-day[aria-pressed="true"]:hover { background: #0A2240 !important; }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -80,14 +75,6 @@ button { cursor: pointer; }
    a dozen screens would each need the same rule, and this project has already
    been bitten by the same rule living in two places. */
 @media (max-width: 900px) {
-  .operation-calendar { padding: 11px 10px !important; }
-  .operation-calendar-head > span { flex: 1 0 100%; }
-  .operation-calendar-scroll {
-    margin-right: -10px;
-    padding-right: 10px;
-    -webkit-overflow-scrolling: touch;
-  }
-
   /* The rail stops being a column and becomes a drawer over the content. It is
      the whole reason this block exists: at 375px the column took 248 and left
      117 for the work. `!important` because the component writes its desktop
