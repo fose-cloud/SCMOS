@@ -9,6 +9,7 @@ import { DataTable } from "./scmos/DataTable";
 import { buildDb, type Ship } from "./scmos/demo";
 import { ACCOUNTS, CARRIER_SCREENS, HEADINGS, META, opIdForName, SCREENS_WITH_FILTERS, SUB_NAV, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
+import { bookingStats } from "./scmos/booking";
 import { normaliseField } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
@@ -1033,10 +1034,26 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // CAR/PAR is off this list now that the screen reads the real register: a
   // sidebar badge counted off the demo file would contradict the screen it
   // points at.
-  const navCounts: Record<string, number> = {
-    billing: db.ships.filter((x) => x.bill === "Overdue").length,
-    booking: db.ships.filter((x) => x.status === "Waiting Truck").length,
-  };
+  //
+  // Booking counts the real queue — the jobs the Booking screen itself would
+  // list, missing a carrier, a plate or a driver. It used to count invented
+  // shipments, so the number beside the menu and the number on the screen it
+  // opened were unrelated, and the badge was the one people read first.
+  //
+  // Billing has no badge at all now. There is no billing data in the register
+  // to count, and a fabricated figure next to a menu item is worse than no
+  // figure: it is read as fact, and nothing on the screen it leads to
+  // contradicts it. It comes back when there is something real to count.
+  const navCounts: Record<string, number> = useMemo(() => {
+    const jobs = ops?.jobs ?? [];
+    const counts: Record<string, number> = {};
+    if (!jobs.length) return counts;
+    const stages = bookingStats(jobs);
+    counts.booking =
+      stages["no-carrier"].length + stages["no-plate"].length + stages["no-driver"].length;
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ops, revision]);
 
   // ---- actions -----------------------------------------------------------
   const go = (next: Screen) => {
@@ -2023,7 +2040,24 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
             )}
-            {screen === "billing" && <BillingAging filtered={filtered} />}
+            {screen === "billing" && (
+              <>
+                {/* The register holds no billing. This screen is still drawn
+                    from the generated sample, and says so where somebody
+                    reading the numbers will see it — the dashboard's billing
+                    panels already carry the same badge. It comes off the day
+                    there is an invoice table behind it. */}
+                <div style={css("border:1px solid #F5E3C7;background:#FFFAEF;border-radius:5px;padding:11px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
+                  <span style={css("font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#B45309;background:#FDF2DF;border-radius:3px;padding:3px 7px")}>
+                    DEMO DATA
+                  </span>
+                  <span style={css("font-size:11.5px;color:#B45309")}>
+                    ตัวเลขในหน้านี้เป็นข้อมูลตัวอย่าง ยังไม่ได้ต่อกับข้อมูลการวางบิลจริง — ใช้ตัดสินใจไม่ได้
+                  </span>
+                </div>
+                <BillingAging filtered={filtered} />
+              </>
+            )}
             {screen === "reports" && <Reports toast={setToast} />}
 
             {/* Screens the new menu introduces. Each says what the backend can
