@@ -52,11 +52,23 @@ const FIELDS: [string, string][] = [
   ["followUpNote", "บันทึกการติดตาม"], ["effectivenessNote", "ผลการติดตามประสิทธิผล"],
 ];
 
-export function Incidents({ onToast }: { onToast: (m: string) => void }) {
+export function Incidents({ prefill, onPrefillTaken, onToast }: {
+  /**
+   * A job sent over from the workspace drawer.
+   *
+   * The case is opened against its key, which is what makes the evidence files
+   * land in the job's own folder rather than under a loose case number.
+   */
+  prefill?: { jobKey: string; title: string } | null;
+  onPrefillTaken?: () => void;
+  onToast: (m: string) => void;
+}) {
   const [cases, setCases] = useState<Case[] | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState("");
+  /** The job the next case will be raised against, when one was sent over. */
+  const [jobKey, setJobKey] = useState("");
   const [kind, setKind] = useState("CAR");
   const [category, setCategory] = useState("accident");
 
@@ -74,6 +86,17 @@ export function Incidents({ onToast }: { onToast: (m: string) => void }) {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  /** A job arriving from the workspace, taken once and then let go of. */
+  useEffect(() => {
+    if (!prefill) return;
+    // The prop arrives once and has to become editable state — the next thing
+    // that happens to the heading is somebody rewriting it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTitle(prefill.title);
+    setJobKey(prefill.jobKey);
+    onPrefillTaken?.();
+  }, [prefill, onPrefillTaken]);
 
   async function post(path: string, body: unknown) {
     if (busy) return;
@@ -137,7 +160,7 @@ export function Incidents({ onToast }: { onToast: (m: string) => void }) {
           style={css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff")}>
           {Object.entries(CATEGORY_TH).map(([id, th]) => <option key={id} value={id}>{th}</option>)}
         </select>
-        <button onClick={() => { void post("", { kind, category, title }); setTitle(""); }}
+        <button onClick={() => { void post("", { kind, category, title, jobKey }); setTitle(""); setJobKey(""); }}
           disabled={busy || !title.trim()}
           style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:" + (busy || !title.trim() ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
         >เปิดเคส</button>

@@ -222,6 +222,17 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const [issueDraft, setIssueDraft] = useState<NewIssue | null>(null);
 
+  /**
+   * A job handed from the workspace drawer to the incident register.
+   *
+   * Only the key and a heading: the case is opened against the job, and
+   * everything else — what, where, when, who, why, how, and the photographs —
+   * is filled in on the incident screen, which is where that form already
+   * lives.
+   */
+  const [incidentDraft, setIncidentDraft] =
+    useState<{ jobKey: string; title: string } | null>(null);
+
   const [addCat, setAddCat] = useState<string | null>(null);
   /** Rows inserted into the grid and still being filled in. See insertRow. */
   const [pinnedKeys, setPinnedKeys] = useState<string[]>([]);
@@ -2235,7 +2246,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 in the database — a case carries its kind — so both menu names
                 open the same cases rather than two half-registers. */}
             {screen === "subcontractors" && <Suppliers canManage={isSupervisor} onToast={setToast} />}
-            {(screen === "incident" || screen === "carpar") && <Incidents onToast={setToast} />}
+            {(screen === "incident" || screen === "carpar") && (
+              <Incidents
+                prefill={incidentDraft}
+                onPrefillTaken={() => setIncidentDraft(null)}
+                onToast={setToast}
+              />
+            )}
             {screen === "assistant" && (
               <Assistant canApprove={isSupervisor} onToast={setToast}
                 onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
@@ -2373,6 +2390,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             setDrawer(null);
             go("issues");
             setToast("เปิดฟอร์มแจ้งปัญหาของงาน " + (drawerJob.jobCode || drawerJob.customer));
+          }}
+          onRaiseIncident={() => {
+            setIncidentDraft({
+              jobKey: drawerJob.key,
+              title: [drawerJob.customer, drawerJob.jobCode || drawerJob.abs || drawerJob.container]
+                .filter(Boolean).join(" · "),
+            });
+            setDrawer(null);
+            go("incident");
+            setToast("เปิดเคส CAR/PAR ของงาน " + (drawerJob.jobCode || drawerJob.customer));
           }}
           onEdit={() => {
             if (!canEditJob(drawerJob)) {

@@ -19,6 +19,8 @@ export function JobDrawer(p: {
   onDelete: () => void;
   /** Opens the issue log with this job already attached. */
   onRaiseIssue: () => void;
+  /** Opens a CAR/PAR case on this job, for the 5W1H and the photographs. */
+  onRaiseIncident: () => void;
 }) {
   const { job: j } = p;
   const rows: [string, string | undefined][] =
@@ -166,6 +168,13 @@ export function JobDrawer(p: {
         <button className="ghost-btn" onClick={p.onRaiseIssue}
           style={css("height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
           แจ้งปัญหา · Operation Issue
+        </button>
+        {/* The heavier of the two. An operational issue is the day's log; this
+            is the quality case with 5W1H, a root cause and photographs, and it
+            is raised on the job so the evidence files land against it. */}
+        <button className="ghost-btn" onClick={p.onRaiseIncident}
+          style={css("height:34px;padding:0 13px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+          Incident Report · CAR/PAR
         </button>
         {p.canEdit && !isCancelled(j) && (
           <>

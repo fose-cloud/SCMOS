@@ -119,12 +119,12 @@ const CATEGORIES = ["ALL", "IMPORT", "EXPORT", "DELIVERY"];
 
 const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
-  IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
-  EXPORT: [["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Incident Report"], ["Change"], ["Assigned To"]],
-  DELIVERY: [["Priority"], ["Own"], ["W/H"], ["Job No."], ["Pickup Date"], ["SID No."], ["Customer"], ["Province"], ["ZIP"], ["Pallet"], ["Weight KG"], ["4W"], ["6W"], ["10W"], ["Trailer"], ["Transport Cost"], ["Status"], ["Remark"], ["Change"], ["Assigned To"]],
+  IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
+  EXPORT: [["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Assigned To"]],
+  DELIVERY: [["Priority"], ["Own"], ["W/H"], ["Job No."], ["Pickup Date"], ["SID No."], ["Customer"], ["Province"], ["ZIP"], ["Pallet"], ["Weight KG"], ["4W"], ["6W"], ["10W"], ["Trailer"], ["Transport Cost"], ["Status"], ["Remark"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
-  ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
+  ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
 };
 
 const KPI_DEFS: [string, string, string, string][] = [
@@ -817,19 +817,6 @@ export function Workspace(p: Props) {
    * other far more often than both. The colour does the work at a glance; the
    * words are there for the person who then has to ring somebody about it.
    */
-  const changeCell = (j: Job): Cell => {
-    if (isCancelled(j)) {
-      return cell("ยกเลิก" + (j.cancelReason ? " · " + j.cancelReason : ""),
-        { color: "#B42318", w: 190 });
-    }
-    if (wasMoved(j)) {
-      const who = j.moveBy ? " (" + j.moveBy + ")" : "";
-      return cell("เลื่อนจาก " + j.origDate + who + (j.moveReason ? " · " + j.moveReason : ""),
-        { color: "#B45309", w: 190 });
-    }
-    return cell("", { mute: true });
-  };
-
   const rowCells = (j: Job, layout: string): Cell[] => {
     // Which layout the following cells belong to, so `ed` records the column
     // order against the right one.
@@ -863,8 +850,6 @@ export function Workspace(p: Props) {
         ed(j, "reason", { w: 180, color: j.reason ? "#B45309" : null }),
         ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
         ed(j, "cs", { mono: true }),
-        ed(j, "incident", { w: 170, color: j.incident ? "#B42318" : null }),
-        changeCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -879,8 +864,6 @@ export function Workspace(p: Props) {
         ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }), ed(j, "contact", { mono: true }),
         ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }), stCell(j),
         ed(j, "remark", { w: 180, mute: true }),
-        ed(j, "incident", { w: 170, color: j.incident ? "#B42318" : null }),
-        changeCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -898,7 +881,7 @@ export function Workspace(p: Props) {
         ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
         ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtr", { mono: true, align: "right" }),
         cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right", bold: true }),
-        stCell(j), ed(j, "remark", { w: 170, mute: true }), changeCell(j),
+        stCell(j), ed(j, "remark", { w: 170, mute: true }),
       cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -917,8 +900,6 @@ export function Workspace(p: Props) {
       ed(j, "reason", { w: 170, color: j.reason ? "#B45309" : null }), ed(j, "remark", { w: 170, mute: true }),
       ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
       ed(j, "cs", { mono: true }),
-      ed(j, "incident", { w: 160, color: j.incident ? "#B42318" : null }),
-      changeCell(j),
       cell(j.op, { bold: mine, mute: !mine }),
     ]);
   };
