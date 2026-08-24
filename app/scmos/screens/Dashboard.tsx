@@ -59,7 +59,22 @@ function Panel(p: { title: string; sub?: string; right?: ReactNode; children: Re
   );
 }
 
-type BarItem = { label: string; value: string; pct: number; colour: string; go?: () => void };
+type BarItem = {
+  label: string;
+  value: string;
+  pct: number;
+  colour: string;
+  go?: () => void;
+  /**
+   * What hovering the row says.
+   *
+   * Set by whoever builds the item rather than worked out here, because the
+   * only honest share is one taken over everything — and these lists are cut
+   * to the top few, so a percentage computed from what is on screen would be a
+   * percentage of the wrong denominator.
+   */
+  hint?: string;
+};
 
 function BarRows({ items, empty }: { items: BarItem[]; empty?: string }) {
   if (!items.length) {
@@ -71,6 +86,7 @@ function BarRows({ items, empty }: { items: BarItem[]; empty?: string }) {
         <button
           key={i.label}
           type="button"
+          title={i.hint ?? i.label + " · " + i.value}
           onClick={i.go}
           disabled={!i.go}
           style={css(
@@ -96,12 +112,24 @@ function bars(counts: Record<string, number>, colour: string, limit: number, go?
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit);
   const max = Math.max(1, ...entries.map((e) => e[1]));
-  return entries.map(([label, n]) => ({
+  // Over every key, not only the ones that survived the cut, so the share a
+  // person reads on hover is the share of the real total.
+  const whole = Object.keys(counts)
+    .filter((k) => k && k !== "—")
+    .reduce((sum, k) => sum + counts[k], 0);
+  const shown = entries.length;
+  const all = Object.keys(counts).filter((k) => k && k !== "—").length;
+
+  return entries.map(([label, n], index) => ({
     label,
     value: String(n),
     pct: (n / max) * 100,
     colour,
     go: go ? () => go(label) : undefined,
+    hint: `${label} · ${n} งาน`
+      + (whole ? ` · ${Math.round((n / whole) * 100)}% ของ ${whole}` : "")
+      + ` · อันดับ ${index + 1} จาก ${all}`
+      + (shown < all ? ` (แสดง ${shown} อันดับแรก)` : ""),
   }));
 }
 
@@ -125,7 +153,13 @@ function Donut(p: { title: string; sub: string; unit: string; items: [string, nu
   return (
     <Panel title={p.title} sub={p.sub}>
       <div style={css("display:flex;align-items:center;gap:20px;flex-wrap:wrap")}>
-        <div style={{ ...css("position:relative;flex:none;width:128px;height:128px;border-radius:50%"), background: total ? "conic-gradient(" + segments.join(",") + ")" : "#EEF2F6" }}>
+        <div
+          title={total
+            ? p.items.map((i) => `${i[0]} ${i[1]} (${Math.round((i[1] / total) * 100)}%)`).join("\n")
+              + `\nรวม ${total} ${p.unit}`
+            : "ไม่มีข้อมูล"}
+          style={{ ...css("position:relative;flex:none;width:128px;height:128px;border-radius:50%"), background: total ? "conic-gradient(" + segments.join(",") + ")" : "#EEF2F6" }}
+        >
           <div style={css("position:absolute;inset:26px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center")}>
             <span style={css("font-size:22px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{total}</span>
             <span style={css("font-size:10px;color:#94A3B8;letter-spacing:.04em")}>{p.unit}</span>
@@ -133,7 +167,12 @@ function Donut(p: { title: string; sub: string; unit: string; items: [string, nu
         </div>
         <div style={css("flex:1;min-width:190px;display:flex;flex-direction:column;gap:9px")}>
           {p.items.map((i) => (
-            <div key={i[0]} style={css("display:flex;align-items:center;gap:9px")}>
+            <div
+              key={i[0]}
+              title={`${i[0]} · ${i[1]} ${p.unit}`
+                + (total ? ` · ${Math.round((i[1] / total) * 100)}% ของ ${total}` : "")}
+              style={css("display:flex;align-items:center;gap:9px")}
+            >
               <span style={css("width:10px;height:10px;border-radius:2px;flex:none;background:" + i[2])} />
               <span style={css("flex:1;font-size:12px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i[0]}</span>
               <span style={css("font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{i[1]}</span>
@@ -544,6 +583,8 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
                   <button
                     key={st}
                     type="button"
+                    title={`${st}${STATUS_TH[st] ? " · " + STATUS_TH[st] : ""} · ${counts[st]} งาน`
+                      + (set.length ? ` · ${Math.round((counts[st] / set.length) * 100)}% ของงาน ${c} ${set.length} งาน` : "")}
                     onClick={() => onDrill({ tab: "PENDING", cat: c, status: st })}
                     style={css("font-family:inherit;text-align:left;display:flex;align-items:center;gap:10px;width:100%;border:none;background:none;padding:0;cursor:pointer")}
                   >
@@ -697,7 +738,12 @@ function WallBoard({ s, period }: { s: OpsStats; period: Period }) {
               const set = s.jobs.filter((j) => j.op === name);
               const late = set.filter((j) => RE.delayed.test(j.status)).length;
               return (
-                <div key={name} style={css("display:flex;align-items:center;gap:12px")}>
+                <div
+                  key={name}
+                  title={`${name} · ${set.length} งาน`
+                    + (late ? ` · ล่าช้า ${late} งาน` : " · ไม่มีงานล่าช้า")}
+                  style={css("display:flex;align-items:center;gap:12px")}
+                >
                   <span style={css("width:110px;flex:none;font-size:14px;color:#DCE8F4")}>{name}</span>
                   <span style={css("flex:1;height:14px;background:#123055;border-radius:3px;overflow:hidden")}>
                     <span style={css("display:block;height:100%;border-radius:3px;background:" + (late ? "#FF9C8F" : "#4E9BE8") + ";width:" + (set.length / opMax) * 100 + "%")} />
