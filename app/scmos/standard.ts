@@ -185,6 +185,14 @@ export const RULES: Rule[] = [
     cats: ["EXPORT"], test: (v) => TIME.test(v), normalise: normaliseTime,
   },
   {
+    // The fourth time column on the grid, and the only one that had no rule —
+    // so "8:00" typed into it stayed "8:00" while the other three were tidied
+    // to 08:00. Not restricted by category: it belongs to import, but a time
+    // sitting in the field on any job is still a time and should read the same.
+    field: "pickupTime", label: "Pickup plan time", expected: "HH:MM (24 ชม.)", example: "08:00",
+    test: (v) => TIME.test(v), normalise: normaliseTime,
+  },
+  {
     field: "container", label: "Container no.", expected: "ตัวอักษร 4 ตัว + ตัวเลข 7 ตัว", example: "MRSU4470591",
     test: (v) => CONTAINER.test(v),
     normalise: (v) => {
