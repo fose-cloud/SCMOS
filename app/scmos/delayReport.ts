@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import type { Job } from "./ops";
+import { delayCauses } from "./delayCauses";
 import { monthNameEn } from "./period";
 import { lateMinutes } from "./util";
 
@@ -58,6 +59,8 @@ export type DelayReport = {
   totalLate: number;
   totalRaw: number;
   totalNotAssessable: number;
+  /** What the late trips' reason columns say. See delayCauses. */
+  causes: ReturnType<typeof delayCauses>;
 };
 
 const monthKeyOf = (date: string): string => {
@@ -159,6 +162,12 @@ export function buildDelayReport(jobs: Job[], options: {
     totalLate,
     totalRaw: months.reduce((sum, month) => sum + month.raw, 0),
     totalNotAssessable: months.reduce((sum, month) => sum + month.notAssessable, 0),
+    causes: delayCauses(
+      jobs
+        .map((job) => ({ job, late: lateMinutes(job) }))
+        .filter((entry): entry is { job: Job; late: number } =>
+          entry.late !== null && entry.late > grace),
+    ),
   };
 }
 
@@ -211,6 +220,15 @@ function highlights(report: DelayReport): [string, string][] {
       `${report.totalNotAssessable} of ${report.totalRaw} trips`
       + ` (${pct((report.totalNotAssessable / report.totalRaw) * 100)}%) carry no arrival and`
       + " are excluded from the percentage rather than counted as on time."]);
+  }
+
+  if (report.causes.total) {
+    const worst = report.causes.rows.find((cause) => cause.kind === "cause");
+    lines.push(["Delay causes",
+      `${report.causes.explained} of ${report.causes.total} late trips carry a reason that`
+      + ` explains the delay`
+      + (worst ? `; the largest is ${worst.label} (${worst.trips} trips).` : ".")
+      + ` ${report.causes.unexplained} carry a status note, a pickup appointment or nothing.`]);
   }
 
   const top = report.carriers.slice(0, 4);
@@ -346,6 +364,46 @@ export function delayReportWorkbook(report: DelayReport): XLSX.WorkBook {
   rank["!cols"] = [{ wch: 8 }, { wch: 24 }, { wch: 12 }, { wch: 18 },
     ...months.map(() => ({ wch: 11 }))];
   XLSX.utils.book_append_sheet(book, rank, "Subcontractor Delay");
+
+  /* --------------------------------------------------------- Delay Causes */
+  //
+  // Built from the same classifier the screen uses, so the sheet and the page
+  // can never group a reason differently. The non-reasons are on it too: a
+  // reason column that is two thirds status notes and blanks is the finding
+  // behind every other number here, and leaving it off the workbook would let
+  // the causes look better established than they are.
+  if (report.causes) {
+    const causes = report.causes;
+    const rows: (string | number)[][] = [
+      row(`${scope} Delay Cause Analysis`),
+      row(),
+      row(`${period} | Late trips only | Grace Period ${grace} Minutes`),
+      row(),
+      row("Late trips", causes.total),
+      row("With a usable reason", causes.explained,
+        causes.total ? pct((causes.explained / causes.total) * 100) + "%" : ""),
+      row("Without one", causes.unexplained,
+        causes.total ? pct((causes.unexplained / causes.total) * 100) + "%" : ""),
+      row(),
+      row("Cause", "Kind", "Late Trips", "Share", "Total Delay (min)", "Recorded wordings"),
+      ...causes.rows.map((cause) => row(
+        cause.label,
+        cause.kind === "cause" ? "Cause" : "Not a reason",
+        cause.trips,
+        causes.total ? pct((cause.trips / causes.total) * 100) + "%" : "",
+        cause.minutes,
+        cause.wordings.slice(0, 6).map(([text, count]) => `${text} (${count})`).join(" · "),
+      )),
+      row(),
+      row("Note",
+        "Rows marked \"Not a reason\" hold a status note, a pickup appointment typed into the"
+        + " reason column, or a bare time. They are counted but kept out of the causes, because"
+        + " reading them as causes reports \"arrived at the plant\" as a reason for being late."),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    sheet["!cols"] = [{ wch: 30 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 18 }, { wch: 70 }];
+    XLSX.utils.book_append_sheet(book, sheet, "Delay Causes");
+  }
 
   return book;
 }

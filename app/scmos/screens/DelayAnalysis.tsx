@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import { delayCauses } from "../delayCauses";
 import type { Job } from "../ops";
 import { css } from "../theme";
 import {
@@ -104,24 +105,14 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
   const rows = lateOnly ? late : measured;
 
   /**
-   * What the late trips were blamed on, biggest first.
+   * What the late trips were blamed on, grouped and heaviest first.
    *
-   * This is the part of the question management asked that the register can
-   * actually answer — "truck rotation" being the top line is exactly the kind
-   * of finding the email is pushing back on, and seeing it counted rather than
-   * asserted is the start of the reply.
+   * This is the part of management's question the register can answer. It also
+   * answers a question they did not ask: how much of the column is not a reason
+   * at all. See delayCauses — reading it as written would report "arrived at
+   * the plant" as a cause of lateness.
    */
-  const causes = useMemo(() => {
-    const tally = new Map<string, { trips: number; minutes: number }>();
-    late.forEach(({ job, late: minutes }) => {
-      const cause = (job.reason || job.remark || "").trim() || "ไม่ได้ระบุสาเหตุ";
-      const held = tally.get(cause) ?? { trips: 0, minutes: 0 };
-      tally.set(cause, { trips: held.trips + 1, minutes: held.minutes + minutes });
-    });
-    return [...tally.entries()]
-      .map(([cause, held]) => ({ cause, ...held }))
-      .sort((a, b) => b.trips - a.trips || b.minutes - a.minutes);
-  }, [late]);
+  const causes = useMemo(() => delayCauses(late), [late]);
 
   const worst = late.length ? Math.max(...late.map((row) => row.late)) : 0;
   const averageLate = late.length
@@ -205,18 +196,33 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
           note={unrecorded ? "ไม่ถูกนับทั้งฝั่งตรงเวลาและสาย" : "บันทึกครบ"} />
       </div>
 
-      {causes.length > 0 && (
+      {causes.rows.length > 0 && (
         <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden")}>
-          <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;font-size:12.5px;font-weight:600;color:#0A2240")}>
-            สาเหตุที่บันทึกไว้ของเที่ยวที่สาย
+          <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5")}>
+            <div style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>วิเคราะห์สาเหตุความล่าช้า</div>
+            <div style={css("font-size:11px;color:#7B8CA0;margin-top:3px")}>
+              อธิบายสาเหตุได้ {causes.explained} เที่ยว · ไม่มีเหตุผลใช้ได้ {causes.unexplained} เที่ยว
+              {causes.total ? ` (${Math.round((causes.unexplained / causes.total) * 100)}% ของเที่ยวที่สาย)` : ""}
+            </div>
           </div>
           <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
             <tbody>
-              {causes.map((row) => (
-                <tr key={row.cause}>
-                  <td style={css(TD)}>{row.cause}</td>
-                  <td style={css(TD + ";width:110px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
+              {causes.rows.map((row) => (
+                <tr key={row.label}>
+                  <td style={css(TD + (row.kind === "cause" ? ";font-weight:600;color:#0A2240" : ";color:#94A3B8"))}>
+                    {row.label}
+                    {row.wordings.length > 0 && (
+                      <div style={css("font-weight:400;color:#94A3B8;font-size:10.5px;margin-top:2px")}>
+                        {row.wordings.slice(0, 3).map(([text, count]) => `${text} (${count})`).join(" · ")}
+                        {row.wordings.length > 3 ? ` · +${row.wordings.length - 3} แบบ` : ""}
+                      </div>
+                    )}
+                  </td>
+                  <td style={css(TD + ";width:100px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
                     {row.trips} เที่ยว
+                  </td>
+                  <td style={css(TD + ";width:90px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#7B8CA0")}>
+                    {causes.total ? Math.round((row.trips / causes.total) * 100) + "%" : "—"}
                   </td>
                   <td style={css(TD + ";width:150px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#7B8CA0")}>
                     รวม {lateLabel(row.minutes)}
@@ -225,6 +231,10 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
               ))}
             </tbody>
           </table>
+          <div style={css("padding:10px 16px;border-top:1px solid #F1F5F9;font-size:10.5px;color:#94A3B8;line-height:1.6")}>
+            แถวสีจางคือข้อความที่ไม่ใช่สาเหตุ — บันทึกสถานะ นัดรับตู้ที่ลงผิดช่อง หรือเวลาลอย ๆ
+            แยกไว้ไม่ให้ปนกับสาเหตุจริง แต่แสดงจำนวนไว้ เพราะช่องเหตุผลที่เต็มไปด้วยบันทึกสถานะก็เป็นสิ่งที่ต้องรู้
+          </div>
         </div>
       )}
 
