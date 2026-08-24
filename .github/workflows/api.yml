@@ -111,6 +111,22 @@ jobs:
           app-name: ${{ vars.API_APP_NAME }}
           package: publish
 
+      # The deploy writes into the wwwroot of a process that is still running,
+      # and the process carries on with the assemblies it already loaded. Four
+      # times on 2026-08-24 that left a "successful" deploy serving the previous
+      # build: routes added by the deploy answering 404 while older ones
+      # answered normally, and on the last one a health check failing outright
+      # until the app was restarted by hand.
+      #
+      # WEBSITE_RUN_FROM_PACKAGE was tried and made it worse — with the package
+      # mounted read-only the deploy reported success and changed nothing at all
+      # — so it is a restart instead. It costs the cold start the smoke test
+      # below already waits through, and it is what makes that smoke test mean
+      # anything: without it, it can pass against the build it was meant to
+      # replace.
+      - name: Restart so the new build is the one running
+        run: az webapp restart --name ${{ vars.API_APP_NAME }} --resource-group ${{ vars.AZURE_RESOURCE_GROUP }}
+
       - name: Smoke test
         run: |
           base="https://${{ vars.API_APP_NAME }}.azurewebsites.net"
