@@ -96,7 +96,7 @@ const DELIVERY_COLUMNS: Column[] = [
   { header: "Province", pick: (j) => j.province ?? "" },
   { header: "ZIP", pick: (j) => j.zip ?? "" },
   { header: "Pallet", pick: (j) => j.pallet ?? "" },
-  { header: "Weight KG", pick: (j) => j.kgs ?? "" },
+  { header: "Weight KG", pick: (j) => j.weight || j.kgs || "" },
   { header: "4W", pick: (j) => j.v4 ?? "" },
   { header: "6W", pick: (j) => j.v6 ?? "" },
   { header: "10W", pick: (j) => j.v10 ?? "" },
@@ -390,8 +390,10 @@ const HEADER_ALIASES: Record<string, string[]> = {
   // Written by our own export so a mixed view survives a round trip: without it
   // every row inherits the sheet's category and export statuses read as invalid.
   cat: ["CATEGORY", "CAT", "ประเภทงาน"],
-  date: ["DATE", "PLAN DATE", "PLAN LOADING DATE", "PICKUP DATE", "วันที่"],
-  customer: ["CUSTOMER", "CONSIGNEE", "ลูกค้า"],
+  date: ["DATE", "PLAN DATE", "PLAN LOADING DATE", "PICKUP DATE",
+    // The delivery report hyphenates it, and a hyphen is not a space.
+    "PICK-UP DATE", "PICK UP DATE", "วันที่"],
+  customer: ["CUSTOMER", "CONSIGNEE", "CUSTOMER LIST", "ลูกค้า"],
   trucker: ["TRUCK", "TRUCKER", "TRUCKING", "TRUCKING COMPANY", "SUBCONTRACTOR", "SUB NAME", "ผู้ขนส่ง"],
   jobCode: ["JOB CODE", "JOBCODE", "JOB NO", "JOB NO."],
   abs: ["ABS", "ABS NO", "ABS NO.", "ABS.NO."],
@@ -440,14 +442,17 @@ const HEADER_ALIASES: Record<string, string[]> = {
   jobNo: ["JOB NO", "JOB NO."],
   sid: ["SID", "SID NO", "SID NO."],
   province: ["PROVINCE", "จังหวัด"],
-  zip: ["ZIP", "ZIPCODE", "POSTCODE"],
+  zip: ["ZIP", "ZIPCODE", "ZIP CODE", "POSTCODE"],
   pallet: ["PALLET", "PALLETS"],
-  kgs: ["KGS", "WEIGHT KG"],
+  // No kgs entry: "KGS" and "WEIGHT KG" both belong to `weight` above, and
+  // earlier fields win, so a kilos column off any sheet arrives as `weight`.
+  // `kgs` stays a field because the hand-entry form and the seed file fill
+  // it, and both copy it into `weight` immediately afterwards.
   v4: ["4W", "4WH", "4-WHEEL"],
   v6: ["6W", "6WH", "6-WHEEL"],
   v10: ["10W", "10WH", "10-WHEEL"],
   vtr: ["TRAILER", "TRAILER QTY"],
-  cost: ["COST", "TRANSPORT COST", "ค่าขนส่ง"],
+  cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง"],
 };
 
 /**
@@ -727,6 +732,33 @@ export async function parseWorkbook(
       }
     }
     if (headerRow < 0) continue;
+
+    // A heading that continues onto a second row.
+    //
+    // The delivery reports group columns under a merged heading — QTY over
+    // PALLET and KGS., TYPE of Vehicle over 4W, 6W, 10W and TRAILER. A merged
+    // cell fills only the first column of its group, so read as a single row
+    // six of that report's columns have no heading at all and every one of them
+    // imports empty: the pallets, the kilos and the whole vehicle count.
+    //
+    // Taken only when the row below names at least two columns this one left
+    // unnamed, and carries neither a date nor a customer of its own. That last
+    // part is what separates a sub-heading from the first row of data, and it is
+    // the same question asked of every row further down.
+    const below = matrix[headerRow + 1] || [];
+    const sub = below.map((c) => headerToField(String(c ?? "")));
+    const adds = sub.filter((field, idx) => field && !fields[idx]).length;
+    const isData = fields.some((field, idx) =>
+      (field === "date" || field === "customer") && clean(below[idx]) !== "");
+    if (adds >= 2 && !isData) {
+      sub.forEach((field, idx) => {
+        if (!field || fields[idx]) return;
+        fields[idx] = field;
+        const label = clean(below[idx]);
+        if (label && !isDerivedHeader(label)) mapped.add(label);
+      });
+      headerRow += 1;
+    }
 
     for (let r = headerRow + 1; r < matrix.length; r++) {
       const cells = matrix[r] || [];

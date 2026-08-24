@@ -42,14 +42,14 @@ function count(value: string | undefined): string {
 
 export const COLUMNS: Column[] = [
   { head: "W/H", read: (j) => j.wh ?? "" },
-  { head: "JOB NO.", read: (j) => j.jobNo ?? "" },
+  { head: "JOB NO.", read: (j) => j.jobCode || j.jobNo || "" },
   { head: "Pick-Up Date", read: (j) => j.date },
   { head: "SID NO.", read: (j) => j.sid ?? "" },
   { head: "Customer List", read: (j) => j.customer },
   { head: "Province", read: (j) => j.province ?? "" },
   { head: "ZIP CODE", read: (j) => j.zip ?? "" },
   { head: "QTY", sub: "PALLET", read: (j) => count(j.pallet), align: "right" },
-  { head: "QTY", sub: "KGS.", read: (j) => kilos(j.kgs), align: "right" },
+  { head: "QTY", sub: "KGS.", read: (j) => kilos(j.weight || j.kgs), align: "right" },
   { head: "TYPE of Vehicle", sub: "4W", read: (j) => count(j.v4), align: "right" },
   { head: "TYPE of Vehicle", sub: "6W", read: (j) => count(j.v6), align: "right" },
   { head: "TYPE of Vehicle", sub: "10W", read: (j) => count(j.v10), align: "right" },
