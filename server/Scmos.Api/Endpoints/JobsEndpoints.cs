@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using Scmos.Api.Auth;
 using Scmos.Api.Data;
@@ -10,7 +11,14 @@ namespace Scmos.Api.Endpoints;
 public static class JobsEndpoints
 {
     public record SaveRequest(List<JsonElement>? Jobs, string? By, string? Reason);
-    public record DeleteRequest(List<string>? Keys, bool? All, string? By, string? Reason);
+    /// <summary>
+    /// What to remove. Exactly one of these decides it: <c>Keys</c> for named
+    /// jobs, <c>All</c> for the whole register, <c>OwnerId</c> for everything
+    /// one person holds — narrowed to a single month by <c>Month</c>, which is
+    /// written the way work_date is, MM/yyyy.
+    /// </summary>
+    public record DeleteRequest(List<string>? Keys, bool? All, string? By, string? Reason,
+        string? OwnerId, string? Month);
 
     /// <summary>
     /// Above this, a save is an import or a seed rather than somebody editing.
@@ -190,6 +198,32 @@ public static class JobsEndpoints
                 await audit.RecordAsync(user, AuditActions.BulkReplace, "register", "", "ทะเบียนงาน",
                     "", $"{count} งาน", "0", (body.Reason ?? "").Trim(), token);
                 return Results.Json(new { cleared = true });
+            }
+
+            var owner = (body?.OwnerId ?? "").Trim();
+            if (owner.Length > 0)
+            {
+                // The same gate as clearing the whole register, for the same
+                // reason: there is no history table behind the register, so a
+                // person's month is gone the moment this returns. The screen
+                // makes the administrator type the name back; this is the half
+                // that cannot be clicked past.
+                if (!user.Can(Capability.AdministerData) && !user.IsSupervisor)
+                    return ApiResults.Error("Only a supervisor may clear another account's jobs",
+                        StatusCodes.Status403Forbidden);
+
+                var month = (body?.Month ?? "").Trim();
+                // Refused here so the caller is told what is wrong. The
+                // repository refuses it too — that one is the backstop, and it
+                // would surface as a 500, which tells nobody anything.
+                if (month.Length > 0 && !Regex.IsMatch(month, @"^(0[1-9]|1[0-2])/[0-9]{4}$"))
+                    return ApiResults.Error("เดือนต้องอยู่ในรูปแบบ MM/yyyy", StatusCodes.Status400BadRequest);
+
+                var removed = await jobs.ClearOwnerAsync(owner, month, token);
+                await audit.RecordAsync(user, AuditActions.BulkReplace, "register", owner,
+                    month.Length > 0 ? $"งานของ {owner} เดือน {month}" : $"งานของ {owner}",
+                    "", $"{removed} งาน", "0", (body?.Reason ?? "").Trim(), token);
+                return Results.Json(new { cleared = true, removed });
             }
 
             var wanted = body?.Keys ?? [];

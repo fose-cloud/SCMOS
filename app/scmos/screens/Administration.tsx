@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
+import type { Job } from "../ops";
+import { clearOwnerJobs } from "../store";
 import { css } from "../theme";
 
 /**
@@ -69,7 +71,12 @@ const CAPABILITY_TH: Record<string, string> = {
   AdministerData: "จัดการผู้ใช้และข้อมูลทั้งระบบ",
 };
 
-export function Administration({ onToast }: { onToast: (m: string) => void }) {
+export function Administration({ jobs, me, onToast }: {
+  /** The register, so the clear panel can offer the months a person actually has. */
+  jobs: Job[];
+  me: string;
+  onToast: (m: string) => void;
+}) {
   const [dir, setDir] = useState<Directory | null>(null);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -514,6 +521,144 @@ ${person.email}?`)) return;
         <div style={css("padding:11px 16px;border-top:1px solid #E9EFF5;font-size:11.5px;color:#94A3B8;line-height:1.6")}>
           บทบาทที่ระบบไม่รู้จักจะได้สิทธิ์เท่า Viewer ไม่ใช่ค่าเริ่มต้น — พิมพ์บทบาทผิดควรทำให้เสียสิทธิ์ตัวเอง ไม่ใช่ได้สิทธิ์คนอื่น
         </div>
+      </div>
+
+      {dir?.canManage && (
+        <ClearJobs people={dir.people} jobs={jobs} me={me} onToast={onToast} onDone={load} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Removing the work one account holds.
+ *
+ * There is no history table behind the register. What this deletes is not
+ * recoverable from inside the system, so the screen is built to make an
+ * administrator slow down rather than to be quick: the person is chosen by name,
+ * the count they hold is shown before the decision, the scope is stated in
+ * words, and the name has to be typed back before the button will do anything.
+ *
+ * The API refuses this to anyone without the capability regardless of what is
+ * on screen — the two halves are deliberate, because a hidden button is not a
+ * permission.
+ */
+function ClearJobs({ people, jobs, me, onToast, onDone }: {
+  people: Person[];
+  jobs: Job[];
+  me: string;
+  onToast: (m: string) => void;
+  onDone: () => void;
+}) {
+  const [who, setWho] = useState("");
+  const [scope, setScope] = useState("ALL");
+  const [reason, setReason] = useState("");
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const person = people.find((p) => p.id === who) ?? null;
+
+  /**
+   * The months this person actually has work in, counted off the register
+   * rather than offered as a list of every month — an administrator should not
+   * be able to pick a month that would delete nothing and be told it worked.
+   */
+  const months = useMemo(() => {
+    if (!person) return [] as [string, number][];
+    const tally = new Map<string, number>();
+    jobs.forEach((job) => {
+      if (job.opId !== person.id) return;
+      const date = (job.date ?? "").trim();
+      if (date.length < 10) return;
+      const key = date.slice(3);
+      tally.set(key, (tally.get(key) ?? 0) + 1);
+    });
+    return [...tally.entries()].sort((a, b) => {
+      const [am, ay] = a[0].split("/");
+      const [bm, by] = b[0].split("/");
+      return (ay + am).localeCompare(by + bm);
+    });
+  }, [jobs, person]);
+
+  const going = scope === "ALL"
+    ? person?.jobs ?? 0
+    : months.find(([key]) => key === scope)?.[1] ?? 0;
+  const armed = !!person && typed.trim() === person.name && !busy && going > 0;
+
+  function pick(id: string) {
+    setWho(id);
+    setScope("ALL");
+    setTyped("");
+  }
+
+  async function run() {
+    if (!person || !armed) return;
+    setBusy(true);
+    const result = await clearOwnerJobs(person.id, scope === "ALL" ? "" : scope, me, reason.trim());
+    setBusy(false);
+    if (!result.ok) { onToast("ล้างข้อมูลไม่สำเร็จ — " + result.message); return; }
+    onToast(`ล้างงานของ ${person.name} แล้ว ${result.removed} รายการ`);
+    setWho("");
+    setTyped("");
+    setReason("");
+    onDone();
+  }
+
+  return (
+    <div style={css("background:#fff;border:1px solid #F0D2D2;border-radius:6px;overflow:hidden")}>
+      <div style={css("padding:12px 16px;border-bottom:1px solid #F5E2E2;background:#FDF7F7")}>
+        <div style={css("font-size:13px;font-weight:600;color:#8C2F2F")}>ล้างข้อมูลงานของผู้ใช้</div>
+        <div style={css("font-size:11.5px;color:#A46A6A;margin-top:3px")}>
+          ลบถาวร — ทะเบียนงานไม่มีตารางประวัติ ข้อมูลที่ลบแล้วกู้คืนจากในระบบไม่ได้
+        </div>
+      </div>
+
+      <div style={css("padding:14px 16px;display:flex;flex-direction:column;gap:13px")}>
+        <div style={css("display:flex;gap:12px;flex-wrap:wrap")}>
+          <Field label="ผู้ใช้" width="230px">
+            <select value={who} onChange={(e) => pick(e.target.value)} style={SELECT}>
+              <option value="">— เลือกผู้ใช้ —</option>
+              {people.filter((p) => p.jobs > 0).map((p) => (
+                <option key={p.id} value={p.id}>{p.name} · {p.jobs} งาน</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="ขอบเขต" width="230px">
+            <select value={scope} onChange={(e) => { setScope(e.target.value); setTyped(""); }}
+              style={SELECT} disabled={!person}>
+              <option value="ALL">ทั้งหมด{person ? ` · ${person.jobs} งาน` : ""}</option>
+              {months.map(([key, held]) => (
+                <option key={key} value={key}>เดือน {key} · {held} งาน</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="เหตุผล (บันทึกลง audit)" width="260px">
+            <input value={reason} onChange={(e) => setReason(e.target.value)} style={INPUT}
+              placeholder="เช่น อัปโหลดผิดไฟล์" />
+          </Field>
+        </div>
+
+        {person && (
+          <div style={css("display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end")}>
+            <Field label={`พิมพ์ "${person.name}" เพื่อยืนยัน`} width="260px">
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} style={INPUT} />
+            </Field>
+            <button onClick={run} disabled={!armed}
+              style={css("height:30px;padding:0 16px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;border:1px solid "
+                + (armed ? "#B3261E;background:#B3261E;color:#fff;cursor:pointer" : "#E0C6C6;background:#F6EDED;color:#C39A9A;cursor:not-allowed"))}>
+              {busy ? "กำลังลบ…" : `ลบ ${going} งาน`}
+            </button>
+            <span style={css("font-size:11.5px;color:#8C2F2F;padding-bottom:7px")}>
+              {going === 0
+                ? "ขอบเขตนี้ไม่มีงานให้ลบ"
+                : scope === "ALL"
+                  ? `จะลบงานทั้งหมดของ ${person.name}`
+                  : `จะลบเฉพาะงานเดือน ${scope} ของ ${person.name}`}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

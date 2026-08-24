@@ -229,6 +229,33 @@ export async function deleteJobs(keys: string[], by: string): Promise<{ ok: bool
 }
 
 /** Empties the register so the plan file can be loaded in fresh. */
+/**
+ * Everything one operator holds, or only their work in one month.
+ *
+ * `month` is MM/yyyy, the tail of the dd/MM/yyyy the register stores. Empty
+ * means all of it.
+ *
+ * Unlike the other two, this reports how many rows went. The administrator was
+ * shown a count before deciding and is owed the real one afterwards — they are
+ * not always the same number, because somebody else may have been working while
+ * the dialog was open, and this register keeps no history to check against.
+ */
+export async function clearOwnerJobs(ownerId: string, month: string, by: string, reason: string):
+  Promise<{ ok: boolean; message: string; removed: number }> {
+  try {
+    const response = await apiFetch(API, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ownerId, month, by, reason }),
+    });
+    const body = await response.json().catch(() => ({})) as { removed?: number; error?: string };
+    if (!response.ok) throw new Error(body.error || "HTTP " + response.status);
+    return { ok: true, message: "", removed: body.removed ?? 0 };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error), removed: 0 };
+  }
+}
+
 export async function clearJobs(by: string): Promise<{ ok: boolean; message: string }> {
   try {
     const response = await apiFetch(API, {

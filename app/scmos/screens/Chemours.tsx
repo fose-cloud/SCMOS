@@ -61,7 +61,12 @@ export const COLUMNS: Column[] = [
 /** This report groups by the pick-up date, which is the only date it carries. */
 const monthOf = (job: Job) => monthKey(job.date);
 
-export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: string) => void }) {
+export function Chemours({ jobs, tab, onToast }: {
+  jobs: Job[];
+  /** Which of the account's two documents is being looked at. */
+  tab: string;
+  onToast: (message: string) => void;
+}) {
   const [warehouse, setWarehouse] = useState("UNITHAI");
   const [month, setMonth] = useState("ALL");
 
@@ -182,6 +187,9 @@ export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: st
         จึงตั้งเป็นค่าเริ่มต้น เปลี่ยนได้ที่ช่องคลังสินค้า
       </div>
 
+      {tab === "Cargo Receipt" ? (
+        <CargoReceipt rows={rows} />
+      ) : (
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden")}>
         {rows.length === 0 ? (
           <div style={css("padding:30px 16px;text-align:center;font-size:12.5px;color:#94A3B8")}>
@@ -219,6 +227,57 @@ export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: st
             </table>
           </div>
         )}
+      </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The receipt for the goods behind the delivery report.
+ *
+ * The account's own form has not arrived yet, and a cargo receipt is a document
+ * that gets signed — guessing at its fields would produce something that looks
+ * finished, gets used, and turns out to say the wrong things. So this says what
+ * it is waiting for and shows what the register already holds for the jobs in
+ * view, which is the part that will not change when the form does.
+ *
+ * The filters above apply here as they do to the delivery report: it is the
+ * same jobs, described for a different reader.
+ */
+function CargoReceipt({ rows }: { rows: Job[] }) {
+  const pallets = rows.reduce((sum, job) => sum + (Number((job.pallet ?? "").replace(/,/g, "")) || 0), 0);
+  const withSid = rows.filter((job) => (job.sid ?? "").trim()).length;
+
+  return (
+    <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:22px 20px;display:flex;flex-direction:column;gap:16px")}>
+      <div style={css("display:flex;flex-direction:column;gap:5px")}>
+        <span style={css("font-size:14px;font-weight:600;color:#0A2240")}>Cargo Receipt</span>
+        <span style={css("font-size:12px;color:#7B8CA0;line-height:1.7;max-width:62ch")}>
+          รอฟอร์มต้นแบบจากลูกค้าก่อนจึงจะออกใบรับสินค้าได้ — ใบรับสินค้าเป็นเอกสารที่มีการลงนาม
+          ถ้าเดาหัวข้อเอาเองจะได้เอกสารที่ดูเสร็จแล้ว ถูกเอาไปใช้ แล้วค่อยพบว่าระบุผิด
+          หน้านี้จึงยังไม่ออกเอกสาร แต่บอกว่ารออะไรและมีข้อมูลอะไรพร้อมแล้ว
+        </span>
+      </div>
+
+      <div style={css("display:flex;gap:26px;flex-wrap:wrap;padding:14px 16px;background:#F4F7FA;border-radius:5px")}>
+        {[
+          ["งานในมุมมองนี้", `${rows.length} รายการ`],
+          ["มีเลข SID", `${withSid} รายการ`],
+          ["พาเลทรวม", pallets ? pallets.toLocaleString("en-US") : "—"],
+        ].map(([label, value]) => (
+          <div key={label} style={css("display:flex;flex-direction:column;gap:3px")}>
+            <span style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</span>
+            <span style={css("font-size:17px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{value}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={css("font-size:11.5px;color:#7B8CA0;line-height:1.7")}>
+        ทะเบียนงานมีข้อมูลที่ใบรับสินค้าต้องใช้อยู่แล้วเกือบทั้งหมด — คลังสินค้า เลขงาน เลข SID
+        ชื่อลูกค้า ปลายทาง จำนวนพาเลทและน้ำหนัก วันที่รับของ และประเภทรถ
+        เมื่อส่งไฟล์ฟอร์มมาจะทำหน้านี้ให้ตรงคอลัมน์ต่อคอลัมน์เหมือนที่ทำกับ Delivery Details
+        ส่วนที่ยังไม่มีในระบบคือช่องลงนามผู้รับและผู้ส่ง ซึ่งจะต้องเพิ่มเป็นฟิลด์ใหม่
       </div>
     </div>
   );

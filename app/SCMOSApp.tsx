@@ -116,6 +116,12 @@ const WAKE_DELAYS = [0, 5_000, 10_000, 20_000, 30_000, 45_000, 60_000];
 /** Screens whose tools genuinely need the whole register in the browser. */
 const REGISTER_SCREENS = new Set<Screen>([
   "myjob", "monitoring", "booking", "training", "loreal", "chemours", "prerun", "postpone",
+  // Administration needs it only for the clear panel, which offers the months
+  // a person actually has work in. Counting those off the register is what
+  // stops an administrator picking a month that would delete nothing and
+  // being told it worked. It is a rarely opened screen and the read is
+  // cached, so the cost lands once rather than on anybody's hot path.
+  "admin",
 ]);
 
 function selectedTab(screen: Screen, tab: string): string {
@@ -1062,6 +1068,29 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     setSel(null);
   };
 
+  /**
+   * Opens the add-job form on a category, seeded the way the modal's own
+   * chooser seeds it. Both entry points go through here so a job started from
+   * a report toolbar cannot begin life with a different status to one started
+   * from the chooser.
+   */
+  const startAddJob = (cat: string) => {
+    setAddCat(cat);
+    if (cat !== "CHOOSE") {
+      setAddForm({ cat, op: me.name, status: cat === "DELIVERY" ? "Scheduled" : "Waiting Truck" });
+    }
+    setAiFields([]);
+    setAiMsg("");
+  };
+
+  const openImport = () => {
+    setImportPreview(null);
+    setImportError("");
+    setDupChoice({});
+    setDupCursor(0);
+    setImportOpen(true);
+  };
+
   const actions: HeaderAction[] = (() => {
     if (isDetail) {
       return [
@@ -1072,10 +1101,20 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     if (isWorkspace) {
       return [
         { label: "Saved views", style: BTN_SECONDARY, go: () => { setViews(listViews()); setViewName(""); setViewsOpen(true); } },
-        { label: "Import from Excel", style: BTN_SECONDARY, go: () => { setImportPreview(null); setImportError(""); setDupChoice({}); setDupCursor(0); setImportOpen(true); } },
+        { label: "Import from Excel", style: BTN_SECONDARY, go: openImport },
         { label: "Export Excel", style: BTN_SECONDARY, go: handleExport },
         { label: "+ แทรกแถว", style: BTN_SECONDARY, go: insertRow },
-        { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => setAddCat("CHOOSE") },
+        { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => startAddJob("CHOOSE") },
+      ];
+    }
+    if (screen === "chemours") {
+      // The same importer the workspace uses — it reads the delivery workbook
+      // now — and the add form opened straight on DELIVERY, because that is the
+      // only kind of job this report draws. Export stays on the screen itself,
+      // next to the warehouse and month it exports.
+      return [
+        { label: "Import from Excel", style: BTN_SECONDARY, go: openImport },
+        { label: "+ สร้างงาน", style: BTN_PRIMARY, go: () => startAddJob("DELIVERY") },
       ];
     }
     if (screen === "dashboard") {
@@ -2124,7 +2163,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               <CapacityBoard canEdit={able("EditOwnJobs")} onToast={setToast} />
             )}
             {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
-            {screen === "admin" && <Administration onToast={setToast} />}
+            {screen === "admin" && <Administration jobs={ops?.jobs ?? []} me={me.name} onToast={setToast} />}
             {screen === "abs" && <Abs />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (
@@ -2133,7 +2172,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   .map((job) => job.customer.trim()).filter(Boolean))]} />
             )}
             {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
-            {screen === "chemours" && <Chemours jobs={ops?.jobs ?? []} onToast={setToast} />}
+            {screen === "chemours" && (
+              <Chemours jobs={ops?.jobs ?? []} tab={selectedTab("chemours", tab)} onToast={setToast} />
+            )}
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
             )}
@@ -2366,12 +2407,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           aiBusy={aiBusy}
           aiMessage={aiMsg}
           dragOver={dragOver}
-          onChoose={(cat) => {
-            setAddCat(cat);
-            setAddForm({ cat, op: me.name, status: cat === "DELIVERY" ? "Scheduled" : "Waiting Truck" });
-            setAiFields([]);
-            setAiMsg("");
-          }}
+          onChoose={startAddJob}
           onField={(key, value) => setAddForm((prev) => ({ ...prev, [key]: value }))}
           onAiInput={(e) => { aiRead(e.target.files); e.target.value = ""; }}
           onAiDrop={(e) => { e.preventDefault(); setDragOver(false); aiRead(e.dataTransfer.files); }}

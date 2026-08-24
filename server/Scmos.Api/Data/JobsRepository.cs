@@ -2,6 +2,7 @@ using System.Data;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
@@ -17,7 +18,7 @@ namespace Scmos.Api.Data;
 /// One row per job key, so every save is an upsert and re-saving the same job
 /// twice is harmless.
 /// </summary>
-public class JobsRepository(ScmosDbContext db, JobRegisterCache register)
+public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register)
 {
     /// <summary>
     /// What one save request may carry.
@@ -345,6 +346,44 @@ public class JobsRepository(ScmosDbContext db, JobRegisterCache register)
         return removed;
     }
 
+    /// <summary>
+    /// Everything one person holds, or only what they hold in one month.
+    ///
+    /// Deleted in SQL against <c>owner_id</c>, which is the same column the
+    /// staff screen counts a person's jobs with — so the number the
+    /// administrator was shown before deciding is the number this removes.
+    ///
+    /// <paramref name="month"/> is <c>MM/yyyy</c> because <c>work_date</c> is
+    /// stored as the text <c>dd/MM/yyyy</c>, and matched with EndsWith rather
+    /// than by cutting the string: a row whose date is blank or was typed short
+    /// would make SUBSTRING raise, and a job with no date is exactly the kind
+    /// this has to skip quietly rather than fail on.
+    /// </summary>
+    public async Task<int> ClearOwnerAsync(string ownerId, string month, CancellationToken token)
+    {
+        var wanted = Text(ownerId, 20);
+        if (wanted.Length == 0) return 0;
+
+        var query = db.OperationJobs.Where(job => job.OwnerId == wanted);
+        var wantedMonth = Text(month, 7);
+        if (wantedMonth.Length > 0)
+        {
+            // EndsWith becomes a LIKE, and a month is caller-supplied. Anything
+            // but MM/yyyy is refused rather than narrowed-by-guesswork: a single
+            // "%" would turn "delete this person's July" into "delete
+            // everything this person has", and it would report success.
+            if (!MonthShape().IsMatch(wantedMonth))
+                throw new ArgumentException("Month must be written MM/yyyy", nameof(month));
+
+            var suffix = "/" + wantedMonth;
+            query = query.Where(job => job.WorkDate.EndsWith(suffix));
+        }
+
+        var removed = await query.ExecuteDeleteAsync(token);
+        if (removed > 0) register.Invalidate();
+        return removed;
+    }
+
     public async Task<int> ClearAsync(CancellationToken token)
     {
         var removed = await db.OperationJobs.ExecuteDeleteAsync(token);
@@ -462,6 +501,9 @@ public class JobsRepository(ScmosDbContext db, JobRegisterCache register)
         var trimmed = (value ?? "").Trim();
         return trimmed.Length <= max ? trimmed : trimmed[..max];
     }
+
+    [GeneratedRegex(@"^(0[1-9]|1[0-2])/[0-9]{4}$")]
+    private static partial Regex MonthShape();
 
     private static bool IsWellFormed(string json)
     {
