@@ -16,6 +16,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<DelayRecord> DelayRecords => Set<DelayRecord>();
     public DbSet<IncidentCase> IncidentCases => Set<IncidentCase>();
     public DbSet<OperationalIssue> OperationalIssues => Set<OperationalIssue>();
+    public DbSet<RotationAssignment> RotationAssignments => Set<RotationAssignment>();
 
     /// <summary>Every file the system holds — a job's, a supplier's, a case's.</summary>
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
@@ -369,6 +370,37 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             // job" is what the job's own page asks.
             entry.HasIndex(e => new { e.Status, e.Id }).HasDatabaseName("operational_issue_status_idx");
             entry.HasIndex(e => e.JobKey).HasDatabaseName("operational_issue_job_idx");
+        });
+
+        model.Entity<RotationAssignment>(entry =>
+        {
+            entry.ToTable("rotation_assignments");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.Sheet).HasColumnName("sheet").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.Import).HasColumnName("is_import").HasDefaultValue(false);
+            entry.Property(e => e.Export).HasColumnName("is_export").HasDefaultValue(false);
+            entry.Property(e => e.Fcl).HasColumnName("is_fcl").HasDefaultValue(false);
+            entry.Property(e => e.Lcl).HasColumnName("is_lcl").HasDefaultValue(false);
+            entry.Property(e => e.Domestic).HasColumnName("is_domestic").HasDefaultValue(false);
+            entry.Property(e => e.PrimaryContact).HasColumnName("primary_contact").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.PrimaryEmail).HasColumnName("primary_email").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.PrimaryId).HasColumnName("primary_id").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.BackupContact).HasColumnName("backup_contact").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.BackupEmail).HasColumnName("backup_email").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.Backup2Contact).HasColumnName("backup2_contact").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.Backup2Email).HasColumnName("backup2_email").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.SubFcl).HasColumnName("sub_fcl").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.SubLcl).HasColumnName("sub_lcl").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.CsLcb).HasColumnName("cs_lcb").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+            // "Whose customer is this" and "what does this person hold" are the
+            // only two questions this table is ever asked.
+            entry.HasIndex(e => e.Customer).HasDatabaseName("rotation_customer_idx");
+            entry.HasIndex(e => e.PrimaryId).HasDatabaseName("rotation_primary_idx");
         });
 
         model.Entity<Driver>(entry =>

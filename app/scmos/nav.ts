@@ -3,7 +3,7 @@ export type Screen =
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
-  | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues"
+  | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality";
 
 /**
@@ -79,6 +79,9 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     // it is the opposite question: every tab on My Job means "still to do", and
     // this means "not happening as booked".
     ["postpone", "Postpone / Cancel", "เลื่อน / ยกเลิก", [[2, 3, 5, 10], [9, 3, 5, 4], [9, 9, 5, 4], [2, 2, 12, 1]]],
+    // Next to My Job because it answers the question My Job cannot: the grid
+    // says whose a job is, this says whose it ought to be.
+    ["rotation", "Job Rotation", "ความรับผิดชอบลูกค้า", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
     ["booking", "Booking", "จองรถบรรทุก", [[2, 3, 10, 7], [12, 6, 2, 4], [3, 12, 3, 2], [10, 12, 3, 2]]],
     ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
     ["prerun", "Pre-Run", "ตรวจก่อนออกงาน", [[2, 3, 12, 2], [2, 7, 8, 2], [2, 11, 5, 2], [11, 9, 3, 5]]],
@@ -118,6 +121,7 @@ export const ALL_NAV: [Screen, string, string, number[][]][] = [
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน", "Executive = ภาพรวมทั้งแผน · Operational = สิ่งที่ต้องทำวันนี้ · Wall Board = จอแสดงผลหน้างาน — ทุกตัวเลขคิดจากงานจริงใน Operation Workspace คลิกตัวเลขเพื่อเปิดงานชุดนั้นใน Workspace และกด Export Excel เพื่อดึงออกเป็นไฟล์"],
   myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
+  rotation: ["Job Rotation", "ความรับผิดชอบลูกค้าของแต่ละคน", "ตารางว่าลูกค้ารายไหนเป็นของใคร ใครสำรอง และใช้ผู้ขนส่งรายใด — นำเข้าจากไฟล์ ROTATE ที่ทีมใช้อยู่ · เทียบกับงานจริงในทะเบียนให้เห็นว่ามีงานของลูกค้ารายนั้นอยู่กับคนที่ตารางไม่ได้ระบุไว้หรือไม่"],
   issues: ["Operational Issues", "บันทึกปัญหาประจำวัน", "ปัญหาที่พบระหว่างวิ่งงาน บันทึกตามฟอร์มที่ทีมใช้อยู่ — เลขงานที่กรอกจะถูกจับคู่กับทะเบียนงานให้เอง จึงเห็นลูกค้าและผู้ขนส่งของงานนั้นทันที · เวลาเป้าหมายมาจากระดับความรุนแรง และนับเฉพาะรายการที่ยังไม่ปิด"],
   chemours: ["The Chemours", "รายละเอียดงานกระจายสินค้า", "รายงานตามฟอร์ม Del details-CHEM ที่ลูกค้าได้รับ — อ่านจากงานประเภท DELIVERY ในทะเบียนจริง ทุกคอลัมน์มีที่มา ไม่มีช่องที่เว้นเพราะไม่มีข้อมูล · เลือกคลังสินค้าและเดือนแล้วส่งออกเป็น Excel ได้"],
   postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก", "งานที่แผนเปลี่ยนไปจากที่จองไว้ — เลื่อนวันโหลด/ส่ง หรือยกเลิก · เปิดจาก My Job แล้วกดปุ่ม “เลื่อนวัน” หรือ “ยกเลิกงาน” · งานที่ยกเลิกไม่ถูกลบ ยังค้นและนับได้"],

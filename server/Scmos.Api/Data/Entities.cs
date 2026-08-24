@@ -467,3 +467,63 @@ public class OperationalIssue
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+/// <summary>
+/// Which customer belongs to which operator, and who covers when they are away.
+///
+/// Taken from the rotation workbook the team keeps — one sheet per operator,
+/// a row per customer, with the modes that operator handles for them and the
+/// two people behind them. It is the answer to "why is this job mine", which
+/// the register has never held: a job arrives carrying an operator's name off a
+/// plan sheet, and nothing until now said whether that was the right name.
+///
+/// Reference data, not a transaction. It changes when the team reshuffles,
+/// which the file's own name records — "Update 03.07.2026".
+/// </summary>
+public class RotationAssignment
+{
+    public long Id { get; set; }
+
+    /// <summary>The customer as the rotation sheet spells them.</summary>
+    public string Customer { get; set; } = "";
+
+    /// <summary>Which sheet it came from, so a row can be traced back.</summary>
+    public string Sheet { get; set; } = "";
+
+    /* ---- the modes this operator handles for this customer ---- */
+    public bool Import { get; set; }
+    public bool Export { get; set; }
+    public bool Fcl { get; set; }
+    public bool Lcl { get; set; }
+    public bool Domestic { get; set; }
+
+    /// <summary>
+    /// The primary operator's cell, kept whole.
+    ///
+    /// It holds an email, a mobile and an extension run together —
+    /// "uthai.yodbunnok@leschaco.com 092-9919449 #7048". The email is pulled out
+    /// because it is the identity; the rest is kept as written because it is
+    /// what somebody needs to actually ring them, and re-formatting a phone
+    /// number is how a digit goes missing.
+    /// </summary>
+    public string PrimaryContact { get; set; } = "";
+    public string PrimaryEmail { get; set; } = "";
+
+    /// <summary>The directory id behind the email, when the directory knows it.</summary>
+    public string PrimaryId { get; set; } = "";
+
+    public string BackupContact { get; set; } = "";
+    public string BackupEmail { get; set; } = "";
+    public string Backup2Contact { get; set; } = "";
+    public string Backup2Email { get; set; } = "";
+
+    /// <summary>Carriers named for this customer, as the sheet lists them.</summary>
+    public string SubFcl { get; set; } = "";
+    public string SubLcl { get; set; } = "";
+
+    /// <summary>The customer service contact at LCB, where one is named.</summary>
+    public string CsLcb { get; set; } = "";
+
+    public string UpdatedBy { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+}

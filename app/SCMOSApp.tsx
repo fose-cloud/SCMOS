@@ -38,6 +38,7 @@ import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
 import { Chemours } from "./scmos/screens/Chemours";
 import { OperationalIssues } from "./scmos/screens/OperationalIssues";
+import { JobRotation } from "./scmos/screens/JobRotation";
 import { Today } from "./scmos/screens/Today";
 import { CapacityBoard } from "./scmos/screens/CapacityBoard";
 import { Documents } from "./scmos/screens/Documents";
@@ -2177,6 +2178,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             )}
             {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "issues" && <OperationalIssues jobs={ops?.jobs ?? []} onToast={setToast} />}
+            {screen === "rotation" && <JobRotation me={me.id} onToast={setToast} />}
             {screen === "chemours" && (
               <Chemours jobs={ops?.jobs ?? []} tab={selectedTab("chemours", tab)} onToast={setToast} />
             )}
