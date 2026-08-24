@@ -436,7 +436,8 @@ const HEADER_ALIASES: Record<string, string[]> = {
   freightType: ["FREIGHT TYPE", "FREIGHT"],
   incident: ["INCIDENT REPORT", "INCIDENT"],
   cs: ["CS"],
-  pickupPlan: ["PICKUP PLAN", "PICK UP PLAN"],
+  pickupPlan: ["PICKUP PLAN", "PICK UP PLAN", "PICKUP PLAN DATE", "PICK UP PLAN DATE"],
+  pickupTime: ["PICKUP PLAN TIME", "PICK UP PLAN TIME", "PICKUP TIME"],
   op: ["OWNER", "ASSIGNED TO", "OPERATOR", "ผู้รับผิดชอบ"],
   wh: ["W/H", "WH", "WAREHOUSE", "คลัง"],
   jobNo: ["JOB NO", "JOB NO."],
@@ -667,7 +668,7 @@ const BLANK_JOB: Omit<Job, "key" | "id" | "cat" | "op"> = {
   fclLcl: "", agent: "", destination: "", plant: "", planTime: "", type: "", cyYard: "",
   returnLoc: "", emptyReturn: "", weight: "", container: "", seal: "", tare: "", licence: "",
   driver: "", contact: "", arrDate: "", arrTime: "", closingDate: "", closingTime: "",
-  reason: "", remark: "", ot: "", pickupPlan: "", cs: "", incident: "", freightType: "",
+  reason: "", remark: "", ot: "", pickupPlan: "", pickupTime: "", cs: "", incident: "", freightType: "",
   origDate: "", moveReason: "", moveBy: "", cancelReason: "",
   status: "", hist: [], flags: [], action: false, prio: "MEDIUM", issues: [], fixes: [],
 };

@@ -32,7 +32,7 @@ export function JobDrawer(p: {
         ["Closing", j.closingDate ? j.closingDate + " " + j.closingTime : "—"], ["Container", j.container],
         ["Seal", j.seal], ["Weight / Tare", j.weight || j.tare], ["Licence", j.licence], ["Driver", j.driver],
         ["Driver Contact", j.contact], ["Arrival", (j.arrDate || "") + " " + (j.arrTime || "")],
-        ["Pickup Plan", j.pickupPlan], ["CS", j.cs], ["Reason / Delay", j.reason], ["Remark", j.remark],
+        ["Pickup Plan Date", j.pickupPlan], ["Pickup Plan Time", j.pickupTime], ["CS", j.cs], ["Reason / Delay", j.reason], ["Remark", j.remark],
         ["Assigned Operator", j.op]];
 
   const hist = (j.hist || []).slice().reverse().concat([{

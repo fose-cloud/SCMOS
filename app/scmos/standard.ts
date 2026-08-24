@@ -257,7 +257,143 @@ export function normaliseJob(job: Record<string, unknown>): Fix[] {
     }
   }
 
+  const pickup = splitPickup(job);
+  if (pickup) fixes.push(pickup);
+
   return fixes;
+}
+
+/**
+ * A pickup note holds a date and a time in one sentence.
+ *
+ * The import sheets record it as free text — "รับตู้ 24.07.26 .01.00 น." — one
+ * cell carrying two facts, which is why it could never be sorted or compared.
+ * The two are pulled apart into their own fields.
+ *
+ * The fragments go through `normaliseDate` and `normaliseTime` rather than
+ * being parsed here, so the pickup note gets the same reading of a Buddhist
+ * year, the same list of separators, and the same refusal to guess between
+ * 1 July and 7 January that every other date on the job gets. A note neither
+ * can read is left exactly as it was written: it is still what somebody
+ * recorded, and an unreadable note is better than a wrong date.
+ */
+const PICKUP_DATE = /(\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{2,4})/;
+const PICKUP_TIME = /(\d{1,2}\s*[.:,'’]\s*\d{2})/;
+const IS_DATE = /^\d{2}\/\d{2}\/\d{4}$/;
+const IS_TIME = /^\d{2}:\d{2}$/;
+
+/**
+ * A fragment as a date, whether it needed correcting or was already right.
+ *
+ * `normaliseDate` refuses 02.07.26 on purpose — it reads both ways and guessing
+ * turns 2 July into 7 February in silence. Here the row itself settles it: a
+ * container is collected within days of the loading date the job already
+ * carries, so of the two readings the one that lands near that date is the one
+ * the operator meant. Both readings landing near it, or neither, and the note
+ * is left exactly as written.
+ *
+ * This is evidence off the same row, not a house rule about which number comes
+ * first. A pickup note on a job with no plan date is still refused.
+ */
+function asDate(fragment: string, planDate: string): string {
+  const tidy = fragment.replace(/\s+/g, "");
+  if (IS_DATE.test(tidy)) return tidy;
+
+  const direct = normaliseDate(tidy);
+  if (direct) return direct.value;
+
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/.exec(tidy);
+  if (!m) return "";
+  const plan = dayNumberOf(planDate);
+  if (plan === null) return "";
+
+  const dayFirst = readAs(m[1], m[2], m[3]);
+  const monthFirst = readAs(m[2], m[1], m[3]);
+  if (dayFirst === monthFirst) return dayFirst;
+
+  const byDay = distance(dayFirst, plan);
+  const byMonth = distance(monthFirst, plan);
+  // The nearer reading wins, and only if it is near at all. Equal distances,
+  // or both a season away, and the note stays as written.
+  if (byDay === byMonth) return "";
+  const [best, gap] = byDay < byMonth ? [dayFirst, byDay] : [monthFirst, byMonth];
+  return gap <= 30 ? best : "";
+}
+
+/**
+ * dd/MM/yyyy from three fragments, taken at face value.
+ *
+ * Deliberately does not go back through `normaliseDate`: that is the function
+ * that refused the ambiguous reading in the first place, and asking it again
+ * returns nothing both ways round. This builds each candidate so the caller can
+ * weigh them against the loading date. The year rules are the same ones —
+ * two digits are this century, a Buddhist year is converted.
+ */
+function readAs(day: string, month: string, year: string): string {
+  const d = Number(day);
+  const m = Number(month);
+  if (!(d >= 1 && d <= 31) || !(m >= 1 && m <= 12)) return "";
+
+  let y = Number(year);
+  if (year.length === 2) y += 2000;
+  else if (year.length !== 4) return "";
+  if (y > 2400) y -= 543;
+  if (y < 2000 || y > 2100) return "";
+
+  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+}
+
+/** dd/MM/yyyy as a count of days, or null. */
+function dayNumberOf(date: string): number | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((date ?? "").trim());
+  return m ? Math.floor(Date.UTC(+m[3], +m[2] - 1, +m[1]) / 86_400_000) : null;
+}
+
+/**
+ * How many days a candidate sits from the loading date.
+ *
+ * Collecting a container ahead of the loading date is the whole point of the
+ * note, so the pickup is days from the load, not months. A reading that lands a
+ * season away is the wrong one — Infinity so it always loses.
+ */
+function distance(candidate: string, plan: number): number {
+  const at = dayNumberOf(candidate);
+  return at === null ? Number.POSITIVE_INFINITY : Math.abs(at - plan);
+}
+
+function asTime(fragment: string): string {
+  const tidy = fragment.replace(/\s+/g, "");
+  if (IS_TIME.test(tidy)) return tidy;
+  return normaliseTime(tidy)?.value ?? "";
+}
+
+function splitPickup(job: Record<string, unknown>): Fix | null {
+  const note = clean(job.pickupPlan);
+  // Nothing to do once it is a plain date — this has already been split, or was
+  // typed straight into the date column.
+  if (!note || IS_DATE.test(note)) return null;
+
+  const dateAt = PICKUP_DATE.exec(note);
+  if (!dateAt) return null;
+  const date = asDate(dateAt[1], clean(job.date));
+  if (!date) return null;
+
+  // The time is looked for after the date, so the day of a "24.07.26" is not
+  // mistaken for an hour.
+  const after = note.slice(dateAt.index + dateAt[1].length);
+  const timeAt = PICKUP_TIME.exec(after);
+  const time = timeAt ? asTime(timeAt[1]) : "";
+
+  job.pickupPlan = date;
+  if (time && !clean(job.pickupTime)) job.pickupTime = time;
+
+  return {
+    field: "pickupPlan",
+    label: "Pickup plan",
+    from: note,
+    to: time ? `${date} ${time}` : date,
+    note: time ? "แยกเป็นวันที่และเวลารับตู้" : "อ่านวันที่รับตู้ออกจากข้อความ",
+  };
 }
 
 export function ruleFor(field: string): Rule | undefined {
