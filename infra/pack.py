@@ -46,7 +46,12 @@ def skip_dirs(target, root, dirs):
 # business being served as a static file: App Service Login lets every signed-in
 # person fetch it, and static files never reach the API that decides who may
 # read the register. Deployed, the register lives in the database.
-NEVER_DEPLOY = {"public/data/ops.json"}
+# The migration bundle is built into publish/ when somebody applies a migration
+# by hand, and `dotnet publish` does not clean it out. It is a self-contained
+# executable that alters the database schema, it is a hundred and sixty
+# megabytes, and it has no business riding along to a web server — it quadrupled
+# the API package the first time it happened, unnoticed.
+NEVER_DEPLOY = {"public/data/ops.json", "migrate", "migrate.exe"}
 
 
 def pack(target):
