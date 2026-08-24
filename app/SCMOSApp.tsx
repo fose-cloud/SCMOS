@@ -35,6 +35,7 @@ import { Assistant } from "./scmos/screens/Assistant";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
+import { Chemours } from "./scmos/screens/Chemours";
 import { Today } from "./scmos/screens/Today";
 import { CapacityBoard } from "./scmos/screens/CapacityBoard";
 import { Documents } from "./scmos/screens/Documents";
@@ -113,7 +114,7 @@ const WAKE_DELAYS = [0, 5_000, 10_000, 20_000, 30_000, 45_000, 60_000];
 
 /** Screens whose tools genuinely need the whole register in the browser. */
 const REGISTER_SCREENS = new Set<Screen>([
-  "myjob", "monitoring", "booking", "training", "loreal", "prerun", "postpone",
+  "myjob", "monitoring", "booking", "training", "loreal", "chemours", "prerun", "postpone",
 ]);
 
 function selectedTab(screen: Screen, tab: string): string {
@@ -2113,6 +2114,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   .map((job) => job.customer.trim()).filter(Boolean))]} />
             )}
             {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
+            {screen === "chemours" && <Chemours jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
             )}
