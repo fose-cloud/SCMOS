@@ -10,7 +10,7 @@ import { buildDb, type Ship } from "./scmos/demo";
 import { ACCOUNTS, CARRIER_SCREENS, HEADINGS, META, opIdForName, SCREENS_WITH_FILTERS, SUB_NAV, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { bookingStats } from "./scmos/booking";
-import { DEFAULT_STATUS, normaliseField } from "./scmos/standard";
+import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
 import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
@@ -1345,17 +1345,70 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * update in time — which is a bug that would have looked like the dropdown
    * lagging one choice behind.
    */
+  /**
+   * One cell written, with its column's rule applied.
+   *
+   * Shared by the inline editor and by a pasted block, because the whole point
+   * of the column rules is that a value means the same thing however it
+   * arrived. A date pasted from a spreadsheet as 3/7/26 becomes 03/07/2026
+   * exactly as a typed one does, and one that cannot be read is left as it was
+   * typed and marked, not quietly reshaped into something plausible.
+   *
+   * Returns the correction it made, so the caller can say what happened — one
+   * cell says it in full, a pasted block says how many.
+   */
+  function writeCell(job: Job, field: keyof Job, value: string): Fix | null | false {
+    const old = (job[field] as string) || "";
+    if (value === old) return false;
+
+    (job[field] as unknown as string) = value;
+    const fix = normaliseField(job as unknown as Record<string, unknown>, String(field));
+    flagJob(job);
+    pushAct(job, String(field), old, (job[field] as string) || "");
+    return fix;
+  }
+
+  /**
+   * A block of cells pasted in one go.
+   *
+   * Reports once rather than per cell: twenty toasts is not twenty pieces of
+   * information. What it does say is the part a person cannot see for
+   * themselves — how many values were reformatted to fit their column, and how
+   * many cells were skipped because the job belongs to somebody else. Skipping
+   * quietly would let a paste look like it landed when half of it did not.
+   */
+  function pasteCells(edits: { job: Job; field: keyof Job; value: string }[]) {
+    const touched = new Map<string, Job>();
+    let changed = 0;
+    let fixed = 0;
+    let refused = 0;
+
+    for (const edit of edits) {
+      if (!canEditJob(edit.job)) { refused++; continue; }
+      const fix = writeCell(edit.job, edit.field, edit.value);
+      if (fix === false) continue;
+      changed++;
+      if (fix) fixed++;
+      touched.set(edit.job.key, edit.job);
+    }
+
+    if (touched.size > 0) persist([...touched.values()]);
+    touch();
+
+    if (changed === 0 && refused === 0) { setToast("ค่าที่วางเหมือนเดิมทุกช่อง"); return; }
+    setToast(
+      `วางแล้ว ${changed} ช่อง · ${touched.size} งาน`
+      + (fixed ? ` · จัดรูปแบบให้ ${fixed} ช่อง` : "")
+      + (refused ? ` · ข้าม ${refused} ช่องที่เป็นงานของผู้อื่น` : ""),
+    );
+  }
+
   function setField(job: Job, field: keyof Job, value: string) {
     const old = (job[field] as string) || "";
     if (value === old) { touch(); return; }
 
-    (job[field] as unknown as string) = value;
-
-    const record = job as unknown as Record<string, unknown>;
-    const fix = normaliseField(record, String(field));
+    const fix = writeCell(job, field, value) || null;
     const saved = (job[field] as string) || "";
-    flagJob(job);
-    pushAct(job, String(field), old, saved);
 
     const issue = job.issues.find((i) => i.field === String(field));
     if (fix) {
@@ -2116,6 +2169,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onDrawer={ops ? setDrawer : () => setToast("กำลังโหลดข้อมูลสรุปก่อนเปิดรายละเอียด…")}
                   onDelay={setOpsDelay}
                   onSaveCell={saveCell}
+                  onPasteCells={pasteCells}
+                  onToast={setToast}
                   onSetField={setField}
                   onStatusChange={changeJobStatus}
                   onSort={() => undefined}

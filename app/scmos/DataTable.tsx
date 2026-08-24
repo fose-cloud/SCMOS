@@ -82,7 +82,13 @@ export function DataTable({ model, onPage, onTool }: Props) {
             {model.rows.map((r) => (
               <tr key={r.key} className="row-hover" onClick={r.go} title={r.title} style={css(r.style)}>
                 {r.cells.map((c, ci) => (
-                  <td key={ci} style={css(c.td)} onClick={c.go}>
+                  <td
+                    key={ci}
+                    style={css(c.td + (c.sel ? ";background:#DCEBFB;box-shadow:inset 0 0 0 1px #2E7DD1" : ""))}
+                    onClick={c.go}
+                    onMouseDown={c.onDown}
+                    onMouseEnter={c.onEnter}
+                  >
                     {c.kind === "check" ? (
                       <input
                         type="checkbox"

@@ -117,6 +117,20 @@ export type CellOpts = {
 export type Cell = {
   /** "combo" is a text box with a suggestion list: pick a known value or type a new one. */
   kind: "plain" | "select" | "input" | "check" | "combo";
+  /**
+   * The job field this cell shows, when it shows one.
+   *
+   * Set by the grid's editable-cell builder and left off everything else — the
+   * tick box, the priority badge, the status pill. It is what lets a dragged
+   * rectangle be turned back into "which value of which job", so copy and paste
+   * work on the data rather than on the text that happens to be rendered.
+   */
+  field?: string;
+  /** Inside the dragged rectangle, so it is drawn as selected. */
+  sel?: boolean;
+  /** Starts a drag-selection, and extends one already running. */
+  onDown?: (e: MouseEvent<HTMLTableCellElement>) => void;
+  onEnter?: (e: MouseEvent<HTMLTableCellElement>) => void;
   /** Which suggestion list a combo cell reads from, see TableModel.datalists. */
   listId?: string;
   v: string;

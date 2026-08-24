@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { badge, css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
 import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
@@ -44,6 +45,9 @@ type Props = {
   onDrawer: (key: string) => void;
   onDelay: (key: string) => void;
   onSaveCell: (job: Job, field: keyof Job) => void;
+  /** A dragged rectangle written in one go, each column keeping its own rule. */
+  onPasteCells: (edits: { job: Job; field: keyof Job; value: string }[]) => void;
+  onToast: (message: string) => void;
   /** Writes a known value straight onto a field — what the dropdowns use. */
   onSetField: (job: Job, field: keyof Job, value: string) => void;
   onStatusChange: (job: Job, value: string) => void;
@@ -150,6 +154,10 @@ const hasFormatError = (j: Job) => j.issues.some((i) => i.severity === "error");
  * header used to raise a toast and change nothing; these are the columns the
  * grid actually shows, so every one of them now sorts.
  */
+/** Tab and newline, as a spreadsheet writes them. */
+const TAB = "\t";
+const NEWLINE = "\n";
+
 const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text" | "date" | "time" | "number" | "prio" }> = {
   Priority: { pick: (j) => j.prio, as: "prio" },
   Own: { pick: (j) => j.op, as: "text" },
@@ -522,6 +530,15 @@ export function Workspace(p: Props) {
    */
   const editOrder: Record<string, string[]> = {};
   const rowsByLayout: Record<string, Job[]> = {};
+  /**
+   * The field behind each drawn column, per layout.
+   *
+   * Read off the rows that were just built rather than worked out separately,
+   * so it cannot drift from the order actually on screen. A column with no
+   * field — the tick box, the priority badge — leaves a hole here, and that
+   * hole is what keeps copy and paste off it.
+   */
+  const fieldsByLayout: Record<string, (string | undefined)[]> = {};
   let building = "ALL";
 
   /** Where the cursor is now, and what is either side of it. */
@@ -601,6 +618,7 @@ export function Workspace(p: Props) {
       };
     }
     const c = cell((j[field] as string) || "—", opts);
+    c.field = String(field);
     markIssue(c, j, String(field));
     if (canEditJob(j)) {
       c.td += "cursor:cell;";
@@ -736,6 +754,35 @@ export function Workspace(p: Props) {
   if (!sections.length) {
     sections.push({ layout: colKey, jobs: apiPages ? [...p.pinned] : [...p.pinned, ...list] });
   }
+
+  /**
+   * A rectangle of cells, dragged out with the mouse.
+   *
+   * Held here rather than in the workspace state above, because it changes on
+   * every mouse-move: routing that through the app's state would re-run the
+   * whole screen's filtering to drag across four cells.
+   *
+   * Coordinates are the row and column as drawn — the row's place on the page
+   * and the cell's place in the row — so a rectangle means what it looks like.
+   * Which value each cell holds is read back off `Cell.field` when it is
+   * copied, so nothing here has to know the column order.
+   */
+  const [range, setRange] = useState<
+    { layout: string; r1: number; c1: number; r2: number; c2: number } | null>(null);
+  const dragging = useRef(false);
+
+  // A drag ends wherever the mouse is let go, including outside the table.
+  useEffect(() => {
+    const stop = () => { dragging.current = false; };
+    window.addEventListener("mouseup", stop);
+    return () => window.removeEventListener("mouseup", stop);
+  }, []);
+
+
+  const inRange = (layout: string, r: number, c: number) =>
+    !!range && range.layout === layout
+    && r >= Math.min(range.r1, range.r2) && r <= Math.max(range.r1, range.r2)
+    && c >= Math.min(range.c1, range.c2) && c <= Math.max(range.c1, range.c2);
 
   // ---- selection --------------------------------------------------------
   const picked = new Set(ws.picked);
@@ -978,7 +1025,33 @@ export function Workspace(p: Props) {
               : mineJ(j) ? "#2E7DD1" : "transparent") +
         (isCancelled(j) ? ";opacity:.62;text-decoration:line-through" : ""),
       cells: [checkCell(j)].concat(rowCells(j, section.layout)),
+    })).map((row, r) => ({
+      ...row,
+      // Only cells that carry a field take part: dragging across the tick box
+      // or the status pill selects nothing, which is what makes the rectangle
+      // safe to paste into.
+      cells: row.cells.map((c, ci) => (!c.field ? c : {
+        ...c,
+        sel: inRange(section.layout, r, ci),
+        onDown: (e: ReactMouseEvent<HTMLTableCellElement>) => {
+          // Shift extends the rectangle from where it started rather than
+          // beginning a new one, the way a spreadsheet does it.
+          if (e.shiftKey && range?.layout === section.layout) {
+            e.preventDefault();
+            setRange({ ...range, r2: r, c2: ci });
+            return;
+          }
+          dragging.current = true;
+          setRange({ layout: section.layout, r1: r, c1: ci, r2: r, c2: ci });
+        },
+        onEnter: () => {
+          if (!dragging.current || range?.layout !== section.layout) return;
+          setRange({ ...range, r2: r, c2: ci });
+        },
+      })),
     }));
+
+    fieldsByLayout[section.layout] = rows[0]?.cells.map((c) => c.field) ?? [];
 
     // The header of the tick column toggles that page; the rest sort.
     const headerDefs = ([[allPagePicked ? "☑" : "☐", "center"]] as [string, ("left" | "right" | "center")?][])
@@ -1003,6 +1076,106 @@ export function Workspace(p: Props) {
       per: pg.per,
     };
     return { layout: section.layout, model };
+  });
+
+  /**
+   * The selected rectangle, as jobs and fields rather than coordinates.
+   *
+   * Worked out here, while the rows that were just drawn are still to hand, so
+   * the copy and paste handlers below close over a finished list instead of
+   * reaching back into tables that are rebuilt on every render.
+   */
+  const selection: { job: Job; field: keyof Job }[][] = (() => {
+    if (!range) return [];
+    const jobs = rowsByLayout[range.layout] ?? [];
+    const fields = fieldsByLayout[range.layout] ?? [];
+    const rowFrom = Math.min(range.r1, range.r2);
+    const rowTo = Math.min(Math.max(range.r1, range.r2), jobs.length - 1);
+    const colFrom = Math.min(range.c1, range.c2);
+    const colTo = Math.min(Math.max(range.c1, range.c2), fields.length - 1);
+
+    const grid: { job: Job; field: keyof Job }[][] = [];
+    for (let r = rowFrom; r <= rowTo; r++) {
+      const line: { job: Job; field: keyof Job }[] = [];
+      for (let c = colFrom; c <= colTo; c++) {
+        const field = fields[c];
+        if (field) line.push({ job: jobs[r], field: field as keyof Job });
+      }
+      if (line.length) grid.push(line);
+    }
+    return grid;
+  })();
+
+  /**
+   * Copy and paste over the selected rectangle.
+   *
+   * Tab-separated, which is what a spreadsheet reads and writes, so a block
+   * copied here opens in Excel as columns and a block copied from Excel lands
+   * here in the right cells. That is the point of doing it this way rather than
+   * inventing a format: the plan lives in spreadsheets and moves both ways.
+   *
+   * The browser's own copy and paste events are used rather than reading the
+   * clipboard through the permissions API — they carry the data already, and
+   * they never prompt.
+   *
+   * Editing a cell hands both back to the browser. Inside an input, Ctrl+C
+   * means the text in that box, and taking that over would be indefensible.
+   */
+  useEffect(() => {
+    if (!selection.length || ws.edit) return;
+
+    const typing = (target: EventTarget | null) => {
+      const el = target as HTMLElement | null;
+      const tag = el?.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable;
+    };
+
+    const onCopy = (e: ClipboardEvent) => {
+      if (typing(e.target)) return;
+      e.preventDefault();
+      e.clipboardData?.setData("text/plain", selection
+        .map((line) => line.map(({ job, field }) => (job[field] as string) || "").join(TAB))
+        .join(NEWLINE));
+      p.onToast(`คัดลอกแล้ว ${selection.length} แถว · ${selection[0].length} คอลัมน์`);
+    };
+
+    const onPaste = (e: ClipboardEvent) => {
+      if (typing(e.target)) return;
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (!text) return;
+      e.preventDefault();
+
+      // A spreadsheet ends its last row with a newline; that is punctuation,
+      // not an empty row.
+      const lines = text.replace(/\r\n?/g, NEWLINE).replace(/\n$/, "").split(NEWLINE);
+
+      // One value fills the whole rectangle. Putting a carrier on forty rows is
+      // most of what this gets used for, and asking for forty copies of it
+      // would be the wrong answer.
+      const single = lines.length === 1 && !lines[0].includes(TAB);
+
+      const edits: { job: Job; field: keyof Job; value: string }[] = [];
+      selection.forEach((line, r) => {
+        const parts = single ? null : (lines[r] ?? "").split(TAB);
+        line.forEach(({ job, field }, c) => {
+          const value = single ? lines[0] : parts?.[c];
+          // The copied block is smaller than the rectangle: it simply ends
+          // here, and the cells past it keep what they had rather than being
+          // emptied by a paste that never mentioned them.
+          if (value === undefined) return;
+          edits.push({ job, field, value: value.trim() });
+        });
+      });
+
+      if (edits.length) p.onPasteCells(edits);
+    };
+
+    window.addEventListener("copy", onCopy);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("copy", onCopy);
+      window.removeEventListener("paste", onPaste);
+    };
   });
 
   const calendarDays = dates.slice(-21).map((d) => {

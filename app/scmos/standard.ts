@@ -46,7 +46,24 @@ type Rule = {
 
 /* ------------------------------------------------------------ primitives */
 
-const DATE = /^\d{2}\/\d{2}\/\d{4}$/;
+/**
+ * A date in the right shape *and* on the calendar.
+ *
+ * The shape alone accepted 31/02/2026, which is a typo that then travels: it
+ * sorts, it filters, it lands in a report, and nobody notices because it looks
+ * like a date. Checked against the 825 dates in the delivered plan before
+ * tightening this — none of them fail it, so nothing that exists is being
+ * called wrong.
+ */
+function isRealDate(value: string): boolean {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!m) return false;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  const at = new Date(Date.UTC(year, month - 1, day));
+  return at.getUTCDate() === day && at.getUTCMonth() === month - 1 && at.getUTCFullYear() === year;
+}
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const CONTAINER = /^[A-Z]{4}\d{7}$/;
 const PHONE = /^0\d{1,2}-\d{7,8}$/;
@@ -162,7 +179,7 @@ function sumWeight(value: string): number | null {
 export const RULES: Rule[] = [
   {
     field: "date", label: "Plan date", expected: "DD/MM/YYYY", example: "24/07/2026",
-    test: (v) => DATE.test(v),
+    test: isRealDate, normalise: normaliseDate,
   },
   {
     field: "planTime", label: "Plan loading time", expected: "HH:MM (24 ชม.)", example: "08:00",
@@ -170,7 +187,7 @@ export const RULES: Rule[] = [
   },
   {
     field: "arrDate", label: "Arrival date", expected: "DD/MM/YYYY", example: "24/07/2026",
-    test: (v) => DATE.test(v),
+    test: isRealDate, normalise: normaliseDate,
   },
   {
     field: "arrTime", label: "Arrival time", expected: "HH:MM (24 ชม.)", example: "15:00",
@@ -178,7 +195,7 @@ export const RULES: Rule[] = [
   },
   {
     field: "closingDate", label: "Closing date", expected: "DD/MM/YYYY", example: "26/07/2026",
-    cats: ["EXPORT"], test: (v) => DATE.test(v),
+    cats: ["EXPORT"], test: isRealDate, normalise: normaliseDate,
   },
   {
     field: "closingTime", label: "Closing time", expected: "HH:MM (24 ชม.)", example: "16:00",
