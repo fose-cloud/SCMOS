@@ -37,6 +37,7 @@ import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
 import { Chemours } from "./scmos/screens/Chemours";
+import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import { Today } from "./scmos/screens/Today";
 import { CapacityBoard } from "./scmos/screens/CapacityBoard";
 import { Documents } from "./scmos/screens/Documents";
@@ -116,6 +117,9 @@ const WAKE_DELAYS = [0, 5_000, 10_000, 20_000, 30_000, 45_000, 60_000];
 /** Screens whose tools genuinely need the whole register in the browser. */
 const REGISTER_SCREENS = new Set<Screen>([
   "myjob", "monitoring", "booking", "training", "loreal", "chemours", "prerun", "postpone",
+  // The issue screen needs it to suggest job references and to say which
+  // shipment an issue is about.
+  "issues",
   // Administration needs it only for the clear panel, which offers the months
   // a person actually has work in. Counting those off the register is what
   // stops an administrator picking a month that would delete nothing and
@@ -2172,6 +2176,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   .map((job) => job.customer.trim()).filter(Boolean))]} />
             )}
             {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
+            {screen === "issues" && <OperationalIssues jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "chemours" && (
               <Chemours jobs={ops?.jobs ?? []} tab={selectedTab("chemours", tab)} onToast={setToast} />
             )}

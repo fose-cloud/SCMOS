@@ -61,6 +61,7 @@ builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<CarrierService>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();
+builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RateInquiryService>();
 builder.Services.AddScoped<VerificationService>();
 builder.Services.AddScoped<AiGateway>();
@@ -186,6 +187,7 @@ app.MapDelegations();
 app.MapRateInquiries();
 app.MapVerification();
 app.MapUploads();
+app.MapOperationalIssues();
 app.MapOperations();
 app.MapAiExtract();
 

@@ -15,6 +15,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<ShipmentMilestone> ShipmentMilestones => Set<ShipmentMilestone>();
     public DbSet<DelayRecord> DelayRecords => Set<DelayRecord>();
     public DbSet<IncidentCase> IncidentCases => Set<IncidentCase>();
+    public DbSet<OperationalIssue> OperationalIssues => Set<OperationalIssue>();
 
     /// <summary>Every file the system holds — a job's, a supplier's, a case's.</summary>
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
@@ -331,6 +332,43 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             // makes the lane unreadable.
             entry.HasIndex(e => new { e.LaneId, e.Vehicle }).IsUnique()
                 .HasDatabaseName("rate_inquiry_price_lane_vehicle_idx");
+        });
+
+        model.Entity<OperationalIssue>(entry =>
+        {
+            entry.ToTable("operational_issues");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Code).HasColumnName("code").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.FoundOn).HasColumnName("found_on").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.FoundAt).HasColumnName("found_at").HasMaxLength(10).HasDefaultValue("");
+            entry.Property(e => e.Source).HasColumnName("source").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.Reporter).HasColumnName("reporter").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.JobRef).HasColumnName("job_ref").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.Detail).HasColumnName("detail").HasDefaultValue("");
+            entry.Property(e => e.Category).HasColumnName("category").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.Severity).HasColumnName("severity").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Impact).HasColumnName("impact").HasDefaultValue("");
+            entry.Property(e => e.Channel).HasColumnName("channel").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.Owner).HasColumnName("owner").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.OwnerId).HasColumnName("owner_id").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.DueOn).HasColumnName("due_on").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Status).HasColumnName("status").HasMaxLength(30).HasDefaultValue("");
+            entry.Property(e => e.RootCause).HasColumnName("root_cause").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+            // The code is how the team refers to an issue out loud, so two rows
+            // may not share one. Imported rows keep the codes the sheet already
+            // issued, which is only safe because this refuses a duplicate.
+            entry.HasIndex(e => e.Code).IsUnique().HasDatabaseName("operational_issue_code_idx");
+            // "What is still open" opens the screen; "what went wrong on this
+            // job" is what the job's own page asks.
+            entry.HasIndex(e => new { e.Status, e.Id }).HasDatabaseName("operational_issue_status_idx");
+            entry.HasIndex(e => e.JobKey).HasDatabaseName("operational_issue_job_idx");
         });
 
         model.Entity<Driver>(entry =>

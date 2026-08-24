@@ -3,7 +3,7 @@ export type Screen =
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
-  | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone"
+  | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues"
   | "partners" | "commercial" | "quality";
 
 /**
@@ -59,6 +59,10 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
 
   // When something went wrong, and what was done about it.
   quality: [
+    // First because it is the one filled in daily, and because the other two
+    // are raised out of it: a problem logged here that turns out to be serious
+    // is the evidence an incident or a CAR/PAR gets opened from.
+    ["issues", "Operational Issues", "ปัญหาประจำวัน", [[2, 2, 12, 2], [2, 6, 12, 2], [2, 10, 8, 2], [12, 10, 2, 2]]],
     ["incident", "Incident", "เหตุผิดปกติ", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
     ["carpar", "CAR / PAR", "การแก้ไข/ป้องกัน", [[7, 2, 2, 8], [7, 12, 2, 2]]],
   ],
@@ -114,6 +118,7 @@ export const ALL_NAV: [Screen, string, string, number[][]][] = [
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน", "Executive = ภาพรวมทั้งแผน · Operational = สิ่งที่ต้องทำวันนี้ · Wall Board = จอแสดงผลหน้างาน — ทุกตัวเลขคิดจากงานจริงใน Operation Workspace คลิกตัวเลขเพื่อเปิดงานชุดนั้นใน Workspace และกด Export Excel เพื่อดึงออกเป็นไฟล์"],
   myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
+  issues: ["Operational Issues", "บันทึกปัญหาประจำวัน", "ปัญหาที่พบระหว่างวิ่งงาน บันทึกตามฟอร์มที่ทีมใช้อยู่ — เลขงานที่กรอกจะถูกจับคู่กับทะเบียนงานให้เอง จึงเห็นลูกค้าและผู้ขนส่งของงานนั้นทันที · เวลาเป้าหมายมาจากระดับความรุนแรง และนับเฉพาะรายการที่ยังไม่ปิด"],
   chemours: ["The Chemours", "รายละเอียดงานกระจายสินค้า", "รายงานตามฟอร์ม Del details-CHEM ที่ลูกค้าได้รับ — อ่านจากงานประเภท DELIVERY ในทะเบียนจริง ทุกคอลัมน์มีที่มา ไม่มีช่องที่เว้นเพราะไม่มีข้อมูล · เลือกคลังสินค้าและเดือนแล้วส่งออกเป็น Excel ได้"],
   postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก", "งานที่แผนเปลี่ยนไปจากที่จองไว้ — เลื่อนวันโหลด/ส่ง หรือยกเลิก · เปิดจาก My Job แล้วกดปุ่ม “เลื่อนวัน” หรือ “ยกเลิกงาน” · งานที่ยกเลิกไม่ถูกลบ ยังค้นและนับได้"],
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],

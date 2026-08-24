@@ -504,7 +504,7 @@ function isDerivedHeader(header: string): boolean {
  * bug come out right for every date since — and everything is read back in UTC
  * so no local timezone can move a plan date by a day.
  */
-function fromSerial(serial: number): { d: number; m: number; y: number; H: number; M: number } | null {
+export function fromSerial(serial: number): { d: number; m: number; y: number; H: number; M: number } | null {
   if (!Number.isFinite(serial) || serial <= 0 || serial > 2958466) return null;
   const days = Math.floor(serial);
   // To the nearest minute. 08:00 is stored as 0.333333…, which is 07:59:59.99

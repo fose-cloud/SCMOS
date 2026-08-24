@@ -381,3 +381,89 @@ public class OperationEntry
     public DateTimeOffset SubmittedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+/// <summary>
+/// One problem somebody hit while running a job, on the day they hit it.
+///
+/// Taken from the issue log the team already keeps in Excel, column for column,
+/// so a month recorded there can be read here without anybody re-typing it.
+///
+/// Deliberately not an <see cref="IncidentCase"/>. A CAR/PAR is a quality
+/// document — 5W1H, root cause, corrective and preventive action, an approval
+/// — raised occasionally and worked for weeks. This is the daily log: a
+/// container that could not be collected, a document missing from the card set,
+/// a lorry sitting at a gate. Several a day, most closed the same week. Forcing
+/// the light thing through the heavy form is how a log stops being kept.
+///
+/// The two meet at <see cref="JobKey"/>: an issue and a case can point at the
+/// same job, and an issue that turns out to be serious is the evidence a case
+/// gets raised from.
+/// </summary>
+public class OperationalIssue
+{
+    public long Id { get; set; }
+
+    /// <summary>OTL-0001, issued in order and never reused.</summary>
+    public string Code { get; set; } = "";
+
+    /// <summary>dd/MM/yyyy, written the way work_date is so the two compare.</summary>
+    public string FoundOn { get; set; } = "";
+
+    /// <summary>HH:mm. Blank on a row logged after the fact, which is common.</summary>
+    public string FoundAt { get; set; } = "";
+
+    /// <summary>Where the problem came from: CS/Shipping, Subcontractor, Customer, Customs, Depot.</summary>
+    public string Source { get; set; } = "";
+
+    /// <summary>Who raised it — a person, or the carrier who rang in.</summary>
+    public string Reporter { get; set; } = "";
+
+    /// <summary>
+    /// The job reference as it was written down, kept verbatim.
+    ///
+    /// Not everything here resolves to a job in the register: some rows carry
+    /// two numbers separated by a slash, some name a shipment the register
+    /// never held, and six rows in the delivered log carry none at all. The
+    /// written reference is what the person actually recorded, so it is kept
+    /// whether or not it matched anything.
+    /// </summary>
+    public string JobRef { get; set; } = "";
+
+    /// <summary>
+    /// The job this attaches to, when the reference found one. Empty otherwise,
+    /// and empty is not a failure — an issue against a shipment that never
+    /// became a job is still a real issue.
+    /// </summary>
+    public string JobKey { get; set; } = "";
+
+    public string Detail { get; set; } = "";
+
+    /// <summary>The logistics category: late collection, documents, rent, damage.</summary>
+    public string Category { get; set; } = "";
+
+    /// <summary>วิกฤต · สูง · ปานกลาง · ต่ำ</summary>
+    public string Severity { get; set; } = "";
+
+    /// <summary>What it did to the transport, in the reporter's own words.</summary>
+    public string Impact { get; set; } = "";
+
+    /// <summary>How it came in: phone, Line, Teams, email, on site.</summary>
+    public string Channel { get; set; } = "";
+
+    /// <summary>The SMT member holding it, and the id behind the name.</summary>
+    public string Owner { get; set; } = "";
+    public string OwnerId { get; set; } = "";
+
+    /// <summary>dd/MM/yyyy HH:mm, or blank where none was agreed.</summary>
+    public string DueOn { get; set; } = "";
+
+    /// <summary>เปิด · กำลังดำเนินการ · รอข้อมูล · รออนุมัติ · แก้ไขแล้ว · ปิด · ยกเลิก</summary>
+    public string Status { get; set; } = "";
+
+    public string RootCause { get; set; } = "";
+
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public string UpdatedBy { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+}
