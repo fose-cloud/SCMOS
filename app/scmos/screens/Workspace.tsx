@@ -361,6 +361,23 @@ export function Workspace(p: Props) {
   const M = ops.masters;
   const server = p.serverPages;
   const complete = p.fullRegisterLoaded;
+
+  /**
+   * Whether the grid is drawn from the API's page or from the register here.
+   *
+   * The API answers first so the grid is not waiting on 30,000 jobs to arrive.
+   * The moment the register is here, it wins — because everything else on this
+   * screen is already computed from it: the "กำลังดู N จาก M" line, the tab
+   * counts, the tiles, the filter chips, the calendar. Leaving the rows on the
+   * API's answer meant the table and its own header were reading two different
+   * things, and they could disagree. They did: a header saying 82 above an
+   * empty table, and later one saying 66 above 1,388 rows from the wrong date.
+   *
+   * Whatever made the two answers differ, a screen that can contradict itself
+   * is the bug worth removing first. One list now feeds the rows, the counts
+   * and the chips, so what the header says is what the grid draws.
+   */
+  const apiPages = complete ? undefined : server;
   const serverTotal = server
     ? Object.values(server).reduce((sum, answer) => sum + answer.total, 0)
     : 0;
@@ -698,15 +715,15 @@ export function Workspace(p: Props) {
   // of whatever the server sent so it cannot appear twice once the write lands.
   const pinnedKeys = new Set(p.pinned.map((job) => job.key));
   const pinnedFor = (layout: string) =>
-    p.pinned.filter((job) => (splitMixed || server ? job.cat === layout : true));
+    p.pinned.filter((job) => (splitMixed || apiPages ? job.cat === layout : true));
   const withoutPinned = (jobs: Job[]) => jobs.filter((job) => !pinnedKeys.has(job.key));
 
-  const sections = server
-    ? Object.keys(server)
-        .filter((layout) => server[layout].total > 0 || pinnedFor(layout).length > 0)
+  const sections = apiPages
+    ? Object.keys(apiPages)
+        .filter((layout) => apiPages[layout].total > 0 || pinnedFor(layout).length > 0)
         .map((layout) => ({
           layout,
-          jobs: [...pinnedFor(layout), ...withoutPinned(server[layout].jobs)],
+          jobs: [...pinnedFor(layout), ...withoutPinned(apiPages[layout].jobs)],
         }))
     : (splitMixed
       ? (["IMPORT", "EXPORT", "DELIVERY"] as const)
@@ -717,7 +734,7 @@ export function Workspace(p: Props) {
         .filter((s) => s.jobs.length)
       : [{ layout: colKey, jobs: [...p.pinned, ...withoutPinned(list)] }]);
   if (!sections.length) {
-    sections.push({ layout: colKey, jobs: server ? [...p.pinned] : [...p.pinned, ...list] });
+    sections.push({ layout: colKey, jobs: apiPages ? [...p.pinned] : [...p.pinned, ...list] });
   }
 
   // ---- selection --------------------------------------------------------
@@ -935,7 +952,7 @@ export function Workspace(p: Props) {
   const grids = sections.map((section) => {
     // The server already chose this page; paginating it again here would slice
     // twenty-five rows out of twenty-five and report a page count of one.
-    const answered = server?.[section.layout];
+    const answered = apiPages?.[section.layout];
     const pg = answered
       ? {
           // `section.jobs`, not `answered.jobs`: the pinned rows were merged in

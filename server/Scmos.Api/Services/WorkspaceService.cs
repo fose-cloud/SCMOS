@@ -217,14 +217,36 @@ public class WorkspaceService(JobRegisterCache register)
     {
         var descending = string.Equals(dir, "desc", StringComparison.OrdinalIgnoreCase);
 
+        // Keyed on the labels the grid's headers actually carry, because that is
+        // what it sends. It sent "Truck" and this expected "Trucker", so the one
+        // carrier column anybody sorts by fell through to the default and came
+        // back in plan order — the header drew its arrow and nothing moved.
         Func<WorkspaceTabs.JobView, IComparable> pick = key switch
         {
             "Customer" => job => job.Customer,
-            "Trucker" => job => job.Trucker,
+            "Truck" or "Trucker" => job => job.Trucker,
             "Status" => job => job.Status,
-            "Container" => job => job.Container,
+            "No Container" or "Container" => job => job.Container,
+            "No Seal" or "Seal" => job => job.Seal,
             "Job Code" or "JobCode" => job => job.JobCode,
+            "Job / ABS" => job => job.JobCode.Length > 0 ? job.JobCode : job.Abs,
+            "ABS No." => job => job.Abs,
+            "Booking" => job => job.Booking,
+            "SID No." => job => job.Sid,
             "Category" => job => job.Cat,
+            "Type" => job => job.Type,
+            "Destination" => job => job.Destination,
+            "Licence" => job => job.Licence,
+            "Driver" or "Driver Name" => job => job.Driver,
+            "Reason / Delay" => job => job.Reason,
+            "Assigned To" => job => job.Owner,
+            "Own" => job => job.OwnerId,
+            "Date" or "Plan Loading Date" => job => Formats.DateNumber(job.Date),
+
+            // Anything else is a column this view has no field for — the weight,
+            // the arrival, the pickup plan. It comes back in plan order, and the
+            // browser re-sorts on the whole register the moment that arrives,
+            // which is where every column can be sorted properly.
             _ => job => Formats.DateNumber(job.Date),
         };
 
