@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { badge, css } from "../theme";
 import type { Db, Ship } from "../demo";
+import type { Job } from "../ops";
 import { money, pad, rng } from "../util";
+import { DelayAnalysis } from "./DelayAnalysis";
 
 
 /* ------------------------------------------------------------- import/export */
@@ -198,11 +201,29 @@ const REPORT_DEFS: [string, string, string, string][] = [
   ["CAR / PAR Report", "รายงาน CAR/PAR", "Case aging, closure rate and repeat findings.", "Quality"],
 ];
 
+/** Reports that open something real rather than a message saying they would. */
+const BUILT = new Set(["Delay Analysis"]);
+
 const REPORT_TONES: Record<string, "blue" | "green" | "teal" | "amber" | "red" | "gray"> = {
   Operations: "blue", Finance: "green", Supplier: "teal", Safety: "amber", Quality: "red", Commercial: "gray",
 };
 
-export function Reports({ toast }: { toast: (message: string) => void }) {
+/**
+ * The report catalogue.
+ *
+ * Most of these are still cards: a name, a description and buttons that say so.
+ * Delay Analysis is not — management asked a question it had to answer, so it
+ * opens a real report over the real register. The others keep their toast
+ * rather than pretending, because a Run button that produces a plausible
+ * nothing is worse than one that admits it has not been built.
+ */
+export function Reports({ jobs, toast }: { jobs: Job[]; toast: (message: string) => void }) {
+  const [open, setOpen] = useState("");
+
+  if (open === "Delay Analysis") {
+    return <DelayAnalysis jobs={jobs} onToast={toast} onBack={() => setOpen("")} />;
+  }
+
   return (
     <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px")}>
       {REPORT_DEFS.map((d) => (
@@ -216,7 +237,7 @@ export function Reports({ toast }: { toast: (message: string) => void }) {
           </div>
           <div style={css("font-size:11.5px;color:#64748B;line-height:1.5;text-wrap:pretty")}>{d[2]}</div>
           <div style={css("display:flex;gap:6px;margin-top:auto;padding-top:6px;border-top:1px solid #F1F5F9")}>
-            <button className="dark-btn" onClick={() => toast("Generating " + d[0] + "…")} style={css("flex:1;height:30px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:11.5px;font-weight:500;cursor:pointer")}>Run</button>
+            <button className="dark-btn" onClick={() => (BUILT.has(d[0]) ? setOpen(d[0]) : toast("Generating " + d[0] + "…"))} style={css("flex:1;height:30px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:11.5px;font-weight:500;cursor:pointer")}>Run</button>
             <button className="ghost-btn" onClick={() => toast(d[0] + " → Excel")} style={css("height:30px;padding:0 11px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:11.5px;cursor:pointer")}>Excel</button>
             <button className="ghost-btn" onClick={() => toast(d[0] + " → PDF")} style={css("height:30px;padding:0 11px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:11.5px;cursor:pointer")}>PDF</button>
           </div>

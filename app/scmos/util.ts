@@ -65,6 +65,45 @@ export function tmin(t: string | undefined) {
   return m ? +m[1] * 60 + +m[2] : null;
 }
 
+/** dd/MM/yyyy as a count of days, so two dates can be subtracted. */
+function dayNumber(d: string | undefined): number | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(d || "");
+  return m ? Math.floor(Date.UTC(+m[3], +m[2] - 1, +m[1]) / 86_400_000) : null;
+}
+
+/**
+ * Minutes between the plan and the arrival. Negative is early, null when
+ * either half is missing.
+ *
+ * One calculation, because there is more than one threshold. The KPI on the
+ * dashboard counts a truck late the minute it is late — that is the figure
+ * reported upward. A customer's own service level may allow a grace period;
+ * Syensqo's is thirty minutes. Both are real, and they are the same subtraction
+ * judged against different numbers, so the subtraction lives here and the
+ * threshold is the caller's.
+ *
+ * The day difference is a real difference in days, not two yyyymmdd numbers
+ * subtracted: an arrival at 00:30 on the 1st against a plan at 23:00 on the
+ * previous month's 31st is ninety minutes late, and the naive arithmetic makes
+ * it seventy days.
+ */
+export function lateMinutes(job: {
+  date?: string; planTime?: string; arrDate?: string; arrTime?: string;
+}): number | null {
+  const planDay = dayNumber(job.date);
+  const arrDay = dayNumber(job.arrDate);
+  const planAt = tmin(job.planTime);
+  const arrAt = tmin(job.arrTime);
+  if (planDay === null || arrDay === null || planAt === null || arrAt === null) return null;
+  return (arrDay - planDay) * 1440 + (arrAt - planAt);
+}
+
+/** "1 ชม 53 นาที", the way the delay report writes it. */
+export function lateLabel(minutes: number): string {
+  const late = Math.abs(minutes);
+  return `${Math.floor(late / 60)} ชม ${late % 60} นาที`;
+}
+
 export type CellOpts = {
   align?: "left" | "right" | "center";
   w?: number;

@@ -1,4 +1,4 @@
-import { dnum, tmin } from "./util";
+import { dnum, lateMinutes, tmin } from "./util";
 import { opIdForName } from "./nav";
 import { normaliseJob, validateJob, type Fix, type Issue } from "./standard";
 import { STATUS_RE } from "./theme";
@@ -244,10 +244,10 @@ export function opsStats(jobs: Job[]) {
   const measurable = jobs.filter(
     (j) => tmin(j.planTime) !== null && tmin(j.arrTime) !== null && !!dnum(j.date) && !!dnum(j.arrDate),
   );
-  const onTime = measurable.filter((j) =>
-    dnum(j.arrDate) < dnum(j.date) ||
-    (dnum(j.arrDate) === dnum(j.date) && (tmin(j.arrTime) as number) <= (tmin(j.planTime) as number)),
-  );
+  // Zero tolerance, which is what this KPI has always meant and what is
+  // reported upward. A customer whose contract allows a grace period is
+  // measured against that separately — see `lateMinutes`, which both use.
+  const onTime = measurable.filter((j) => (lateMinutes(j) ?? 1) <= 0);
 
   const dateCount: Record<string, number> = {};
   jobs.forEach((j) => { if (j.date) dateCount[j.date] = (dateCount[j.date] || 0) + 1; });

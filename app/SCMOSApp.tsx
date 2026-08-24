@@ -118,8 +118,8 @@ const WAKE_DELAYS = [0, 5_000, 10_000, 20_000, 30_000, 45_000, 60_000];
 const REGISTER_SCREENS = new Set<Screen>([
   "myjob", "monitoring", "booking", "training", "loreal", "chemours", "prerun", "postpone",
   // The issue screen needs it to suggest job references and to say which
-  // shipment an issue is about.
-  "issues",
+  // shipment an issue is about; Reports needs it for Delay Analysis.
+  "issues", "reports",
   // Administration needs it only for the clear panel, which offers the months
   // a person actually has work in. Counting those off the register is what
   // stops an administrator picking a month that would delete nothing and
@@ -2201,7 +2201,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 <BillingAging filtered={filtered} />
               </>
             )}
-            {screen === "reports" && <Reports toast={setToast} />}
+            {screen === "reports" && <Reports jobs={ops?.jobs ?? []} toast={setToast} />}
 
             {/* Screens the new menu introduces. Each says what the backend can
                 already do and what is missing, rather than showing invented
