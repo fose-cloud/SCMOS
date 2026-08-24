@@ -385,6 +385,21 @@ export function legacyStatus(value: unknown, cat: string): string | null {
 /** What a row imported with no status of its own starts as: waiting on a carrier. */
 export const DEFAULT_STATUS = "WAITING_SUPPLIER";
 
+/**
+ * Where each kind of job explains a delay.
+ *
+ * Not one field for all three, because the grids do not carry one field for all
+ * three: the import grid has REASON/DELAY and no remark column, export and
+ * delivery have REMARK and no reason column. Pointing the rule at a field the
+ * operator cannot see would raise an error nobody is able to clear, which is
+ * worse than not asking — they would learn to ignore the red.
+ */
+const DELAY_REASON_FIELD: Record<string, [field: string, label: string, column: string]> = {
+  IMPORT: ["reason", "Reason / Delay", "REASON/DELAY"],
+  EXPORT: ["remark", "Remark", "REMARK"],
+  DELIVERY: ["remark", "Remark", "REMARK"],
+};
+
 export function validateJob(job: Record<string, unknown>): Issue[] {
   const issues: Issue[] = [];
   const cat = String(job.cat ?? "IMPORT");
@@ -421,11 +436,11 @@ export function validateJob(job: Record<string, unknown>): Issue[] {
 
   // A late job has to say why.
   //
-  // Late is the plan against the arrival — the planned loading time against the
-  // date and time the truck actually got there — which is the same subtraction
-  // the KPI uses, so a job the dashboard counts as late is exactly a job this
-  // asks about. No grace period: the figure reported upward has none, and a
-  // reason is wanted for every minute somebody will later be asked to explain.
+  // Late is the plan against the arrival — the planned loading date and time
+  // against the date and time the truck actually got there — which is the same
+  // subtraction the KPI uses, so a job the dashboard counts as late is exactly a
+  // job this asks about. No grace period: the figure reported upward has none,
+  // and somebody will later be asked to explain every minute of it.
   //
   // It is an error rather than one of the missing-value flags because those are
   // cleared once a job is done, and this is the one question that only gets
@@ -437,16 +452,19 @@ export function validateJob(job: Record<string, unknown>): Issue[] {
     arrDate: clean(job.arrDate),
     arrTime: clean(job.arrTime),
   });
-  if (late !== null && late > 0 && !clean(job.reason)) {
-    issues.push({
-      field: "reason",
-      label: "Reason / Delay",
-      value: "",
-      message: `รถถึงช้ากว่าแผน ${lateLabel(late)} แต่ยังไม่ได้ระบุสาเหตุ`,
-      expected: "ระบุสาเหตุที่ล่าช้าในช่อง REASON/DELAY",
-      example: "รถติดในท่า",
-      severity: "error",
-    });
+  if (late !== null && late > 0) {
+    const [field, label, column] = DELAY_REASON_FIELD[cat] ?? DELAY_REASON_FIELD.IMPORT;
+    if (!clean(job[field])) {
+      issues.push({
+        field,
+        label,
+        value: "",
+        message: `รถถึงช้ากว่าแผน ${lateLabel(late)} แต่ยังไม่ได้ระบุสาเหตุ`,
+        expected: `ระบุสาเหตุที่ล่าช้าในช่อง ${column}`,
+        example: "รถติดในท่า",
+        severity: "error",
+      });
+    }
   }
 
   // An arrival time without its date cannot be placed on the calendar, so the
