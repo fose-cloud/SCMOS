@@ -282,6 +282,9 @@ export function normaliseJob(job: Record<string, unknown>): Fix[] {
     }
   }
 
+  const moved = movePickupNote(job);
+  if (moved) fixes.push(moved);
+
   const pickup = splitPickup(job);
   if (pickup) fixes.push(pickup);
 
@@ -390,6 +393,53 @@ function asTime(fragment: string): string {
   const tidy = fragment.replace(/\s+/g, "");
   if (IS_TIME.test(tidy)) return tidy;
   return normaliseTime(tidy)?.value ?? "";
+}
+
+/**
+ * Text that is a note about collecting a container, not a loading time.
+ *
+ * "รับตู้", a trailing "น.", or a dotted date like 01.04.26 — the three shapes
+ * the plan sheets actually use. Kept beside the rule that reads it rather than
+ * in whichever screen noticed the problem.
+ */
+const PICKUP_TEXT = /รับตู้|น\.\s*$|\d{1,2}\.\d{2}\.\d{2}/;
+
+/**
+ * A pickup note typed into the loading-time column, put where it belongs.
+ *
+ * PLAN LOADING TIME is a time. When it holds "รับตู้ 01.04.26 08.00" the job has
+ * no loading time at all — the on-time calculation silently skips it, and the
+ * column reads as though somebody planned an appointment. The note itself is
+ * worth keeping; it is the column that is wrong.
+ *
+ * This ran only when somebody opened the cleanup screen and pressed the button,
+ * which meant a fresh import carried the problem until they did. It runs on
+ * every import now, and on every load, because it is a reading of the data
+ * rather than a decision about it.
+ *
+ * Nothing is thrown away. An empty pickup column takes the note; a pickup column
+ * that already says the same thing keeps what it has; one that says something
+ * different keeps that, and the note goes to the remark rather than overwriting
+ * an appointment somebody recorded.
+ */
+function movePickupNote(job: Record<string, unknown>): Fix | null {
+  const planTime = clean(job.planTime);
+  if (!planTime || TIME.test(planTime) || !PICKUP_TEXT.test(planTime)) return null;
+
+  const pickup = clean(job.pickupPlan);
+  let note = "ย้ายไปช่อง Pickup Plan — ไม่ใช่เวลานัดโหลด";
+
+  if (!pickup) {
+    job.pickupPlan = planTime;
+  } else if (pickup === planTime) {
+    note = "ซ้ำกับ Pickup Plan ที่มีอยู่แล้ว";
+  } else {
+    job.remark = [clean(job.remark), planTime].filter(Boolean).join(" · ");
+    note = "ย้ายไปหมายเหตุ — Pickup Plan มีข้อความอื่นอยู่แล้ว";
+  }
+
+  job.planTime = "";
+  return { field: "planTime", label: "Plan loading time", from: planTime, to: "", note };
 }
 
 function splitPickup(job: Record<string, unknown>): Fix | null {

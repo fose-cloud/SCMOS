@@ -49,8 +49,6 @@ function asDayFirst(value: string): string | null {
  * the import uses too — one table, one answer, on both paths in.
  */
 
-/** Plan-time cells carrying the pickup note rather than a loading time. */
-const PICKUP_TEXT = /รับตู้|น\.\s*$|\d{1,2}\.\d{2}\.\d{2}/;
 
 /** How a moved note is labelled in the remark, so its origin stays readable. */
 const FIELD_LABEL: Record<string, string> = {
@@ -100,21 +98,11 @@ export function cleanupJobs(jobs: Job[]): { report: CleanupReport; changed: Job[
       remaining.push({ field, value, job: label });
     }
 
-    // ---- plan time that is really the pickup note -----------------------
-    const planTime = clean(job.planTime);
-    if (planTime && !TIME.test(planTime) && PICKUP_TEXT.test(planTime)) {
-      const pickup = clean(job.pickupPlan);
-      if (!pickup) {
-        job.pickupPlan = planTime;
-        record(job, "planTime", planTime, "", "ย้ายไปช่อง Pickup Plan — ไม่ใช่เวลานัดโหลด", "plantime-moved");
-      } else if (pickup === planTime) {
-        record(job, "planTime", planTime, "", "ซ้ำกับ Pickup Plan ที่มีอยู่แล้ว", "plantime-moved");
-      } else {
-        job.remark = [clean(job.remark), planTime].filter(Boolean).join(" · ");
-        record(job, "planTime", planTime, "", "ย้ายไปหมายเหตุ — Pickup Plan มีข้อความอื่นอยู่แล้ว", "plantime-moved");
-      }
-      job.planTime = "";
-    }
+    // The pickup note that landed in the loading-time column used to be moved
+    // here, which meant a fresh import carried it until somebody opened this
+    // screen. It is part of the standard now — see `movePickupNote` — so it
+    // happens on every import and every load, and this pass simply finds
+    // nothing left to do.
 
     // ---- notes written into time and date cells -------------------------
     // "รออกจากท่า" in the arrival time, "TBA" or "CHECK JWD" in a closing
@@ -147,7 +135,12 @@ export function cleanupJobs(jobs: Job[]): { report: CleanupReport; changed: Job[
   }
 
   // Everything the standard fixes on its own, then the flags and priorities.
-  for (const job of changed) {
+  //
+  // Over every job rather than only the ones another rule already touched: the
+  // standard now carries corrections of its own — a pickup note in the wrong
+  // column, a pickup date and time written as one sentence — and a job whose
+  // only problem is one of those would never have reached this loop.
+  for (const job of jobs) {
     const fixes = normaliseJob(job as unknown as Record<string, unknown>);
     fixes.forEach((fix) => record(job, fix.field, fix.from, fix.to, fix.note, "standard-fix"));
     flagJob(job);
