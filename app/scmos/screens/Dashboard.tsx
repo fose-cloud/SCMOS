@@ -482,7 +482,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
     ["Contact missing", "ไม่มีเบอร์ติดต่อ", (j) => j.cat !== "DELIVERY" && !j.contact, "#B45309"],
     ["Container missing", "ไม่มีเลขตู้", (j) => j.cat !== "DELIVERY" && !j.container && !/6WH|4WH|10W|COMBINE/i.test(j.type || ""), "#B45309"],
     ["Arrival time missing", "ยังไม่ลงเวลาถึง", (j) => j.cat !== "DELIVERY" && !j.arrTime, "#1D5FA8"],
-    ["Format error", "รูปแบบข้อมูลผิด", (j) => j.issues.some((i) => i.severity === "error"), "#B42318"],
+    ["Data error", "ข้อมูลผิดหรือไม่ครบ", (j) => j.issues.some((i) => i.severity === "error"), "#B42318"],
   ];
   const open = s.jobs.filter((j) => !RE.done.test(j.status));
   const missingRows: BarItem[] = missing.map(([label, th, test, colour]) => {
@@ -504,7 +504,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
         { label: "In Operation", th: "กำลังปฏิบัติงาน", value: String(s.running.length), colour: "#0A6E8A", go: () => onDrill({ tab: "PENDING", kpi: "Run" }) },
         { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), colour: "#B42318", go: () => onDrill({ tab: "DELAY", kpi: "Delay" }) },
         { label: "Action Required", th: "ต้องดำเนินการ", value: String(s.action.length), colour: "#B45309", go: () => onDrill({ tab: "PENDING", kpi: "Act" }) },
-        { label: "Format Error", th: "รูปแบบข้อมูลผิด", value: String(s.formatErrors.length), colour: "#B42318", go: () => onDrill({ tab: "PENDING", kpi: "Fmt" }) },
+        { label: "Data Error", th: "ข้อมูลผิดหรือไม่ครบ", value: String(s.formatErrors.length), colour: "#B42318", go: () => onDrill({ tab: "PENDING", kpi: "Fmt" }) },
       ]} />
 
       <Panel title="Plan Days" sub="วันที่มีงานในแผน · คลิกเพื่อเปิดวันนั้นใน Workspace">

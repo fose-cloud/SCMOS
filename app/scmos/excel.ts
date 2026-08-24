@@ -300,7 +300,7 @@ export function exportDashboard(jobs: Job[], scopeLabel: string): string {
     { Metric: "Delayed", "ตัวชี้วัด": "ล่าช้า", Value: s.delayed.length, Share: share(s.delayed.length) },
     { Metric: "Completed", "ตัวชี้วัด": "เสร็จสิ้น", Value: s.done.length, Share: share(s.done.length) },
     { Metric: "Action required", "ตัวชี้วัด": "ต้องดำเนินการ", Value: s.action.length, Share: share(s.action.length) },
-    { Metric: "Format error", "ตัวชี้วัด": "รูปแบบข้อมูลผิด", Value: s.formatErrors.length, Share: share(s.formatErrors.length) },
+    { Metric: "Data error", "ตัวชี้วัด": "ข้อมูลผิดหรือไม่ครบ", Value: s.formatErrors.length, Share: share(s.formatErrors.length) },
     { Metric: "On-time arrival", "ตัวชี้วัด": "ถึงตรงเวลา", Value: s.otpPct + "%", Share: "วัดได้ " + s.measurable.length + "/" + s.jobs.length },
   ]);
 

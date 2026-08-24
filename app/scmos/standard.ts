@@ -1,4 +1,5 @@
 import { STATUS_LADDER } from "./theme";
+import { lateLabel, lateMinutes } from "./util";
 
 /**
  * The SCMOS operational data standard.
@@ -414,6 +415,36 @@ export function validateJob(job: Record<string, unknown>): Issue[] {
       message: "ไม่อยู่ในชุดสถานะของงาน " + cat,
       expected: "เลือกจากรายการสถานะ " + cat,
       example: allowed.slice(0, 3).join(" / "),
+      severity: "error",
+    });
+  }
+
+  // A late job has to say why.
+  //
+  // Late is the plan against the arrival — the planned loading time against the
+  // date and time the truck actually got there — which is the same subtraction
+  // the KPI uses, so a job the dashboard counts as late is exactly a job this
+  // asks about. No grace period: the figure reported upward has none, and a
+  // reason is wanted for every minute somebody will later be asked to explain.
+  //
+  // It is an error rather than one of the missing-value flags because those are
+  // cleared once a job is done, and this is the one question that only gets
+  // asked afterwards. Management reads a delay report weeks later; a reason
+  // that disappeared the moment the job closed is a reason nobody ever wrote.
+  const late = lateMinutes({
+    date: clean(job.date),
+    planTime: clean(job.planTime),
+    arrDate: clean(job.arrDate),
+    arrTime: clean(job.arrTime),
+  });
+  if (late !== null && late > 0 && !clean(job.reason)) {
+    issues.push({
+      field: "reason",
+      label: "Reason / Delay",
+      value: "",
+      message: `รถถึงช้ากว่าแผน ${lateLabel(late)} แต่ยังไม่ได้ระบุสาเหตุ`,
+      expected: "ระบุสาเหตุที่ล่าช้าในช่อง REASON/DELAY",
+      example: "รถติดในท่า",
       severity: "error",
     });
   }

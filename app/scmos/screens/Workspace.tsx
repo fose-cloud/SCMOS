@@ -119,12 +119,12 @@ const CATEGORIES = ["ALL", "IMPORT", "EXPORT", "DELIVERY"];
 
 const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
-  IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan"], ["Plan Loading Time"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
+  IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
   EXPORT: [["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Incident Report"], ["Change"], ["Assigned To"]],
   DELIVERY: [["Priority"], ["Own"], ["W/H"], ["Job No."], ["Pickup Date"], ["SID No."], ["Customer"], ["Province"], ["ZIP"], ["Pallet"], ["Weight KG"], ["4W"], ["6W"], ["10W"], ["Trailer"], ["Transport Cost"], ["Status"], ["Remark"], ["Change"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
-  ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan"], ["Plan Loading Time"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
+  ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan"], ["CS"], ["Incident Report"], ["Change"], ["Assigned To"]],
 };
 
 const KPI_DEFS: [string, string, string, string][] = [
@@ -139,7 +139,7 @@ const KPI_DEFS: [string, string, string, string][] = [
   ["DELAYED", "ล่าช้า", "Delay", "#B42318"],
   ["COMPLETED", "เสร็จสิ้น", "Done", "#16794C"],
   ["ACTION REQUIRED", "ต้องดำเนินการ", "Act", "#B45309"],
-  ["FORMAT ERROR", "รูปแบบข้อมูลผิด", "Fmt", "#B42318"],
+  ["DATA ERROR", "ข้อมูลผิดหรือไม่ครบ", "Fmt", "#B42318"],
 ];
 
 /** Jobs carrying at least one blocking format issue — excluded from the KPIs. */
@@ -837,12 +837,13 @@ export function Workspace(p: Props) {
       return head.concat([
         catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edPick(j, "trucker"),
         ed(j, "jobCode", { mono: true }), edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
-        edPick(j, "destination", { w: 150 }), edPick(j, "type", { mono: true }),
+        edPick(j, "destination", { w: 150 }), ed(j, "planTime", { mono: true }),
+        edPick(j, "type", { mono: true }),
         edPick(j, "cyYard"), ed(j, "weight", { mono: true, align: "right" }),
         ed(j, "container", { mono: true }), ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }),
         ed(j, "contact", { mono: true }), stCell(j), ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
         ed(j, "reason", { w: 180, color: j.reason ? "#B45309" : null }),
-        ed(j, "pickupPlan", { w: 180, mute: true }), ed(j, "planTime", { mono: true }), ed(j, "cs", { mono: true }),
+        ed(j, "pickupPlan", { w: 180, mute: true }), ed(j, "cs", { mono: true }),
         ed(j, "incident", { w: 170, color: j.incident ? "#B42318" : null }),
         changeCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
@@ -886,7 +887,8 @@ export function Workspace(p: Props) {
       catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edPick(j, "trucker"),
       ed(j, "jobCode", { mono: true }), ed(j, "abs", { mono: true }), ed(j, "booking", { mono: true, w: 160 }),
       edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
-      edPick(j, "destination", { w: 150 }), edPick(j, "plant", { w: 150 }),
+      edPick(j, "destination", { w: 150 }), ed(j, "planTime", { mono: true }),
+      edPick(j, "plant", { w: 150 }),
       edPick(j, "type", { mono: true }), edPick(j, "cyYard"),
       edPick(j, "returnLoc", { w: 140 }), ed(j, "closingDate", { mono: true }), ed(j, "closingTime", { mono: true }),
       riskCell(j), ed(j, "weight", { mono: true, align: "right" }),
@@ -894,7 +896,7 @@ export function Workspace(p: Props) {
       ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }), ed(j, "contact", { mono: true }),
       stCell(j), ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
       ed(j, "reason", { w: 170, color: j.reason ? "#B45309" : null }), ed(j, "remark", { w: 170, mute: true }),
-      ed(j, "pickupPlan", { w: 170, mute: true }), ed(j, "planTime", { mono: true }), ed(j, "cs", { mono: true }),
+      ed(j, "pickupPlan", { w: 170, mute: true }), ed(j, "cs", { mono: true }),
       ed(j, "incident", { w: 160, color: j.incident ? "#B42318" : null }),
       changeCell(j),
       cell(j.op, { bold: mine, mute: !mine }),
