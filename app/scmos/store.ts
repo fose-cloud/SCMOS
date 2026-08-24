@@ -6,8 +6,8 @@ import type { Job, RawOps } from "./ops";
  *
  * `public/data/ops.json` is the plan as delivered; Azure SQL is the plan as
  * worked. The database wins once it holds anything, and is seeded from the file
- * the first time so nobody has to key the July plan again. Every save is an
- * upsert of whole jobs, so a failed save loses nothing but the last edit.
+ * the first time so nobody has to key the July plan again. Saves are whole-job
+ * upserts, and the client queue keeps a failed batch available for retry.
  */
 
 export type LoadResult = {
@@ -150,6 +150,12 @@ const PER_REQUEST = 2000;
  * written some jobs and no half-jobs, and running it again finishes it without
  * duplicating anything. What it must not do is claim to have saved the lot, so a
  * partial run reports how far it got.
+ *
+ * A request that comes back 200 is not yet a save. The count the API reports is
+ * checked against the jobs that were sent, per request, because a write that
+ * silently persisted fewer rows than it was given is exactly the failure that
+ * looks like success — the import appears to work and the register quietly
+ * disagrees with the screen.
  */
 export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ ok: boolean; message: string }> {
   if (!jobs.length) return { ok: true, message: "" };
@@ -163,11 +169,16 @@ export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ by, reason, jobs: batch.map(forStorage) }),
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error || "HTTP " + response.status);
-      }
-      saved += batch.length;
+      const body = await response.json().catch(() => ({})) as { saved?: number; error?: string };
+      if (!response.ok) throw new Error(body.error || "HTTP " + response.status);
+
+      // The API drops a job with no key at all, and collapses the same key sent
+      // twice, so what it should have written is the distinct keys in this
+      // request — not how many jobs went into it.
+      const expected = new Set(batch.map((job) => job.key).filter(Boolean)).size;
+      if (typeof body.saved !== "number") throw new Error("API ไม่ได้ยืนยันจำนวนงานที่บันทึก");
+      if (body.saved !== expected) throw new Error(`ฐานข้อมูลบันทึกได้ ${body.saved} จาก ${expected} งาน`);
+      saved += body.saved;
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);
       return {

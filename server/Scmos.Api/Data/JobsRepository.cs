@@ -198,54 +198,60 @@ public class JobsRepository(ScmosDbContext db, JobRegisterCache register)
         var table = BuildTable(jobs, by, now);
         if (table.Rows.Count == 0) return (0, now);
 
-        var connection = (SqlConnection)db.Database.GetDbConnection();
-        var opened = connection.State != ConnectionState.Open;
-        if (opened) await connection.OpenAsync(token);
-
-        try
+        // The configured SQL execution strategy also has to wrap this manual
+        // ADO.NET path; EnableRetryOnFailure does not retry SqlBulkCopy by itself.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            await Execute(connection, """
-                CREATE TABLE #incoming (
-                  [key] NVARCHAR(80) NOT NULL PRIMARY KEY,
-                  cat NVARCHAR(20) NOT NULL, owner NVARCHAR(60) NOT NULL, owner_id NVARCHAR(20) NOT NULL,
-                  work_date NVARCHAR(20) NOT NULL, customer NVARCHAR(200) NOT NULL, trucker NVARCHAR(200) NOT NULL,
-                  job_code NVARCHAR(80) NOT NULL, container NVARCHAR(40) NOT NULL, status NVARCHAR(60) NOT NULL,
-                  data NVARCHAR(MAX) NOT NULL, updated_by NVARCHAR(120) NOT NULL, updated_at DATETIMEOFFSET NOT NULL)
-                """, token);
+            var connection = (SqlConnection)db.Database.GetDbConnection();
+            var opened = connection.State != ConnectionState.Open;
+            if (opened) await connection.OpenAsync(token);
 
-            using (var bulk = new SqlBulkCopy(connection) { DestinationTableName = "#incoming", BulkCopyTimeout = 120 })
+            try
             {
-                foreach (DataColumn column in table.Columns)
-                    bulk.ColumnMappings.Add(column.ColumnName, column.ColumnName);
-                await bulk.WriteToServerAsync(table, token);
+                await Execute(connection, """
+                    CREATE TABLE #incoming (
+                      [key] NVARCHAR(80) NOT NULL PRIMARY KEY,
+                      cat NVARCHAR(20) NOT NULL, owner NVARCHAR(60) NOT NULL, owner_id NVARCHAR(20) NOT NULL,
+                      work_date NVARCHAR(20) NOT NULL, customer NVARCHAR(200) NOT NULL, trucker NVARCHAR(200) NOT NULL,
+                      job_code NVARCHAR(80) NOT NULL, container NVARCHAR(40) NOT NULL, status NVARCHAR(60) NOT NULL,
+                      data NVARCHAR(MAX) NOT NULL, updated_by NVARCHAR(120) NOT NULL, updated_at DATETIMEOFFSET NOT NULL)
+                    """, token);
+
+                using (var bulk = new SqlBulkCopy(connection) { DestinationTableName = "#incoming", BulkCopyTimeout = 120 })
+                {
+                    foreach (DataColumn column in table.Columns)
+                        bulk.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+                    await bulk.WriteToServerAsync(table, token);
+                }
+
+                // UPDATE then INSERT rather than MERGE: the same result, without
+                // MERGE's long tail of concurrency bugs on SQL Server.
+                await Execute(connection, """
+                    UPDATE target SET
+                      cat = source.cat, owner = source.owner, owner_id = source.owner_id,
+                      work_date = source.work_date, customer = source.customer, trucker = source.trucker,
+                      job_code = source.job_code, container = source.container, status = source.status,
+                      data = source.data, updated_by = source.updated_by, updated_at = source.updated_at
+                    FROM operation_jobs AS target
+                    INNER JOIN #incoming AS source ON source.[key] = target.[key];
+
+                    INSERT INTO operation_jobs ([key], cat, owner, owner_id, work_date, customer, trucker,
+                                                job_code, container, status, data, updated_by, updated_at)
+                    SELECT source.[key], source.cat, source.owner, source.owner_id, source.work_date,
+                           source.customer, source.trucker, source.job_code, source.container, source.status,
+                           source.data, source.updated_by, source.updated_at
+                    FROM #incoming AS source
+                    WHERE NOT EXISTS (SELECT 1 FROM operation_jobs AS target WHERE target.[key] = source.[key]);
+
+                    DROP TABLE #incoming;
+                    """, token);
             }
-
-            // UPDATE then INSERT rather than MERGE: the same result, without
-            // MERGE's long tail of concurrency bugs on SQL Server.
-            await Execute(connection, """
-                UPDATE target SET
-                  cat = source.cat, owner = source.owner, owner_id = source.owner_id,
-                  work_date = source.work_date, customer = source.customer, trucker = source.trucker,
-                  job_code = source.job_code, container = source.container, status = source.status,
-                  data = source.data, updated_by = source.updated_by, updated_at = source.updated_at
-                FROM operation_jobs AS target
-                INNER JOIN #incoming AS source ON source.[key] = target.[key];
-
-                INSERT INTO operation_jobs ([key], cat, owner, owner_id, work_date, customer, trucker,
-                                            job_code, container, status, data, updated_by, updated_at)
-                SELECT source.[key], source.cat, source.owner, source.owner_id, source.work_date,
-                       source.customer, source.trucker, source.job_code, source.container, source.status,
-                       source.data, source.updated_by, source.updated_at
-                FROM #incoming AS source
-                WHERE NOT EXISTS (SELECT 1 FROM operation_jobs AS target WHERE target.[key] = source.[key]);
-
-                DROP TABLE #incoming;
-                """, token);
-        }
-        finally
-        {
-            if (opened) await connection.CloseAsync();
-        }
+            finally
+            {
+                if (opened) await connection.CloseAsync();
+            }
+        });
 
         register.Invalidate();
         return (table.Rows.Count, now);

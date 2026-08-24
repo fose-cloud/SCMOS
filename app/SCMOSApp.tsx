@@ -14,6 +14,7 @@ import { DEFAULT_STATUS, normaliseField } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
 import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
+import { SaveQueue } from "./scmos/saveQueue";
 import { forget, pageCacheKey, readCachedPage, writeCachedPage } from "./scmos/pageCache";
 import { cleanupJobs, duplicateGroups, type CleanupReport, type DupGroup } from "./scmos/cleanup";
 import { ALL_PERIOD, filterPeriod, periodLabel, type Period } from "./scmos/period";
@@ -211,6 +212,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [importOpen, setImportOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [importSaving, setImportSaving] = useState(false);
   const [importError, setImportError] = useState("");
   // One decision per duplicate row, keyed by the incoming job's key.
   const [dupChoice, setDupChoice] = useState<Record<string, DupDecision>>({});
@@ -236,23 +238,18 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   /** Who to record against a save, kept in a ref so effects never read a stale name. */
   const meRef = useRef(ACCOUNTS[0].full);
   /** Jobs changed since the last write, collapsed by key so one save covers them. */
-  const dirty = useRef(new Map<string, Job>());
+  const jobSaveQueue = useRef(new SaveQueue<Job>());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Why the pending batch is being written, when the change needed explaining. */
-  const pendingReason = useRef("");
 
-  const flush = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
-    const batch = [...dirty.current.values()];
-    dirty.current.clear();
-    if (!batch.length) return { ok: true, message: "" };
-    const reason = pendingReason.current;
-    pendingReason.current = "";
-    setSync((prev) => (prev.state === "off" ? prev : { state: "saving", at: prev.at, message: "" }));
-    const result = await saveJobs(batch, meRef.current, reason);
-    setSync((prev) => (prev.state === "off" ? prev
-      : result.ok ? { state: "saved", at: nowHM(), message: "" }
-        : { state: "error", at: prev.at, message: result.message }));
-    return result;
+  const flush = useCallback((): Promise<{ ok: boolean; message: string }> => {
+    return jobSaveQueue.current.flush(async (batch, reason) => {
+      setSync((prev) => (prev.state === "off" ? prev : { state: "saving", at: prev.at, message: "" }));
+      const result = await saveJobs(batch, meRef.current, reason);
+      setSync((prev) => (prev.state === "off" ? prev
+        : result.ok ? { state: "saved", at: nowHM(), message: "" }
+          : { state: "error", at: prev.at, message: result.message }));
+      return result;
+    });
   }, []);
 
   /**
@@ -274,8 +271,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const persist = useCallback((jobs: Job[], reason = "") => {
     if (!jobs.length) return;
-    jobs.forEach((job) => dirty.current.set(job.key, job));
-    if (reason) pendingReason.current = reason;
+    jobSaveQueue.current.enqueue(jobs, reason);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void flush(); }, 700);
   }, [flush]);
@@ -1502,79 +1498,102 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   }
 
   /**
-   * Applies the per-row decisions: skipped rows are dropped, overwrites are
-   * written field by field onto the job already on the board (with the change
-   * history to match), and everything else comes in as a new job.
+   * Prepares the import on copies, writes those copies, and only then updates
+   * the board. A database timeout therefore leaves the preview and the original
+   * jobs untouched, ready for the operator to retry.
    */
   async function confirmImport() {
-    if (!ops || !importPreview?.jobs.length) return;
-    const { jobs: parsed, dups, fileName } = importPreview;
-    const matched = new Map(dups.map((dup) => [dup.key, dup]));
-
-    const fresh: Job[] = [];
-    let overwritten = 0;
-    let skipped = 0;
-
-    for (const job of parsed) {
-      const dup = matched.get(job.key);
-      // Undecided cannot happen — the modal blocks confirm until every row is
-      // answered — but skipping is the safe reading if it ever does.
-      const choice = dup ? dupChoice[dup.key] ?? "skip" : "new";
-
-      if (dup && choice === "skip") { skipped++; continue; }
-
-      if (dup && choice === "overwrite") {
-        // The modal does not offer overwrite on someone else's job; this is the
-        // backstop so a stale decision cannot write across ownership.
-        if (!canEditJob(dup.existing)) { skipped++; continue; }
-        const target = dup.existing as unknown as Record<string, unknown>;
-        dup.diffs.forEach((d) => {
-          target[d.field] = d.to;
-          pushAct(dup.existing, d.label, d.from, d.to);
-        });
-        flagJob(dup.existing);
-        overwritten++;
-        continue;
-      }
-
-      job.hist = [{ ts: nowHM(), user: me.name, field: "นำเข้าจาก Excel", old: "—", neu: fileName }];
-      flagJob(job);
-      fresh.push(job);
-    }
-
-    if (fresh.length) ops.jobs.unshift(...fresh);
-    // Both sides of the import land in the database: the new jobs and the
-    // existing ones the operator chose to overwrite.
-    persist(fresh.concat(dups.filter((d) => dupChoice[d.key] === "overwrite").map((d) => d.existing)));
-    const errors = fresh.filter((j) => j.issues.some((i) => i.severity === "error")).length;
-    closeImport();
-
-    // The write, waited for, before anything asks the server a question.
-    //
-    // Everything below this line — the tab, the cleared filters, `touch` —
-    // makes the workspace refetch, and the workspace draws what the API
-    // returns rather than what is in this array. They used to run while the
-    // save was still 700ms away from being sent, so the refetch fetched the
-    // register without the import in it and nothing ever looked again: the
-    // toast said 284 jobs had arrived and the grid under it showed none of
-    // them until the operator reloaded the page.
-    setToast("กำลังบันทึกงานที่นำเข้า…");
-    const written = await flushNow();
-    if (!written.ok) {
-      setToast("นำเข้าไม่สำเร็จ — บันทึกลงฐานข้อมูลไม่ได้: " + written.message);
+    if (!importPreview?.jobs.length) return;
+    if (!ops) {
+      setImportError("กำลังโหลดทะเบียนงาน กรุณารอสักครู่แล้วลองอีกครั้ง");
       return;
     }
 
-    setTab("PENDING");
-    setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL" }));
-    setPage(1);
-    setToast(
-      `นำเข้า ${fresh.length} งานใหม่` +
-      (overwritten ? ` · ทับของเดิม ${overwritten}` : "") +
-      (skipped ? ` · ข้าม ${skipped}` : "") +
-      (errors ? ` · ${errors} งานรูปแบบผิด กด FORMAT ERROR เพื่อแก้` : ""),
-    );
-    touch();
+    setImportSaving(true);
+    setImportError("");
+
+    try {
+      const { jobs: parsed, dups, fileName } = importPreview;
+      const matched = new Map(dups.map((dup) => [dup.key, dup]));
+      const fresh: Job[] = [];
+      const overwrites: { existing: Job; next: Job }[] = [];
+      let skipped = 0;
+
+      const copyJob = (job: Job): Job => ({
+        ...job,
+        hist: (job.hist || []).map((entry) => ({ ...entry })),
+        flags: [...(job.flags || [])],
+        issues: [...(job.issues || [])],
+        fixes: [...(job.fixes || [])],
+      });
+
+      for (const job of parsed) {
+        const dup = matched.get(job.key);
+        // Undecided cannot happen — the modal blocks confirm until every row is
+        // answered — but skipping is the safe reading if it ever does.
+        const choice = dup ? dupChoice[dup.key] ?? "skip" : "new";
+
+        if (dup && choice === "skip") { skipped++; continue; }
+
+        if (dup && choice === "overwrite") {
+          // The modal does not offer overwrite on someone else's job; this is the
+          // backstop so a stale decision cannot write across ownership.
+          if (!canEditJob(dup.existing)) { skipped++; continue; }
+
+          const next = copyJob(dup.existing);
+          const target = next as unknown as Record<string, unknown>;
+          dup.diffs.forEach((difference) => {
+            target[difference.field] = difference.to;
+            pushAct(next, difference.label, difference.from, difference.to);
+          });
+          flagJob(next);
+          overwrites.push({ existing: dup.existing, next });
+          continue;
+        }
+
+        const next = copyJob(job);
+        next.hist = [{ ts: nowHM(), user: me.name, field: "นำเข้าจาก Excel", old: "—", neu: fileName }];
+        flagJob(next);
+        fresh.push(next);
+      }
+
+      const toSave = fresh.concat(overwrites.map(({ next }) => next));
+      const errors = fresh.filter((job) => job.issues.some((issue) => issue.severity === "error")).length;
+
+      // The same serial queue used by normal edits keeps this batch available if
+      // Azure SQL is still resuming and the first write times out.
+      persist(toSave, `นำเข้าจาก Excel · ${fileName}`);
+      setToast("กำลังบันทึกงานที่นำเข้า…");
+      const written = await flushNow();
+      if (!written.ok) {
+        const message = "นำเข้าไม่สำเร็จ — ยังไม่ได้บันทึกลงฐานข้อมูล: " + written.message;
+        setImportError(message + " · งานยังอยู่ในหน้าต่างนี้ กดนำเข้าอีกครั้งเพื่อลองใหม่");
+        setToast(message);
+        return;
+      }
+
+      // Nothing visible changes until the database has acknowledged the batch.
+      if (fresh.length) ops.jobs.unshift(...fresh);
+      overwrites.forEach(({ existing, next }) => Object.assign(existing, next));
+      closeImport();
+
+      setTab("PENDING");
+      setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL" }));
+      setPage(1);
+      setToast(
+        `นำเข้า ${fresh.length} งานใหม่` +
+        (overwrites.length ? ` · ทับของเดิม ${overwrites.length}` : "") +
+        (skipped ? ` · ข้าม ${skipped}` : "") +
+        (errors ? ` · ${errors} งานรูปแบบผิด กด FORMAT ERROR เพื่อแก้` : ""),
+      );
+      touch();
+    } catch (error) {
+      const message = "นำเข้าไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error));
+      setImportError(message);
+      setToast(message);
+    } finally {
+      setImportSaving(false);
+    }
   }
 
   /**
@@ -2367,6 +2386,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         <ImportModal
           preview={importPreview}
           busy={importBusy}
+          saving={importSaving}
+          registerReady={!!ops}
           error={importError}
           dragOver={dragOver}
           decisions={dupChoice}

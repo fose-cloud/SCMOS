@@ -3,6 +3,7 @@ import { opIdForName } from "./nav";
 import { opsStats, STATUS_RE, type Job } from "./ops";
 import type { RateBook } from "./rates";
 import { DEFAULT_STATUS, legacyStatus, normaliseJob, validateJob, clean, type Fix, type Issue } from "./standard";
+import { inferImportCategory, sheetImportCategory, type ImportCategory } from "./excelImportCategory";
 import { STATUS_LADDER, STATUS_TH } from "./theme";
 import { dowOf, pad } from "./util";
 
@@ -485,8 +486,6 @@ function isDerivedHeader(header: string): boolean {
   return DERIVED_HEADERS.has(normaliseHeader(header));
 }
 
-const CATEGORIES = new Set(["IMPORT", "EXPORT", "DELIVERY"]);
-
 /**
  * An Excel serial number as its calendar parts, in UTC arithmetic.
  *
@@ -564,6 +563,8 @@ export type ImportPreview = {
   issues: Issue[];
   mappedHeaders: string[];
   unmappedHeaders: string[];
+  /** What will actually be written, shown before the operator confirms. */
+  categoryCounts: Record<ImportCategory, number>;
   /** Incoming rows that match a job already on the board, in row order. */
   dups: DupMatch[];
 };
@@ -695,7 +696,11 @@ export async function parseWorkbook(
   let rowCount = 0;
 
   for (const sheetName of book.SheetNames) {
-    const cat = /export/i.test(sheetName) ? "EXPORT" : /deliver/i.test(sheetName) ? "DELIVERY" : "IMPORT";
+    // Unknown tab names stay unknown until the header is available. Treating
+    // every non-English name as Import hid Thai and abbreviated export plans in
+    // the Import section even though their ABS/booking/closing columns made the
+    // direction unambiguous.
+    const namedCategory = sheetImportCategory(sheetName);
     const shape = { header: 1, defval: null, blankrows: false } as const;
     const matrix = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], { ...shape, raw: false });
     // The same cells as the workbook stores them, for the date and time columns.
@@ -708,7 +713,7 @@ export async function parseWorkbook(
     // The header is the first row carrying several recognisable column names.
     let headerRow = -1;
     let fields: (string | null)[] = [];
-    for (let i = 0; i < Math.min(matrix.length, 12); i++) {
+    for (let i = 0; i < Math.min(matrix.length, 50); i++) {
       const candidate = (matrix[i] || []).map((c) => headerToField(String(c ?? "")));
       if (candidate.filter(Boolean).length >= 3) {
         headerRow = i;
@@ -728,7 +733,9 @@ export async function parseWorkbook(
       const rawCells = raws[r] || [];
       if (cells.filter((c) => clean(c) !== "").length < 2) continue;
 
-      const job = { ...BLANK_JOB, key: "", id: "", cat, op: defaultOwner } as Job;
+      const sheetFields = fields.filter((field): field is string => !!field);
+      const fallbackCategory = namedCategory ?? inferImportCategory("", sheetName, sheetFields);
+      const job = { ...BLANK_JOB, key: "", id: "", cat: fallbackCategory, op: defaultOwner } as Job;
       const record = job as unknown as Record<string, unknown>;
       const rowFields = new Set<string>();
 
@@ -740,7 +747,7 @@ export async function parseWorkbook(
         rowFields.add(field);
       });
       if (rowFields.size < 2) continue;
-      if (!job.customer && !job.jobCode && !job.abs) continue;
+      if (!job.customer && !job.jobCode && !job.abs && !job.booking && !job.jobNo && !job.sid && !job.container) continue;
       // A job needs a day or a customer to be work at all. The July upload
       // brought in 28 rows off a reference sheet that carried nothing but a
       // code, and they sat at the top of every list looking like empty jobs.
@@ -748,8 +755,7 @@ export async function parseWorkbook(
 
       // A Category column overrides the sheet name, so one sheet can legitimately
       // hold import and export rows side by side.
-      const declared = String(record.cat ?? "").toUpperCase().trim();
-      job.cat = CATEGORIES.has(declared) ? declared : cat;
+      job.cat = inferImportCategory(record.cat, sheetName, rowFields);
 
       rowCount++;
       const key = `IMP${Date.now().toString(36)}-${rowCount}`;
@@ -776,6 +782,9 @@ export async function parseWorkbook(
     }
   }
 
+  const categoryCounts: Record<ImportCategory, number> = { IMPORT: 0, EXPORT: 0, DELIVERY: 0 };
+  jobs.forEach((job) => { categoryCounts[job.cat as ImportCategory]++; });
+
   return {
     fileName: file.name,
     sheets: book.SheetNames,
@@ -785,6 +794,7 @@ export async function parseWorkbook(
     issues: jobs.flatMap((j) => j.issues),
     mappedHeaders: [...mapped],
     unmappedHeaders: [...unmapped],
+    categoryCounts,
     // Matched after normalising, so "9.00" and "09:00" are not two jobs.
     dups: matchDuplicates(jobs, existing, supplied),
   };

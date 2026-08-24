@@ -35,7 +35,8 @@ builder.Services.AddDbContext<ScmosDbContext>(options =>
     {
         // Azure SQL drops idle and throttled connections as a matter of course;
         // without this a save fails rather than waiting a second and landing.
-        sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
+        // -2 is the command timeout raised while a serverless database resumes.
+        sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: [-2]);
         sql.CommandTimeout(120);
     }));
 
