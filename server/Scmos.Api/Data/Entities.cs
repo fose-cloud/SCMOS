@@ -300,6 +300,55 @@ public class IncidentCase
     public string FollowUpNote { get; set; } = "";
     public string EffectivenessNote { get; set; } = "";
 
+    /* ---- the rest of ISO-FRM-TH-ISO-08-09, the 8D form the team fills in ----
+     *
+     * The fields above already covered D2 (what/where/when/who/why/how), D4
+     * (root cause), D5 (corrective) and D7 (preventive) — the form was built
+     * around the same method. These are the parts of it the record had nowhere
+     * to put, so they were being written on paper beside a case that could not
+     * hold them.
+     */
+
+    /// <summary>LSTH · LSSV · LSCC · TIH — which company the form is raised under.</summary>
+    public string Company { get; set; } = "";
+
+    /// <summary>Major or Minor for a CAR, OBS for a PAR. The form's own grading.</summary>
+    public string Grade { get; set; } = "";
+
+    /// <summary>Customer complaint · internal audit · management review · other.</summary>
+    public string Source { get; set; } = "";
+
+    /// <summary>The clause a non-conformity was raised against, when there is one.</summary>
+    public string NcClause { get; set; } = "";
+
+    /// <summary>D1 — who is working the case, as the form lists them.</summary>
+    public string Team { get; set; } = "";
+    public string RequestedBy { get; set; } = "";
+    public string RequestedOn { get; set; } = "";
+
+    /// <summary>D3 — what was done straight away, before the cause was known.</summary>
+    public string ImmediateAction { get; set; } = "";
+    public string ImmediateBy { get; set; } = "";
+    public string ImmediateDue { get; set; } = "";
+
+    /// <summary>Which documents the fix means rewriting: SOP, a form, something else.</summary>
+    public string DocumentsToRevise { get; set; } = "";
+
+    /// <summary>Who followed the action up, and who reviewed it. Two people, two jobs.</summary>
+    public string FollowUpBy { get; set; } = "";
+    public string ReviewedBy { get; set; } = "";
+
+    /// <summary>
+    /// The approval decision in the form's own words: closed, or not accepted
+    /// with a reason. Kept apart from <see cref="ApprovedBy"/>, which records
+    /// who signed — refusing to accept is also a signature.
+    /// </summary>
+    public string ApprovalOutcome { get; set; } = "";
+    public string ApprovalNote { get; set; } = "";
+
+    /// <summary>D8 — what the team is credited with when the case closes.</summary>
+    public string TeamNote { get; set; } = "";
+
     /// <summary>
     /// A case cannot close without a person's name against it. The AI writes the
     /// summary; it does not sign off the action.

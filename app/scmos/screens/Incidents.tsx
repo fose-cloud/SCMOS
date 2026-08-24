@@ -24,6 +24,12 @@ type Case = {
   approvedBy: string; approvedAt: string | null;
   raisedBy: string; raisedAt: string; overdue: boolean;
   evidence: Evidence[];
+  /* The rest of ISO-FRM-TH-ISO-08-09. */
+  company: string; grade: string; source: string; ncClause: string;
+  team: string; requestedBy: string; requestedOn: string;
+  immediateAction: string; immediateBy: string; immediateDue: string;
+  documentsToRevise: string; followUpBy: string; reviewedBy: string;
+  approvalOutcome: string; approvalNote: string; teamNote: string;
 };
 
 /** A file on the case. The path it went to is decided by the API, not here. */
@@ -43,13 +49,73 @@ const CATEGORY_TH: Record<string, string> = {
   safety: "ความปลอดภัย", quality: "คุณภาพ", other: "อื่นๆ",
 };
 
-const FIELDS: [string, string][] = [
-  ["what", "What — เกิดอะไรขึ้น"], ["where", "Where — ที่ไหน"], ["when", "When — เมื่อไหร่"],
-  ["who", "Who — ใครเกี่ยวข้อง"], ["why", "Why — ทำไม"], ["how", "How — อย่างไร"],
-  ["rootCause", "สาเหตุที่แท้จริง (Root Cause)"],
-  ["correctiveAction", "การแก้ไข (Corrective)"], ["preventiveAction", "การป้องกัน (Preventive)"],
-  ["responsiblePerson", "ผู้รับผิดชอบ"], ["dueDate", "กำหนดเสร็จ (DD/MM/YYYY)"],
-  ["followUpNote", "บันทึกการติดตาม"], ["effectivenessNote", "ผลการติดตามประสิทธิผล"],
+/** What a field offers when the paper form offers a tick box rather than a line. */
+const CHOICES: Record<string, string[]> = {
+  company: ["LSTH", "LSSV", "LSCC", "TIH"],
+  grade: ["Major", "Minor", "OBS"],
+  source: ["Customer Complaint", "Internal Audit", "Management Review", "Other"],
+  documentsToRevise: ["ไม่ต้องแก้เอกสาร", "SOP", "Form", "Others"],
+  approvalOutcome: ["Closed CAR", "Not Accept"],
+};
+
+/**
+ * ISO-FRM-TH-ISO-08-09, in the order the paper form asks for it.
+ *
+ * The record already held D2, D4, D5 and D7 — the form and the record were both
+ * built on 8D, so they agreed about the middle of it. What was missing was
+ * everything around the edges: which company it is raised under, how it was
+ * graded, where it came from, who is on the team, what was done on the day
+ * before anyone knew the cause, which documents the fix means rewriting, and
+ * who followed it up as distinct from who reviewed it. Those were being written
+ * on paper beside a case that had nowhere to keep them.
+ *
+ * Grouped by the form's own D-steps so somebody holding the printed sheet can
+ * work down the screen without hunting.
+ */
+const SECTIONS: [string, [string, string][]][] = [
+  ["D1 · จัดตั้งทีม (Establishing the Team)", [
+    ["company", "บริษัท"],
+    ["grade", "ระดับ — CAR: Major/Minor · PAR: OBS"],
+    ["source", "ที่มา (Source)"],
+    ["ncClause", "NC Clause (ถ้ามี)"],
+    ["requestedBy", "ผู้ร้องขอ (Request By)"],
+    ["requestedOn", "วันที่ร้องขอ (DD/MM/YYYY)"],
+    ["team", "ทีมผู้ร่วมแก้ไข (คั่นด้วยจุลภาค)"],
+    ["responsiblePerson", "ผู้รับผิดชอบตอบกลับ (Response By)"],
+    ["dueDate", "กำหนดเสร็จ (DD/MM/YYYY)"],
+  ]],
+  ["D2 · รายละเอียดของปัญหา (Describe Problem)", [
+    ["what", "What — เกิดอะไรขึ้น"], ["where", "Where — ที่ไหน"], ["when", "When — เมื่อไหร่"],
+    ["who", "Who — ใครเกี่ยวข้อง"], ["why", "Why — ทำไม"], ["how", "How — อย่างไร"],
+  ]],
+  ["D3 · การแก้ไขเฉพาะหน้า (Immediate / Interim Action)", [
+    ["immediateAction", "สิ่งที่ทำทันที"],
+    ["immediateBy", "ผู้ดำเนินการ (Action By)"],
+    ["immediateDue", "กำหนดเสร็จ (DD/MM/YYYY)"],
+  ]],
+  ["D4 · สาเหตุที่แท้จริง (Determine Root Cause)", [
+    ["rootCause", "สาเหตุที่แท้จริง — Fishbone / 5 Why / Pareto"],
+  ]],
+  ["D5 · การแก้ไขไม่ให้เกิดซ้ำ (Corrective Action)", [
+    ["correctiveAction", "การแก้ไขถาวร"],
+  ]],
+  ["D6 · การทวนสอบ (Validate Corrective Action)", [
+    ["effectivenessNote", "วิธีการหรือหลักฐานที่ใช้พิสูจน์"],
+  ]],
+  ["D7 · การป้องกันไม่ให้เกิดซ้ำ (Preventive Action)", [
+    ["preventiveAction", "การป้องกัน"],
+    ["documentsToRevise", "เอกสารที่ต้องแก้ไข"],
+  ]],
+  ["ผลการตรวจติดตามและการอนุมัติ", [
+    ["followUpNote", "ผลการตรวจติดตาม"],
+    ["followUpBy", "ผู้ติดตาม (Follow Up By)"],
+    ["reviewedBy", "ผู้ทบทวน (Review By)"],
+    ["approvalOutcome", "ผลการอนุมัติ"],
+    ["approvalNote", "เหตุผลเมื่อไม่รับ (Not Accept: Specify)"],
+  ]],
+  ["D8 · แสดงความยินดีกับทีม (Congratulate Your Team)", [
+    ["teamNote", "บันทึกถึงทีม"],
+  ]],
 ];
 
 export function Incidents({ prefill, onPrefillTaken, onToast }: {
@@ -244,16 +310,38 @@ function Detail({ case_, busy, onSave, onAdvance, onUpload, onClose }: {
       </div>
 
       <div style={css("padding:13px 16px;display:flex;flex-direction:column;gap:9px")}>
-        {FIELDS.map(([key, label]) => (
-          <label key={key} style={css("display:flex;flex-direction:column;gap:3px")}>
-            <span style={css("font-size:11px;color:#7B8CA0")}>{label}</span>
-            <input
-              value={draft[key] ?? ""}
-              placeholder={(case_ as unknown as Record<string, string>)[key] || "—"}
-              onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-              disabled={case_.stage === "closed"}
-              style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px")} />
-          </label>
+        {SECTIONS.map(([heading, fields]) => (
+          <div key={heading} style={css("display:flex;flex-direction:column;gap:6px;padding-top:4px")}>
+            <span style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.02em;border-bottom:1px solid #E9EFF5;padding-bottom:4px")}>
+              {heading}
+            </span>
+            {fields.map(([key, label]) => {
+              const held = (case_ as unknown as Record<string, string>)[key] || "";
+              const choices = CHOICES[key];
+              return (
+                <label key={key} style={css("display:flex;flex-direction:column;gap:3px")}>
+                  <span style={css("font-size:11px;color:#7B8CA0")}>{label}</span>
+                  {choices ? (
+                    <select
+                      value={draft[key] ?? held}
+                      onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                      disabled={case_.stage === "closed"}
+                      style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 7px;font-size:12px;background:#fff")}>
+                      <option value="">—</option>
+                      {choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      value={draft[key] ?? ""}
+                      placeholder={held || "—"}
+                      onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                      disabled={case_.stage === "closed"}
+                      style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px")} />
+                  )}
+                </label>
+              );
+            })}
+          </div>
         ))}
 
         {case_.stage !== "closed" && (

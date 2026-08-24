@@ -12,7 +12,17 @@ public record IncidentView(
     string ResponsiblePerson, string DueDate, string FollowUpNote, string EffectivenessNote,
     string ApprovedBy, DateTimeOffset? ApprovedAt,
     string RaisedBy, DateTimeOffset RaisedAt, bool Overdue,
-    IReadOnlyList<DocumentView> Evidence);
+    IReadOnlyList<DocumentView> Evidence,
+
+    /* The rest of ISO-FRM-TH-ISO-08-09. Appended rather than slotted in beside
+     * the fields they belong with: this is a positional record, and moving one
+     * argument shifts every one after it into the wrong field — a mistake that
+     * compiles, because they are all strings. */
+    string Company, string Grade, string Source, string NcClause,
+    string Team, string RequestedBy, string RequestedOn,
+    string ImmediateAction, string ImmediateBy, string ImmediateDue,
+    string DocumentsToRevise, string FollowUpBy, string ReviewedBy,
+    string ApprovalOutcome, string ApprovalNote, string TeamNote);
 
 public record IncidentResult(bool Ok, string Message, long? Id = null);
 
@@ -126,6 +136,26 @@ public class IncidentService(ScmosDbContext db)
         Set("effectivenessNote", v => record.EffectivenessNote = v);
         Set("category", v => { if (Categories.Contains(v.ToLowerInvariant())) record.Category = v.ToLowerInvariant(); });
 
+        // The rest of ISO-FRM-TH-ISO-08-09. Same shape as above: a field only
+        // changes when something is sent for it, so a screen that knows about
+        // half the form cannot blank the other half by saving.
+        Set("company", v => record.Company = v);
+        Set("grade", v => record.Grade = v);
+        Set("source", v => record.Source = v);
+        Set("ncClause", v => record.NcClause = v);
+        Set("team", v => record.Team = v);
+        Set("requestedBy", v => record.RequestedBy = v);
+        Set("requestedOn", v => record.RequestedOn = v);
+        Set("immediateAction", v => record.ImmediateAction = v);
+        Set("immediateBy", v => record.ImmediateBy = v);
+        Set("immediateDue", v => record.ImmediateDue = v);
+        Set("documentsToRevise", v => record.DocumentsToRevise = v);
+        Set("followUpBy", v => record.FollowUpBy = v);
+        Set("reviewedBy", v => record.ReviewedBy = v);
+        Set("approvalOutcome", v => record.ApprovalOutcome = v);
+        Set("approvalNote", v => record.ApprovalNote = v);
+        Set("teamNote", v => record.TeamNote = v);
+
         record.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
         return new IncidentResult(true, "บันทึกแล้ว", id);
@@ -194,6 +224,15 @@ public class IncidentService(ScmosDbContext db)
             c.ResponsiblePerson, c.DueDate, c.FollowUpNote, c.EffectivenessNote,
             c.ApprovedBy, c.ApprovedAt, c.RaisedBy, c.RaisedAt,
             c.Stage != "closed" && due > 0 && due < today,
-            evidence);
+            evidence,
+            // Named, so the alignment is checkable by eye rather than by
+            // counting commas against the record above.
+            Company: c.Company, Grade: c.Grade, Source: c.Source, NcClause: c.NcClause,
+            Team: c.Team, RequestedBy: c.RequestedBy, RequestedOn: c.RequestedOn,
+            ImmediateAction: c.ImmediateAction, ImmediateBy: c.ImmediateBy,
+            ImmediateDue: c.ImmediateDue,
+            DocumentsToRevise: c.DocumentsToRevise, FollowUpBy: c.FollowUpBy,
+            ReviewedBy: c.ReviewedBy, ApprovalOutcome: c.ApprovalOutcome,
+            ApprovalNote: c.ApprovalNote, TeamNote: c.TeamNote);
     }
 }
