@@ -17,6 +17,8 @@ export function JobDrawer(p: {
   onMove: () => void;
   onCancelJob: () => void;
   onDelete: () => void;
+  /** Opens the issue log with this job already attached. */
+  onRaiseIssue: () => void;
 }) {
   const { job: j } = p;
   const rows: [string, string | undefined][] =
@@ -157,6 +159,14 @@ export function JobDrawer(p: {
         </button>
         <button className="ghost-btn" onClick={p.onDuplicate} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Duplicate</button>
         <button className="ghost-btn" onClick={p.onReassign} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Reassign</button>
+        {/* Not gated on ownership: whoever notices a problem records it,
+            and the person who notices is often not the person holding the
+            job. The issue carries the job key, so it attaches exactly
+            rather than by matching a number somebody re-typed. */}
+        <button className="ghost-btn" onClick={p.onRaiseIssue}
+          style={css("height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+          แจ้งปัญหา · Operation Issue
+        </button>
         {p.canEdit && !isCancelled(j) && (
           <>
             <button className="ghost-btn" onClick={p.onMove}

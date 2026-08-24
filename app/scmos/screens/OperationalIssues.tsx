@@ -32,9 +32,18 @@ const SEVERITY_TONE: Record<string, string> = {
   "ต่ำ": "#5C7285",
 };
 
-export function OperationalIssues({ jobs, onToast }: {
+export function OperationalIssues({ jobs, prefill, onPrefillTaken, onToast }: {
   /** The register, so a new issue can name a job the person is looking at. */
   jobs: Job[];
+  /**
+   * A job handed over from the workspace drawer.
+   *
+   * It carries the job key, so the issue attaches to that exact job rather than
+   * to whatever a written reference happens to match. The form opens filled in
+   * and waiting for the one thing only a person can supply — what went wrong.
+   */
+  prefill?: NewIssue | null;
+  onPrefillTaken?: () => void;
   onToast: (message: string) => void;
 }) {
   const [issues, setIssues] = useState<Issue[] | null>(null);
@@ -74,6 +83,24 @@ export function OperationalIssues({ jobs, onToast }: {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadIssueForm().then((f) => f && setForm(f)); }, []);
+
+  /**
+   * Opens the form on a job sent over from the workspace drawer.
+   *
+   * Taken once and then cleared, so returning to this menu later does not
+   * reopen a half-written form somebody had already walked away from.
+   */
+  useEffect(() => {
+    if (!prefill) return;
+    // A genuine synchronous set, and the right one: a prop arriving once has to
+    // become editable state, because the next thing that happens to it is
+    // somebody typing into it. The guard above means this runs on the render
+    // the job arrives on and no other.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraft(prefill);
+    setAdding(true);
+    onPrefillTaken?.();
+  }, [prefill, onPrefillTaken]);
 
   /** Which statuses count as finished — the API's list, not a second one here. */
   const settled = useMemo(() => new Set(form?.settled ?? []), [form]);

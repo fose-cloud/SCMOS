@@ -38,6 +38,7 @@ import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
 import { Chemours } from "./scmos/screens/Chemours";
 import { OperationalIssues } from "./scmos/screens/OperationalIssues";
+import type { NewIssue } from "./scmos/issues";
 import { JobRotation } from "./scmos/screens/JobRotation";
 import { Today } from "./scmos/screens/Today";
 import { CapacityBoard } from "./scmos/screens/CapacityBoard";
@@ -211,6 +212,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   /** The job whose date is being moved or which is being called off, and which of the two. */
   const [changing, setChanging] = useState<{ key: string; mode: "move" | "cancel" } | null>(null);
   const [assignFor, setAssignFor] = useState<string | null>(null);
+  /**
+   * A job handed from the workspace drawer to the issue log.
+   *
+   * Carries the job key, not only the written reference, so the issue attaches
+   * to exactly the job somebody was looking at — no matching, nothing to get
+   * wrong. Cleared once the issue screen has taken it, so opening that menu
+   * again later does not reopen a half-written form.
+   */
+  const [issueDraft, setIssueDraft] = useState<NewIssue | null>(null);
+
   const [addCat, setAddCat] = useState<string | null>(null);
   /** Rows inserted into the grid and still being filled in. See insertRow. */
   const [pinnedKeys, setPinnedKeys] = useState<string[]>([]);
@@ -2177,7 +2188,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   .map((job) => job.customer.trim()).filter(Boolean))]} />
             )}
             {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
-            {screen === "issues" && <OperationalIssues jobs={ops?.jobs ?? []} onToast={setToast} />}
+            {screen === "issues" && (
+              <OperationalIssues
+                jobs={ops?.jobs ?? []}
+                prefill={issueDraft}
+                onPrefillTaken={() => setIssueDraft(null)}
+                onToast={setToast}
+              />
+            )}
             {screen === "rotation" && <JobRotation me={me.id} onToast={setToast} />}
             {screen === "chemours" && (
               <Chemours jobs={ops?.jobs ?? []} tab={selectedTab("chemours", tab)} onToast={setToast} />
@@ -2338,6 +2356,24 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           mine={owns(drawerJob)}
           canEdit={canEditJob(drawerJob)}
           onClose={() => setDrawer(null)}
+          onRaiseIssue={() => {
+            const now = new Date();
+            setIssueDraft({
+              detail: "",
+              jobKey: drawerJob.key,
+              // The reference as the issue log writes it, so the row reads the
+              // same as one typed in by hand.
+              jobRef: drawerJob.booking || drawerJob.jobCode || drawerJob.abs
+                || drawerJob.container || "",
+              foundOn: `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`,
+              foundAt: nowHM(),
+              // Whoever is moving it is usually who rang in about it.
+              reporter: drawerJob.trucker || "",
+            });
+            setDrawer(null);
+            go("issues");
+            setToast("เปิดฟอร์มแจ้งปัญหาของงาน " + (drawerJob.jobCode || drawerJob.customer));
+          }}
           onEdit={() => {
             if (!canEditJob(drawerJob)) {
               setToast("View only — handled by " + drawerJob.op);
