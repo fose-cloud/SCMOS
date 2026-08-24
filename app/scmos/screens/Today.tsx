@@ -54,6 +54,36 @@ export function Today({ onDrill, onSettled }: {
     return () => { cancelled = true; };
   }, [onSettled]);
 
+  /**
+   * The two whole-register rates, fetched after the board is on screen.
+   *
+   * They are the most expensive thing the API computes — every job judged
+   * against eight measures — and waiting for them held the front page on
+   * "loading". The board arrives from the day's own rows; these drop into their
+   * places when they are ready, and if they never arrive the placeholders stay,
+   * which is the honest outcome rather than a zero.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await apiFetch("/api/dashboard/today/rates", { headers: { accept: "application/json" } });
+        if (cancelled || !response.ok) return;
+        const body = await response.json() as { figures?: Figure[] };
+        const rates = body.figures ?? [];
+        if (!rates.length) return;
+        setBoard((held) => held && {
+          ...held,
+          performance: held.performance.map((figure) =>
+            rates.find((rate) => rate.id === figure.id) ?? figure),
+        });
+      } catch {
+        // The board stands without them; the placeholders already say so.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   if (error) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-left:3px solid #B42318;border-radius:5px;padding:20px;font-size:12.5px;color:#B42318")}>อ่านแดชบอร์ดไม่สำเร็จ · {error}</div>;
   }

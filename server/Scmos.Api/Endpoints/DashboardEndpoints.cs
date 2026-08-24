@@ -20,6 +20,18 @@ public static class DashboardEndpoints
             return Results.Json(await dashboard.TodayAsync(date, token));
         });
 
+        // The two whole-register rates, asked for once the board is on screen.
+        routes.MapGet("/api/dashboard/today/rates", async (HttpContext context,
+            IUserAccessor users, DashboardService dashboard, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewDashboard))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูแดชบอร์ด", StatusCodes.Status403Forbidden);
+
+            return Results.Json(new { figures = await dashboard.RatesAsync(token) });
+        });
+
         var alerts = routes.MapGroup("/api/notifications").WithTags("Notifications");
 
         alerts.MapGet("", async (bool? mine, HttpContext context, IUserAccessor users,

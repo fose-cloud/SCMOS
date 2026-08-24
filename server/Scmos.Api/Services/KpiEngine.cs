@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
@@ -65,13 +66,35 @@ public record KpiEngineReport(
 /// that would answer a measure do not exist yet, the measure says so and names
 /// what it needs.
 /// </summary>
-public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IOptions<PreRunOptions> preRun)
+public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCache cache,
+    IOptions<PreRunOptions> preRun)
 {
     private readonly int _sla = preRun.Value.SlaMinutes > 0 ? preRun.Value.SlaMinutes : PreRun.DefaultSlaMinutes;
 
+    /// <summary>
+    /// A finished report, kept until the register it was read from changes.
+    ///
+    /// Judging every job against eight measures is the most expensive thing
+    /// this API does, and the front page asks for it on every load. It was
+    /// affordable while the register was capped at five thousand rows and is
+    /// not at thirty thousand.
+    ///
+    /// Keyed on the snapshot's own timestamp rather than on a clock, so it is
+    /// not a staleness window anybody has to reason about: a write invalidates
+    /// the register, the next read produces a different timestamp, and this
+    /// recomputes. Two callers asking for the same period over the same
+    /// register get the same answer without computing it twice.
+    /// </summary>
+    private static string CacheKey(Period period, DateTimeOffset updatedAt) =>
+        $"kpi-report-v1|{period}|{updatedAt.UtcTicks}";
+
     public async Task<KpiEngineReport> BuildAsync(Period period, CancellationToken token)
     {
-        var rows = (await register.ReadAsync(token)).Rows;
+        var snapshot = await register.ReadAsync(token);
+        var key = CacheKey(period, snapshot.UpdatedAt);
+        if (cache.TryGetValue(key, out KpiEngineReport? ready) && ready is not null) return ready;
+
+        var rows = snapshot.Rows;
 
         var jobs = new List<(string Key, string Carrier, JobRecord Record)>();
         foreach (var row in rows)
@@ -106,8 +129,17 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IOptions<Pr
             SupplierPerformance(jobs, requests, delays, out var scores),
         };
 
-        return new KpiEngineReport(period, jobs.Count, measures, scores,
+        var report = new KpiEngineReport(period, jobs.Count, measures, scores,
             DateTimeOffset.UtcNow.ToString("O"));
+
+        // Held against the register it was read from. An hour is not a
+        // staleness window — the key changes the moment the register does — it
+        // is only how long an unused answer is worth the memory.
+        cache.Set(key, report, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
+        });
+        return report;
     }
 
     /// <summary>How many months of history the trend looks back over.</summary>

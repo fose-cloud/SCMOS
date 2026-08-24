@@ -30,8 +30,25 @@ public record TodayBoard(
 /// nearest planned day instead of showing five zeroes that look like a quiet
 /// morning.
 /// </summary>
-public class DashboardService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache register)
+public class DashboardService(ScmosDbContext db, KpiEngine kpi)
 {
+    /// <summary>
+    /// The jobs planned for one date, read from SQL rather than filtered out of
+    /// the whole register.
+    ///
+    /// A row whose stored JSON will not parse is skipped, exactly as every other
+    /// reader in this codebase skips it — a bad row must not empty the board.
+    /// </summary>
+    private async Task<List<JobRecord>> ReadDayAsync(string date, CancellationToken token)
+    {
+        var rows = await db.OperationJobs.AsNoTracking()
+            .Where(job => job.WorkDate == date)
+            .Select(job => job.Data)
+            .ToListAsync(token);
+
+        return rows.Select(JobRecord.From).OfType<JobRecord>().ToList();
+    }
+
     public async Task<TodayBoard> TodayAsync(string? onDate, CancellationToken token)
     {
         var wanted = (onDate ?? "").Trim();
@@ -40,10 +57,15 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache
             : DateTimeOffset.Now.ToString("dd/MM/yyyy");
         var todayNumber = Formats.DateNumber(today);
 
-        var snapshot = await register.ReadAsync(token);
-        var all = snapshot.Rows.Select(row => row.Record).OfType<JobRecord>().ToList();
-
-        var jobs = all.Where(job => Formats.DateNumber(job.Date) == todayNumber).ToList();
+        // One day, asked for as one day.
+        //
+        // This read the whole register and filtered it in memory, which was
+        // affordable while the register was capped at five thousand rows. It is
+        // not now: thirty thousand jobs are parsed to answer a question about a
+        // few hundred, on the screen the app opens on, and the board sat saying
+        // "loading" while it happened. work_date is a column, so SQL can answer
+        // it — the same move ChangedAsync made for the same reason.
+        var jobs = await ReadDayAsync(today, token);
         var note = "";
 
         if (jobs.Count == 0)
@@ -51,16 +73,25 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache
             // Nothing planned for today. Rather than five zeroes, report the
             // nearest planned day and say which one it is — the July plan is in
             // the past, so this is the normal case right now, not an edge one.
-            var nearest = all
-                .Select(job => Formats.DateNumber(job.Date))
+            //
+            // The distinct dates are a few hundred short strings even when the
+            // register holds tens of thousands of jobs, so this stays cheap.
+            var dates = await db.OperationJobs.AsNoTracking()
+                .Where(job => job.WorkDate != "")
+                .Select(job => job.WorkDate)
+                .Distinct()
+                .ToListAsync(token);
+
+            var nearest = dates
+                .Select(Formats.DateNumber)
                 .Where(number => number > 0)
                 .OrderBy(number => Math.Abs(number - todayNumber))
                 .FirstOrDefault();
 
             if (nearest > 0)
             {
-                jobs = all.Where(job => Formats.DateNumber(job.Date) == nearest).ToList();
                 today = $"{nearest % 100:D2}/{nearest / 100 % 100:D2}/{nearest / 10000:D4}";
+                jobs = await ReadDayAsync(today, token);
                 note = "ไม่มีงานตามแผนของวันนี้ — แสดงวันที่ใกล้ที่สุดที่มีงาน";
             }
         }
@@ -87,20 +118,24 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache
         var withCarrier = jobs.Count(job => job.Trucker.Trim().Length > 0);
         var confirmation = jobs.Count == 0 ? null : (double?)(withCarrier * 100.0 / jobs.Count);
 
-        var report = await kpi.BuildAsync(Period.All, token);
-        var delivery = report.Measures.FirstOrDefault(m => m.Id == nameof(MeasureId.OnTimeDelivery));
-        var pickup = report.Measures.FirstOrDefault(m => m.Id == nameof(MeasureId.OnTimePickup));
-
         var performance = new List<Figure>
         {
             new("truckConfirmation", "Truck Confirmation", "ยืนยันรถแล้ว", confirmation, jobs.Count, "%",
                 jobs.Count == 0 ? "ไม่มีงานในวันนี้" : $"{withCarrier} จาก {jobs.Count} งานมีผู้ขนส่งแล้ว"),
 
-            // Both come from the KPI engine over the whole register, not today
-            // alone: one day's dozen jobs is not a rate anybody should steer by,
-            // and the engine already refuses to report below its minimum sample.
-            From("onTimePickup", pickup, "รับตู้ตรงเวลา"),
-            From("onTimeDelivery", delivery, "ส่งมอบตรงเวลา"),
+            // The two rates are not on this board's critical path.
+            //
+            // They come from the KPI engine over the whole register — one day's
+            // dozen jobs is not a rate anybody should steer by — and judging
+            // thirty thousand jobs against eight measures is the most expensive
+            // thing this API does. Computing it here meant the front page, the
+            // screen the app opens on, sat saying "loading" until it finished.
+            //
+            // So the board answers from the day's own rows and these two arrive
+            // in a second request. Placeholders rather than omissions, so the
+            // row keeps its shape and the reader can see what is still coming.
+            Pending("onTimePickup", "รับตู้ตรงเวลา"),
+            Pending("onTimeDelivery", "ส่งมอบตรงเวลา"),
         };
 
         /* ---------------------------------------------------- attention */
@@ -139,6 +174,29 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache
 
     private static Figure Count(string id, string english, string thai, int value) =>
         new(id, english, thai, value, value, "", "");
+
+    /// <summary>A rate that has not been computed yet, and says so.</summary>
+    private static Figure Pending(string id, string thai) =>
+        new(id, id, thai, null, 0, "%", "กำลังคำนวณ");
+
+    /// <summary>
+    /// The two whole-register rates the board leaves until after it has drawn.
+    ///
+    /// Its own call so the board is not waiting on it. The engine caches the
+    /// finished report against the register it read, so the second person to
+    /// open the dashboard pays nothing for it.
+    /// </summary>
+    public async Task<IReadOnlyList<Figure>> RatesAsync(CancellationToken token)
+    {
+        var report = await kpi.BuildAsync(Period.All, token);
+        var pickup = report.Measures.FirstOrDefault(m => m.Id == nameof(MeasureId.OnTimePickup));
+        var delivery = report.Measures.FirstOrDefault(m => m.Id == nameof(MeasureId.OnTimeDelivery));
+        return
+        [
+            From("onTimePickup", pickup, "รับตู้ตรงเวลา"),
+            From("onTimeDelivery", delivery, "ส่งมอบตรงเวลา"),
+        ];
+    }
 
     private static Figure From(string id, Measure? measure, string thai) =>
         measure is null
