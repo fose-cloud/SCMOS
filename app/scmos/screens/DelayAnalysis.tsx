@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import {
+  appendTripDetail, buildDelayReport, delayReportName, delayReportWorkbook,
+} from "../delayReport";
 import { dnum, lateLabel, lateMinutes } from "../util";
 
 /**
@@ -50,6 +53,8 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [grace, setGrace] = useState(30);
+  /** The service level this account is measured against, stated on the export. */
+  const [target, setTarget] = useState(85);
   const [lateOnly, setLateOnly] = useState(true);
 
   /** Customers that have at least one trip anybody could measure. */
@@ -71,7 +76,8 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
    * counting it as either would put a number in a management report that the
    * records do not support. How many were left out is shown instead.
    */
-  const measured = useMemo(() => {
+  /** Every trip the customer and period select, measurable or not. */
+  const inScope = useMemo(() => {
     const start = from ? dnum(from) : 0;
     const end = to ? dnum(to) : 0;
     return jobs
@@ -81,24 +87,18 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
         if (start && (!day || day < start)) return false;
         if (end && (!day || day > end)) return false;
         return true;
-      })
+      });
+  }, [jobs, customer, from, to]);
+
+  const measured = useMemo(() => {
+    return inScope
       .map((job) => ({ job, late: lateMinutes(job) }))
       .filter((row): row is { job: Job; late: number } => row.late !== null)
       .sort((a, b) => dnum(a.job.date) - dnum(b.job.date) || b.late - a.late);
-  }, [jobs, customer, from, to]);
+  }, [inScope]);
 
   /** In scope but unmeasurable — no arrival written down. Reported, not hidden. */
-  const unrecorded = useMemo(() => {
-    const start = from ? dnum(from) : 0;
-    const end = to ? dnum(to) : 0;
-    return jobs.filter((job) => {
-      if (customer && (job.customer ?? "").trim() !== customer) return false;
-      const day = dnum(job.date);
-      if (start && (!day || day < start)) return false;
-      if (end && (!day || day > end)) return false;
-      return lateMinutes(job) === null;
-    }).length;
-  }, [jobs, customer, from, to]);
+  const unrecorded = inScope.length - measured.length;
 
   const late = useMemo(() => measured.filter((row) => row.late > grace), [measured, grace]);
   const rows = lateOnly ? late : measured;
@@ -128,23 +128,29 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
     ? Math.round(late.reduce((sum, row) => sum + row.late, 0) / late.length)
     : 0;
 
+  /**
+   * The performance review, as a workbook.
+   *
+   * Built over every trip the customer and period select — including the ones
+   * with no arrival recorded, which are the Data Quality sheet — rather than
+   * over the rows the table happens to be showing. The trip detail sheet
+   * follows whatever the table is showing, so a person exporting "late only"
+   * gets the summaries over everything and the evidence for the late ones.
+   */
   function exportSheet() {
-    if (!rows.length) { onToast("ไม่มีเที่ยวให้ส่งออกในมุมมองนี้"); return; }
-    const head = COLUMNS.map((column) => column.head);
-    const body = rows.map(({ job, late: minutes }) => COLUMNS.map((column) => column.read(job, minutes)));
-    const sheet = XLSX.utils.aoa_to_sheet([
-      [`Delay Analysis — ${customer || "ทุกลูกค้า"}`],
-      [`ช่วง ${from || "ตั้งแต่ต้น"} ถึง ${to || "ล่าสุด"} · เกินกำหนดเกิน ${grace} นาทีจึงนับว่าสาย`],
-      [],
-      head,
-      ...body,
-    ]);
-    sheet["!cols"] = COLUMNS.map((column) => ({ wch: column.wide ? 52 : Math.max(12, column.head.length + 3) }));
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Delay Analysis");
-    const name = `Delay_Analysis_${(customer || "ALL").replace(/[^A-Za-z0-9]+/g, "_")}.xlsx`;
+    if (!inScope.length) { onToast("ไม่มีเที่ยวในขอบเขตที่เลือก"); return; }
+
+    const report = buildDelayReport(inScope, { customer, from, to, grace, target });
+    const book = delayReportWorkbook(report);
+    appendTripDetail(
+      book,
+      rows.map(({ job, late: minutes }) => COLUMNS.map((column) => column.read(job, minutes))),
+      COLUMNS.map((column) => column.head),
+    );
+
+    const name = delayReportName(report);
     XLSX.writeFile(book, name);
-    onToast(`ส่งออก ${rows.length} เที่ยวแล้ว · ${name}`);
+    onToast(`ส่งออกแล้ว · ${report.months.length} เดือน · ${rows.length} เที่ยวในชีท Trip Detail · ${name}`);
   }
 
   return (
@@ -177,6 +183,10 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
               </option>
             ))}
           </select>
+        </Field>
+        <Field label="เป้าหมาย OTD %" width="120px">
+          <input value={target} onChange={(e) => setTarget(Number(e.target.value) || 0)}
+            inputMode="numeric" style={INPUT} />
         </Field>
         <label style={css("display:flex;align-items:center;gap:6px;font-size:12px;color:#31465C;padding-bottom:7px")}>
           <input type="checkbox" checked={lateOnly} onChange={(e) => setLateOnly(e.target.checked)} />

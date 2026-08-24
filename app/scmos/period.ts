@@ -43,6 +43,22 @@ export function monthLabel(mm: string): string {
   return THAI_MONTHS[Number(mm)] ?? mm;
 }
 
+const ENGLISH_MONTHS = ["", "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+/**
+ * The month in English, for a document a customer or head office reads.
+ *
+ * Beside the Thai names rather than in whichever screen needed it, because a
+ * second list of twelve month names is exactly the kind of thing this codebase
+ * has had to gather back together before. `short` gives Apr rather than April,
+ * which is what a column heading has room for.
+ */
+export function monthNameEn(mm: string, short = false): string {
+  const name = ENGLISH_MONTHS[Number(mm)] ?? mm;
+  return short ? name.slice(0, 3) : name;
+}
+
 /**
  * The YYYY-MM a dd/MM/yyyy date belongs to, for grouping a month at a time.
  *
