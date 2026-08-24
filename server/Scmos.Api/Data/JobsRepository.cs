@@ -19,7 +19,19 @@ namespace Scmos.Api.Data;
 /// </summary>
 public class JobsRepository(ScmosDbContext db, JobRegisterCache register)
 {
-    /// <summary>What one save may carry. The workspace never sends more in one go.</summary>
+    /// <summary>
+    /// What one save request may carry.
+    ///
+    /// This bounds a request, not the register. It was called <c>Limit</c> and
+    /// used for both, which is how the register read came to be capped at the
+    /// size of a save batch — two unrelated numbers kept under one name until
+    /// they were assumed to be the same rule.
+    ///
+    /// A stored job measures about 760 bytes, so this batch is roughly 3.6 MB on
+    /// the wire, comfortably inside Kestrel's 30 MB default. The workspace never
+    /// sends more in one go because <c>saveJobs</c> splits the work up; this
+    /// stays as the backstop for anything that does not.
+    /// </summary>
     public const int MaxSaveBatch = 5000;
 
     /// <summary>Operator name to owner id, read once per save. See SaveAsync.</summary>

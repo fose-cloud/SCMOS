@@ -3,7 +3,7 @@ export type Screen =
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
-  | "loreal" | "carrier" | "myjob" | "training" | "postpone"
+  | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone"
   | "partners" | "commercial" | "quality";
 
 /**
@@ -80,6 +80,7 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["prerun", "Pre-Run", "ตรวจก่อนออกงาน", [[2, 3, 12, 2], [2, 7, 8, 2], [2, 11, 5, 2], [11, 9, 3, 5]]],
     ["docverify", "Document Verification", "ตรวจสอบเอกสาร", [[3, 2, 10, 12], [5, 6, 6, 1.5], [5, 9, 4, 1.5]]],
     ["loreal", "L'OREAL", "รายงานตู้ลูกค้า", [[2, 2, 12, 3], [2, 7, 12, 1.5], [2, 11, 8, 1.5]]],
+    ["chemours", "The Chemours", "รายงานงานกระจายสินค้า", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
   ],
 };
 
@@ -113,6 +114,7 @@ export const ALL_NAV: [Screen, string, string, number[][]][] = [
 export const META: Record<string, [string, string, string]> = {
   dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน", "Executive = ภาพรวมทั้งแผน · Operational = สิ่งที่ต้องทำวันนี้ · Wall Board = จอแสดงผลหน้างาน — ทุกตัวเลขคิดจากงานจริงใน Operation Workspace คลิกตัวเลขเพื่อเปิดงานชุดนั้นใน Workspace และกด Export Excel เพื่อดึงออกเป็นไฟล์"],
   myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
+  chemours: ["The Chemours", "รายละเอียดงานกระจายสินค้า", "รายงานตามฟอร์ม Del details-CHEM ที่ลูกค้าได้รับ — อ่านจากงานประเภท DELIVERY ในทะเบียนจริง ทุกคอลัมน์มีที่มา ไม่มีช่องที่เว้นเพราะไม่มีข้อมูล · เลือกคลังสินค้าและเดือนแล้วส่งออกเป็น Excel ได้"],
   postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก", "งานที่แผนเปลี่ยนไปจากที่จองไว้ — เลื่อนวันโหลด/ส่ง หรือยกเลิก · เปิดจาก My Job แล้วกดปุ่ม “เลื่อนวัน” หรือ “ยกเลิกงาน” · งานที่ยกเลิกไม่ถูกลบ ยังค้นและนับได้"],
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],

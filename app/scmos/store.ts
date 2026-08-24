@@ -118,33 +118,78 @@ export async function loadPlanFile(): Promise<RawOps> {
 }
 
 /**
+ * How many jobs travel in one request.
+ *
+ * There is no limit on how many jobs may be saved. There is a limit on how many
+ * fit in one request, and the two are not the same thing — this is what keeps
+ * them apart.
+ *
+ * A stored job measures about 760 bytes, so this is roughly 1.5 MB on the wire.
+ * The API refuses a batch over 5,000 and Kestrel refuses a body over 30 MB
+ * (about 41,000 jobs) before the API ever sees it, and on the far side the whole
+ * batch is buffered, parsed, and built into a DataTable in memory on an instance
+ * with 1.75 GB shared between two apps. A single unbounded request does not
+ * remove those walls, it just arrives at them without a message anybody can
+ * read. Splitting the work means an import of any size goes through, each piece
+ * small enough that none of that is close.
+ */
+const PER_REQUEST = 2000;
+
+/**
  * Writes jobs, with the reason for the change when there is one.
  *
  * The reason travels with the save rather than being written separately: the
  * API works out which fields actually changed and attaches it to those audit
  * rows, so "why did this carrier change" is answered by the same request that
  * changed it and cannot go missing between two calls.
+ *
+ * A batch larger than one request goes in pieces, one after another rather than
+ * at once — the register is written by bulk copy into a temp table, and several
+ * of those racing each other is a way to make a slow import into a failing one.
+ * Every save is an upsert keyed by job key, so a run that stops halfway has
+ * written some jobs and no half-jobs, and running it again finishes it without
+ * duplicating anything. What it must not do is claim to have saved the lot, so a
+ * partial run reports how far it got.
+ *
+ * A request that comes back 200 is not yet a save. The count the API reports is
+ * checked against the jobs that were sent, per request, because a write that
+ * silently persisted fewer rows than it was given is exactly the failure that
+ * looks like success — the import appears to work and the register quietly
+ * disagrees with the screen.
  */
 export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ ok: boolean; message: string }> {
   if (!jobs.length) return { ok: true, message: "" };
-  try {
-    const response = await apiFetch(API, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ by, reason, jobs: jobs.map(forStorage) }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(body.error || "HTTP " + response.status);
+
+  let saved = 0;
+  for (let at = 0; at < jobs.length; at += PER_REQUEST) {
+    const batch = jobs.slice(at, at + PER_REQUEST);
+    try {
+      const response = await apiFetch(API, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ by, reason, jobs: batch.map(forStorage) }),
+      });
+      const body = await response.json().catch(() => ({})) as { saved?: number; error?: string };
+      if (!response.ok) throw new Error(body.error || "HTTP " + response.status);
+
+      // The API drops a job with no key at all, and collapses the same key sent
+      // twice, so what it should have written is the distinct keys in this
+      // request — not how many jobs went into it.
+      const expected = new Set(batch.map((job) => job.key).filter(Boolean)).size;
+      if (typeof body.saved !== "number") throw new Error("API ไม่ได้ยืนยันจำนวนงานที่บันทึก");
+      if (body.saved !== expected) throw new Error(`ฐานข้อมูลบันทึกได้ ${body.saved} จาก ${expected} งาน`);
+      saved += body.saved;
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        message: saved > 0
+          ? `บันทึกได้ ${saved} จาก ${jobs.length} งานแล้วหยุด — ${why} · บันทึกอีกครั้งเพื่อทำต่อ`
+          : why,
+      };
     }
-    const body = await response.json().catch(() => ({})) as { saved?: number };
-    const expected = new Set(jobs.map((job) => job.key).filter(Boolean)).size;
-    if (typeof body.saved !== "number") throw new Error("API ไม่ได้ยืนยันจำนวนงานที่บันทึก");
-    if (body.saved !== expected) throw new Error(`ฐานข้อมูลบันทึกได้ ${body.saved} จาก ${expected} งาน`);
-    return { ok: true, message: "" };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
+  return { ok: true, message: "" };
 }
 
 /**
