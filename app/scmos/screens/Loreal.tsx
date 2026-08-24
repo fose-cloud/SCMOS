@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import type { Job } from "../ops";
+import { monthKey, monthKeyLabel } from "../period";
+import { kilos } from "../util";
 import { css } from "../theme";
 
 /**
@@ -40,7 +42,7 @@ export const COLUMNS: Column[] = [
   { head: "PACKAGE", source: "register", read: NONE },
   { head: "TYPE", source: "register", read: (j) => j.type },
   { head: "CY YARD", source: "register", read: (j) => j.cyYard },
-  { head: "TOTAL WEIGHT", source: "register", read: (j) => weight(j.weight) },
+  { head: "TOTAL WEIGHT", source: "register", read: (j) => kilos(j.weight) },
   { head: "NO CONTAINER", source: "register", read: (j) => j.container },
   { head: "CARD", source: "register", read: NONE },
   { head: "LICENCE", source: "register", read: (j) => j.licence },
@@ -65,14 +67,8 @@ export const COLUMNS: Column[] = [
  * everybody notices. Anything that is not a number is passed through, because
  * an operator's note in the weight column is still worth carrying.
  */
-function weight(value: string): string {
-  const raw = (value || "").trim();
-  if (!raw) return "";
-  const number = Number(raw.replace(/,/g, ""));
-  return Number.isFinite(number)
-    ? number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : raw;
-}
+// weight() lived here and in the Chemours report, character for character.
+// It is `kilos` in util now, next to the other number formatting.
 
 /**
  * A date and a time in one cell, the way the workbook writes it.
@@ -124,7 +120,7 @@ export function Loreal({ jobs, onToast }: { jobs: Job[]; onToast: (message: stri
             style={css("height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff")}>
             <option value="ALL">ทุกเดือน · {mine.length} ตู้</option>
             {months.map((key) => (
-              <option key={key} value={key}>{monthLabel(key)} · {mine.filter((j) => monthOf(j) === key).length} ตู้</option>
+              <option key={key} value={key}>{monthKeyLabel(key)} · {mine.filter((j) => monthOf(j) === key).length} ตู้</option>
             ))}
           </select>
         </div>
@@ -201,18 +197,9 @@ export function Loreal({ jobs, onToast }: { jobs: Job[]; onToast: (message: stri
 }
 
 /** `MM/YYYY` off whichever date the row actually carries. */
+/** This report groups by the arrival, falling back to the plan date. */
 function monthOf(job: Job): string {
-  const raw = (job.arrDate || job.date || "").trim();
-  const parts = raw.split("/");
-  return parts.length === 3 ? `${parts[2]}-${parts[1]}` : "";
-}
-
-function monthLabel(key: string): string {
-  const [year, month] = key.split("-");
-  const names = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
-    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-  const index = Number(month) - 1;
-  return `${names[index] ?? month} ${year}`;
+  return monthKey(job.arrDate || job.date);
 }
 
 /**

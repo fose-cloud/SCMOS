@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
 import type { Job } from "../ops";
+import { monthKey, monthKeyLabel } from "../period";
+import { dnum, kilos } from "../util";
 
 /**
  * The Chemours delivery details, in the shape the account already receives.
@@ -38,22 +40,6 @@ function count(value: string | undefined): string {
   return number.toLocaleString("en-US");
 }
 
-/**
- * Kilogrammes, to two decimals.
- *
- * The register holds weights that came out of a spreadsheet division, so a
- * stored `13665.000000001` is a real value. Printed as it stands it goes into
- * the customer's file exactly like that.
- */
-function kilos(value: string | undefined): string {
-  const raw = (value ?? "").trim();
-  if (!raw) return "";
-  const number = Number(raw.replace(/,/g, ""));
-  return Number.isFinite(number)
-    ? number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : raw;
-}
-
 export const COLUMNS: Column[] = [
   { head: "W/H", read: (j) => j.wh ?? "" },
   { head: "JOB NO.", read: (j) => j.jobNo ?? "" },
@@ -72,19 +58,8 @@ export const COLUMNS: Column[] = [
   { head: "Remark", read: (j) => j.remark },
 ];
 
-/** dd/MM/yyyy to the YYYY-MM the month picker groups by. */
-function monthOf(job: Job): string {
-  const parts = (job.date || "").split("/");
-  return parts.length === 3 ? `${parts[2]}-${parts[1]}` : "";
-}
-
-function monthLabel(key: string): string {
-  const [year, month] = key.split("-");
-  const names = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
-                 "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-  const index = Number(month) - 1;
-  return `${names[index] ?? month} ${year}`;
-}
+/** This report groups by the pick-up date, which is the only date it carries. */
+const monthOf = (job: Job) => monthKey(job.date);
 
 export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: string) => void }) {
   const [warehouse, setWarehouse] = useState("UNITHAI");
@@ -92,14 +67,21 @@ export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: st
 
   const deliveries = useMemo(() => jobs.filter((job) => job.cat === "DELIVERY"), [jobs]);
 
-  /** Every warehouse the delivery jobs actually name, so the filter is honest. */
+  /**
+   * Every warehouse the delivery jobs actually name, with how many each holds.
+   *
+   * Counted in one pass. The dropdown showed the count beside each name by
+   * filtering the whole delivery list again per option, which is a full scan
+   * per warehouse on every render of a screen whose whole job is to be looked
+   * at while somebody changes the filter.
+   */
   const warehouses = useMemo(() => {
-    const seen = new Set<string>();
+    const tally = new Map<string, number>();
     deliveries.forEach((job) => {
-      const name = (job.wh ?? "").trim();
-      if (name) seen.add(name.toUpperCase());
+      const name = (job.wh ?? "").trim().toUpperCase();
+      if (name) tally.set(name, (tally.get(name) ?? 0) + 1);
     });
-    return [...seen].sort();
+    return [...tally.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [deliveries]);
 
   const mine = useMemo(
@@ -110,16 +92,18 @@ export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: st
   );
 
   const months = useMemo(() => {
-    const seen = new Set<string>();
-    mine.forEach((job) => { const key = monthOf(job); if (key) seen.add(key); });
-    return [...seen].sort();
+    const tally = new Map<string, number>();
+    mine.forEach((job) => {
+      const key = monthOf(job);
+      if (key) tally.set(key, (tally.get(key) ?? 0) + 1);
+    });
+    return [...tally.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [mine]);
 
   const rows = useMemo(
     () => (month === "ALL" ? mine : mine.filter((job) => monthOf(job) === month))
       .slice()
-      .sort((a, b) => (a.date || "").split("/").reverse().join("")
-        .localeCompare((b.date || "").split("/").reverse().join(""))),
+      .sort((a, b) => dnum(a.date) - dnum(b.date)),
     [mine, month],
   );
 
@@ -158,11 +142,11 @@ export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: st
           <span style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>คลังสินค้า</span>
           <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)}
             style={css("height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff")}>
-            <option value="UNITHAI">UNITHAI · {deliveries.filter((j) => (j.wh ?? "").trim().toUpperCase() === "UNITHAI").length} รายการ</option>
-            {warehouses.filter((name) => name !== "UNITHAI").map((name) => (
-              <option key={name} value={name}>
-                {name} · {deliveries.filter((j) => (j.wh ?? "").trim().toUpperCase() === name).length} รายการ
-              </option>
+            <option value="UNITHAI">
+              UNITHAI · {warehouses.find(([name]) => name === "UNITHAI")?.[1] ?? 0} รายการ
+            </option>
+            {warehouses.filter(([name]) => name !== "UNITHAI").map(([name, held]) => (
+              <option key={name} value={name}>{name} · {held} รายการ</option>
             ))}
             <option value="ALL">ทุกคลัง · {deliveries.length} รายการ</option>
           </select>
@@ -173,10 +157,8 @@ export function Chemours({ jobs, onToast }: { jobs: Job[]; onToast: (message: st
           <select value={month} onChange={(e) => setMonth(e.target.value)}
             style={css("height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff")}>
             <option value="ALL">ทุกเดือน · {mine.length} รายการ</option>
-            {months.map((key) => (
-              <option key={key} value={key}>
-                {monthLabel(key)} · {mine.filter((j) => monthOf(j) === key).length} รายการ
-              </option>
+            {months.map(([key, held]) => (
+              <option key={key} value={key}>{monthKeyLabel(key)} · {held} รายการ</option>
             ))}
           </select>
         </div>

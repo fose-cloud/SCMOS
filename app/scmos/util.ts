@@ -29,6 +29,24 @@ export const nowHM = () => {
 };
 export const money = (n: number) => "฿" + Math.round(n).toLocaleString("en-US");
 
+/**
+ * A stored weight as the customer reports print it: grouped, two decimals.
+ *
+ * The register holds weights that came out of a spreadsheet division, so
+ * `18459.335999999999` is a real value; printed as it stands it goes into the
+ * customer's file exactly like that. Anything that will not parse is passed
+ * through, because an operator's note in a weight column is still worth
+ * carrying.
+ */
+export const kilos = (value: string | undefined) => {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  const number = Number(raw.replace(/,/g, ""));
+  return Number.isFinite(number)
+    ? number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : raw;
+};
+
 /** DD/MM/YYYY -> sortable integer. */
 export function dnum(d: string | undefined) {
   const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(d || "");

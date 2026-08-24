@@ -43,6 +43,25 @@ export function monthLabel(mm: string): string {
   return THAI_MONTHS[Number(mm)] ?? mm;
 }
 
+/**
+ * The YYYY-MM a dd/MM/yyyy date belongs to, for grouping a month at a time.
+ *
+ * The customer reports each grew their own copy of this and of the Thai month
+ * names below it — the L'OREAL report and the Chemours report had the same
+ * twelve strings written out twice more, three copies in a codebase whose
+ * recurring failure is a rule written twice drifting apart.
+ */
+export function monthKey(date: string | undefined): string {
+  const parts = partsOf(date ?? "");
+  return parts ? `${parts.y}-${parts.m}` : "";
+}
+
+/** "2026-07" as "ก.ค. 2026". */
+export function monthKeyLabel(key: string): string {
+  const [year, month] = key.split("-");
+  return year ? `${monthLabel(month)} ${year}` : key;
+}
+
 /** What the pickers may offer, each level narrowed by the one above it. */
 export function periodOptions(jobs: Job[], period: Period) {
   const years = new Set<string>();
