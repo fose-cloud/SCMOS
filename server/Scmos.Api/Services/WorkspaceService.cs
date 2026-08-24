@@ -228,9 +228,18 @@ public class WorkspaceService(JobRegisterCache register)
             _ => job => Formats.DateNumber(job.Date),
         };
 
+        // Carrier before key as the tie-break. Jobs on the same day are worked
+        // carrier by carrier — one call arranges four trucks — so a day that
+        // sorts by job key scatters that conversation across the page. The key
+        // stays last so the order is still total and a page boundary cannot
+        // shuffle two rows between requests.
         var ordered = descending
-            ? rows.OrderByDescending(pick).ThenBy(job => job.Key, StringComparer.Ordinal)
-            : rows.OrderBy(pick).ThenBy(job => job.Key, StringComparer.Ordinal);
+            ? rows.OrderByDescending(pick)
+                .ThenBy(job => job.Trucker, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(job => job.Key, StringComparer.Ordinal)
+            : rows.OrderBy(pick)
+                .ThenBy(job => job.Trucker, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(job => job.Key, StringComparer.Ordinal);
 
         return ordered.ToList();
     }

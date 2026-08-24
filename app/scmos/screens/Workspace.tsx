@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
+import { badge, css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
 import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
@@ -70,6 +70,17 @@ type Props = {
    * wired up.
    */
   serverPages?: Record<string, WorkspaceServerPage>;
+  /**
+   * Rows held at the top of their section while somebody fills them in.
+   *
+   * A job inserted here is real from the first keystroke — the cell editor
+   * upserts it like any other edit — so the moment it has a date the sort
+   * would carry it off to wherever that date belongs, out from under the
+   * cursor of the person still typing the customer name. It stays put until
+   * they say they are done.
+   */
+  pinned: Job[];
+  onDonePinning: (key: string) => void;
   /** Summary panels and editing become authoritative once this is true. */
   fullRegisterLoaded: boolean;
   /**
@@ -682,16 +693,31 @@ export function Workspace(p: Props) {
   // With the server answering, the sections are the ones it answered for — it
   // was asked per category, and a category it returned nothing for is a section
   // with no rows, exactly as an empty filter result is here.
+  // A pinned row belongs to the section its category draws, and is taken out
+  // of whatever the server sent so it cannot appear twice once the write lands.
+  const pinnedKeys = new Set(p.pinned.map((job) => job.key));
+  const pinnedFor = (layout: string) =>
+    p.pinned.filter((job) => (splitMixed || server ? job.cat === layout : true));
+  const withoutPinned = (jobs: Job[]) => jobs.filter((job) => !pinnedKeys.has(job.key));
+
   const sections = server
     ? Object.keys(server)
-        .filter((layout) => server[layout].total > 0)
-        .map((layout) => ({ layout, jobs: server[layout].jobs }))
+        .filter((layout) => server[layout].total > 0 || pinnedFor(layout).length > 0)
+        .map((layout) => ({
+          layout,
+          jobs: [...pinnedFor(layout), ...withoutPinned(server[layout].jobs)],
+        }))
     : (splitMixed
       ? (["IMPORT", "EXPORT", "DELIVERY"] as const)
-        .map((c) => ({ layout: c as string, jobs: list.filter((j) => j.cat === c) }))
+        .map((c) => ({
+          layout: c as string,
+          jobs: [...pinnedFor(c), ...withoutPinned(list.filter((j) => j.cat === c))],
+        }))
         .filter((s) => s.jobs.length)
-      : [{ layout: colKey, jobs: list }]);
-  if (!sections.length) sections.push({ layout: colKey, jobs: server ? [] : list });
+      : [{ layout: colKey, jobs: [...p.pinned, ...withoutPinned(list)] }]);
+  if (!sections.length) {
+    sections.push({ layout: colKey, jobs: server ? [...p.pinned] : [...p.pinned, ...list] });
+  }
 
   // ---- selection --------------------------------------------------------
   const picked = new Set(ws.picked);
@@ -907,7 +933,10 @@ export function Workspace(p: Props) {
     const answered = server?.[section.layout];
     const pg = answered
       ? {
-          slice: answered.jobs,
+          // `section.jobs`, not `answered.jobs`: the pinned rows were merged in
+          // above, and reading the server's list here would draw the page
+          // without them.
+          slice: section.jobs,
           total: answered.total,
           pageCount: answered.pageCount,
           p: p.sectionPages?.[section.layout] ?? 1,
@@ -924,7 +953,8 @@ export function Workspace(p: Props) {
     const rows: TableRow[] = pg.slice.map((j) => ({
       key: j.key,
       go: () => p.onDrawer(j.key),
-      title: isCancelled(j) ? "ยกเลิกแล้ว" + (j.cancelReason ? " — " + j.cancelReason : "")
+      title: pinnedKeys.has(j.key) ? "แถวใหม่ — กรอกข้อมูลแล้วกด “เสร็จแล้ว” เพื่อให้เรียงเข้าที่"
+        : isCancelled(j) ? "ยกเลิกแล้ว" + (j.cancelReason ? " — " + j.cancelReason : "")
         : wasMoved(j) ? "เลื่อนจาก " + j.origDate + (j.moveReason ? " — " + j.moveReason : "")
           : mineJ(j) ? "Your job — editable" : "Assigned to: " + j.op + " · View Only",
       // A cancelled row is faded and struck through, a moved one carries an
@@ -932,12 +962,14 @@ export function Workspace(p: Props) {
       // a row you have selected has to look selected whatever else is true of
       // it, or the bulk actions act on rows you cannot see you picked.
       style: "cursor:pointer;background:" +
-        (picked.has(j.key) ? "#FFF7DE"
+        (pinnedKeys.has(j.key) ? "#FFFDF2"
+          : picked.has(j.key) ? "#FFF7DE"
           : isCancelled(j) ? "#F4F6F8"
             : wasMoved(j) ? "#FFFCF4"
               : mineJ(j) ? "#F4F8FC" : "#fff") +
         ";border-left:3px solid " +
-        (picked.has(j.key) ? "#D89614"
+        (pinnedKeys.has(j.key) ? "#16794C"
+          : picked.has(j.key) ? "#D89614"
           : isCancelled(j) ? "#B42318"
             : wasMoved(j) ? "#D89614"
               : mineJ(j) ? "#2E7DD1" : "transparent") +
@@ -991,6 +1023,22 @@ export function Workspace(p: Props) {
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
+      {p.pinned.length > 0 && (
+        <div style={css("border:1px solid #CFE3D6;background:#F5FBF8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
+          <span style={css(badge("แถวใหม่", "green"))}>แถวใหม่ {p.pinned.length}</span>
+          <span style={css("font-size:11.5px;color:#16794C;flex:1;min-width:220px")}>
+            อยู่บนสุดของตารางจนกว่าจะกดเสร็จ — คลิกช่องในแถวเพื่อกรอกได้เลย
+            บันทึกทุกช่องทันทีที่พิมพ์เสร็จ
+          </span>
+          {p.pinned.map((job) => (
+            <button key={job.key} onClick={() => p.onDonePinning(job.key)}
+              style={css("height:30px;padding:0 13px;border:1px solid #16794C;background:#16794C;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
+              เสร็จแล้ว · {job.customer || "แถวใหม่"}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div style={css("display:flex;align-items:center;gap:14px;padding:12px 18px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
         <div style={css("width:36px;height:36px;border-radius:5px;background:#2E7DD1;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600")}>
           {me.init}

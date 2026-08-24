@@ -10,7 +10,7 @@ import { buildDb, type Ship } from "./scmos/demo";
 import { ACCOUNTS, CARRIER_SCREENS, HEADINGS, META, opIdForName, SCREENS_WITH_FILTERS, SUB_NAV, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { bookingStats } from "./scmos/booking";
-import { normaliseField } from "./scmos/standard";
+import { DEFAULT_STATUS, normaliseField } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
 import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
@@ -199,6 +199,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [changing, setChanging] = useState<{ key: string; mode: "move" | "cancel" } | null>(null);
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [addCat, setAddCat] = useState<string | null>(null);
+  /** Rows inserted into the grid and still being filled in. See insertRow. */
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>([]);
   const [addForm, setAddForm] = useState<Record<string, string>>({});
   const [aiFields, setAiFields] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
@@ -1075,6 +1077,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         { label: "Saved views", style: BTN_SECONDARY, go: () => { setViews(listViews()); setViewName(""); setViewsOpen(true); } },
         { label: "Import from Excel", style: BTN_SECONDARY, go: () => { setImportPreview(null); setImportError(""); setDupChoice({}); setDupCursor(0); setImportOpen(true); } },
         { label: "Export Excel", style: BTN_SECONDARY, go: handleExport },
+        { label: "+ แทรกแถว", style: BTN_SECONDARY, go: insertRow },
         { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => setAddCat("CHOOSE") },
       ];
     }
@@ -1618,6 +1621,70 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       : "ยกเลิกงานแล้ว · งานยังอยู่ในระบบ ดูได้ในแท็บ CANCEL / MOVED");
   }
 
+  /**
+   * Puts a new job straight into the grid, ready to type into.
+   *
+   * The modal asks for the date, the customer and the carrier before it will
+   * create anything, which is right when somebody is entering one job from a
+   * booking email and wrong when they are working down a list: it costs a
+   * dialog per row. This makes the row first and lets the cells be filled in
+   * place, which is how the plan is keyed in the workbook this replaced.
+   *
+   * The row is a real job from the outset — the cell editor upserts on every
+   * edit, so there is no half-created state to reconcile and nothing is lost if
+   * the tab closes mid-row. It is flagged incomplete, which is what the grid
+   * already shows for a job missing its carrier or its plate.
+   *
+   * It is pinned while it is being filled. The grid is ordered by date and then
+   * by carrier, so the moment a date is typed the row belongs somewhere else
+   * and would leave the screen under the cursor of the person still typing.
+   * Pinning holds it at the top until they say they are done; the sort is not
+   * suspended, only deferred.
+   */
+  function insertRow() {
+    if (!ops) return;
+    if (!able("EditOwnJobs")) {
+      setToast("บัญชีนี้ไม่มีสิทธิ์เพิ่มงาน");
+      return;
+    }
+
+    // The category the grid is already showing, so the row lands in the section
+    // the person is looking at rather than a different one.
+    const cat = ws.cat !== "ALL" ? ws.cat : "IMPORT";
+    const key = "N" + Date.now();
+    // Today, because a row keyed today is nearly always for today or later, and
+    // a blank date sorts to the end of the list where nobody can see it.
+    const now = new Date();
+    const today = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+    const job: Job = {
+      key, id: key, cat, op: me.name, opId: me.opId,
+      date: today, customer: "", trucker: cat === "DELIVERY" ? "LESCHACO DTT" : "",
+      jobCode: "", abs: "", booking: "", product: "", fclLcl: "", agent: "", destination: "",
+      plant: "", planTime: "", type: "", cyYard: "", returnLoc: "", emptyReturn: "", weight: "",
+      container: "", seal: "", tare: "", licence: "", driver: "", contact: "",
+      arrDate: "", arrTime: "", closingDate: "", closingTime: "", reason: "", remark: "",
+      ot: "", pickupPlan: "", cs: "", incident: "", freightType: "",
+      origDate: "", moveReason: "", moveBy: "", cancelReason: "",
+      status: DEFAULT_STATUS,
+      hist: [{ ts: nowHM(), user: me.name, field: "แทรกแถวใหม่", old: "—", neu: today }],
+      flags: [], action: true, prio: "MEDIUM", issues: [], fixes: [],
+    };
+    flagJob(job);
+    ops.jobs.unshift(job);
+    persist([job]);
+    setPinnedKeys((prev) => [...prev, key]);
+    setWs((prev) => ({ ...prev, edit: { key, field: "customer" }, editVal: "" }));
+    setToast("แทรกแถวแล้ว — กรอกข้อมูลได้เลย แถวจะอยู่บนสุดจนกว่าจะกดเสร็จ");
+    touch();
+  }
+
+  /** Lets a filled row go to wherever the date and carrier put it. */
+  function donePinning(key: string) {
+    setPinnedKeys((prev) => prev.filter((k) => k !== key));
+    void flushNow().then(() => touch());
+    setToast("บันทึกแล้ว — เรียงเข้าที่ตามวันที่และผู้ขนส่ง");
+  }
+
   // ---- add / assign ------------------------------------------------------
   function saveAddJob() {
     if (!ops) return;
@@ -1713,6 +1780,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
 
   const selectedShip = sel !== null ? db.ships.find((x) => x.id === sel) ?? null : null;
   const drawerJob = drawer && ops ? ops.jobs.find((x) => x.key === drawer) ?? null : null;
+  // Looked up rather than stored: the cell editor writes to the object in
+  // `ops.jobs`, and a copy held in state here would go stale on the first edit.
+  const pinnedJobs = useMemo(
+    () => (ops ? pinnedKeys.map((key) => ops.jobs.find((j) => j.key === key)).filter((j): j is Job => !!j) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ops, pinnedKeys, revision],
+  );
   const changingJob = changing && ops ? ops.jobs.find((x) => x.key === changing.key) ?? null : null;
   const assignJob = assignFor && ops ? ops.jobs.find((x) => x.key === assignFor) ?? null : null;
   const delayJob = opsDelay && ops ? ops.jobs.find((x) => x.key === opsDelay) ?? null : null;
@@ -1976,6 +2050,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onBulkStatus={bulkStatus}
                   onBulkAssign={bulkAssign}
                   onBulkDelete={(keys) => { void removeJobs(keys); }}
+                  pinned={pinnedJobs}
+                  onDonePinning={donePinning}
                   onView={(v) => { workspaceView.current = v; }}
                 />
               : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:" +
