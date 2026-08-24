@@ -36,6 +36,17 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
 {
     private const string CacheKey = "operation-register-snapshot-v1";
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Where a full-register read stops being cheap on this instance.
+    ///
+    /// Not a limit — nothing is dropped for crossing it. It is the point at
+    /// which holding the whole register in memory is worth a line in the log,
+    /// measured against the B1 the API runs on: about 760 bytes a job stored,
+    /// so ten thousand jobs is roughly 8 MB of JSON plus the parsed copy beside
+    /// it, twice over because callers want both forms.
+    /// </summary>
+    private const int LargeRegister = 10_000;
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static long _version;
 
@@ -56,24 +67,31 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
                 .OrderBy(job => job.WorkDate == "" ? 1 : 0)
                 .ThenBy(job => job.WorkDate)
                 .ThenBy(job => job.Key)
-                .Take(JobsRepository.Limit)
                 .Select(job => new { job.Key, job.Trucker, job.Data, job.UpdatedAt })
                 .ToListAsync(token);
 
-            // The register read is capped, and a cap that truncates in silence is
-            // the worst kind: every screen fed from here — the dashboards, the
-            // KPI figures, the export, the duplicate check — would simply stop
-            // counting the jobs past the ceiling, and each would look plausible.
-            // Nothing here raises the ceiling, because the fix is for the
-            // remaining callers to stop wanting the whole register rather than
-            // for a B1 instance to parse more of it. This makes the day it
-            // starts mattering a line in the log instead of a mystery.
-            if (rows.Count >= JobsRepository.Limit)
+            // This read was capped at 5,000 rows, and it truncated in silence:
+            // every screen fed from here — the dashboards, the KPI figures, the
+            // export, the duplicate check — simply stopped counting past the
+            // ceiling, and each of them still looked plausible. A total that is
+            // really a floor is the one failure this codebase least wants,
+            // because nothing about it looks wrong.
+            //
+            // So the cap is gone and the read is the whole register. What the cap
+            // was protecting against is real, though: this parses every row into
+            // memory and holds it for five minutes, on an instance with 1.75 GB
+            // shared between two apps. The answer to that is for the remaining
+            // callers to stop asking for the whole register — the paging endpoint
+            // and ChangedAsync are what that looks like — and this warning is
+            // what says the day has come, instead of a truncation nobody sees.
+            if (rows.Count >= LargeRegister)
             {
                 log.LogWarning(
-                    "The register read hit its {Limit}-row ceiling. Every total drawn from it is "
-                    + "now a floor, not a count. See JobsRepository.Limit.",
-                    JobsRepository.Limit);
+                    "The register read returned {Rows} rows, past the {Threshold} this instance "
+                    + "was sized for. It is complete and correct, but it is parsed in full and "
+                    + "held for {Minutes} minutes. Callers that want a slice should use the "
+                    + "paging endpoint rather than this.",
+                    rows.Count, LargeRegister, Lifetime.TotalMinutes);
             }
 
             var valid = new List<CachedJobRow>(rows.Count);
