@@ -95,7 +95,7 @@ export async function loadJobsPage(query: PageQuery): Promise<JobPage | null> {
   if (query.assignee) params.set("assignee", query.assignee);
   if (query.kpi) params.set("kpi", query.kpi);
   params.set("page", String(query.page ?? 1));
-  params.set("per", String(query.per ?? 25));
+  params.set("per", String(query.per ?? 50));
 
   try {
     const response = await apiFetch(`${API}/page?${params}`, {

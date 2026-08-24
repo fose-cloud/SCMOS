@@ -89,7 +89,7 @@ public static class JobsEndpoints
                 SortKey: sort ?? "",
                 SortDir: dir ?? "asc",
                 Page: page ?? 1,
-                Per: per ?? 25,
+                Per: per ?? 50,
                 // Whose jobs count as "mine" is the API's answer, not a value the
                 // caller may pass — otherwise any signed-in person could ask for
                 // somebody else's workspace by naming their id.

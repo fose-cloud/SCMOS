@@ -30,12 +30,26 @@ export const PER_PAGE_OPTIONS = [25, 50, 100, 200];
 
 export const DEFAULT_PREFS: Prefs = {
   landing: "myjob",
-  perPage: 25,
+  perPage: 50,
   collapsed: false,
   panels: DEFAULT_PANELS,
 };
 
 const KEY = "scmos.prefs";
+
+/**
+ * Bumped when a default changes in a way that should reach people who never
+ * chose otherwise.
+ *
+ * Twenty-five rows was the default and almost nobody changed it, so almost
+ * every browser has 25 written down — not because anyone picked it, but because
+ * it was saved on the first visit. Raising the default alone would therefore
+ * change nothing for anyone. On a version bump, a stored value that is simply
+ * the old default is treated as never chosen; anything else is left exactly as
+ * the person set it.
+ */
+const VERSION = 2;
+const PREVIOUS_DEFAULT_PER_PAGE = 25;
 
 function storage(): Storage | null {
   // Called during the server render too, where there is no window.
@@ -46,6 +60,18 @@ function storage(): Storage | null {
   }
 }
 
+/**
+ * The rows-per-page to use: what was chosen, or the current default when the
+ * stored value was only ever the old default carried forward.
+ */
+function pickPerPage(raw: Partial<Prefs> & { version?: number }): number {
+  const stored = Number(raw.perPage);
+  if (PER_PAGE_OPTIONS.indexOf(stored) < 0) return DEFAULT_PREFS.perPage;
+  const chosen = Number(raw.version) >= VERSION;
+  if (!chosen && stored === PREVIOUS_DEFAULT_PER_PAGE) return DEFAULT_PREFS.perPage;
+  return stored;
+}
+
 export function loadPrefs(): Prefs {
   const store = storage();
   if (!store) return DEFAULT_PREFS;
@@ -54,7 +80,7 @@ export function loadPrefs(): Prefs {
     const panels = (raw.panels ?? {}) as Partial<PanelPrefs>;
     return {
       landing: raw.landing === "dashboard" ? "dashboard" : "myjob",
-      perPage: PER_PAGE_OPTIONS.indexOf(Number(raw.perPage)) >= 0 ? Number(raw.perPage) : DEFAULT_PREFS.perPage,
+      perPage: pickPerPage(raw),
       collapsed: raw.collapsed === true,
       panels: {
         kpi: panels.kpi !== undefined ? panels.kpi === true : DEFAULT_PANELS.kpi,
@@ -72,7 +98,7 @@ export function savePrefs(prefs: Prefs): Prefs {
   const store = storage();
   if (store) {
     try {
-      store.setItem(KEY, JSON.stringify(prefs));
+      store.setItem(KEY, JSON.stringify({ ...prefs, version: VERSION }));
     } catch {
       // Quota or private mode — the settings simply do not persist.
     }
