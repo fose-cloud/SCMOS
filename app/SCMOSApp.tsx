@@ -13,6 +13,7 @@ import { normaliseField } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
 import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
+import { forget, pageCacheKey, readCachedPage, writeCachedPage } from "./scmos/pageCache";
 import { cleanupJobs, duplicateGroups, type CleanupReport, type DupGroup } from "./scmos/cleanup";
 import { ALL_PERIOD, filterPeriod, periodLabel, type Period } from "./scmos/period";
 import { CleanupReportModal, DuplicatesModal } from "./scmos/overlays/DataOverlays";
@@ -220,7 +221,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const db = useMemo(() => buildDb(), []);
   const [ops, setOps] = useState<Ops | null>(null);
   /** How the plan is getting to the database, reported in the workspace header. */
-  const [sync, setSync] = useState<{ state: "idle" | "waking" | "saving" | "saved" | "error" | "off"; at: string; message: string }>(
+  const [sync, setSync] = useState<{ state: "idle" | "waking" | "stale" | "saving" | "saved" | "error" | "off"; at: string; message: string }>(
     { state: "idle", at: "", message: "" },
   );
   // Jobs and shipments are edited in place; bump this to re-render after a mutation.
@@ -772,6 +773,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       const raw = await loadPlanFile();
       const cleared = await clearJobs(me.full);
       if (!cleared.ok) throw new Error(cleared.message);
+      // Every saved page describes jobs that no longer exist.
+      forget();
       const prepared = prep(raw);
       const saved = await saveJobs(prepared.jobs, me.full);
       if (!saved.ok) throw new Error(saved.message);
@@ -903,6 +906,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
 
   const [serverPages, setServerPages] =
     useState<Record<string, WorkspaceServerPage> | undefined>(undefined);
+  /** Whether what is on screen is last visit's answer, still waiting on this one. */
+  const [fromCache, setFromCache] = useState(false);
 
   useEffect(() => {
     if (!isWorkspace) return;
@@ -910,15 +915,43 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
 
     (async () => {
       const wanted = ws.cat === "ALL" ? ["IMPORT", "EXPORT", "DELIVERY"] : [ws.cat];
-      const answers = await Promise.all(wanted.map((cat) => loadJobsPage({
+      const queries = wanted.map((cat) => ({
         tab: activeTab, cat,
         year: ws.year, month: ws.month, day: ws.date,
         q, sort: ws.sort?.key, dir: ws.sort?.dir,
         page: sectionPages[cat] ?? 1, per: prefs.perPage,
         customer: ws.cust, trucker: ws.trucker, type: ws.type,
         status: ws.status, assignee: ws.assignee, kpi: ws.kpi,
-      })));
+      }));
+
+      // Draw last time's answer first, if this exact view has one.
+      //
+      // The rows you are about to see are nearly always the rows you saw last
+      // time, and waiting for the network to confirm that meant a placeholder on
+      // every visit — two minutes of one on the first visit of the day, while
+      // the database woke up. These are replaced the moment the real answer
+      // arrives; the request below goes out either way. See pageCache for why
+      // they live in sessionStorage and not on the disk.
+      const cached: Record<string, WorkspaceServerPage> = {};
+      queries.forEach((query, index) => {
+        const saved = readCachedPage(pageCacheKey(me.opId, query));
+        if (!saved) return;
+        cached[wanted[index]] = {
+          jobs: prep({ jobs: saved.jobs }).jobs,
+          total: saved.total,
+          pageCount: saved.pageCount,
+          counts: saved.counts,
+          dates: saved.dates,
+        };
+      });
+      if (!cancelled && Object.keys(cached).length === wanted.length) {
+        setServerPages(cached);
+        setFromCache(true);
+      }
+
+      const answers = await Promise.all(queries.map((query) => loadJobsPage(query)));
       if (cancelled) return;
+      setFromCache(false);
 
       // One failure and the whole thing falls back to the register in the
       // browser, which is slower and still correct. A half-filled grid would
@@ -928,6 +961,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       const next: Record<string, WorkspaceServerPage> = {};
       wanted.forEach((cat, index) => {
         const answer = answers[index]!;
+        writeCachedPage(pageCacheKey(me.opId, queries[index]), answer);
         // Through `prep`, because the grid draws fields it derives — the
         // priority column, the validation marks — and stored rows carry none
         // of them.
@@ -943,9 +977,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     })();
 
     return () => { cancelled = true; };
+    // `me.opId` keys the saved pages, so a change of account must re-read them
+    // rather than show this person the last one's rows.
   }, [isWorkspace, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
       ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q,
-      sectionPages, prefs.perPage, revision]);
+      sectionPages, prefs.perPage, revision, me.opId]);
 
   // Changing what is being looked at puts every section back to its first page.
   // Left alone, a filter that narrows to eight jobs would open on page four of
@@ -1780,6 +1816,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         userInit={(profile.init || me.init).toUpperCase()}
         userAvatar={profile.avatar}
         onLogout={() => {
+          forget();
           if (signOutHref) { window.location.href = signOutHref; return; }
           setAuth(null);
           setLoginP("");
@@ -1913,7 +1950,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onSectionPage={(layout, next) =>
                     setSectionPages((was) => ({ ...was, [layout]: next }))}
                   per={prefs.perPage}
-                  sync={sync}
+                  // While last visit's rows are on screen the badge says so,
+                  // rather than implying they came from the database just now.
+                  sync={fromCache && sync.state !== "error" && sync.state !== "off"
+                    ? { state: "stale", at: sync.at, message: "" } : sync}
                   panels={prefs.panels}
                   onPanel={(key) => setPrefs((prev) => savePrefs({ ...prev, panels: { ...prev.panels, [key]: !prev.panels[key] } }))}
                   onBulkStatus={bulkStatus}
@@ -2041,6 +2081,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           onSettings={() => { setProfileOpen(false); setSettingsOpen(true); }}
           onLogout={() => {
             setProfileOpen(false);
+            forget();
             if (signOutHref) { window.location.href = signOutHref; return; }
             setAuth(null);
             setLoginP("");

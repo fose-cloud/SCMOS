@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Scmos.Api.Rules;
 
 namespace Scmos.Api.Data;
@@ -30,7 +31,8 @@ public sealed record JobRegisterSnapshot(
 /// every application write invalidates it, so it removes duplicate work without
 /// becoming another source of operational truth.
 /// </summary>
-public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache)
+public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
+    ILogger<JobRegisterCache> log)
 {
     private const string CacheKey = "operation-register-snapshot-v1";
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
@@ -57,6 +59,22 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache)
                 .Take(JobsRepository.Limit)
                 .Select(job => new { job.Key, job.Trucker, job.Data, job.UpdatedAt })
                 .ToListAsync(token);
+
+            // The register read is capped, and a cap that truncates in silence is
+            // the worst kind: every screen fed from here — the dashboards, the
+            // KPI figures, the export, the duplicate check — would simply stop
+            // counting the jobs past the ceiling, and each would look plausible.
+            // Nothing here raises the ceiling, because the fix is for the
+            // remaining callers to stop wanting the whole register rather than
+            // for a B1 instance to parse more of it. This makes the day it
+            // starts mattering a line in the log instead of a mystery.
+            if (rows.Count >= JobsRepository.Limit)
+            {
+                log.LogWarning(
+                    "The register read hit its {Limit}-row ceiling. Every total drawn from it is "
+                    + "now a floor, not a count. See JobsRepository.Limit.",
+                    JobsRepository.Limit);
+            }
 
             var valid = new List<CachedJobRow>(rows.Count);
             var json = new StringBuilder(rows.Count * 900 + 80);

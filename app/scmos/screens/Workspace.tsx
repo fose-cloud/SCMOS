@@ -84,7 +84,7 @@ type Props = {
   sectionPages?: Record<string, number>;
   onSectionPage?: (layout: string, page: number) => void;
   /** Whether edits are reaching the database, shown next to the welcome line. */
-  sync: { state: "idle" | "waking" | "saving" | "saved" | "error" | "off"; at: string; message: string };
+  sync: { state: "idle" | "waking" | "stale" | "saving" | "saved" | "error" | "off"; at: string; message: string };
   /** Which panels above the grid are expanded, and which one to fold. */
   panels: PanelPrefs;
   onPanel: (key: keyof PanelPrefs) => void;
@@ -1012,8 +1012,10 @@ export function Workspace(p: Props) {
         >
           <span style={css("width:7px;height:7px;border-radius:50%;background:" +
             (p.sync.state === "error" ? "#FF6B5B" : p.sync.state === "off" ? "#FFC978"
-              : p.sync.state === "saving" || p.sync.state === "waking" ? "#9FD0FF" : "#3CB371"))} />
-          {p.sync.state === "waking" ? "กำลังปลุกฐานข้อมูล… รอสักครู่ อย่าเพิ่งคีย์งาน"
+              : p.sync.state === "saving" || p.sync.state === "waking" || p.sync.state === "stale"
+                ? "#9FD0FF" : "#3CB371"))} />
+          {p.sync.state === "stale" ? "แสดงข้อมูลที่บันทึกไว้ครั้งก่อน · กำลังดึงข้อมูลล่าสุด"
+            : p.sync.state === "waking" ? "กำลังปลุกฐานข้อมูล… รอสักครู่ อย่าเพิ่งคีย์งาน"
             : p.sync.state === "saving" ? "กำลังบันทึกลงฐานข้อมูล…"
             : p.sync.state === "error" ? "บันทึกไม่สำเร็จ — กดแก้ซ้ำอีกครั้ง"
               : p.sync.state === "off" ? "ยังไม่ได้ต่อฐานข้อมูล — รีเฟรชหน้าเพื่อลองใหม่ · งานที่คีย์ไว้ตอนนี้จะหาย"
