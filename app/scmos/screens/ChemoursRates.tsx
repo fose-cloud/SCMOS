@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
 import {
-  bandForDiesel, parseChemoursSheet, priceFor,
+  bandForDiesel, chemoursLayout, parseChemoursSheet, priceFor, reconcileChemoursBands,
   type FuelBand, type RateIssue, type RateLane,
 } from "../rates";
 
@@ -38,12 +38,41 @@ export async function readRateCard(file: File, carrier: string): Promise<RateCar
   const lanes: RateLane[] = [];
   const issues: RateIssue[] = [];
 
-  for (const sheetName of book.SheetNames) {
+  // Read every sheet first, then agree the fuel clause across them, then parse.
+  //
+  // The clause is one contract term and all the card's sheets should carry it.
+  // Where they do not, the odd one out is a typing slip: SSL's 10-wheel sheet
+  // reads 36.31-29.94, and its 4-wheel and 10-wheel sheets stop at 48.01-50.00
+  // where the other four run to 48.35-53.18. Parsing sheet by sheet would take
+  // each at face value and leave two lorries priced against a clause nobody
+  // agreed to.
+  const sheets = book.SheetNames.map((sheetName) => {
     const rows = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], {
       header: 1, blankrows: false, defval: "",
     });
-    if (!rows.length) continue;
-    const parsed = parseChemoursSheet({ carrier, fileName: file.name, sheetName, rows }, bands, issues);
+    const { bandRow } = rows.length ? chemoursLayout(rows) : { bandRow: -1 };
+    const labels = bandRow < 0
+      ? []
+      : (rows[bandRow] as unknown[]).slice(4).map((cell) => String(cell ?? "").trim());
+    return { sheetName, rows, bandRow, labels };
+  }).filter((sheet) => sheet.rows.length > 0);
+
+  const agreed = reconcileChemoursBands(
+    sheets.filter((sheet) => sheet.bandRow >= 0).map((sheet) => ({ sheetName: sheet.sheetName, labels: sheet.labels })),
+    issues, file.name,
+  );
+
+  for (const sheet of sheets) {
+    // The agreed clause is written back into the rows the parser will read, so
+    // there is still exactly one place that decides what a band is.
+    if (sheet.bandRow >= 0) {
+      const row = sheet.rows[sheet.bandRow] as unknown[];
+      agreed.forEach((label, position) => {
+        if (label) row[4 + position] = label;
+      });
+    }
+    const parsed = parseChemoursSheet(
+      { carrier, fileName: file.name, sheetName: sheet.sheetName, rows: sheet.rows }, bands, issues);
     if (parsed) lanes.push(...parsed.lanes);
   }
 

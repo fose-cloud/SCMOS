@@ -523,13 +523,93 @@ export function chemoursVehicle(label: string): string {
  * said otherwise, and a rate card that prices the wrong truck is worse than one
  * that will not load: nobody would have seen it until an invoice came back.
  */
+/**
+ * Where a Chemours card keeps its headings and its bands.
+ *
+ * Shared with the workbook-level pass that reconciles the clause across sheets,
+ * because two copies of "which row are the bands on" is two answers waiting to
+ * disagree — and if they ever did, the reconciliation would rewrite cells the
+ * parser was not reading.
+ *
+ * Returns -1 rows when this is not one of these cards at all.
+ */
+export function chemoursLayout(rows: unknown[][]): { headRow: number; bandRow: number } {
+  const headRow = rows.findIndex((row, index) =>
+    index < 6 && /^origin city$/i.test(String(row?.[0] ?? "").trim()));
+  if (headRow < 0) return { headRow: -1, bandRow: -1 };
+
+  // Not always the row under the heading — SSL put a row of "COST" between the
+  // two. Two bands is the threshold: a stray number in a spacer row is not a
+  // fuel clause, and every one of these cards quotes at least four.
+  for (let r = headRow + 1; r < Math.min(headRow + 5, rows.length); r++) {
+    const row = rows[r] ?? [];
+    let found = 0;
+    for (let c = 4; c < row.length; c++) if (parseBand(String(row[c] ?? ""))) found++;
+    if (found >= 2) return { headRow, bandRow: r };
+  }
+  return { headRow, bandRow: -1 };
+}
+
+/**
+ * One fuel clause per card, reconciled across its sheets.
+ *
+ * The clause is a contract term. It belongs to the agreement, not to the size
+ * of the lorry, so all six sheets of a card should carry the same one — and
+ * where they do not, the odd one out is a typing slip rather than a separate
+ * deal. SSL's card proves both halves: its 10-wheel sheet reads 36.31-29.94, a
+ * nine typed as a two, and its 4-wheel and 10-wheel sheets end at 48.01-50.00
+ * where the other four end at 48.35-53.18.
+ *
+ * So each position takes what most of the card's sheets say there, and every
+ * sheet that disagreed is reported. Nothing is invented: the replacement is
+ * always a band written on that same card, at that same position, by more
+ * sheets than wrote the one being replaced. A band whose ceiling sits below its
+ * floor can never win, however many sheets carry it.
+ *
+ * Returns the label to use at each position, or null to leave a position alone.
+ */
+export function reconcileChemoursBands(
+  sheets: { sheetName: string; labels: string[] }[],
+  issues: RateIssue[],
+  fileName: string,
+): string[] {
+  const width = Math.max(0, ...sheets.map((sheet) => sheet.labels.length));
+  const agreed: string[] = [];
+
+  for (let position = 0; position < width; position++) {
+    const tally = new Map<string, number>();
+    for (const sheet of sheets) {
+      const label = (sheet.labels[position] ?? "").trim();
+      if (!label) continue;
+      const band = parseBand(label);
+      if (!band || band.max < band.min) continue;
+      tally.set(label, (tally.get(label) ?? 0) + 1);
+    }
+    if (!tally.size) { agreed.push(""); continue; }
+
+    const [winner] = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    agreed.push(winner);
+
+    for (const sheet of sheets) {
+      const label = (sheet.labels[position] ?? "").trim();
+      if (!label || label === winner) continue;
+      issues.push({
+        file: fileName, sheet: sheet.sheetName, row: position + 1, field: "band",
+        value: `${label} → ${winner}`,
+        message: `ช่วงราคาน้ำมันช่องที่ ${position + 1} ไม่ตรงกับชีตอื่นในการ์ดเดียวกัน — ใช้ตามที่ชีตส่วนใหญ่ระบุ`,
+      });
+    }
+  }
+
+  return agreed;
+}
+
 export function parseChemoursSheet(
   input: SheetInput,
   bands: FuelBand[],
   issues: RateIssue[],
 ): { lanes: RateLane[]; source: RateSource } | null {
-  const headRow = input.rows.findIndex((row, index) =>
-    index < 6 && /^origin city$/i.test(String(row?.[0] ?? "").trim()));
+  const { headRow, bandRow } = chemoursLayout(input.rows);
   if (headRow < 0) return null;
 
   const heading = (input.rows[headRow] ?? [])
@@ -577,37 +657,26 @@ export function parseChemoursSheet(
     return bands.length - 1;
   };
 
-  // The bands are not always on the row under the heading. SSL put a row of
-  // "COST" between the two, so looking one row down found nothing and their
-  // whole card was refused. The row that holds the bands is the one with bands
-  // on it, so it is found rather than counted to.
-  let columns: { column: number; slot: number }[] = [];
-  for (let r = headRow + 1; r < Math.min(headRow + 5, input.rows.length); r++) {
-    const row = input.rows[r] ?? [];
-    const found: { column: number; band: FuelBand }[] = [];
+  const columns: { column: number; slot: number }[] = [];
+  if (bandRow >= 0) {
+    const row = input.rows[bandRow] ?? [];
     for (let c = 4; c < row.length; c++) {
       const band = parseBand(String(row[c] ?? ""));
       if (!band) continue;
-      // A band whose ceiling sits below its floor is a typo, and an expensive
-      // one: SSL's 10-wheel sheet reads 36.31-29.94, and taken at face value
-      // that band sorts to the bottom of the clause, so a lorry moving at 30
-      // baht diesel would be priced at the 36-40 baht rate. The column is left
-      // out and reported instead of being loaded as a range nobody wrote.
+      // A ceiling below its floor is a typo, and an expensive one: taken at
+      // face value such a band sorts to the bottom of the clause, so a lorry
+      // running at 30 baht diesel would be priced at the 36-to-40 rate. The
+      // workbook pass above usually replaces it from the card's other sheets;
+      // this is the backstop for a card that has only the one.
       if (band.max < band.min) {
         issues.push({
-          file: input.fileName, sheet: input.sheetName, row: r + 1, field: "band",
+          file: input.fileName, sheet: input.sheetName, row: bandRow + 1, field: "band",
           value: String(row[c] ?? ""),
           message: "ช่วงราคาน้ำมันกลับหัวกลับหาง ปลายช่วงน้อยกว่าต้นช่วง — ข้ามคอลัมน์นี้ไว้ก่อน",
         });
         continue;
       }
-      found.push({ column: c, band });
-    }
-    // Two is the threshold: a single number somewhere in a spacer row is not a
-    // fuel clause, and every one of these cards quotes at least four bands.
-    if (found.length >= 2) {
-      columns = found.map((entry) => ({ column: entry.column, slot: bandIndex(entry.band) }));
-      break;
+      columns.push({ column: c, slot: bandIndex(band) });
     }
   }
   if (!columns.length) {

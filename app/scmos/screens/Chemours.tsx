@@ -76,18 +76,22 @@ export const SUMMARY_TAB = "สรุปงาน";
  * that way, because matching their spelling costs nothing and a diff against
  * last month's file stays clean.
  *
- * Two captions are not left that way. Their sheet puts "SID NUMBER" over the
- * LSTH job numbers and "JOB NO." over the D-codes, which is the wrong way round
- * in all 36 rows of the August sheet — the second sheet of the same workbook
- * calls those D-codes DCODE. The columns sit where theirs sit, so the file
- * still lines up; the two captions say what the column underneath actually
- * holds. Handing back a sheet that repeats the mistake would make it permanent.
+ * Two captions read oddly against the rest of the business: "SID NUMBER" sits
+ * over the LSTH job numbers and "JOB NO." over the D-codes, while the second
+ * sheet of the same workbook calls those D-codes DCODE. They are printed as the
+ * account writes them all the same. This report is checked against the file the
+ * customer already has, the operators read both with the same words, and a
+ * report that renames two columns to be more correct than the document it
+ * mirrors is a report somebody has to translate every month.
+ *
+ * The Domestic grid heads these two the same way, so the screen and the report
+ * agree — which is the whole reason for choosing one spelling over the other.
  */
 export const SUMMARY_COLUMNS: Column[] = [
   { head: "TRUCK", read: (j) => j.trucker },
   { head: "W/H", read: (j) => j.wh ?? "" },
-  { head: "JOB NO.", read: (j) => j.jobCode || j.jobNo || "" },
-  { head: "DCODE", read: (j) => j.dCode ?? "" },
+  { head: "SID NUMBER", read: (j) => j.jobCode || j.jobNo || "" },
+  { head: "JOB NO.", read: (j) => j.dCode ?? "" },
   { head: "Pick-Up Date", read: (j) => j.date },
   { head: "SID NO.", read: (j) => j.sid ?? "" },
   { head: "SAP ORDER", read: (j) => j.sapOrder ?? "" },
