@@ -916,7 +916,7 @@ export function Workspace(p: Props) {
   // page one without an effect that re-renders after the fact.
   const filterSignature = [
     ws.tab, ws.cat, ws.cust, ws.trucker, ws.type, ws.status, ws.kpi, ws.assignee,
-    ws.year, ws.month, ws.date, ws.q, ws.sort?.key, ws.sort?.dir, p.per,
+    ws.year, ws.month, ws.date, ws.from, ws.to, ws.q, ws.sort?.key, ws.sort?.dir, p.per,
   ].join("|");
   const [paging, setPaging] = useState<{ sig: string; pages: Record<string, number> }>({ sig: filterSignature, pages: {} });
   const pages = paging.sig === filterSignature ? paging.pages : {};
@@ -1760,7 +1760,15 @@ export function Workspace(p: Props) {
           <div className="grid-only">
             <DataTable
               model={grid.model}
-              onPage={(page) => (p.onSectionPage ?? setPage)(grid.layout, page)}
+              // Both pagers, always. The grid reads whichever source is live —
+              // the API's answer while the register is still arriving, the
+              // register itself once it is here — and telling only one of them
+              // meant the page number moved somewhere nothing was reading:
+              // clicking page 2 changed the highlight and not the rows.
+              onPage={(page) => {
+                setPage(grid.layout, page);
+                p.onSectionPage?.(grid.layout, page);
+              }}
               onTool={() => undefined}
             />
           </div>
