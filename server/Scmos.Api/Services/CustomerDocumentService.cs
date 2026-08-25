@@ -112,85 +112,99 @@ public class CustomerDocumentService(ScmosDbContext db)
         var carrier = input.Carrier.Trim();
         if (customer.Length == 0 || carrier.Length == 0) return 0;
 
-        // All of it or none of it.
+        // All of it or none of it, and through the execution strategy.
         //
-        // The old bands are deleted before the new lanes are written, so a
-        // failure in the middle used to leave a card with prices indexing into
-        // bands that no longer existed — every figure on it pointing at the
-        // wrong step of the fuel clause, and nothing on screen to say so. A
-        // half-written rate card is worse than no rate card.
-        await using var work = await db.Database.BeginTransactionAsync(token);
-
-        var doomed = await db.CustomerRateLanes
-            .Where(lane => lane.Customer == customer && lane.Carrier == carrier)
-            .Select(lane => lane.Id)
-            .ToListAsync(token);
-
-        if (doomed.Count > 0)
+        // The strategy part is not decoration: this context is configured with
+        // EnableRetryOnFailure, and a retrying strategy refuses a transaction
+        // somebody opened by hand — it cannot replay half a unit of work it did
+        // not start. Opening one directly threw, which is the 500 this endpoint
+        // answered with the first time anybody pressed save. RotationService
+        // and JobsRepository both already do it this way; I wrote a third
+        // version of a rule the codebase had twice, and got it wrong.
+        //
+        // The transaction itself matters because the old bands are deleted
+        // before the new lanes are written. A failure in between leaves a card
+        // whose prices index into bands that no longer exist — every figure on
+        // it pointing at the wrong step of the fuel clause, with nothing on
+        // screen to say so. A half-written rate card is worse than none.
+        var saved = 0;
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            await db.CustomerRatePrices.Where(price => doomed.Contains(price.LaneId))
-                .ExecuteDeleteAsync(token);
-            await db.CustomerRateLanes.Where(lane => doomed.Contains(lane.Id))
-                .ExecuteDeleteAsync(token);
-        }
+            await using var work = await db.Database.BeginTransactionAsync(token);
 
-        await db.CustomerRateBands.Where(band => band.Customer == customer)
-            .ExecuteDeleteAsync(token);
+            var doomed = await db.CustomerRateLanes
+                .Where(lane => lane.Customer == customer && lane.Carrier == carrier)
+                .Select(lane => lane.Id)
+                .ToListAsync(token);
 
-        for (var position = 0; position < input.Bands.Count; position++)
-        {
-            var band = input.Bands[position];
-            db.CustomerRateBands.Add(new CustomerRateBand
+            if (doomed.Count > 0)
+            {
+                await db.CustomerRatePrices.Where(price => doomed.Contains(price.LaneId))
+                    .ExecuteDeleteAsync(token);
+                await db.CustomerRateLanes.Where(lane => doomed.Contains(lane.Id))
+                    .ExecuteDeleteAsync(token);
+            }
+
+            await db.CustomerRateBands.Where(band => band.Customer == customer)
+                .ExecuteDeleteAsync(token);
+
+            for (var position = 0; position < input.Bands.Count; position++)
+            {
+                var band = input.Bands[position];
+                db.CustomerRateBands.Add(new CustomerRateBand
+                {
+                    Customer = customer,
+                    Label = band.Label,
+                    MinPrice = band.Min,
+                    MaxPrice = band.Max,
+                    Position = position,
+                });
+            }
+
+            // Every lane in one write, then every price in one more.
+            //
+            // This used to save inside the loop, twice per lane, which is a
+            // round trip to Azure SQL each time: three hundred and eighteen of
+            // them for a card of a hundred and fifty-nine lanes. EF hands back
+            // the generated ids after one SaveChanges, so the prices can be
+            // attached straight afterwards.
+            var rows = input.Lanes.Select(lane => new CustomerRateLane
             {
                 Customer = customer,
-                Label = band.Label,
-                MinPrice = band.Min,
-                MaxPrice = band.Max,
-                Position = position,
-            });
-        }
+                Carrier = carrier,
+                FromPlace = lane.From,
+                ToPlace = lane.To,
+                PostalCode = lane.PostalCode,
+            }).ToList();
+            db.CustomerRateLanes.AddRange(rows);
+            await db.SaveChangesAsync(token);
 
-        // Every lane in one write, then every price in one more.
-        //
-        // This used to save inside the loop, twice per lane, which is a round
-        // trip to Azure SQL each time: three hundred and eighteen of them for a
-        // card of a hundred and fifty-nine lanes, six hundred for a customer
-        // whose work two hauliers share. On a serverless database that is
-        // minutes, and long enough that the save looked like it simply did not
-        // work. EF hands back the generated ids after one SaveChanges, so the
-        // prices can be attached straight afterwards.
-        var rows = input.Lanes.Select(lane => new CustomerRateLane
-        {
-            Customer = customer,
-            Carrier = carrier,
-            FromPlace = lane.From,
-            ToPlace = lane.To,
-            PostalCode = lane.PostalCode,
-        }).ToList();
-        db.CustomerRateLanes.AddRange(rows);
-        await db.SaveChangesAsync(token);
-
-        var saved = 0;
-        for (var index = 0; index < rows.Count; index++)
-        {
-            foreach (var (vehicle, prices) in input.Lanes[index].Prices)
+            // Reset inside the body: a retry runs all of this again, and a
+            // counter that kept its previous total would report twice what it
+            // wrote.
+            saved = 0;
+            for (var index = 0; index < rows.Count; index++)
             {
-                for (var position = 0; position < prices.Length; position++)
+                foreach (var (vehicle, prices) in input.Lanes[index].Prices)
                 {
-                    if (prices[position] is not { } price) continue;
-                    db.CustomerRatePrices.Add(new CustomerRatePrice
+                    for (var position = 0; position < prices.Length; position++)
                     {
-                        LaneId = rows[index].Id,
-                        Vehicle = vehicle,
-                        BandPosition = position,
-                        Price = price,
-                    });
-                    saved++;
+                        if (prices[position] is not { } price) continue;
+                        db.CustomerRatePrices.Add(new CustomerRatePrice
+                        {
+                            LaneId = rows[index].Id,
+                            Vehicle = vehicle,
+                            BandPosition = position,
+                            Price = price,
+                        });
+                        saved++;
+                    }
                 }
             }
-        }
-        await db.SaveChangesAsync(token);
-        await work.CommitAsync(token);
+            await db.SaveChangesAsync(token);
+            await work.CommitAsync(token);
+        });
 
         return saved;
     }
@@ -234,17 +248,24 @@ public class CustomerDocumentService(ScmosDbContext db)
 
         if (clean.Count == 0) return 0;
 
-        await db.CargoFormTemplates.ExecuteDeleteAsync(token);
-        foreach (var template in clean)
+        // Same shape as the rate save, and the same two reasons: the old set is
+        // cleared before the new one lands, so a failure in between would leave
+        // no forms at all; and this context retries on failure, which means a
+        // hand-opened transaction is refused rather than replayed.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            db.CargoFormTemplates.Add(new CargoFormTemplate
+            await using var work = await db.Database.BeginTransactionAsync(token);
+            await db.CargoFormTemplates.ExecuteDeleteAsync(token);
+            db.CargoFormTemplates.AddRange(clean.Select(template => new CargoFormTemplate
             {
                 Customer = template.Customer.Trim(),
                 SourceFile = template.SourceFile,
                 Columns = string.Join('\t', template.Columns),
-            });
-        }
-        await db.SaveChangesAsync(token);
+            }));
+            await db.SaveChangesAsync(token);
+            await work.CommitAsync(token);
+        });
         return clean.Count;
     }
 }
