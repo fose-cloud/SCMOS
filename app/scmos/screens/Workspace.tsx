@@ -10,7 +10,7 @@ import { JobCards } from "../JobCards";
 import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, dowOf, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
-import { dayFirstDate } from "../standard";
+import { spanEnd } from "../standard";
 
 export type WsState = {
   tab: string;
@@ -181,18 +181,6 @@ const SPAN_INPUT = "height:31px;width:104px;border:1px solid #D8E0E8;border-radi
   + "background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;"
   + "font-family:'IBM Plex Mono',monospace";
 
-/**
- * A typed date tidied into the register's own format, or left as typed.
- *
- * Day-first — see `dayFirstDate`. The box says วว/ดด/ปปปป, so 01/08/2569 is the
- * first of August, not the eighth of January, and the tidied value is written
- * back into the box so the reader can see which one it was understood as.
- */
-function tidyDate(value: string): string {
-  const typed = value.trim();
-  if (!typed) return "";
-  return dayFirstDate(typed) || typed;
-}
 
 /** Tab and newline, as a spreadsheet writes them. */
 const TAB = "\t";
@@ -544,8 +532,12 @@ export function Workspace(p: Props) {
 
   // The span, when one is set. Either end on its own is a half-open range —
   // "from the first of August" is a question people ask.
-  const spanFrom = dnum(ws.from);
-  const spanTo = dnum(ws.to);
+  const fromDate = spanEnd(ws.from, ws.year, ws.month);
+  const toDate = spanEnd(ws.to, ws.year, ws.month);
+  const spanFrom = dnum(fromDate);
+  const spanTo = dnum(toDate);
+  /** Something was typed that could not be read as a date in this context. */
+  const spanUnread = (!!ws.from.trim() && !spanFrom) || (!!ws.to.trim() && !spanTo);
   if (spanFrom || spanTo) {
     list = list.filter((job) => {
       const day = dnum(job.date);
@@ -883,7 +875,11 @@ export function Workspace(p: Props) {
   if (ws.from || ws.to) {
     activeFilters.push([
       "ช่วงวันที่",
-      (ws.from || "ตั้งแต่ต้น") + " – " + (ws.to || "ล่าสุด"),
+      // The dates it resolved to, not what was typed — a chip that repeats an
+      // unreadable "25" back looks like a filter that is running.
+      spanUnread
+        ? "อ่านไม่ออก — เลือกปีและเดือน หรือพิมพ์วันที่เต็ม"
+        : (fromDate || "ตั้งแต่ต้น") + " – " + (toDate || "ล่าสุด"),
       () => p.set({ from: "", to: "", page: 1 }),
     ]);
   }
@@ -1415,17 +1411,17 @@ export function Workspace(p: Props) {
           <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
           <input
             value={ws.from}
-            placeholder="ตั้งแต่"
+            placeholder="25 หรือ 25/08/2026"
             onChange={(e) => p.set({ from: e.target.value })}
-            onBlur={(e) => p.set({ from: tidyDate(e.target.value), date: "ALL", page: 1 })}
+            onBlur={() => p.set({ date: "ALL", page: 1 })}
             style={css(SPAN_INPUT)}
           />
           <span style={css("font-size:12px;color:#8496A8")}>–</span>
           <input
             value={ws.to}
-            placeholder="ถึง"
+            placeholder="31 หรือ 31/08/2026"
             onChange={(e) => p.set({ to: e.target.value })}
-            onBlur={(e) => p.set({ to: tidyDate(e.target.value), date: "ALL", page: 1 })}
+            onBlur={() => p.set({ date: "ALL", page: 1 })}
             style={css(SPAN_INPUT)}
           />
         </label>

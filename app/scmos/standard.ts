@@ -496,6 +496,35 @@ export function dayFirstDate(value: string): string {
   return readAs(m[1], m[2], m[3]);
 }
 
+/**
+ * One end of the span, read against the year and month already chosen.
+ *
+ * The two boxes sit immediately after the year and month pickers, so "25" typed
+ * there means the twenty-fifth of the month on screen — which is how somebody
+ * asking for the last week of August actually types it, and what they did type
+ * the first time this shipped. Reading only full dates meant the filter quietly
+ * did nothing while the chip above claimed it was filtering.
+ *
+ * A full date is taken as written and day-first, so both ways in work.
+ *
+ * Returns "" when it cannot be resolved — a bare day with no month chosen has
+ * no answer, and the caller says so rather than filtering on a guess.
+ */
+export function spanEnd(value: string, year: string, month: string): string {
+  const typed = value.trim();
+  if (!typed) return "";
+
+  const bare = /^(\d{1,2})$/.exec(typed);
+  if (bare) {
+    const day = Number(bare[1]);
+    if (day < 1 || day > 31) return "";
+    if (year === "ALL" || month === "ALL") return "";
+    return `${String(day).padStart(2, "0")}/${month}/${year}`;
+  }
+
+  return dayFirstDate(typed);
+}
+
 export function ruleFor(field: string): Rule | undefined {
   return RULES.find((r) => r.field === field);
 }
