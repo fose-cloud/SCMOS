@@ -249,7 +249,14 @@ public class WorkspaceService(JobRegisterCache register)
             "Job / ABS" => job => job.JobCode.Length > 0 ? job.JobCode : job.Abs,
             "ABS No." => job => job.Abs,
             "Booking" => job => job.Booking,
-            "SID No." => job => job.Sid,
+            "SID No." or "SID NO." => job => job.Sid,
+            // The Domestic grid heads its columns the way the account's own
+            // sheet heads them, and sends those labels. Without these it sorted
+            // by carrier and drew an arrow over a column that had not moved.
+            "TRUCK" => job => job.Trucker,
+            "SID NUMBER" => job => job.JobCode,
+            "Customer List" => job => job.Customer,
+            "Pick-Up Date" => job => Formats.DateNumber(job.Date),
             "Category" => job => job.Cat,
             "Type" => job => job.Type,
             "Destination" => job => job.Destination,

@@ -148,7 +148,20 @@ const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
   IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
   EXPORT: [["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Assigned To"]],
-  DELIVERY: [["Priority"], ["Own"], ["W/H"], ["Job No."], ["Pickup Date"], ["SID No."], ["Customer"], ["Province"], ["ZIP"], ["Pallet"], ["Weight KG"], ["4W"], ["6W"], ["10W"], ["Trailer"], ["Transport Cost"], ["Status"], ["Remark"], ["Assigned To"]],
+  // Headed as the account's own summary sheet heads them, in its order, so the
+  // grid and the sheet it feeds can be read side by side without translating.
+  //
+  // SID NUMBER before JOB NO. is that sheet's order, and the two hold what that
+  // sheet puts under them: the LSTH job number under SID NUMBER, the D-code
+  // under JOB NO. Those captions are the wrong way round against the rest of
+  // the business — the second sheet of the same workbook calls the D-code
+  // DCODE — and the summary tab prints them corrected. Here they match the
+  // paper, because this is the screen somebody works from with the paper open.
+  //
+  // Province is gone: it is not on their sheet and was not asked for. It is
+  // still written by the import and still printed on the Delivery Details
+  // report, so nothing is lost, but it cannot be edited from this grid.
+  DELIVERY: [["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["Status"], ["Remark"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
   ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
@@ -208,6 +221,21 @@ const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text"
   Province: { pick: (j) => j.province, as: "text" },
   ZIP: { pick: (j) => j.zip, as: "text" },
   "W/H": { pick: (j) => j.wh, as: "text" },
+  // The Domestic grid's own headings. Every column it draws sorts, which is
+  // what the last round of this fixed and what renaming them would have undone.
+  TRUCK: { pick: (j) => j.trucker, as: "text" },
+  "SID NUMBER": { pick: (j) => j.jobCode, as: "text" },
+  "JOB NO.": { pick: (j) => j.dCode, as: "text" },
+  "Pick-Up Date": { pick: (j) => j.date, as: "date" },
+  "SID NO.": { pick: (j) => j.sid, as: "text" },
+  "SAP ORDER": { pick: (j) => j.sapOrder, as: "text" },
+  "DELIVER NO.": { pick: (j) => j.deliverNo, as: "text" },
+  "Customer List": { pick: (j) => j.customer, as: "text" },
+  "ZIP CODE": { pick: (j) => j.zip, as: "text" },
+  PALLET: { pick: (j) => j.pallet, as: "number" },
+  "KGS.": { pick: (j) => j.weight, as: "number" },
+  "TAIL LIFT": { pick: (j) => j.vtl, as: "number" },
+  "Transportation Rate": { pick: (j) => j.cost, as: "number" },
   Plan: { pick: (j) => j.planTime, as: "time" },
   "Plan Time": { pick: (j) => j.planTime, as: "time" },
   Type: { pick: (j) => j.type, as: "text" },
@@ -999,12 +1027,21 @@ export function Workspace(p: Props) {
       // rather than typed, and a hand-keyed cost that disagrees with the card is
       // the kind of number nobody can later explain.
       return head.concat([
-        edPick(j, "wh", { bold: true }), ed(j, "jobNo", { mono: true }), ed(j, "date", { mono: true }),
-        ed(j, "sid", { mono: true, mute: true }), edPick(j, "customer", { w: 200 }), edPick(j, "province"),
-        ed(j, "zip", { mono: true }), ed(j, "pallet", { mono: true, align: "right" }),
-        ed(j, "kgs", { mono: true, align: "right" }),
+        edPick(j, "trucker"), edPick(j, "wh", { bold: true }),
+        // Under SID NUMBER, the job number; under JOB NO., the D-code. Their
+        // sheet's captions, their sheet's contents — see the note by COL_DEFS.
+        ed(j, "jobCode", { mono: true }), ed(j, "dCode", { mono: true }),
+        ed(j, "date", { mono: true }), ed(j, "sid", { mono: true, mute: true }),
+        ed(j, "sapOrder", { mono: true }), ed(j, "deliverNo", { mono: true }),
+        edPick(j, "customer", { w: 200 }), ed(j, "zip", { mono: true }),
+        ed(j, "pallet", { mono: true, align: "right" }),
+        // `weight`, not `kgs`. A KGS column off any sheet imports as `weight` —
+        // excel.ts says so where the aliases are — so a grid bound to `kgs`
+        // showed an empty box over every imported row and invited somebody to
+        // type the weight in again beside the one already there.
+        ed(j, "weight", { mono: true, align: "right" }),
         ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
-        ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtr", { mono: true, align: "right" }),
+        ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtl", { mono: true, align: "right" }),
         cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right", bold: true }),
         stCell(j), ed(j, "remark", { w: 170, mute: true }),
       cell(j.op, { bold: mine, mute: !mine }),
