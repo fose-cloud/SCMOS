@@ -148,11 +148,11 @@ export function JobDrawer(p: {
         </div>
       </div>
 
-      <div style={css("padding:13px 18px;border-top:1px solid #E9EFF5;background:#FBFCFD;display:flex;gap:8px")}>
+      <div style={css("padding:13px 18px;border-top:1px solid #E9EFF5;background:#FBFCFD;display:flex;gap:8px;flex-wrap:wrap")}>
         <button
           onClick={p.onEdit}
           style={css(
-            "flex:1;height:34px;border:1px solid " + (p.canEdit ? "#0A2240" : "#D8E0E8") +
+            "flex:1 1 150px;height:34px;border:1px solid " + (p.canEdit ? "#0A2240" : "#D8E0E8") +
             ";background:" + (p.canEdit ? "#0A2240" : "#EDF1F5") + ";color:" + (p.canEdit ? "#fff" : "#94A3B8") +
             ";border-radius:4px;font-size:12.5px;font-weight:600;cursor:" + (p.canEdit ? "pointer" : "not-allowed"),
           )}
@@ -161,21 +161,6 @@ export function JobDrawer(p: {
         </button>
         <button className="ghost-btn" onClick={p.onDuplicate} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Duplicate</button>
         <button className="ghost-btn" onClick={p.onReassign} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Reassign</button>
-        {/* Not gated on ownership: whoever notices a problem records it,
-            and the person who notices is often not the person holding the
-            job. The issue carries the job key, so it attaches exactly
-            rather than by matching a number somebody re-typed. */}
-        <button className="ghost-btn" onClick={p.onRaiseIssue}
-          style={css("height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
-          แจ้งปัญหา · Operation Issue
-        </button>
-        {/* The heavier of the two. An operational issue is the day's log; this
-            is the quality case with 5W1H, a root cause and photographs, and it
-            is raised on the job so the evidence files land against it. */}
-        <button className="ghost-btn" onClick={p.onRaiseIncident}
-          style={css("height:34px;padding:0 13px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
-          Incident Report · CAR/PAR
-        </button>
         {p.canEdit && !isCancelled(j) && (
           <>
             <button className="ghost-btn" onClick={p.onMove}
@@ -196,6 +181,22 @@ export function JobDrawer(p: {
             ลบงานนี้
           </button>
         )}
+
+        {/* Not gated on ownership: whoever notices a problem records it,
+            and the person who notices is often not the person holding the
+            job. The issue carries the job key, so it attaches exactly
+            rather than by matching a number somebody re-typed. */}
+        <button className="ghost-btn" onClick={p.onRaiseIssue}
+          style={css("height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+          แจ้งปัญหา · Operation Issue
+        </button>
+        {/* The heavier of the two. An operational issue is the day's log; this
+            is the quality case with 5W1H, a root cause and photographs, and it
+            is raised on the job so the evidence files land against it. */}
+        <button className="ghost-btn" onClick={p.onRaiseIncident}
+          style={css("height:34px;padding:0 13px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+          Incident Report · CAR/PAR
+        </button>
       </div>
     </aside>
   );
