@@ -577,11 +577,38 @@ export function parseChemoursSheet(
     return bands.length - 1;
   };
 
-  const bandRow = input.rows[headRow + 1] ?? [];
-  const columns: { column: number; slot: number }[] = [];
-  for (let c = 4; c < bandRow.length; c++) {
-    const band = parseBand(String(bandRow[c] ?? ""));
-    if (band) columns.push({ column: c, slot: bandIndex(band) });
+  // The bands are not always on the row under the heading. SSL put a row of
+  // "COST" between the two, so looking one row down found nothing and their
+  // whole card was refused. The row that holds the bands is the one with bands
+  // on it, so it is found rather than counted to.
+  let columns: { column: number; slot: number }[] = [];
+  for (let r = headRow + 1; r < Math.min(headRow + 5, input.rows.length); r++) {
+    const row = input.rows[r] ?? [];
+    const found: { column: number; band: FuelBand }[] = [];
+    for (let c = 4; c < row.length; c++) {
+      const band = parseBand(String(row[c] ?? ""));
+      if (!band) continue;
+      // A band whose ceiling sits below its floor is a typo, and an expensive
+      // one: SSL's 10-wheel sheet reads 36.31-29.94, and taken at face value
+      // that band sorts to the bottom of the clause, so a lorry moving at 30
+      // baht diesel would be priced at the 36-40 baht rate. The column is left
+      // out and reported instead of being loaded as a range nobody wrote.
+      if (band.max < band.min) {
+        issues.push({
+          file: input.fileName, sheet: input.sheetName, row: r + 1, field: "band",
+          value: String(row[c] ?? ""),
+          message: "ช่วงราคาน้ำมันกลับหัวกลับหาง ปลายช่วงน้อยกว่าต้นช่วง — ข้ามคอลัมน์นี้ไว้ก่อน",
+        });
+        continue;
+      }
+      found.push({ column: c, band });
+    }
+    // Two is the threshold: a single number somewhere in a spacer row is not a
+    // fuel clause, and every one of these cards quotes at least four bands.
+    if (found.length >= 2) {
+      columns = found.map((entry) => ({ column: entry.column, slot: bandIndex(entry.band) }));
+      break;
+    }
   }
   if (!columns.length) {
     issues.push({
@@ -714,16 +741,33 @@ export function priceFor(
   const row = lane.prices[vehicle] ?? lane.prices[canonicalVehicle(vehicle)];
   if (!row) return null;
 
-  const wanted = bandForDiesel(bands, diesel);
-  if (wanted < 0) return null;
-  if (row[wanted] != null) return row[wanted];
-
-  // A block that only quoted the lower bands still answers for a higher diesel
-  // price — the last band it did quote is the contracted rate.
-  for (let i = wanted - 1; i >= 0; i--) {
-    if (row[i] != null) return row[i];
+  // Chosen from the bands this lane actually quotes, not from the book's whole
+  // list. Two hauliers on the same customer turned out to quote different fuel
+  // clauses — 28.01-30.00 against 29.99-32.99 — and the book holds the union of
+  // both. Picking the global band first and then walking down to the nearest
+  // quoted one lands a step too low whenever the two clauses interleave: at
+  // 33.50 the union's next band is 34.00, which the coarser haulier does not
+  // quote, and walking back reaches their 29.99-32.99 when 33.50 plainly sits
+  // in their 33.00-36.30. That is money, on a price somebody bills against.
+  //
+  // So: the cheapest band this lane quotes whose ceiling still covers the
+  // diesel price. That is the band the contract means.
+  let best = -1;
+  for (let i = 0; i < row.length; i++) {
+    if (row[i] == null || !bands[i]) continue;
+    if (bands[i].max < diesel) continue;
+    if (best < 0 || bands[i].max < bands[best].max) best = i;
   }
-  return null;
+  if (best >= 0) return row[best];
+
+  // Above every band this lane quotes: the top one it did quote is the
+  // contracted rate, which is what the clause says happens past its last step.
+  let top = -1;
+  for (let i = 0; i < row.length; i++) {
+    if (row[i] == null || !bands[i]) continue;
+    if (top < 0 || bands[i].max > bands[top].max) top = i;
+  }
+  return top >= 0 ? row[top] : null;
 }
 
 /** Every vehicle type quoted anywhere in the book, in a stable order. */
