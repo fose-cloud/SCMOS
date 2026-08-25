@@ -10,6 +10,7 @@ import { JobCards } from "../JobCards";
 import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, dowOf, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
+import { dayFirstDate } from "../standard";
 
 export type WsState = {
   tab: string;
@@ -27,6 +28,16 @@ export type WsState = {
   year: string;
   /** Month of that year as MM, e.g. "07". */
   month: string;
+  /**
+   * A span of plan dates, dd/MM/yyyy, either end optional.
+   *
+   * Separate from the single-day picker beside it and from year/month, because
+   * they answer different questions — "that day", "that month", "the first week
+   * of August". Whichever is set narrows the list; a span and a single day
+   * together would be a contradiction, so choosing one clears the other.
+   */
+  from: string;
+  to: string;
   q: string;
   page: number;
   edit: { key: string; field: string } | null;
@@ -154,6 +165,23 @@ const hasFormatError = (j: Job) => j.issues.some((i) => i.severity === "error");
  * header used to raise a toast and change nothing; these are the columns the
  * grid actually shows, so every one of them now sorts.
  */
+const SPAN_INPUT = "height:31px;width:104px;border:1px solid #D8E0E8;border-radius:4px;"
+  + "background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;"
+  + "font-family:'IBM Plex Mono',monospace";
+
+/**
+ * A typed date tidied into the register's own format, or left as typed.
+ *
+ * Day-first — see `dayFirstDate`. The box says วว/ดด/ปปปป, so 01/08/2569 is the
+ * first of August, not the eighth of January, and the tidied value is written
+ * back into the box so the reader can see which one it was understood as.
+ */
+function tidyDate(value: string): string {
+  const typed = value.trim();
+  if (!typed) return "";
+  return dayFirstDate(typed) || typed;
+}
+
 /** Tab and newline, as a spreadsheet writes them. */
 const TAB = "\t";
 const NEWLINE = "\n";
@@ -496,6 +524,20 @@ export function Workspace(p: Props) {
   if (ws.status !== "ALL") list = list.filter((j) => j.status === ws.status);
   if (ws.date !== "ALL" && anchor) list = list.filter((j) => j.date === anchor);
 
+  // The span, when one is set. Either end on its own is a half-open range —
+  // "from the first of August" is a question people ask.
+  const spanFrom = dnum(ws.from);
+  const spanTo = dnum(ws.to);
+  if (spanFrom || spanTo) {
+    list = list.filter((job) => {
+      const day = dnum(job.date);
+      if (!day) return false;
+      if (spanFrom && day < spanFrom) return false;
+      if (spanTo && day > spanTo) return false;
+      return true;
+    });
+  }
+
   const K = ws.kpi;
   if (K === "Mine") list = list.filter(mineJ);
   if (K === "Imp") list = list.filter((j) => j.cat === "IMPORT");
@@ -820,6 +862,13 @@ export function Workspace(p: Props) {
   if (ws.year !== "ALL") activeFilters.push(["ปี", ws.year, () => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })]);
   if (ws.month !== "ALL") activeFilters.push(["เดือน", monthLabel(ws.month), () => p.set({ month: "ALL", date: "ALL", page: 1 })]);
   if (ws.date !== "ALL") activeFilters.push(["วันที่", anchor, () => p.set({ date: "ALL", page: 1 })]);
+  if (ws.from || ws.to) {
+    activeFilters.push([
+      "ช่วงวันที่",
+      (ws.from || "ตั้งแต่ต้น") + " – " + (ws.to || "ล่าสุด"),
+      () => p.set({ from: "", to: "", page: 1 }),
+    ]);
+  }
   if (ws.assignee !== "All Team") activeFilters.push(["ผู้รับผิดชอบ", ws.assignee, () => p.set({ assignee: "All Team", page: 1 })]);
   if (ws.cust !== "ALL") activeFilters.push(["ลูกค้า", ws.cust, () => p.set({ cust: "ALL", page: 1 })]);
   if (ws.trucker !== "ALL") activeFilters.push(["ผู้ขนส่ง", ws.trucker, () => p.set({ trucker: "ALL", page: 1 })]);
@@ -1333,7 +1382,37 @@ export function Workspace(p: Props) {
           </label>
         ))}
 
-        {(ws.year !== "ALL" || ws.month !== "ALL" || ws.date !== "ALL") && (
+        {/*
+          A span of days, which the pickers beside it cannot express: "the first
+          week of August" is a real question and neither a month nor a single
+          day answers it.
+
+          Typed rather than picked, because a date picker that only offers days
+          the register happens to hold is a picker that hides the empty ones —
+          and "nothing was planned that week" is an answer worth being able to
+          get. Buddhist years are accepted: 01/08/2569 is read as 2026 by the
+          same reader every other date on the job goes through.
+        */}
+        <label style={css("display:flex;align-items:center;gap:6px")}>
+          <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
+          <input
+            value={ws.from}
+            placeholder="ตั้งแต่"
+            onChange={(e) => p.set({ from: e.target.value })}
+            onBlur={(e) => p.set({ from: tidyDate(e.target.value), date: "ALL", page: 1 })}
+            style={css(SPAN_INPUT)}
+          />
+          <span style={css("font-size:12px;color:#8496A8")}>–</span>
+          <input
+            value={ws.to}
+            placeholder="ถึง"
+            onChange={(e) => p.set({ to: e.target.value })}
+            onBlur={(e) => p.set({ to: tidyDate(e.target.value), date: "ALL", page: 1 })}
+            style={css(SPAN_INPUT)}
+          />
+        </label>
+
+        {(ws.year !== "ALL" || ws.month !== "ALL" || ws.date !== "ALL" || ws.from || ws.to) && (
           <button
             onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })}
             style={css("height:29px;padding:0 12px;border:1px solid #BBD5EE;background:#F4F8FC;border-radius:4px;font-size:11.5px;color:#0A2240;font-weight:600;cursor:pointer")}

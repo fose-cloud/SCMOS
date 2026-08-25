@@ -471,6 +471,31 @@ function splitPickup(job: Record<string, unknown>): Fix | null {
   };
 }
 
+/**
+ * A date somebody typed, read day-first.
+ *
+ * `normaliseDate` refuses 01/08/2569, because 01 and 08 both read as a month
+ * and guessing turns the first of August into the eighth of January. That
+ * refusal is right for a value off a spreadsheet nobody can ask about.
+ *
+ * It is wrong for a box a person has just typed into under a label that says
+ * วว/ดด/ปปปป. There the first number is the day because that is what the field
+ * asked for, and refusing means a filter that silently returns nothing — which
+ * is exactly what it did before this existed.
+ *
+ * Same year rules as everywhere else: two digits are this century, and a
+ * Buddhist year is converted, so 01/08/2569 is the first of August 2026.
+ */
+export function dayFirstDate(value: string): string {
+  const m = /^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2,4})$/.exec((value ?? "").trim());
+  if (!m) {
+    // An ISO date is unambiguous, so it is read as written.
+    return normaliseDate((value ?? "").trim())?.value
+      ?? (IS_DATE.test((value ?? "").trim()) ? (value ?? "").trim() : "");
+  }
+  return readAs(m[1], m[2], m[3]);
+}
+
 export function ruleFor(field: string): Rule | undefined {
   return RULES.find((r) => r.field === field);
 }

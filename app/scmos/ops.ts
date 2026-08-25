@@ -90,6 +90,19 @@ export type Job = {
   wh?: string;
   jobNo?: string;
   sid?: string;
+  /**
+   * The D-code the summary sheet carries beside the SID.
+   *
+   * Its own column headed "SID NUMBER" on the job sheet and "DCODE" on the
+   * second one — the same value under two names, which is why it is stored
+   * under the clearer of them.
+   */
+  dCode?: string;
+  /** The SAP order and the delivery note the customer's own system issues. */
+  sapOrder?: string;
+  deliverNo?: string;
+  /** A tail-lift truck, counted like the other vehicle types. */
+  vtl?: string;
   province?: string;
   zip?: string;
   pallet?: string;

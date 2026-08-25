@@ -32,6 +32,8 @@ public class WorkspaceService(JobRegisterCache register)
     /// </param>
     public record Query(
         string Tab, string Cat, string Year, string Month, string Day,
+        /// <summary>A span of plan dates, dd/MM/yyyy, either end optional.</summary>
+        string From, string To,
         string Search, string SortKey, string SortDir, int Page, int Per, string OpId,
         string Assignee, string Owner, string Customer, string Trucker, string Type,
         string Status, string Kpi);
@@ -176,7 +178,22 @@ public class WorkspaceService(JobRegisterCache register)
     /// </summary>
     private static bool MatchesPeriod(WorkspaceTabs.JobView job, Query query)
     {
+        // The span first: it is the only one of these that can be half-open,
+        // and it is set from a box somebody typed a date into rather than from
+        // a picker, so it answers "the first week of August" — a question none
+        // of the three below can be asked.
+        var from = Formats.DateNumber(query.From);
+        var to = Formats.DateNumber(query.To);
+        if (from > 0 || to > 0)
+        {
+            var day = Formats.DateNumber(job.Date);
+            if (day == 0) return false;
+            if (from > 0 && day < from) return false;
+            if (to > 0 && day > to) return false;
+        }
+
         var wantsPeriod = Chosen(query.Year) || Chosen(query.Month) || Chosen(query.Day);
+        // Past the span and nothing else chosen: the job is in.
         if (!wantsPeriod) return true;
 
         var parts = job.Date.Split('/');

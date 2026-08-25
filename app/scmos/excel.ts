@@ -453,6 +453,10 @@ const HEADER_ALIASES: Record<string, string[]> = {
   v6: ["6W", "6WH", "6-WHEEL"],
   v10: ["10W", "10WH", "10-WHEEL"],
   vtr: ["TRAILER", "TRAILER QTY"],
+  vtl: ["TAIL LIFT", "TAILLIFT", "TAIL-LIFT"],
+  dCode: ["DCODE", "D CODE", "SID NUMBER"],
+  sapOrder: ["SAP ORDER", "SAP ORDER NO", "SAP ORDER NO."],
+  deliverNo: ["DELIVER NO", "DELIVER NO.", "DELIVERY NO", "DELIVERY NO."],
   cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง"],
 };
 

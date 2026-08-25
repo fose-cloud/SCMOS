@@ -92,7 +92,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
 
 const EMPTY_WS = {
   cat: "ALL", cust: "ALL", trucker: "ALL", date: "ALL", kpi: "All", assignee: "All Team",
-  status: "ALL", type: "ALL", year: "ALL", month: "ALL",
+  status: "ALL", type: "ALL", year: "ALL", month: "ALL", from: "", to: "",
   edit: null as { key: string; field: string } | null, editVal: "",
   sort: null as { key: string; dir: "asc" | "desc" } | null,
   picked: [] as string[],
@@ -950,7 +950,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       const wanted = ws.cat === "ALL" ? ["IMPORT", "EXPORT", "DELIVERY"] : [ws.cat];
       const queries = wanted.map((cat) => ({
         tab: activeTab, cat,
-        year: ws.year, month: ws.month, day: ws.date,
+        year: ws.year, month: ws.month, day: ws.date, from: ws.from, to: ws.to,
         q, sort: ws.sort?.key, dir: ws.sort?.dir,
         page: sectionPages[cat] ?? 1, per: prefs.perPage,
         customer: ws.cust, trucker: ws.trucker, type: ws.type,
@@ -1012,7 +1012,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     return () => { cancelled = true; };
     // `me.opId` keys the saved pages, so a change of account must re-read them
     // rather than show this person the last one's rows.
-  }, [isWorkspace, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
+  }, [isWorkspace, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.from, ws.to, ws.cust, ws.trucker,
       ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q,
       sectionPages, prefs.perPage, revision, me.opId]);
 
@@ -1697,7 +1697,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       closeImport();
 
       setTab("PENDING");
-      setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL" }));
+      setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL", from: "", to: "" }));
       setPage(1);
       setToast(
         `นำเข้า ${fresh.length} งานใหม่` +
