@@ -290,13 +290,13 @@ export function parseRateSheet(
   const layout = readLayout(input.rows);
   const service = serviceOf(input.fileName, input.sheetName);
 
-  if (!layout) {
-    issues.push({
-      file: input.fileName, sheet: input.sheetName, row: 0, field: "layout", value: "",
-      message: "No LESCHACO rate header found — this sheet is quoted on a different form",
-    });
-    return null;
-  }
+  // Declining is not a complaint. Three readers are tried in turn, so every
+  // sheet this one does not own — DGT's form, the Chemours card, the data tabs
+  // that are not rate cards at all — used to raise an issue here and then be
+  // read perfectly well by the next reader. Six false alarms on a screen whose
+  // whole job is to show what could not be read. The caller reports the sheet
+  // when every reader has declined it, which is the only moment it is true.
+  if (!layout) return null;
 
   const bandIndex = (band: FuelBand) => {
     const found = bands.findIndex((b) => sameBand(b, band));
@@ -502,6 +502,131 @@ export function parseDgtSheet(
 }
 
 /** Reads the Remark sheet's extra charges — waiting time, cancellation, and so on. */
+/** "4-Wheel Truck" as the rest of the book spells it: 4W. */
+export function chemoursVehicle(label: string): string {
+  const wheels = /(\d{1,2})\s*-?\s*wheel/i.exec(label ?? "");
+  return wheels ? `${Number(wheels[1])}W` : "";
+}
+
+/**
+ * The distribution rates behind the Chemours account, one truck size per sheet.
+ *
+ * Not the LESCHACO form and not DGT's either: a lane runs origin city, origin
+ * postcode, destination city, destination postcode, and then one price per
+ * diesel band straight across. The truck size is not in any column — it is
+ * named once in the heading over those prices, so the whole sheet quotes one
+ * vehicle and the three sheets together make the card.
+ *
+ * That heading is checked against the sheet's own tab name, and the sheet is
+ * refused when they disagree. The workbook arrived with every Unithai tab
+ * called 10-Wheel and every SCGJWD tab called 6-Wheel while the headings inside
+ * said otherwise, and a rate card that prices the wrong truck is worse than one
+ * that will not load: nobody would have seen it until an invoice came back.
+ */
+export function parseChemoursSheet(
+  input: SheetInput,
+  bands: FuelBand[],
+  issues: RateIssue[],
+): { lanes: RateLane[]; source: RateSource } | null {
+  const headRow = input.rows.findIndex((row, index) =>
+    index < 6 && /^origin city$/i.test(String(row?.[0] ?? "").trim()));
+  if (headRow < 0) return null;
+
+  const heading = (input.rows[headRow] ?? [])
+    .map((cell) => String(cell ?? ""))
+    .find((cell) => /transportation rate per trip/i.test(cell));
+  if (!heading) return null;
+
+  const vehicle = chemoursVehicle(heading);
+  const tabbed = chemoursVehicle((/\(([^)]*)\)\s*$/.exec(input.sheetName)?.[1] ?? "").replace(/W$/i, "-Wheel"));
+  if (!vehicle) {
+    issues.push({
+      file: input.fileName, sheet: input.sheetName, row: headRow + 1, field: "vehicle",
+      value: heading, message: "The heading over the prices does not name a truck size",
+    });
+    return null;
+  }
+  if (tabbed && tabbed !== vehicle) {
+    issues.push({
+      file: input.fileName, sheet: input.sheetName, row: headRow + 1, field: "vehicle",
+      value: `tab says ${tabbed}, heading says ${vehicle}`,
+      message: "Tab name and heading disagree about the truck — refused rather than priced as a guess",
+    });
+    return null;
+  }
+
+  // The carrier is in the tab name here, not in the folder the file sits in.
+  const carrier = canonicalCarrier((input.sheetName.split("(")[0] ?? "").trim()) || input.carrier;
+  // A domestic distribution run, not a container move — the same word the
+  // register uses for these jobs, so the filter on the rates screen means
+  // something.
+  const service = "DELIVERY";
+
+  const bandIndex = (band: FuelBand) => {
+    const found = bands.findIndex((b) => sameBand(b, band));
+    if (found >= 0) return found;
+    bands.push(band);
+    return bands.length - 1;
+  };
+
+  const bandRow = input.rows[headRow + 1] ?? [];
+  const columns: { column: number; slot: number }[] = [];
+  for (let c = 4; c < bandRow.length; c++) {
+    const band = parseBand(String(bandRow[c] ?? ""));
+    if (band) columns.push({ column: c, slot: bandIndex(band) });
+  }
+  if (!columns.length) {
+    issues.push({
+      file: input.fileName, sheet: input.sheetName, row: headRow + 2, field: "bands",
+      value: "", message: "No diesel bands under the rate heading",
+    });
+    return null;
+  }
+
+  const lanes: RateLane[] = [];
+  let skipped = 0;
+
+  for (let r = headRow + 2; r < input.rows.length; r++) {
+    const row = input.rows[r] ?? [];
+    const to = text(row, 2);
+    if (!to) continue;
+
+    const prices: (number | null)[] = [];
+    let quoted = 0;
+    for (const { column, slot } of columns) {
+      const price = priceAt(row, column);
+      if (price === null) continue;
+      prices[slot] = price;
+      quoted++;
+    }
+    if (!quoted) { skipped++; continue; }
+
+    lanes.push({
+      id: `${carrier}|${service}|${vehicle}|${r}`,
+      carrier,
+      service,
+      // Every one of these lanes is quoted for this account and no other, and a
+      // price that forgets whose it is would be offered on somebody else's job.
+      customer: "CHEMOURS",
+      from: text(row, 0),
+      to,
+      county: text(row, 3),
+      remark: "",
+      prices: { [vehicle]: prices },
+    });
+  }
+
+  if (!lanes.length) return null;
+
+  return {
+    lanes,
+    source: {
+      carrier, file: input.fileName, sheet: input.sheetName, service,
+      lanes: lanes.length, skipped,
+    },
+  };
+}
+
 export function parseSurcharges(rows: unknown[][], service: string): Surcharge[] {
   const out: Surcharge[] = [];
   for (const row of rows) {
@@ -547,8 +672,17 @@ export function parseRateWorkbook(carrier: string, fileName: string, data: Array
       continue;
     }
 
-    const parsed = parseRateSheet({ carrier, fileName, sheetName, rows }, bands, issues);
-    if (!parsed) continue;
+    const input = { carrier, fileName, sheetName, rows };
+    const parsed = parseRateSheet(input, bands, issues)
+      ?? parseDgtSheet(input, bands, issues)
+      ?? parseChemoursSheet(input, bands, issues);
+    if (!parsed) {
+      issues.push({
+        file: fileName, sheet: sheetName, row: 0, field: "layout", value: "",
+        message: "ไม่รู้จักรูปแบบของชีตนี้ — ไม่ตรงกับฟอร์ม LESCHACO, ฟอร์ม DGT หรือการ์ดราคา Chemours",
+      });
+      continue;
+    }
     lanes.push(...parsed.lanes);
     sources.push(parsed.source);
   }
