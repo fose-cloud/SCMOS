@@ -2282,7 +2282,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             )}
             {screen === "rotation" && <JobRotation me={me.id} onToast={setToast} />}
             {screen === "chemours" && !domesticGrid && (
-              <Chemours jobs={ops?.jobs ?? []} tab={selectedTab("chemours", tab)} onToast={setToast} />
+              <Chemours
+                jobs={ops?.jobs ?? []}
+                tab={selectedTab("chemours", tab)}
+                canEditRates={able("EditRates")}
+                onToast={setToast}
+              />
             )}
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />

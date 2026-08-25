@@ -107,13 +107,15 @@ const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;co
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
 const CELL = "padding:7px 10px;border-bottom:1px solid #F1F5F9;white-space:nowrap";
 
-export function ChemoursRates({ card, haulers, onLoad, onSave, saving, onToast }: {
+export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, onToast }: {
   card: RateCard | null;
   /** Hauliers the register already knows, so the name is not typed twice. */
   haulers: string[];
   onLoad: (file: File, hauler: string) => void;
   /** Writes one haulier's part of the card to the register. */
   onSave: (hauler: string) => void;
+  /** False for an account that may read the card but not change it. */
+  canSave: boolean;
   saving: boolean;
   onToast: (message: string) => void;
 }) {
@@ -224,32 +226,36 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, saving, onToast }
 
             <div style={css("display:flex;flex-direction:column;gap:2px")}>
               <span style={css(LABEL)}>ช่วงราคาที่ใช้</span>
+              {/* One clause per haulier, so with more than one on screen there
+                  is no single band to name. Each row is still priced against
+                  its own haulier's clause; naming one of them here would be a
+                  claim about rows it does not cover. */}
               <span style={css("font-size:13.5px;font-weight:600;color:" + (band >= 0 ? "#0A2240" : "#B45309"))}>
-                {band >= 0
-                  ? card.bands[band].label
-                  : readable
-                    ? "เกินช่วงสูงสุดที่การ์ดนี้ระบุไว้"
-                    : "อ่านราคาน้ำมันไม่ออก"}
+                {!readable ? "อ่านราคาน้ำมันไม่ออก"
+                  : carriers.length > 1 && carrier === "ALL" ? "แต่ละรายใช้ช่วงของตัวเอง"
+                  : band >= 0 ? card.bands[band].label
+                  : "เกินช่วงสูงสุดที่การ์ดนี้ระบุไว้"}
               </span>
             </div>
 
             <div style={css("display:flex;gap:8px;margin-left:auto")}>
-              {/*
-                Saving is per haulier, which is why it waits until one is
-                chosen. "ทั้งหมด" is a view across cards that arrived separately,
-                and writing that back as one would attribute every lane to
-                whichever name happened to be picked.
-              */}
+              {/* Whatever is on screen is what gets saved, one haulier at a
+                  time underneath. It says which, so nobody has to work out what
+                  the button is about to write. */}
               <button
                 onClick={() => onSave(carrier)}
-                disabled={saving || carrier === "ALL"}
-                title={carrier === "ALL" ? "เลือกผู้ขนส่งรายเดียวก่อนบันทึก" : ""}
+                disabled={saving || !canSave}
+                title={canSave ? "" : "ต้องใช้บัญชีระดับ Assistant Manager ขึ้นไปจึงจะบันทึกราคาได้"}
                 style={css("height:32px;padding:0 15px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;"
-                  + (saving || carrier === "ALL"
+                  + (saving || !canSave
                     ? "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"
                     : "border:1px solid #0A6E8A;background:#fff;color:#0A6E8A;cursor:pointer"))}
               >
-                {saving ? "กำลังบันทึก…" : "บันทึกเข้าระบบ"}
+                {!canSave ? "บันทึกได้เฉพาะผู้มีสิทธิ์แก้ราคา"
+                  : saving ? "กำลังบันทึก…"
+                  : carrier === "ALL"
+                    ? `บันทึกเข้าระบบ (${carriers.length} ราย)`
+                    : `บันทึกเข้าระบบ (${carrier})`}
               </button>
               <button
                 onClick={exportCard}

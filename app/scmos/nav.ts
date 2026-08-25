@@ -123,7 +123,7 @@ export const META: Record<string, [string, string, string]> = {
   myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
   rotation: ["Job Rotation", "ความรับผิดชอบลูกค้าของแต่ละคน", "ตารางว่าลูกค้ารายไหนเป็นของใคร ใครสำรอง และใช้ผู้ขนส่งรายใด — นำเข้าจากไฟล์ ROTATE ที่ทีมใช้อยู่ · เทียบกับงานจริงในทะเบียนให้เห็นว่ามีงานของลูกค้ารายนั้นอยู่กับคนที่ตารางไม่ได้ระบุไว้หรือไม่"],
   issues: ["Operational Issues", "บันทึกปัญหาประจำวัน", "ปัญหาที่พบระหว่างวิ่งงาน บันทึกตามฟอร์มที่ทีมใช้อยู่ — เลขงานที่กรอกจะถูกจับคู่กับทะเบียนงานให้เอง จึงเห็นลูกค้าและผู้ขนส่งของงานนั้นทันที · เวลาเป้าหมายมาจากระดับความรุนแรง และนับเฉพาะรายการที่ยังไม่ปิด"],
-  chemours: ["The Chemours", "รายละเอียดงานกระจายสินค้า", "รายงานตามฟอร์ม Del details-CHEM ที่ลูกค้าได้รับ — อ่านจากงานประเภท DELIVERY ในทะเบียนจริง ทุกคอลัมน์มีที่มา ไม่มีช่องที่เว้นเพราะไม่มีข้อมูล · เลือกคลังสินค้าและเดือนแล้วส่งออกเป็น Excel ได้"],
+  chemours: ["The Chemours", "งานกระจายสินค้า ค่าขนส่ง และใบรับ-ส่งสินค้า", "แก้ไขงาน Domestic ได้ในตาราง · การ์ดราคาของลูกค้ารายนี้เก็บแยกจากตารางราคาผู้รับเหมา อ่านราคาตามราคาน้ำมันดีเซลที่กรอก · ใบรับ-ส่งสินค้ากรอกแล้วพิมพ์หรือส่งออก Excel ได้"],
   postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก", "งานที่แผนเปลี่ยนไปจากที่จองไว้ — เลื่อนวันโหลด/ส่ง หรือยกเลิก · เปิดจาก My Job แล้วกดปุ่ม “เลื่อนวัน” หรือ “ยกเลิกงาน” · งานที่ยกเลิกไม่ถูกลบ ยังค้นและนับได้"],
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
@@ -171,7 +171,10 @@ export const TAB_DEFS: Record<string, string[]> = {
   // rather than two entries in the menu.
   // The working grid first: Domestic jobs are edited here now, and the two
   // reports are what comes out of them.
-  chemours: ["งาน Domestic", "สรุปงาน", "ค่าขนส่ง", "Delivery Details", "Cargo Receipt"],
+  // The two report tabs are gone at the account team's request — neither
+  // was used. What is left is the work, what it costs, and the document
+  // the customer signs.
+  chemours: ["งาน Domestic", "ค่าขนส่ง", "Cargo Receipt"],
   billing: ["Aging", "Invoices", "Advance Receipts"],
   // Capacity, Document Center and Administration carry their own controls now
   // that they read the API; tabs that narrowed a demo table would do nothing.
