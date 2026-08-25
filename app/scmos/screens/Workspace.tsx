@@ -431,12 +431,34 @@ export function Workspace(p: Props) {
 
   const inCat = (c: string) => (c === "ALL" ? all : all.filter((j) => j.cat === c));
   const catBase = inCat(ws.cat);
-  // Year and month narrow everything downstream — the day strip, the process
-  // board, the KPI tiles and the grid all describe the same slice.
+  // The span, when one is set. Either end on its own is a half-open range —
+  // "from the first of August" is a question people ask.
+  const fromDate = spanEnd(ws.from, ws.year, ws.month);
+  const toDate = spanEnd(ws.to, ws.year, ws.month);
+  const spanFrom = dnum(fromDate);
+  const spanTo = dnum(toDate);
+  /** Something was typed that could not be read as a date in this context. */
+  const spanUnread = (!!ws.from.trim() && !spanFrom) || (!!ws.to.trim() && !spanTo);
+
+  // Year, month and the span narrow everything downstream — the day strip, the
+  // process board, the KPI tiles and the grid all describe the same slice.
+  //
+  // The span used to narrow the grid alone, from further down. That left the
+  // count in this very bar reading 2,644 of 2,644 while the rows beneath it
+  // showed one week, and the tiles describing a month the grid was not showing.
+  // A header that contradicts the table under it is the same bug this screen
+  // has already had once, so the span is filtered where the other two are
+  // rather than somewhere of its own.
   const base = catBase.filter((j) => {
     const parts = partsOf(j.date);
     if (ws.year !== "ALL" && (!parts || parts.y !== ws.year)) return false;
     if (ws.month !== "ALL" && (!parts || parts.m !== ws.month)) return false;
+    if (spanFrom || spanTo) {
+      const day = dnum(j.date);
+      if (!day) return false;
+      if (spanFrom && day < spanFrom) return false;
+      if (spanTo && day > spanTo) return false;
+    }
     return true;
   });
 
@@ -529,24 +551,6 @@ export function Workspace(p: Props) {
   if (ws.type !== "ALL") list = list.filter((j) => j.type === ws.type);
   if (ws.status !== "ALL") list = list.filter((j) => j.status === ws.status);
   if (ws.date !== "ALL" && anchor) list = list.filter((j) => j.date === anchor);
-
-  // The span, when one is set. Either end on its own is a half-open range —
-  // "from the first of August" is a question people ask.
-  const fromDate = spanEnd(ws.from, ws.year, ws.month);
-  const toDate = spanEnd(ws.to, ws.year, ws.month);
-  const spanFrom = dnum(fromDate);
-  const spanTo = dnum(toDate);
-  /** Something was typed that could not be read as a date in this context. */
-  const spanUnread = (!!ws.from.trim() && !spanFrom) || (!!ws.to.trim() && !spanTo);
-  if (spanFrom || spanTo) {
-    list = list.filter((job) => {
-      const day = dnum(job.date);
-      if (!day) return false;
-      if (spanFrom && day < spanFrom) return false;
-      if (spanTo && day > spanTo) return false;
-      return true;
-    });
-  }
 
   const K = ws.kpi;
   if (K === "Mine") list = list.filter(mineJ);
@@ -1428,7 +1432,10 @@ export function Workspace(p: Props) {
 
         {(ws.year !== "ALL" || ws.month !== "ALL" || ws.date !== "ALL" || ws.from || ws.to) && (
           <button
-            onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })}
+            // Everything the bar can narrow by, including the two typed boxes —
+            // the button appears when they are filled, so leaving them behind
+            // made it look broken to anybody who had only used those.
+            onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", from: "", to: "", page: 1 })}
             style={css("height:29px;padding:0 12px;border:1px solid #BBD5EE;background:#F4F8FC;border-radius:4px;font-size:11.5px;color:#0A2240;font-weight:600;cursor:pointer")}
           >
             ล้างช่วงเวลา
