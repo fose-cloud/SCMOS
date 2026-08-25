@@ -598,6 +598,14 @@ export function Workspace(p: Props) {
    * hole is what keeps copy and paste off it.
    */
   const fieldsByLayout: Record<string, (string | undefined)[]> = {};
+  /**
+   * The label over each drawn column, per layout, aligned to `fieldsByLayout`.
+   *
+   * Taken off the same `headerDefs` array the header row itself is built from,
+   * so a copied heading cannot end up over the wrong column — the one way this
+   * feature could quietly produce a wrong document rather than no document.
+   */
+  const headsByLayout: Record<string, string[]> = {};
   let building = "ALL";
 
   /** Where the cursor is now, and what is either side of it. */
@@ -1130,6 +1138,8 @@ export function Workspace(p: Props) {
         return [d[0] + (active ? (ws.sort?.dir === "asc" ? "  ↑" : "  ↓") : ""), undefined];
       }));
 
+    headsByLayout[section.layout] = headerDefs.map(([label]) => label.replace(/\s+[↑↓]$/, ""));
+
     const model: TableModel = {
       title: splitMixed ? SECTION_TITLE[section.layout] ?? section.layout : listTitle,
       meta: pg.total + " jobs · " + section.layout + " layout · คลิกหัวคอลัมน์เพื่อเรียง · ติ๊กเพื่อจัดการหลายงานพร้อมกัน",
@@ -1137,7 +1147,7 @@ export function Workspace(p: Props) {
         if (label.startsWith("☑") || label.startsWith("☐")) { togglePageOf(editableOnPage, allPagePicked); return; }
         sortBy(label.replace(/\s+[↑↓]$/, ""));
       }),
-      tools: [],
+      tools: ["คัดลอกพร้อมหัวตาราง"],
       datalists: pickLists,
       rows,
       total: pg.total,
@@ -1155,14 +1165,18 @@ export function Workspace(p: Props) {
    * the copy and paste handlers below close over a finished list instead of
    * reaching back into tables that are rebuilt on every render.
    */
-  const selection: { job: Job; field: keyof Job }[][] = (() => {
-    if (!range) return [];
+  const selected: { grid: { job: Job; field: keyof Job }[][]; heads: string[] } = (() => {
+    if (!range) return { grid: [], heads: [] };
     const jobs = rowsByLayout[range.layout] ?? [];
     const fields = fieldsByLayout[range.layout] ?? [];
+    const labels = headsByLayout[range.layout] ?? [];
     const rowFrom = Math.min(range.r1, range.r2);
     const rowTo = Math.min(Math.max(range.r1, range.r2), jobs.length - 1);
     const colFrom = Math.min(range.c1, range.c2);
     const colTo = Math.min(Math.max(range.c1, range.c2), fields.length - 1);
+
+    const heads: string[] = [];
+    for (let c = colFrom; c <= colTo; c++) if (fields[c]) heads.push(labels[c] ?? "");
 
     const grid: { job: Job; field: keyof Job }[][] = [];
     for (let r = rowFrom; r <= rowTo; r++) {
@@ -1173,8 +1187,84 @@ export function Workspace(p: Props) {
       }
       if (line.length) grid.push(line);
     }
-    return grid;
+    return { grid, heads };
   })();
+  const selection = selected.grid;
+
+  /**
+   * A block of values as text, and as a table an email will actually render.
+   *
+   * Tab-separated text is what a spreadsheet reads, and it is all Ctrl+C puts
+   * on the clipboard. Pasted into an email it arrives as a run of words with
+   * tabs in it, which is why the headings were asked for in the first place:
+   * without the column names nobody reading the mail can tell which number is
+   * which. So the copy meant for a mail carries an HTML table as well, and the
+   * mail client renders the borders and the heading row. Both formats go on the
+   * clipboard together and whatever receives it takes the one it can use.
+   */
+  function blockPayload(lines: string[][], heads: string[] | null) {
+    const rows = heads ? [heads, ...lines] : lines;
+    const text = rows.map((line) => line.join(TAB)).join(NEWLINE);
+    const esc = (value: string) =>
+      value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const box = (value: string, head: boolean) => {
+      const tag = head ? "th" : "td";
+      const style = "border:1px solid #D8E0E8;padding:4px 9px;text-align:left"
+        + (head ? ";background:#F4F7FA;font-weight:600" : "");
+      return `<${tag} style="${style}">${esc(value) || "&nbsp;"}</${tag}>`;
+    };
+    const html = '<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px">'
+      + (heads ? `<thead><tr>${heads.map((h) => box(h, true)).join("")}</tr></thead>` : "")
+      + `<tbody>${lines.map((line) => `<tr>${line.map((v) => box(v, false)).join("")}</tr>`).join("")}</tbody>`
+      + "</table>";
+    return { text, html };
+  }
+
+  /** What a selected rectangle holds, as plain strings. */
+  const selectionValues = () =>
+    selection.map((line) => line.map(({ job, field }) => (job[field] as string) || ""));
+
+  /**
+   * Copy with the column headings, for pasting into a mail.
+   *
+   * With a rectangle selected it copies that rectangle. With nothing selected
+   * it copies the page on screen, which is the other half of the same request —
+   * "here is this week's import list" is a whole page, not a dragged corner of
+   * one, and making somebody drag over fifty rows first would be silly.
+   */
+  async function copyWithHeads(layout: string) {
+    const fields = fieldsByLayout[layout] ?? [];
+    const useSelection = !!range && range.layout === layout && selection.length > 0;
+    const heads = useSelection
+      ? selected.heads
+      : (headsByLayout[layout] ?? []).filter((_, i) => fields[i]);
+    const lines = useSelection
+      ? selectionValues()
+      : (rowsByLayout[layout] ?? []).map((job) => fields
+        .filter((field): field is string => !!field)
+        .map((field) => (job[field as keyof Job] as string) || ""));
+
+    if (!lines.length) { p.onToast("ไม่มีงานให้คัดลอก"); return; }
+
+    const { text, html } = blockPayload(lines, heads);
+    try {
+      // The HTML flavour is what makes it arrive in a mail as a table. Older
+      // browsers have no ClipboardItem; they still get the text, which is the
+      // whole of what Ctrl+C would have given them anyway.
+      if (typeof ClipboardItem === "function") {
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        })]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      p.onToast(`คัดลอกพร้อมหัวตารางแล้ว ${lines.length} แถว · ${heads.length} คอลัมน์`
+        + (useSelection ? "" : " · ทั้งหน้า"));
+    } catch {
+      p.onToast("เบราว์เซอร์ไม่อนุญาตให้คัดลอก — ลองกดที่ตารางก่อนแล้วกดปุ่มอีกครั้ง");
+    }
+  }
 
   /**
    * Copy and paste over the selected rectangle.
@@ -1203,9 +1293,9 @@ export function Workspace(p: Props) {
     const onCopy = (e: ClipboardEvent) => {
       if (typing(e.target)) return;
       e.preventDefault();
-      e.clipboardData?.setData("text/plain", selection
-        .map((line) => line.map(({ job, field }) => (job[field] as string) || "").join(TAB))
-        .join(NEWLINE));
+      // No headings here on purpose: this is the copy that gets pasted back
+      // into the grid, and a heading row would be written in as data.
+      e.clipboardData?.setData("text/plain", blockPayload(selectionValues(), null).text);
       p.onToast(`คัดลอกแล้ว ${selection.length} แถว · ${selection[0].length} คอลัมน์`);
     };
 
@@ -1784,7 +1874,7 @@ export function Workspace(p: Props) {
                 setPage(grid.layout, page);
                 p.onSectionPage?.(grid.layout, page);
               }}
-              onTool={() => undefined}
+              onTool={(label) => { if (label === "คัดลอกพร้อมหัวตาราง") void copyWithHeads(grid.layout); }}
             />
           </div>
           <JobCards
