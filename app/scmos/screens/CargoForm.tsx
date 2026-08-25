@@ -386,31 +386,27 @@ export function CargoForm({ onToast }: { onToast: (message: string) => void }) {
 
       <div className="cargo-page" style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:22px 24px;display:flex;flex-direction:column;gap:14px")}>
         {/*
-          The letterhead the paper form carries. The mark is the one already in
-          the app; the word beside it is set in type rather than taken from
-          artwork, the same choice the app header makes, because the logo inside
-          those .xls files is cut into pieces across the workbook's records and
-          could not be lifted out whole. Drop the real lockup into
-          public/cargo-logo.png and swap this block for an <img> when it is
-          available.
+          The letterhead, laid out as ISO-FRM-TH-CCL-04-01 lays it out: the mark
+          on the left and the title across the middle, and nothing else.
+
+          The company name, address and phone were here for a while, lifted from
+          the block on ISO-FRM-TH-ADM-26-06. They are gone again: that is a
+          different document, and this form does not carry them. A receipt that
+          prints more letterhead than the paper one is not the same document,
+          and this one gets signed.
         */}
-        <div style={css("display:flex;align-items:center;gap:14px;border-bottom:2px solid #0A2240;padding-bottom:10px")}>
+        <div style={css("display:flex;align-items:center;gap:18px;padding-bottom:4px")}>
           {/* A plain img on purpose: next/image lazy-loads behind a wrapper,
               and a letterhead that has not loaded yet prints as a blank box.
-              It is a 2.7 KB file served from this same origin. */}
+              It is a 20 KB file served from this same origin. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="" width={44} height={34}
-            style={css("object-fit:contain;flex:none")} />
-          <div style={css("display:flex;flex-direction:column;line-height:1.25")}>
-            <span style={css("font-size:19px;font-weight:700;color:#1B2A4A;letter-spacing:.13em")}>LESCHACO</span>
-            <span style={css("font-size:9.5px;color:#5A6B80")}>Leschaco (Thailand) Ltd.</span>
-            <span style={css("font-size:9px;color:#7B8CA0")}>
-              3354/36-39 Manorom Building, 11th Floor, Rama IV Road, Klongtoey, Bangkok 10110
-            </span>
-            <span style={css("font-size:9px;color:#7B8CA0")}>
-              Tel : (66) 0 2686 1000 &nbsp;Fax : (66) 0 2671 6717
-            </span>
-          </div>
+          <img
+            src="/cargo-logo.png"
+            alt="LESCHACO"
+            width={198}
+            height={39}
+            style={css("flex:none;object-fit:contain")}
+          />
         </div>
 
         <div style={css("text-align:center;font-size:16px;font-weight:700;color:#0A2240;letter-spacing:.02em")}>
