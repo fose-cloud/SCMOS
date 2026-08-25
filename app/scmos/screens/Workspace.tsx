@@ -439,6 +439,9 @@ export function Workspace(p: Props) {
   const spanTo = dnum(toDate);
   /** Something was typed that could not be read as a date in this context. */
   const spanUnread = (!!ws.from.trim() && !spanFrom) || (!!ws.to.trim() && !spanTo);
+  /** Whether anything in the period bar is narrowing the screen at all. */
+  const periodNarrowed = ws.year !== "ALL" || ws.month !== "ALL" || ws.date !== "ALL"
+    || !!ws.from || !!ws.to;
 
   // Year, month and the span narrow everything downstream — the day strip, the
   // process board, the KPI tiles and the grid all describe the same slice.
@@ -1430,17 +1433,26 @@ export function Workspace(p: Props) {
           />
         </label>
 
-        {(ws.year !== "ALL" || ws.month !== "ALL" || ws.date !== "ALL" || ws.from || ws.to) && (
-          <button
-            // Everything the bar can narrow by, including the two typed boxes —
-            // the button appears when they are filled, so leaving them behind
-            // made it look broken to anybody who had only used those.
-            onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", from: "", to: "", page: 1 })}
-            style={css("height:29px;padding:0 12px;border:1px solid #BBD5EE;background:#F4F8FC;border-radius:4px;font-size:11.5px;color:#0A2240;font-weight:600;cursor:pointer")}
-          >
-            ล้างช่วงเวลา
-          </button>
-        )}
+        {/*
+          Always in the bar, greyed when there is nothing to clear.
+
+          It used to be rendered only while a filter was set, which was fine
+          while it did not work and confusing the moment it did: pressing it
+          cleared the filters and took the button away with them, so it read as
+          the button vanishing rather than as the filters going. It also clears
+          the two typed boxes now — it appears above them and offers to clear
+          the period, and leaving them behind is what made it look broken.
+        */}
+        <button
+          disabled={!periodNarrowed}
+          onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", from: "", to: "", page: 1 })}
+          style={css("height:29px;padding:0 12px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
+            + (periodNarrowed
+              ? "border:1px solid #BBD5EE;background:#F4F8FC;color:#0A2240;cursor:pointer"
+              : "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"))}
+        >
+          ล้างช่วงเวลา
+        </button>
 
         <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px")}>
           <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{base.length}</span>
