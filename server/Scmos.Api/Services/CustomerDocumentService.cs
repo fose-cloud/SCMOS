@@ -112,6 +112,15 @@ public class CustomerDocumentService(ScmosDbContext db)
         var carrier = input.Carrier.Trim();
         if (customer.Length == 0 || carrier.Length == 0) return 0;
 
+        // All of it or none of it.
+        //
+        // The old bands are deleted before the new lanes are written, so a
+        // failure in the middle used to leave a card with prices indexing into
+        // bands that no longer existed — every figure on it pointing at the
+        // wrong step of the fuel clause, and nothing on screen to say so. A
+        // half-written rate card is worse than no rate card.
+        await using var work = await db.Database.BeginTransactionAsync(token);
+
         var doomed = await db.CustomerRateLanes
             .Where(lane => lane.Customer == customer && lane.Carrier == carrier)
             .Select(lane => lane.Id)
@@ -140,30 +149,38 @@ public class CustomerDocumentService(ScmosDbContext db)
                 Position = position,
             });
         }
+
+        // Every lane in one write, then every price in one more.
+        //
+        // This used to save inside the loop, twice per lane, which is a round
+        // trip to Azure SQL each time: three hundred and eighteen of them for a
+        // card of a hundred and fifty-nine lanes, six hundred for a customer
+        // whose work two hauliers share. On a serverless database that is
+        // minutes, and long enough that the save looked like it simply did not
+        // work. EF hands back the generated ids after one SaveChanges, so the
+        // prices can be attached straight afterwards.
+        var rows = input.Lanes.Select(lane => new CustomerRateLane
+        {
+            Customer = customer,
+            Carrier = carrier,
+            FromPlace = lane.From,
+            ToPlace = lane.To,
+            PostalCode = lane.PostalCode,
+        }).ToList();
+        db.CustomerRateLanes.AddRange(rows);
         await db.SaveChangesAsync(token);
 
         var saved = 0;
-        foreach (var lane in input.Lanes)
+        for (var index = 0; index < rows.Count; index++)
         {
-            var row = new CustomerRateLane
-            {
-                Customer = customer,
-                Carrier = carrier,
-                FromPlace = lane.From,
-                ToPlace = lane.To,
-                PostalCode = lane.PostalCode,
-            };
-            db.CustomerRateLanes.Add(row);
-            await db.SaveChangesAsync(token);
-
-            foreach (var (vehicle, prices) in lane.Prices)
+            foreach (var (vehicle, prices) in input.Lanes[index].Prices)
             {
                 for (var position = 0; position < prices.Length; position++)
                 {
                     if (prices[position] is not { } price) continue;
                     db.CustomerRatePrices.Add(new CustomerRatePrice
                     {
-                        LaneId = row.Id,
+                        LaneId = rows[index].Id,
                         Vehicle = vehicle,
                         BandPosition = position,
                         Price = price,
@@ -171,8 +188,9 @@ public class CustomerDocumentService(ScmosDbContext db)
                     saved++;
                 }
             }
-            await db.SaveChangesAsync(token);
         }
+        await db.SaveChangesAsync(token);
+        await work.CommitAsync(token);
 
         return saved;
     }
