@@ -50,6 +50,7 @@ builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<PreRunService>();
 builder.Services.AddScoped<MonitoringService>();
 builder.Services.AddScoped<RateService>();
+builder.Services.AddScoped<CustomerDocumentService>();
 builder.Services.AddScoped<SupplierService>();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<DocumentService>();
@@ -192,6 +193,7 @@ app.MapOperationalIssues();
 app.MapRotation();
 app.MapOperations();
 app.MapAiExtract();
+app.MapCustomerDocuments();
 
 await app.RunAsync();
 return 0;

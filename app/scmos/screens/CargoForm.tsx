@@ -158,7 +158,16 @@ const FIELD = "width:100%;border:none;border-bottom:1px solid #CBD5E1;background
 const CELL = "border:1px solid #94A3B8;padding:0";
 const ITEM_INPUT = "width:100%;border:none;background:transparent;font-size:11px;font-family:inherit;padding:4px 5px;outline:none";
 
-export function CargoForm({ onToast }: { onToast: (message: string) => void }) {
+export function CargoForm({ stored, onStore, onToast }: {
+  /**
+   * The shapes already on file. null while they are still being fetched, which
+   * is not the same as an empty list and must not read as "no forms exist".
+   */
+  stored: FormTemplate[] | null;
+  /** Writes the whole set back, and answers with how many were kept. */
+  onStore: (rows: FormTemplate[]) => Promise<number>;
+  onToast: (message: string) => void;
+}) {
   const [form, setForm] = useState<Form>(BLANK);
   /**
    * The customers who have a form, and what each of their forms asks for.
@@ -169,8 +178,24 @@ export function CargoForm({ onToast }: { onToast: (message: string) => void }) {
    * receipt has been drawn up for. Offering the first as if it were the second
    * put names in the picker that have no form behind them.
    */
-  const [templates, setTemplates] = useState<FormTemplate[]>([]);
+  /**
+   * A folder read this session, if there has been one.
+   *
+   * Derived rather than copied: what is on file arrives as a prop, and mirroring
+   * it into state through an effect means two versions of the same list that
+   * drift the moment one of them is written to. So the state here is only the
+   * thing the prop cannot know — a folder somebody opened a minute ago — and
+   * what the screen shows is that, falling back to what is stored.
+   *
+   * It also gives "not saved yet" for free: it is exactly the case where this
+   * holds something.
+   */
+  const [read, setRead] = useState<FormTemplate[] | null>(null);
+  const templates = read ?? stored ?? [];
+  const unsaved = read !== null;
+
   const [reading, setReading] = useState(false);
+  const [storing, setStoring] = useState(false);
   const [columns, setColumns] = useState<string[]>(COLUMN_SETS[0].columns);
   const [items, setItems] = useState<string[][]>(
     Array.from({ length: ITEM_ROWS }, () => COLUMN_SETS[0].columns.map(() => "")),
@@ -200,8 +225,25 @@ export function CargoForm({ onToast }: { onToast: (message: string) => void }) {
       if (!held || /copy/i.test(held.file)) byCustomer.set(template.customer, template);
     }
     const kept = [...byCustomer.values()].sort((a, b) => a.customer.localeCompare(b.customer));
-    setTemplates(kept);
-    onToast(`อ่านฟอร์มลูกค้าแล้ว ${kept.length} ราย${skipped ? ` · ข้าม ${skipped} ไฟล์ที่ไม่ใช่ฟอร์มลูกค้า` : ""}`);
+    setRead(kept);
+    onToast(`อ่านฟอร์มลูกค้าแล้ว ${kept.length} ราย${skipped ? ` · ข้าม ${skipped} ไฟล์ที่ไม่ใช่ฟอร์มลูกค้า` : ""} — กดบันทึกเข้าระบบเพื่อไม่ต้องเลือกไฟล์อีก`);
+  }
+
+  async function store() {
+    if (!templates.length) { onToast("ยังไม่มีฟอร์มให้บันทึก"); return; }
+    setStoring(true);
+    try {
+      const kept = await onStore(templates);
+      // Back to the stored list, which is now this one. Holding on to the read
+      // copy would leave the screen showing its own version of what it just
+      // agreed with the register.
+      setRead(null);
+      onToast(`บันทึกแบบฟอร์มแล้ว ${kept} ลูกค้า — ครั้งต่อไปเลือกลูกค้าได้เลย`);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStoring(false);
+    }
   }
 
   /** Picking a customer brings that customer's own item columns with it. */
@@ -342,7 +384,10 @@ export function CargoForm({ onToast }: { onToast: (message: string) => void }) {
             style={css(CONTROL + ";min-width:250px" + (templates.length ? "" : ";opacity:.5"))}
           >
             <option value="">
-              {reading ? "กำลังอ่านฟอร์ม…" : templates.length ? "เลือกลูกค้า" : "เลือกโฟลเดอร์ฟอร์มก่อน"}
+              {reading ? "กำลังอ่านฟอร์ม…"
+                : templates.length ? "เลือกลูกค้า"
+                : stored === null ? "กำลังโหลดรายชื่อ…"
+                : "เลือกโฟลเดอร์ฟอร์มก่อน"}
             </option>
             {templates.map((entry) => (
               <option key={entry.customer} value={entry.customer}>{entry.customer}</option>
@@ -362,6 +407,22 @@ export function CargoForm({ onToast }: { onToast: (message: string) => void }) {
         </label>
 
         <div style={css("display:flex;gap:8px;margin-left:auto")}>
+          {/* Only offered when this session has read a folder that is not on
+              file yet. A button that is always there invites somebody to press
+              it and overwrite the stored set with what is already the stored
+              set — harmless, but it teaches the wrong thing about what it does. */}
+          {unsaved && (
+            <button
+              onClick={store}
+              disabled={storing}
+              style={css("height:32px;padding:0 15px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;"
+                + (storing
+                  ? "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"
+                  : "border:1px solid #0A6E8A;background:#fff;color:#0A6E8A;cursor:pointer"))}
+            >
+              {storing ? "กำลังบันทึก…" : `บันทึกเข้าระบบ (${templates.length})`}
+            </button>
+          )}
           <button
             onClick={() => { setForm(BLANK); setItems(Array.from({ length: ITEM_ROWS }, () => columns.map(() => ""))); }}
             className="ghost-btn"

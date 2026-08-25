@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
 import type { Job } from "../ops";
 import { monthKey, monthKeyLabel } from "../period";
 import { dnum, kilos } from "../util";
-import { CargoForm } from "./CargoForm";
+import { apiFetch } from "../api";
+import { CargoForm, type FormTemplate } from "./CargoForm";
 import { ChemoursRates, readRateCard, type RateCard } from "./ChemoursRates";
 
 /**
@@ -114,6 +115,43 @@ function monthSpan(key: string): string {
   return `01/${month}/${year} - ${last}/${month}/${year}`;
 }
 
+/**
+ * The card as the API stores it, and the two translations between it and the
+ * card this screen works with.
+ *
+ * They are not the same shape and should not be forced to be. The screen's card
+ * is a reading of one workbook — it carries the file it came from and what could
+ * not be read out of it. What is stored is the card itself, which has no file
+ * and no complaints, only prices.
+ */
+type StoredCard = {
+  customer: string;
+  bands: { label: string; min: number; max: number; position: number }[];
+  lanes: {
+    id: number; carrier: string; from: string; to: string; postalCode: string;
+    prices: Record<string, (number | null)[]>;
+  }[];
+};
+
+function fromStored(stored: StoredCard): RateCard {
+  return {
+    file: "บันทึกไว้ในระบบ",
+    bands: stored.bands.map((band) => ({ label: band.label, min: band.min, max: band.max })),
+    lanes: stored.lanes.map((lane) => ({
+      id: String(lane.id),
+      carrier: lane.carrier,
+      service: "DELIVERY",
+      customer: stored.customer,
+      from: lane.from,
+      to: lane.to,
+      county: lane.postalCode,
+      remark: "",
+      prices: lane.prices,
+    })),
+    issues: [],
+  };
+}
+
 /** This report groups by the pick-up date, which is the only date it carries. */
 const monthOf = (job: Job) => monthKey(job.date);
 
@@ -132,6 +170,39 @@ export function Chemours({ jobs, tab, onToast }: {
    * it prices is the obvious thing to do with it.
    */
   const [card, setCard] = useState<RateCard | null>(null);
+  const [saving, setSaving] = useState(false);
+  /** The receipt shapes already on file, so the picker is filled before anybody opens a folder. */
+  const [templates, setTemplates] = useState<FormTemplate[] | null>(null);
+
+  /**
+   * What is already stored, fetched once when the screen opens.
+   *
+   * Both of these used to live only for as long as the tab was open, which
+   * meant picking the same files again every morning. They are kept now, so the
+   * screen starts with them and the file pickers are for changing them.
+   */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const response = await apiFetch("/api/customer-rates?customer=CHEMOURS",
+          { headers: { accept: "application/json" } });
+        if (!response.ok || !alive) return;
+        const stored = await response.json() as StoredCard;
+        if (!alive || !stored.lanes?.length) return;
+        setCard(fromStored(stored));
+      } catch { /* the tab still works from a file; a failed fetch is not worth a toast on arrival */ }
+    })();
+    (async () => {
+      try {
+        const response = await apiFetch("/api/cargo-forms", { headers: { accept: "application/json" } });
+        if (!response.ok || !alive) return;
+        const rows = await response.json() as { customer: string; sourceFile: string; columns: string[] }[];
+        if (alive) setTemplates(rows.map((row) => ({ customer: row.customer, file: row.sourceFile, columns: row.columns })));
+      } catch { if (alive) setTemplates([]); }
+    })();
+    return () => { alive = false; };
+  }, []);
   // Which of the account's documents is in view. The filters, the totals and
   // the export are the same machinery either way — only the columns differ, so
   // only the columns are chosen here.
@@ -229,12 +300,83 @@ export function Chemours({ jobs, tab, onToast }: {
     [rows],
   );
 
+  /**
+   * Writes one haulier's part of the card to the register.
+   *
+   * One haulier, not the whole card: their files arrive separately, and saving
+   * SSL must not disturb THAI KOT. The endpoint replaces that haulier's lanes
+   * and leaves the rest alone, which is the opposite of what the subcontractor
+   * seeder does — that one clears the book before it loads.
+   */
+  const saveCard = useCallback(async (hauler: string) => {
+    if (!card) return;
+    const mine = card.lanes.filter((lane) => lane.carrier === hauler);
+    if (!mine.length) { onToast("ไม่มีเส้นทางของผู้ขนส่งรายนี้ให้บันทึก"); return; }
+
+    setSaving(true);
+    try {
+      const response = await apiFetch("/api/customer-rates", {
+        method: "PUT",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          customer: "CHEMOURS",
+          carrier: hauler,
+          // An open-ended top band carries Infinity, and JSON.stringify writes
+          // that as null, which the API would read as no ceiling at all. These
+          // cards all quote closed ranges, so this never fires today — but a
+          // band that silently loses its ceiling is a price that applies at
+          // every diesel figure above it, and that is worth one line to stop.
+          bands: card.bands.map((band) => ({
+            label: band.label,
+            min: Number.isFinite(band.min) ? band.min : 0,
+            max: Number.isFinite(band.max) ? band.max : 9999,
+          })),
+          lanes: mine.map((lane) => ({
+            carrier: hauler, from: lane.from, to: lane.to,
+            postalCode: lane.county, prices: lane.prices,
+          })),
+        }),
+      });
+      const answer = await response.json().catch(() => null) as { lanes?: number; prices?: number; message?: string } | null;
+      if (!response.ok) { onToast(answer?.message ?? `บันทึกไม่สำเร็จ (${response.status})`); return; }
+      onToast(`บันทึกการ์ดของ ${hauler} แล้ว ${answer?.lanes ?? mine.length} เส้นทาง · ${answer?.prices ?? 0} ราคา`);
+    } catch (error) {
+      onToast("บันทึกไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setSaving(false);
+    }
+  }, [card, onToast]);
+
+  /** The whole set of receipt shapes, replaced together — see the note on the endpoint. */
+  const saveTemplates = useCallback(async (rows: FormTemplate[]) => {
+    const response = await apiFetch("/api/cargo-forms", {
+      method: "PUT",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(rows.map((row) => ({
+        customer: row.customer, sourceFile: row.file, columns: row.columns,
+      }))),
+    });
+    const answer = await response.json().catch(() => null) as { customers?: number; message?: string } | null;
+    if (!response.ok) throw new Error(answer?.message ?? `บันทึกไม่สำเร็จ (${response.status})`);
+    setTemplates(rows);
+    return answer?.customers ?? rows.length;
+  }, []);
+
   // Placed after every hook above it, so the early return cannot change how
   // many run. The warehouse and month pickers narrow jobs, and a rate card has
   // no jobs in it, so this tab draws on its own rather than under controls that
   // would do nothing to it.
   if (tab === RATES_TAB) {
-    return <ChemoursRates card={card} haulers={haulerNames} onLoad={loadCard} onToast={onToast} />;
+    return (
+      <ChemoursRates
+        card={card}
+        haulers={haulerNames}
+        onLoad={loadCard}
+        onSave={saveCard}
+        saving={saving}
+        onToast={onToast}
+      />
+    );
   }
 
   // The receipt is a blank document until somebody fills it in, so the
@@ -243,7 +385,7 @@ export function Chemours({ jobs, tab, onToast }: {
   // is issued for all of them, and keeping a second list of customer names is
   // how the two come to disagree.
   if (tab === "Cargo Receipt") {
-    return <CargoForm onToast={onToast} />;
+    return <CargoForm stored={templates} onStore={saveTemplates} onToast={onToast} />;
   }
 
   function exportSheet() {

@@ -78,11 +78,14 @@ const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;co
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
 const CELL = "padding:7px 10px;border-bottom:1px solid #F1F5F9;white-space:nowrap";
 
-export function ChemoursRates({ card, haulers, onLoad, onToast }: {
+export function ChemoursRates({ card, haulers, onLoad, onSave, saving, onToast }: {
   card: RateCard | null;
   /** Hauliers the register already knows, so the name is not typed twice. */
   haulers: string[];
   onLoad: (file: File, hauler: string) => void;
+  /** Writes one haulier's part of the card to the register. */
+  onSave: (hauler: string) => void;
+  saving: boolean;
   onToast: (message: string) => void;
 }) {
   const [carrier, setCarrier] = useState("ALL");
@@ -201,12 +204,31 @@ export function ChemoursRates({ card, haulers, onLoad, onToast }: {
               </span>
             </div>
 
-            <button
-              onClick={exportCard}
-              style={css("height:32px;padding:0 16px;margin-left:auto;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}
-            >
-              Export Excel
-            </button>
+            <div style={css("display:flex;gap:8px;margin-left:auto")}>
+              {/*
+                Saving is per haulier, which is why it waits until one is
+                chosen. "ทั้งหมด" is a view across cards that arrived separately,
+                and writing that back as one would attribute every lane to
+                whichever name happened to be picked.
+              */}
+              <button
+                onClick={() => onSave(carrier)}
+                disabled={saving || carrier === "ALL"}
+                title={carrier === "ALL" ? "เลือกผู้ขนส่งรายเดียวก่อนบันทึก" : ""}
+                style={css("height:32px;padding:0 15px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;"
+                  + (saving || carrier === "ALL"
+                    ? "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"
+                    : "border:1px solid #0A6E8A;background:#fff;color:#0A6E8A;cursor:pointer"))}
+              >
+                {saving ? "กำลังบันทึก…" : "บันทึกเข้าระบบ"}
+              </button>
+              <button
+                onClick={exportCard}
+                style={css("height:32px;padding:0 16px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}
+              >
+                Export Excel
+              </button>
+            </div>
           </>
         )}
       </div>
