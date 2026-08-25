@@ -25,6 +25,65 @@ import { css } from "../theme";
  * and it renders the Thai with the page's own fonts.
  */
 
+/**
+ * One customer's copy of the form: who it is for, and what its item table asks.
+ *
+ * The customer comes from the file name and nothing else. The customer cell
+ * inside these workbooks is unreliable — the copy named for AAT says THE
+ * CHEMOURS in it, and so do the ones for ISUZU and Iwatani, because somebody
+ * opened the nearest file and typed over it. The name on the file is what the
+ * operators actually use to find the right form.
+ */
+export type FormTemplate = { customer: string; file: string; columns: string[] };
+
+/**
+ * The customer a form file is for, read off its name.
+ *
+ * The form number and the words "Cargo Receipt" are the same on all of them;
+ * whatever is left is the customer. What is left is sometimes not a customer at
+ * all — "Copy" and "Simple" are working copies of the blank form — and those
+ * are not offered as customers, because a receipt addressed to "Copy" is a
+ * document nobody can send.
+ */
+export function customerFromFile(name: string): string {
+  let text = name.replace(/\.xlsx?$/i, "");
+  text = text.replace(/^ISO-FRM-TH-[A-Z]+-?[\d-]*_?/i, "");
+  text = text.replace(/^\s*Cargo\s*Receipt\s*/i, "");
+  text = text.replace(/^[\s_-]+/, "").replace(/[\s_-]+$/, "");
+  text = text.replace(/\s*-\s*Copy$/i, "").trim();
+  return /^(copy|simple)$/i.test(text) ? "" : text;
+}
+
+/** The item-table headings a form file asks for, read from its header row. */
+export async function readTemplate(file: File): Promise<FormTemplate | null> {
+  const customer = customerFromFile(file.name);
+  if (!customer) return null;
+
+  const book = XLSX.read(await file.arrayBuffer(), { cellDates: false });
+  const sheet = book.Sheets[book.SheetNames[0]];
+  if (!sheet) return null;
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, blankrows: false, defval: "" });
+
+  // The headings sit on the row whose first cell is NO, under ITEM. Found by
+  // what it says rather than by counting to eighteen.
+  //
+  // A file with no such row is not this form. One of the fifty-five is
+  // ISO-FRM-TH-ADM-26-06 — a different document that happens to be filed with
+  // them, with its terms at the top and no item table at all. It is skipped
+  // rather than half-read, and the customer it names has a real CCL-04-01 copy
+  // elsewhere in the folder, so nobody loses a form over it.
+  const headRow = rows.findIndex((row) => /^no$/i.test(String(row?.[0] ?? "").trim()));
+  if (headRow < 0) return null;
+
+  const columns = (rows[headRow] as unknown[])
+    .slice(1)
+    .map((cell) => String(cell ?? "").replace(/\s+/g, " ").trim());
+  while (columns.length && !columns[columns.length - 1]) columns.pop();
+  if (!columns.length) return null;
+
+  return { customer, file: file.name, columns };
+}
+
 /** The heading sets actually in use, counted across the fifty-five forms. */
 const COLUMN_SETS: { name: string; columns: string[] }[] = [
   {
@@ -99,18 +158,60 @@ const FIELD = "width:100%;border:none;border-bottom:1px solid #CBD5E1;background
 const CELL = "border:1px solid #94A3B8;padding:0";
 const ITEM_INPUT = "width:100%;border:none;background:transparent;font-size:11px;font-family:inherit;padding:4px 5px;outline:none";
 
-export function CargoForm({ customers, onToast }: {
-  /** Every customer the register knows, so the picker is not a second list to keep. */
-  customers: string[];
-  onToast: (message: string) => void;
-}) {
+export function CargoForm({ onToast }: { onToast: (message: string) => void }) {
   const [form, setForm] = useState<Form>(BLANK);
+  /**
+   * The customers who have a form, and what each of their forms asks for.
+   *
+   * Read from the folder of form files rather than from the register. Those two
+   * lists are not the same thing and should not be pretended to be: the
+   * register holds every customer with a job, and this holds the ones a cargo
+   * receipt has been drawn up for. Offering the first as if it were the second
+   * put names in the picker that have no form behind them.
+   */
+  const [templates, setTemplates] = useState<FormTemplate[]>([]);
+  const [reading, setReading] = useState(false);
   const [columns, setColumns] = useState<string[]>(COLUMN_SETS[0].columns);
   const [items, setItems] = useState<string[][]>(
     Array.from({ length: ITEM_ROWS }, () => COLUMN_SETS[0].columns.map(() => "")),
   );
 
   const set = (field: keyof Form, value: string) => setForm((held) => ({ ...held, [field]: value }));
+
+  async function loadFolder(files: FileList) {
+    setReading(true);
+    const read: FormTemplate[] = [];
+    let skipped = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const template = await readTemplate(file);
+        if (template) read.push(template); else skipped++;
+      } catch { skipped++; }
+    }
+    setReading(false);
+
+    if (!read.length) { onToast("อ่านฟอร์มไม่ได้สักไฟล์ — เลือกไฟล์ .xls ในโฟลเดอร์ Cargo"); return; }
+
+    // Two files for one customer is a working copy beside the real one. The
+    // file without "Copy" in its name is the one to keep.
+    const byCustomer = new Map<string, FormTemplate>();
+    for (const template of read) {
+      const held = byCustomer.get(template.customer);
+      if (!held || /copy/i.test(held.file)) byCustomer.set(template.customer, template);
+    }
+    const kept = [...byCustomer.values()].sort((a, b) => a.customer.localeCompare(b.customer));
+    setTemplates(kept);
+    onToast(`อ่านฟอร์มลูกค้าแล้ว ${kept.length} ราย${skipped ? ` · ข้าม ${skipped} ไฟล์ที่ไม่ใช่ฟอร์มลูกค้า` : ""}`);
+  }
+
+  /** Picking a customer brings that customer's own item columns with it. */
+  function chooseCustomer(customer: string) {
+    set("customer", customer);
+    const template = templates.find((entry) => entry.customer === customer);
+    if (!template) return;
+    setColumns(template.columns);
+    setItems((held) => held.map((row) => template.columns.map((_, i) => row[i] ?? "")));
+  }
 
   function applyColumnSet(name: string) {
     const chosen = COLUMN_SETS.find((entry) => entry.name === name);
@@ -222,17 +323,31 @@ export function CargoForm({ customers, onToast }: {
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
       <div className="no-print" style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap")}>
         <label style={css("display:flex;flex-direction:column;gap:3px")}>
-          <span style={css(LABEL)}>ชื่อลูกค้า</span>
+          <span style={css(LABEL)}>โฟลเดอร์ฟอร์มลูกค้า</span>
           <input
-            list="cargo-customers"
-            value={form.customer}
-            onChange={(e) => set("customer", e.target.value)}
-            placeholder="เลือกหรือพิมพ์ชื่อลูกค้า"
-            style={css(CONTROL + ";min-width:260px")}
+            type="file"
+            accept=".xls,.xlsx"
+            multiple
+            onChange={(e) => { const chosen = e.target.files; if (chosen?.length) void loadFolder(chosen); e.target.value = ""; }}
+            style={css("font-size:12px;font-family:inherit;max-width:230px")}
           />
-          <datalist id="cargo-customers">
-            {customers.map((name) => <option key={name} value={name} />)}
-          </datalist>
+        </label>
+
+        <label style={css("display:flex;flex-direction:column;gap:3px")}>
+          <span style={css(LABEL)}>ชื่อลูกค้า</span>
+          <select
+            value={form.customer}
+            disabled={!templates.length}
+            onChange={(e) => chooseCustomer(e.target.value)}
+            style={css(CONTROL + ";min-width:250px" + (templates.length ? "" : ";opacity:.5"))}
+          >
+            <option value="">
+              {reading ? "กำลังอ่านฟอร์ม…" : templates.length ? "เลือกลูกค้า" : "เลือกโฟลเดอร์ฟอร์มก่อน"}
+            </option>
+            {templates.map((entry) => (
+              <option key={entry.customer} value={entry.customer}>{entry.customer}</option>
+            ))}
+          </select>
         </label>
 
         <label style={css("display:flex;flex-direction:column;gap:3px")}>
@@ -270,6 +385,34 @@ export function CargoForm({ customers, onToast }: {
       </div>
 
       <div className="cargo-page" style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:22px 24px;display:flex;flex-direction:column;gap:14px")}>
+        {/*
+          The letterhead the paper form carries. The mark is the one already in
+          the app; the word beside it is set in type rather than taken from
+          artwork, the same choice the app header makes, because the logo inside
+          those .xls files is cut into pieces across the workbook's records and
+          could not be lifted out whole. Drop the real lockup into
+          public/cargo-logo.png and swap this block for an <img> when it is
+          available.
+        */}
+        <div style={css("display:flex;align-items:center;gap:14px;border-bottom:2px solid #0A2240;padding-bottom:10px")}>
+          {/* A plain img on purpose: next/image lazy-loads behind a wrapper,
+              and a letterhead that has not loaded yet prints as a blank box.
+              It is a 2.7 KB file served from this same origin. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" width={44} height={34}
+            style={css("object-fit:contain;flex:none")} />
+          <div style={css("display:flex;flex-direction:column;line-height:1.25")}>
+            <span style={css("font-size:19px;font-weight:700;color:#1B2A4A;letter-spacing:.13em")}>LESCHACO</span>
+            <span style={css("font-size:9.5px;color:#5A6B80")}>Leschaco (Thailand) Ltd.</span>
+            <span style={css("font-size:9px;color:#7B8CA0")}>
+              3354/36-39 Manorom Building, 11th Floor, Rama IV Road, Klongtoey, Bangkok 10110
+            </span>
+            <span style={css("font-size:9px;color:#7B8CA0")}>
+              Tel : (66) 0 2686 1000 &nbsp;Fax : (66) 0 2671 6717
+            </span>
+          </div>
+        </div>
+
         <div style={css("text-align:center;font-size:16px;font-weight:700;color:#0A2240;letter-spacing:.02em")}>
           CARGO RECEIPT &nbsp;ใบรับ-ส่งสินค้า
         </div>

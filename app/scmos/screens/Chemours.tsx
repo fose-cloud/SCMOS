@@ -140,10 +140,6 @@ export function Chemours({ jobs, tab, onToast }: {
   const [month, setMonth] = useState("ALL");
 
   const deliveries = useMemo(() => jobs.filter((job) => job.cat === "DELIVERY"), [jobs]);
-  const customerNames = useMemo(
-    () => [...new Set(jobs.map((job) => job.customer).filter(Boolean))].sort(),
-    [jobs],
-  );
   const haulerNames = useMemo(
     () => [...new Set(jobs.map((job) => job.trucker).filter(Boolean))].sort(),
     [jobs],
@@ -247,7 +243,7 @@ export function Chemours({ jobs, tab, onToast }: {
   // is issued for all of them, and keeping a second list of customer names is
   // how the two come to disagree.
   if (tab === "Cargo Receipt") {
-    return <CargoForm customers={customerNames} onToast={onToast} />;
+    return <CargoForm onToast={onToast} />;
   }
 
   function exportSheet() {
