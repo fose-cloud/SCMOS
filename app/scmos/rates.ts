@@ -672,14 +672,14 @@ export function parseRateWorkbook(carrier: string, fileName: string, data: Array
       continue;
     }
 
+    // Subcontractor forms only — the Chemours card is that account's own and is
+    // read on that account's screen, not into the book that compares carriers.
     const input = { carrier, fileName, sheetName, rows };
-    const parsed = parseRateSheet(input, bands, issues)
-      ?? parseDgtSheet(input, bands, issues)
-      ?? parseChemoursSheet(input, bands, issues);
+    const parsed = parseRateSheet(input, bands, issues) ?? parseDgtSheet(input, bands, issues);
     if (!parsed) {
       issues.push({
         file: fileName, sheet: sheetName, row: 0, field: "layout", value: "",
-        message: "ไม่รู้จักรูปแบบของชีตนี้ — ไม่ตรงกับฟอร์ม LESCHACO, ฟอร์ม DGT หรือการ์ดราคา Chemours",
+        message: "ไม่รู้จักรูปแบบของชีตนี้ — ไม่ตรงกับฟอร์ม LESCHACO หรือฟอร์ม DGT",
       });
       continue;
     }

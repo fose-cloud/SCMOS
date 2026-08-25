@@ -16,7 +16,7 @@ import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from "n
 import { join, basename, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseRateSheet, parseDgtSheet, parseChemoursSheet, parseSurcharges, serviceOf, canonicalCarrier } from "../app/scmos/rates.ts";
+import { parseRateSheet, parseDgtSheet, parseSurcharges, serviceOf, canonicalCarrier } from "../app/scmos/rates.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = process.argv[2] ?? "D:/Leschaco/Dashboard/Transport cost subcon";
@@ -109,19 +109,20 @@ for (const file of files) {
 
     const input = { carrier, fileName: rel, sheetName, rows };
     // The LESCHACO form first; DGT quote on their own and are read by their own
-    // reader rather than being forced into a shape they never used, and the
-    // Chemours distribution card is a third shape again — one truck size per
-    // sheet, with the size named only in the heading over the prices.
-    const parsed = parseRateSheet(input, bands, issues)
-      ?? parseDgtSheet(input, bands, issues)
-      ?? parseChemoursSheet(input, bands, issues);
+    // reader rather than being forced into a shape they never used.
+    //
+    // The Chemours distribution card is deliberately not read here. It is one
+    // account's prices, it belongs on that account's screen, and folding it in
+    // would put it into the book that compares eighteen subcontractors against
+    // each other — where it would be offered on other customers' jobs.
+    const parsed = parseRateSheet(input, bands, issues) ?? parseDgtSheet(input, bands, issues);
     if (!parsed || parsed.lanes.length === 0) {
       // Only now is "we could not read this" true. Sheets that are plainly not
       // rate cards are left alone: a workbook is allowed to carry a cover page.
-      if (!parsed && /rate|ราคา|price|\(\d{1,2}W\)/i.test(sheetName)) {
+      if (!parsed && /rate|ราคา|price/i.test(sheetName)) {
         issues.push({
           file: rel, sheet: sheetName, row: 0, field: "layout", value: "",
-          message: "Looks like a rate sheet but matches none of the three known forms",
+          message: "Looks like a rate sheet but matches neither known form",
         });
       }
       continue;

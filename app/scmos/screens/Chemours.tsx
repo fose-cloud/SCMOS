@@ -6,6 +6,7 @@ import { css } from "../theme";
 import type { Job } from "../ops";
 import { monthKey, monthKeyLabel } from "../period";
 import { dnum, kilos } from "../util";
+import { ChemoursRates, readRateCard, type RateCard } from "./ChemoursRates";
 
 /**
  * The Chemours delivery details, in the shape the account already receives.
@@ -57,6 +58,9 @@ export const COLUMNS: Column[] = [
   { head: "Transportation", read: (j) => count(j.cost), align: "right" },
   { head: "Remark", read: (j) => j.remark },
 ];
+
+/** The tab that holds this account's own transport prices. */
+export const RATES_TAB = "ค่าขนส่ง";
 
 /** The tab that shows the account's own summary sheet. */
 export const SUMMARY_TAB = "สรุปงาน";
@@ -119,6 +123,14 @@ export function Chemours({ jobs, tab, onToast }: {
   onToast: (message: string) => void;
 }) {
   const [warehouse, setWarehouse] = useState("UNITHAI");
+  /**
+   * The account's rate card, once somebody has opened the workbook.
+   *
+   * Held here rather than inside the rates tab so moving between this screen's
+   * tabs does not throw it away — reading the card and then looking at the jobs
+   * it prices is the obvious thing to do with it.
+   */
+  const [card, setCard] = useState<RateCard | null>(null);
   // Which of the account's documents is in view. The filters, the totals and
   // the export are the same machinery either way — only the columns differ, so
   // only the columns are chosen here.
@@ -127,6 +139,20 @@ export function Chemours({ jobs, tab, onToast }: {
   const [month, setMonth] = useState("ALL");
 
   const deliveries = useMemo(() => jobs.filter((job) => job.cat === "DELIVERY"), [jobs]);
+
+  async function loadCard(file: File) {
+    try {
+      const read = await readRateCard(file);
+      if (!read.lanes.length) {
+        onToast("ไม่พบชีตราคาในไฟล์นี้ — การ์ดราคาคือชีตที่ขึ้นต้นด้วย Origin City");
+        return;
+      }
+      setCard(read);
+      onToast(`อ่านการ์ดราคาแล้ว ${read.lanes.length} แถว · ${read.bands.length} ช่วงราคาน้ำมัน`);
+    } catch (error) {
+      onToast("อ่านไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
 
   /**
    * Every warehouse the delivery jobs actually name, with how many each holds.
@@ -176,6 +202,14 @@ export function Chemours({ jobs, tab, onToast }: {
     }, 0),
     [rows],
   );
+
+  // Placed after every hook above it, so the early return cannot change how
+  // many run. The warehouse and month pickers narrow jobs, and a rate card has
+  // no jobs in it, so this tab draws on its own rather than under controls that
+  // would do nothing to it.
+  if (tab === RATES_TAB) {
+    return <ChemoursRates card={card} onLoad={loadCard} onToast={onToast} />;
+  }
 
   function exportSheet() {
     if (!rows.length) { onToast("ไม่มีงานให้ส่งออกในมุมมองนี้"); return; }
