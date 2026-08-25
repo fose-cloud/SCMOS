@@ -169,7 +169,9 @@ export const TAB_DEFS: Record<string, string[]> = {
   // The delivery report the customer receives, and the receipt for the goods
   // behind it. Two documents about the same jobs, so one screen with two tabs
   // rather than two entries in the menu.
-  chemours: ["Delivery Details", "Cargo Receipt"],
+  // The working grid first: Domestic jobs are edited here now, and the two
+  // reports are what comes out of them.
+  chemours: ["งาน Domestic", "Delivery Details", "Cargo Receipt"],
   billing: ["Aging", "Invoices", "Advance Receipts"],
   // Capacity, Document Center and Administration carry their own controls now
   // that they read the API; tabs that narrowed a demo table would do nothing.

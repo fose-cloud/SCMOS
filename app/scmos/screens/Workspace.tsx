@@ -59,6 +59,16 @@ type Props = {
   /** A dragged rectangle written in one go, each column keeping its own rule. */
   onPasteCells: (edits: { job: Job; field: keyof Job; value: string }[]) => void;
   onToast: (message: string) => void;
+  /**
+   * Draw one category only, and stop offering the chooser.
+   *
+   * The grid is the same grid wherever it is shown — the same editing, the same
+   * paste, the same paging — so the Chemours menu mounts this rather than
+   * growing a second one that would drift from it within a month. Set to
+   * DELIVERY there; unset in the workspace, which no longer carries that
+   * category at all.
+   */
+  lockedCat?: string;
   /** Writes a known value straight onto a field — what the dropdowns use. */
   onSetField: (job: Job, field: keyof Job, value: string) => void;
   onStatusChange: (job: Job, value: string) => void;
@@ -130,7 +140,9 @@ export type WorkspaceServerPage = {
   dates: string[];
 };
 
-const CATEGORIES = ["ALL", "IMPORT", "EXPORT", "DELIVERY"];
+// Domestic is worked under The Chemours now — every one of those jobs is that
+// account's — so the workspace neither offers it nor counts it.
+const CATEGORIES = ["ALL", "IMPORT", "EXPORT"];
 
 const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
@@ -382,7 +394,11 @@ export const WORKSPACE_TABS: Record<string, (job: Job, opId: string) => boolean>
 /** Tab labels carry live counts; the header renders them, so this is exported. */
 export function workspaceTabCounts(ops: Ops | null, opId: string, cat: string): Record<string, number> {
   if (!ops) return {};
-  const base = cat === "ALL" ? ops.jobs : ops.jobs.filter((j) => j.cat === cat);
+  // "ALL" is import and export: Domestic is worked under The Chemours, and a
+  // tab counting jobs the grid beneath it cannot show is a tab that lies.
+  const base = cat === "ALL"
+    ? ops.jobs.filter((j) => j.cat !== "DELIVERY")
+    : ops.jobs.filter((j) => j.cat === cat);
   const counts: Record<string, number> = {};
   for (const [tab, matches] of Object.entries(WORKSPACE_TABS)) {
     counts[tab] = base.filter((job) => matches(job, opId)).length;
@@ -477,10 +493,12 @@ export function Workspace(p: Props) {
   // Replaces the Import / Export "Process Progress" screens. Same idea, same
   // stage names, but every figure is the real status of a real job — the old
   // screens derived "cleared / pending" from the row index, not from the data.
+  // A locked grid is that category, whatever the tab or the chooser say.
   const ladderCat =
-    ws.cat !== "ALL" ? ws.cat
-      : ["IMPORT", "EXPORT", "DELIVERY"].indexOf(ws.tab) >= 0 ? ws.tab
-        : "";
+    p.lockedCat ? p.lockedCat
+      : ws.cat !== "ALL" ? ws.cat
+        : ["IMPORT", "EXPORT", "DELIVERY"].indexOf(ws.tab) >= 0 ? ws.tab
+          : "";
   // The ladder can come from the tab while the category buttons still say ALL,
   // so the counts have to be narrowed the same way or the board would show one
   // category's stages with every category's jobs.
@@ -767,7 +785,7 @@ export function Workspace(p: Props) {
    */
   // Every tab is category-mixed now, so the grid splits import from export on
   // all of them unless a category is chosen above it.
-  const splitMixed = ws.cat === "ALL";
+  const splitMixed = !p.lockedCat && ws.cat === "ALL";
   // With the server answering, the sections are the ones it answered for — it
   // was asked per category, and a category it returned nothing for is a section
   // with no rows, exactly as an empty filter result is here.
@@ -786,7 +804,7 @@ export function Workspace(p: Props) {
           jobs: [...pinnedFor(layout), ...withoutPinned(apiPages[layout].jobs)],
         }))
     : (splitMixed
-      ? (["IMPORT", "EXPORT", "DELIVERY"] as const)
+      ? (["IMPORT", "EXPORT"] as const)
         .map((c) => ({
           layout: c as string,
           jobs: [...pinnedFor(c), ...withoutPinned(list.filter((j) => j.cat === c))],
@@ -1296,7 +1314,7 @@ export function Workspace(p: Props) {
                   : "ต่อฐานข้อมูลแล้ว"}
         </span>
         <div style={css("margin-left:auto;display:flex;align-items:center;gap:7px")}>
-          {CATEGORIES.map((c) => (
+          {(p.lockedCat ? [] : CATEGORIES).map((c) => (
             <button
               key={c}
               onClick={() => p.set({ cat: c, page: 1 })}

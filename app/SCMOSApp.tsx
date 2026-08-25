@@ -130,6 +130,9 @@ const REGISTER_SCREENS = new Set<Screen>([
   "admin",
 ]);
 
+/** The Chemours tab that hosts the Domestic grid rather than a report. */
+const DOMESTIC_TAB = "งาน Domestic";
+
 function selectedTab(screen: Screen, tab: string): string {
   const tabs = TAB_DEFS[screen] ?? [];
   return tab && tabs.includes(tab) ? tab : tabs[0] ?? "";
@@ -579,7 +582,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     if (first) setScreen(first[0]);
   }, [screen]);
   const isSupervisor = able("ApproveAi");
-  const isWorkspace = screen === "myjob" && !isDetail;
+  /**
+   * The Domestic grid, hosted by The Chemours.
+   *
+   * Every Domestic job is that account's work, so it is worked there rather
+   * than in the general workspace. It is the same grid component with its
+   * category locked — one implementation, because two would have drifted.
+   */
+  const domesticGrid = screen === "chemours" && selectedTab("chemours", tab) === DOMESTIC_TAB;
+  const lockedCat = domesticGrid ? "DELIVERY" : undefined;
+  const isWorkspace = (screen === "myjob" || domesticGrid) && !isDetail;
 
   // The rate book is nearly two megabytes of subcontractor quotations, so it is
   // fetched the first time somebody opens a screen that prices work, rather than
@@ -947,7 +959,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     let cancelled = false;
 
     (async () => {
-      const wanted = ws.cat === "ALL" ? ["IMPORT", "EXPORT", "DELIVERY"] : [ws.cat];
+      const wanted = lockedCat ? [lockedCat]
+        : ws.cat === "ALL" ? ["IMPORT", "EXPORT"] : [ws.cat];
       const queries = wanted.map((cat) => ({
         tab: activeTab, cat,
         year: ws.year, month: ws.month, day: ws.date, from: ws.from, to: ws.to,
@@ -1012,7 +1025,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     return () => { cancelled = true; };
     // `me.opId` keys the saved pages, so a change of account must re-read them
     // rather than show this person the last one's rows.
-  }, [isWorkspace, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.from, ws.to, ws.cust, ws.trucker,
+  }, [isWorkspace, lockedCat, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.from, ws.to, ws.cust, ws.trucker,
       ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q,
       sectionPages, prefs.perPage, revision, me.opId]);
 
@@ -1037,7 +1050,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const wsCounts = useMemo(
     () => {
       if (!isWorkspace) return {};
-      if (ops) return workspaceTabCounts(ops, me.opId, ws.cat);
+      if (ops) return workspaceTabCounts(ops, me.opId, lockedCat ?? ws.cat);
       if (!serverPages) return {};
 
       const answers = Object.values(serverPages);
@@ -2024,7 +2037,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     );
   }
 
-  const wsState: WsState = { ...ws, tab: activeTab, q, page };
+  const wsState: WsState = { ...ws, tab: activeTab, q, page, cat: lockedCat ?? ws.cat };
 
   return (
     <>
@@ -2171,6 +2184,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onSaveCell={saveCell}
                   onPasteCells={pasteCells}
                   onToast={setToast}
+                  lockedCat={lockedCat}
                   onSetField={setField}
                   onStatusChange={changeJobStatus}
                   onSort={() => undefined}
@@ -2263,7 +2277,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               />
             )}
             {screen === "rotation" && <JobRotation me={me.id} onToast={setToast} />}
-            {screen === "chemours" && (
+            {screen === "chemours" && !domesticGrid && (
               <Chemours jobs={ops?.jobs ?? []} tab={selectedTab("chemours", tab)} onToast={setToast} />
             )}
             {screen === "docverify" && (
