@@ -56,6 +56,13 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<RatePrice> RatePrices => Set<RatePrice>();
     public DbSet<RateSurcharge> RateSurcharges => Set<RateSurcharge>();
 
+    // A customer's own paperwork. Separate tables from the ones above on
+    // purpose — see the note at the top of CustomerDocumentEntities.cs.
+    public DbSet<CustomerRateBand> CustomerRateBands => Set<CustomerRateBand>();
+    public DbSet<CustomerRateLane> CustomerRateLanes => Set<CustomerRateLane>();
+    public DbSet<CustomerRatePrice> CustomerRatePrices => Set<CustomerRatePrice>();
+    public DbSet<CargoFormTemplate> CargoFormTemplates => Set<CargoFormTemplate>();
+
     public DbSet<AiTool> AiTools => Set<AiTool>();
     public DbSet<Approval> Approvals => Set<Approval>();
     public DbSet<ReportUpload> ReportUploads => Set<ReportUpload>();
@@ -759,6 +766,60 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             entry.HasIndex(e => new { e.OwnerName, e.WorkDate }).HasDatabaseName("operation_entries_owner_date_idx");
             entry.HasIndex(e => new { e.ReportingPeriod, e.Flow }).HasDatabaseName("operation_entries_period_flow_idx");
+        });
+
+        /* ------------------------------------------ a customer's own papers */
+
+        model.Entity<CustomerRateBand>(entry =>
+        {
+            entry.ToTable("customer_rate_bands");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(180);
+            entry.Property(e => e.Label).HasColumnName("label").HasMaxLength(60);
+            entry.Property(e => e.MinPrice).HasColumnName("min_price").HasPrecision(9, 2);
+            entry.Property(e => e.MaxPrice).HasColumnName("max_price").HasPrecision(9, 2);
+            entry.Property(e => e.Position).HasColumnName("position");
+            // One card per customer is read at a time, and it is read whole.
+            entry.HasIndex(e => new { e.Customer, e.Position }).HasDatabaseName("customer_rate_bands_idx");
+        });
+
+        model.Entity<CustomerRateLane>(entry =>
+        {
+            entry.ToTable("customer_rate_lanes");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(180);
+            entry.Property(e => e.Carrier).HasColumnName("carrier").HasMaxLength(180);
+            entry.Property(e => e.FromPlace).HasColumnName("from_place").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.ToPlace).HasColumnName("to_place").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.PostalCode).HasColumnName("postal_code").HasMaxLength(20).HasDefaultValue("");
+            entry.HasIndex(e => new { e.Customer, e.Carrier }).HasDatabaseName("customer_rate_lanes_idx");
+        });
+
+        model.Entity<CustomerRatePrice>(entry =>
+        {
+            entry.ToTable("customer_rate_prices");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.LaneId).HasColumnName("lane_id");
+            entry.Property(e => e.Vehicle).HasColumnName("vehicle").HasMaxLength(20);
+            entry.Property(e => e.BandPosition).HasColumnName("band_position");
+            entry.Property(e => e.Price).HasColumnName("price");
+            entry.HasIndex(e => e.LaneId).HasDatabaseName("customer_rate_prices_lane_idx");
+        });
+
+        model.Entity<CargoFormTemplate>(entry =>
+        {
+            entry.ToTable("cargo_form_templates");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(180);
+            entry.Property(e => e.SourceFile).HasColumnName("source_file").HasMaxLength(260).HasDefaultValue("");
+            entry.Property(e => e.Columns).HasColumnName("columns").HasMaxLength(1000).HasDefaultValue("");
+            // A customer has one receipt shape, so uploading the folder twice
+            // replaces rather than doubles it.
+            entry.HasIndex(e => e.Customer).IsUnique().HasDatabaseName("cargo_form_templates_customer_idx");
         });
     }
 }

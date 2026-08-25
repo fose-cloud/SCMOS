@@ -23,7 +23,16 @@ import {
  */
 export type RateCard = { file: string; bands: FuelBand[]; lanes: RateLane[]; issues: RateIssue[] };
 
-export async function readRateCard(file: File): Promise<RateCard> {
+/**
+ * Whose card this is has to be told, because the workbook does not say.
+ *
+ * The tab names — "Unithai (4W)", "SCGJWD (4W)" — are the warehouse the run
+ * leaves from, the same two names the job sheets carry in their W/H column, and
+ * reading them as the hauler filed a whole card under two companies that have
+ * never quoted anything. The file name is the only place the hauler appears,
+ * and only sometimes, so it is asked for rather than guessed.
+ */
+export async function readRateCard(file: File, carrier: string): Promise<RateCard> {
   const book = XLSX.read(await file.arrayBuffer(), { cellDates: true });
   const bands: FuelBand[] = [];
   const lanes: RateLane[] = [];
@@ -34,7 +43,7 @@ export async function readRateCard(file: File): Promise<RateCard> {
       header: 1, blankrows: false, defval: "",
     });
     if (!rows.length) continue;
-    const parsed = parseChemoursSheet({ carrier: "", fileName: file.name, sheetName, rows }, bands, issues);
+    const parsed = parseChemoursSheet({ carrier, fileName: file.name, sheetName, rows }, bands, issues);
     if (parsed) lanes.push(...parsed.lanes);
   }
 
@@ -69,12 +78,16 @@ const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;co
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
 const CELL = "padding:7px 10px;border-bottom:1px solid #F1F5F9;white-space:nowrap";
 
-export function ChemoursRates({ card, onLoad, onToast }: {
+export function ChemoursRates({ card, haulers, onLoad, onToast }: {
   card: RateCard | null;
-  onLoad: (file: File) => void;
+  /** Hauliers the register already knows, so the name is not typed twice. */
+  haulers: string[];
+  onLoad: (file: File, hauler: string) => void;
   onToast: (message: string) => void;
 }) {
   const [carrier, setCarrier] = useState("ALL");
+  /** Whose card is about to be opened. Nothing loads until this is filled. */
+  const [loading, setLoading] = useState("");
   /**
    * The diesel price the whole card is read at.
    *
@@ -129,12 +142,32 @@ export function ChemoursRates({ card, onLoad, onToast }: {
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap")}>
         <label style={css("display:flex;flex-direction:column;gap:3px")}>
+          <span style={css(LABEL)}>การ์ดนี้เป็นของผู้ขนส่ง</span>
+          <input
+            list="chemours-haulers"
+            value={loading}
+            onChange={(e) => setLoading(e.target.value)}
+            placeholder="เช่น SSL, THAIKOT"
+            style={css(CONTROL + ";min-width:190px")}
+          />
+          <datalist id="chemours-haulers">
+            {haulers.map((name) => <option key={name} value={name} />)}
+          </datalist>
+        </label>
+
+        <label style={css("display:flex;flex-direction:column;gap:3px")}>
           <span style={css(LABEL)}>ไฟล์การ์ดราคา</span>
           <input
             type="file"
             accept=".xlsx,.xlsm,.xls"
-            onChange={(e) => { const chosen = e.target.files?.[0]; if (chosen) onLoad(chosen); e.target.value = ""; }}
-            style={css("font-size:12px;font-family:inherit;max-width:260px")}
+            disabled={!loading.trim()}
+            title={loading.trim() ? "" : "ใส่ชื่อผู้ขนส่งก่อน — ในไฟล์ไม่ได้บอกไว้"}
+            onChange={(e) => {
+              const chosen = e.target.files?.[0];
+              if (chosen) onLoad(chosen, loading.trim());
+              e.target.value = "";
+            }}
+            style={css("font-size:12px;font-family:inherit;max-width:250px" + (loading.trim() ? "" : ";opacity:.45"))}
           />
         </label>
 

@@ -144,16 +144,41 @@ export function Chemours({ jobs, tab, onToast }: {
     () => [...new Set(jobs.map((job) => job.customer).filter(Boolean))].sort(),
     [jobs],
   );
+  const haulerNames = useMemo(
+    () => [...new Set(jobs.map((job) => job.trucker).filter(Boolean))].sort(),
+    [jobs],
+  );
 
-  async function loadCard(file: File) {
+  /**
+   * Opens one hauler's card and adds it to whatever is already on screen.
+   *
+   * More than one company runs this account's work, each with their own card,
+   * and comparing them is the point of having them here. So a second file joins
+   * the first rather than replacing it — except for the same hauler twice,
+   * which is a corrected card and does replace, otherwise every reload would
+   * leave two prices for one lane and no way to tell which was current.
+   */
+  async function loadCard(file: File, hauler: string) {
     try {
-      const read = await readRateCard(file);
+      const read = await readRateCard(file, hauler);
       if (!read.lanes.length) {
         onToast("ไม่พบชีตราคาในไฟล์นี้ — การ์ดราคาคือชีตที่ขึ้นต้นด้วย Origin City");
         return;
       }
-      setCard(read);
-      onToast(`อ่านการ์ดราคาแล้ว ${read.lanes.length} แถว · ${read.bands.length} ช่วงราคาน้ำมัน`);
+      setCard((held) => {
+        if (!held) return read;
+        const kept = held.lanes.filter((lane) => lane.carrier !== read.lanes[0].carrier);
+        return {
+          file: held.file === read.file ? held.file : `${held.file}, ${read.file}`,
+          // The bands come off the card being read; a second card quoting the
+          // same clause lands on the same eleven, and one that does not would
+          // be a different contract and is worth seeing as extra bands.
+          bands: read.bands.length >= held.bands.length ? read.bands : held.bands,
+          lanes: [...kept, ...read.lanes],
+          issues: [...held.issues, ...read.issues],
+        };
+      });
+      onToast(`อ่านการ์ดของ ${hauler} แล้ว ${read.lanes.length} แถว · ${read.bands.length} ช่วงราคาน้ำมัน`);
     } catch (error) {
       onToast("อ่านไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     }
@@ -213,7 +238,7 @@ export function Chemours({ jobs, tab, onToast }: {
   // no jobs in it, so this tab draws on its own rather than under controls that
   // would do nothing to it.
   if (tab === RATES_TAB) {
-    return <ChemoursRates card={card} onLoad={loadCard} onToast={onToast} />;
+    return <ChemoursRates card={card} haulers={haulerNames} onLoad={loadCard} onToast={onToast} />;
   }
 
   // The receipt is a blank document until somebody fills it in, so the

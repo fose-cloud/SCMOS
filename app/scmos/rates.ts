@@ -555,8 +555,16 @@ export function parseChemoursSheet(
     return null;
   }
 
-  // The carrier is in the tab name here, not in the folder the file sits in.
-  const carrier = canonicalCarrier((input.sheetName.split("(")[0] ?? "").trim()) || input.carrier;
+  // The carrier is not on this sheet anywhere, and the tab name is not it.
+  //
+  // "Unithai (4W)" and "SCGJWD (4W)" name the warehouse the run starts from —
+  // the same two names that appear in the W/H column of the job sheets — not
+  // the company driving the truck. Reading them as carriers filed SSL's whole
+  // card under two warehouses that have never quoted anything, which would have
+  // been a rate attributed to a company that did not give it. The origin is
+  // already in the first column, so the tab name is not needed for that either;
+  // the carrier is whatever the caller was told the file belongs to.
+  const carrier = input.carrier.trim() || "UNKNOWN";
   // A domestic distribution run, not a container move — the same word the
   // register uses for these jobs, so the filter on the rates screen means
   // something.
@@ -608,6 +616,7 @@ export function parseChemoursSheet(
       // Every one of these lanes is quoted for this account and no other, and a
       // price that forgets whose it is would be offered on somebody else's job.
       customer: "CHEMOURS",
+      // The warehouse the run leaves from, as the card writes it.
       from: text(row, 0),
       to,
       county: text(row, 3),
