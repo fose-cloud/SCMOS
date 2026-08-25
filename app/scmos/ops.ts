@@ -93,11 +93,22 @@ export type Job = {
   /**
    * The D-code the summary sheet carries beside the SID.
    *
-   * Its own column headed "SID NUMBER" on the job sheet and "DCODE" on the
-   * second one — the same value under two names, which is why it is stored
-   * under the clearer of them.
+   * Headed "DCODE" on the second sheet of that workbook, and — on the first —
+   * headed nothing of the sort: the captions "SID NUMBER" and "JOB NO." are
+   * swapped there, so the D-codes sit under "JOB NO." and the LSTH job numbers
+   * under "SID NUMBER". All 36 rows of the August sheet are that way round and
+   * the second sheet settles which value is which, so the import puts the pair
+   * right by shape rather than trusting either caption.
    */
   dCode?: string;
+  /**
+   * The operator's own tick that a summary row has been checked, TRUE/FALSE.
+   *
+   * Their column, kept because it is theirs: it arrives on import and goes back
+   * out on export unchanged. Nothing in SCMOS sets it, so it is empty for jobs
+   * entered here — which is the truth about them, not a gap to fill in.
+   */
+  checked?: string;
   /** The SAP order and the delivery note the customer's own system issues. */
   sapOrder?: string;
   deliverNo?: string;

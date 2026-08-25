@@ -457,6 +457,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   dCode: ["DCODE", "D CODE", "SID NUMBER"],
   sapOrder: ["SAP ORDER", "SAP ORDER NO", "SAP ORDER NO."],
   deliverNo: ["DELIVER NO", "DELIVER NO.", "DELIVERY NO", "DELIVERY NO."],
+  checked: ["CHACK", "CHECK", "CLEAR"],
   cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง"],
 };
 
@@ -783,6 +784,31 @@ export async function parseWorkbook(
         record[field] = text;
         rowFields.add(field);
       });
+      // The summary sheet labels two of its columns the wrong way round: "SID
+      // NUMBER" sits over the LSTH job numbers and "JOB NO." over the D-codes,
+      // which is how all 36 rows of the August sheet are filled and what its
+      // second sheet settles by naming those same values DCODE. No alias can
+      // separate them — "JOB NO." means the job number on every other sheet in
+      // the business — so the pair is put right by what the values are. A
+      // D-code is a D and six or more digits and a job number never is, and the
+      // swap only happens when the job code is on the wrong side and the
+      // D-code is not, so a sheet that labels them correctly is left alone.
+      // Nothing in the register is at risk of being mistaken for a D-code: not
+      // one of the 381 job codes, ABS numbers or booking numbers on file is a
+      // D followed by digits, and job codes here are plain numbers.
+      //
+      // One end may be empty. The last row of the August sheet has a D-code and
+      // no job number yet — the delivery is on credit block — and that row must
+      // still arrive with its D-code under the right name.
+      const dShaped = (value: unknown) => /^D\d{6,}$/i.test(String(value ?? "").trim());
+      if (dShaped(record.jobCode) && !dShaped(record.dCode)) {
+        const held = String(record.dCode ?? "");
+        record.dCode = record.jobCode;
+        record.jobCode = held;
+        rowFields.add("dCode");
+        if (!held) rowFields.delete("jobCode");
+      }
+
       if (rowFields.size < 2) continue;
       if (!job.customer && !job.jobCode && !job.abs && !job.booking && !job.jobNo && !job.sid && !job.container) continue;
       // A job needs a day or a customer to be work at all. The July upload

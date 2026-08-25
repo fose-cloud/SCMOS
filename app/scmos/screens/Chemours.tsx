@@ -58,6 +58,57 @@ export const COLUMNS: Column[] = [
   { head: "Remark", read: (j) => j.remark },
 ];
 
+/** The tab that shows the account's own summary sheet. */
+export const SUMMARY_TAB = "สรุปงาน";
+
+/**
+ * The summary sheet, column for column from `สรุปงาน Chemous 2026`.
+ *
+ * The same jobs as the delivery report and a wider view of them: who drove,
+ * the customer's SAP order and delivery note, and the account's own tick that
+ * the row has been checked. Their file spells the last one CHACK and it is left
+ * that way, because matching their spelling costs nothing and a diff against
+ * last month's file stays clean.
+ *
+ * Two captions are not left that way. Their sheet puts "SID NUMBER" over the
+ * LSTH job numbers and "JOB NO." over the D-codes, which is the wrong way round
+ * in all 36 rows of the August sheet — the second sheet of the same workbook
+ * calls those D-codes DCODE. The columns sit where theirs sit, so the file
+ * still lines up; the two captions say what the column underneath actually
+ * holds. Handing back a sheet that repeats the mistake would make it permanent.
+ */
+export const SUMMARY_COLUMNS: Column[] = [
+  { head: "TRUCK", read: (j) => j.trucker },
+  { head: "W/H", read: (j) => j.wh ?? "" },
+  { head: "JOB NO.", read: (j) => j.jobCode || j.jobNo || "" },
+  { head: "DCODE", read: (j) => j.dCode ?? "" },
+  { head: "Pick-Up Date", read: (j) => j.date },
+  { head: "SID NO.", read: (j) => j.sid ?? "" },
+  { head: "SAP ORDER", read: (j) => j.sapOrder ?? "" },
+  { head: "DELIVER NO.", read: (j) => j.deliverNo ?? "" },
+  { head: "Customer List", read: (j) => j.customer },
+  { head: "ZIP CODE", read: (j) => j.zip ?? "" },
+  { head: "QTY", sub: "PALLET", read: (j) => count(j.pallet), align: "right" },
+  { head: "QTY", sub: "KGS.", read: (j) => kilos(j.weight || j.kgs), align: "right" },
+  { head: "TYPE of Vehicle", sub: "4W", read: (j) => count(j.v4), align: "right" },
+  { head: "TYPE of Vehicle", sub: "6W", read: (j) => count(j.v6), align: "right" },
+  { head: "TYPE of Vehicle", sub: "10W", read: (j) => count(j.v10), align: "right" },
+  { head: "TYPE of Vehicle", sub: "TAIL LIFT", read: (j) => count(j.vtl), align: "right" },
+  { head: "Remark", read: (j) => j.remark },
+  { head: "CHACK", read: (j) => j.checked ?? "" },
+];
+
+/**
+ * The period line their sheet carries under the warehouse, "01/08/2026 -
+ * 31/08/2026" — the whole month, whether or not a job fell on either end.
+ */
+function monthSpan(key: string): string {
+  const [year, month] = key.split("-");
+  if (!year || !month) return "";
+  const last = new Date(Number(year), Number(month), 0).getDate();
+  return `01/${month}/${year} - ${last}/${month}/${year}`;
+}
+
 /** This report groups by the pick-up date, which is the only date it carries. */
 const monthOf = (job: Job) => monthKey(job.date);
 
@@ -68,6 +119,11 @@ export function Chemours({ jobs, tab, onToast }: {
   onToast: (message: string) => void;
 }) {
   const [warehouse, setWarehouse] = useState("UNITHAI");
+  // Which of the account's documents is in view. The filters, the totals and
+  // the export are the same machinery either way — only the columns differ, so
+  // only the columns are chosen here.
+  const summary = tab === SUMMARY_TAB;
+  const columns = summary ? SUMMARY_COLUMNS : COLUMNS;
   const [month, setMonth] = useState("ALL");
 
   const deliveries = useMemo(() => jobs.filter((job) => job.cat === "DELIVERY"), [jobs]);
@@ -127,15 +183,25 @@ export function Chemours({ jobs, tab, onToast }: {
     // sub-heading underneath. Written as plain rows rather than merged cells —
     // the customer reads the file, and a merge that survives one Excel version
     // and not the next is not worth the risk.
-    const head = COLUMNS.map((column) => column.head);
-    const sub = COLUMNS.map((column) => column.sub ?? "");
-    const body = rows.map((job) => COLUMNS.map((column) => column.read(job)));
-    const sheet = XLSX.utils.aoa_to_sheet([head, sub, ...body]);
-    sheet["!cols"] = COLUMNS.map((column) => ({ wch: Math.max(10, column.head.length + 4) }));
+    const head = columns.map((column) => column.head);
+    const subHead = columns.map((column) => column.sub ?? "");
+    const body = rows.map((job) => columns.map((column) => column.read(job)));
+    // Their summary sheet opens with the warehouse and the period before the
+    // table starts. Both are read off the filters above rather than typed, so
+    // the heading cannot say one month while the rows show another.
+    const preamble = summary
+      ? [
+        ["Ware house", ":", "", warehouse === "ALL" ? "ทุกคลัง" : warehouse],
+        ["Period", ":", "", month === "ALL" ? "ทุกเดือน" : monthSpan(month)],
+        [],
+      ]
+      : [];
+    const sheet = XLSX.utils.aoa_to_sheet([...preamble, head, subHead, ...body]);
+    sheet["!cols"] = columns.map((column) => ({ wch: Math.max(10, column.head.length + 4) }));
     const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Del details-CHEM");
+    XLSX.utils.book_append_sheet(book, sheet, summary ? "Summary" : "Del details-CHEM");
     const scope = (warehouse === "ALL" ? "ALL" : warehouse) + "_" + (month === "ALL" ? "ALL" : month);
-    const name = `Del_details_CHEM_${scope}.xlsx`;
+    const name = `${summary ? "Summary_CHEM" : "Del_details_CHEM"}_${scope}.xlsx`;
     XLSX.writeFile(book, name);
     onToast(`ส่งออก ${rows.length} รายการแล้ว · ${name}`);
   }
@@ -202,7 +268,7 @@ export function Chemours({ jobs, tab, onToast }: {
             <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
               <thead>
                 <tr>
-                  {COLUMNS.map((column, index) => (
+                  {columns.map((column, index) => (
                     <th key={index} style={css("background:#F4F7FA;padding:7px 10px;text-align:left;font-size:10px;color:#465A6E;border-bottom:1px solid #D8E0E8;white-space:nowrap")}>
                       {column.head}
                       {column.sub && (
@@ -215,7 +281,7 @@ export function Chemours({ jobs, tab, onToast }: {
               <tbody>
                 {rows.map((job) => (
                   <tr key={job.key} className="row-hover">
-                    {COLUMNS.map((column, index) => (
+                    {columns.map((column, index) => (
                       <td key={index} style={css("padding:7px 10px;border-bottom:1px solid #F1F5F9;white-space:nowrap" +
                         (column.align === "right" ? ";text-align:right;font-family:'IBM Plex Mono',monospace" : ""))}>
                         {column.read(job) || "—"}

@@ -171,7 +171,7 @@ export const TAB_DEFS: Record<string, string[]> = {
   // rather than two entries in the menu.
   // The working grid first: Domestic jobs are edited here now, and the two
   // reports are what comes out of them.
-  chemours: ["งาน Domestic", "Delivery Details", "Cargo Receipt"],
+  chemours: ["งาน Domestic", "สรุปงาน", "Delivery Details", "Cargo Receipt"],
   billing: ["Aging", "Invoices", "Advance Receipts"],
   // Capacity, Document Center and Administration carry their own controls now
   // that they read the API; tabs that narrowed a demo table would do nothing.
