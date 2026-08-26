@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
+import type { Job } from "../ops";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
 
@@ -118,7 +119,31 @@ const SECTIONS: [string, [string, string][]][] = [
   ]],
 ];
 
-export function Incidents({ prefill, onPrefillTaken, onToast }: {
+/**
+ * What a case is about, read off the job it was raised against.
+ *
+ * A case stores only the job's key. That is right for storage — it is the one
+ * thing that cannot go stale — and useless on screen, where "งาน 2607014" tells
+ * nobody which shipment went wrong. The register is already loaded, so the
+ * details are looked up rather than copied into the case, which also means a
+ * container number corrected on the job is corrected here.
+ */
+const JOB_FACTS: [string, (job: Job) => string][] = [
+  ["ลูกค้า", (j) => j.customer],
+  ["ผู้ขนส่ง", (j) => j.trucker],
+  ["Job / ABS", (j) => j.jobCode || j.abs || j.jobNo || ""],
+  ["Booking", (j) => j.booking],
+  ["ตู้ / ซีล", (j) => [j.container, j.seal].filter(Boolean).join(" · ")],
+  ["ประเภท", (j) => j.type],
+  ["ปลายทาง", (j) => j.destination || j.plant || ""],
+  ["วันที่ / เวลา", (j) => [j.date, j.planTime].filter(Boolean).join(" ")],
+  ["ทะเบียนรถ", (j) => j.licence],
+  ["คนขับ", (j) => [j.driver, j.contact].filter(Boolean).join(" · ")],
+  ["สถานะ", (j) => j.status],
+  ["ผู้รับผิดชอบ", (j) => j.op],
+];
+
+export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }: {
   /**
    * A job sent over from the workspace drawer.
    *
@@ -126,7 +151,11 @@ export function Incidents({ prefill, onPrefillTaken, onToast }: {
    * land in the job's own folder rather than under a loose case number.
    */
   prefill?: { jobKey: string; title: string } | null;
+  /** The register, so a case can show the job it is about and not just its key. */
+  jobs: Job[];
   onPrefillTaken?: () => void;
+  /** Opens the job itself, for when the case is not where the answer is. */
+  onOpenJob?: (jobKey: string) => void;
   onToast: (m: string) => void;
 }) {
   const [cases, setCases] = useState<Case[] | null>(null);
@@ -137,6 +166,10 @@ export function Incidents({ prefill, onPrefillTaken, onToast }: {
   const [jobKey, setJobKey] = useState("");
   const [kind, setKind] = useState("CAR");
   const [category, setCategory] = useState("accident");
+
+  const byKey = useMemo(() => new Map(jobs.map((job) => [job.key, job])), [jobs]);
+  /** The job the next case will be raised against, once one has been sent over. */
+  const raisingAgainst = jobKey ? byKey.get(jobKey) ?? null : null;
 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/incidents", { headers: { accept: "application/json" } });
@@ -215,6 +248,57 @@ export function Incidents({ prefill, onPrefillTaken, onToast }: {
         <Tile label="ปิดแล้ว" value={cases.length - open.length} colour="#16794C" />
       </div>
 
+      {/*
+        The job the case is about, shown before it is opened rather than after.
+        The key travelled over from the workspace and then sat in a variable
+        nobody could see: the screen filled in a heading and gave no sign which
+        shipment it belonged to, which is a poor thing to ask somebody to sign
+        an 8D against.
+      */}
+      {jobKey && (
+        <div style={css("background:#F7FAFD;border:1px solid #C9DCEC;border-radius:5px;padding:12px 16px")}>
+          <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap")}>
+            <span style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>
+              เปิดเคสจากงานนี้
+            </span>
+            <div style={css("display:flex;gap:10px;align-items:baseline")}>
+              {onOpenJob && raisingAgainst && (
+                <button onClick={() => onOpenJob(jobKey)}
+                  style={css("border:none;background:none;padding:0;font-size:11.5px;color:#2E7DD1;cursor:pointer;font-family:inherit;text-decoration:underline")}>
+                  เปิดงาน
+                </button>
+              )}
+              <button onClick={() => setJobKey("")}
+                style={css("border:none;background:none;padding:0;font-size:11.5px;color:#7B8CA0;cursor:pointer;font-family:inherit")}>
+                ไม่ผูกกับงาน
+              </button>
+            </div>
+          </div>
+
+          {raisingAgainst ? (
+            <div style={css("margin-top:9px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px 20px")}>
+              {JOB_FACTS.map(([label, read]) => {
+                const value = read(raisingAgainst).trim();
+                if (!value) return null;
+                return (
+                  <div key={label} style={css("display:flex;gap:7px;font-size:11.5px;min-width:0")}>
+                    <span style={css("flex:0 0 84px;color:#7B8CA0")}>{label}</span>
+                    <span style={css("color:#16232F;font-weight:600;overflow-wrap:anywhere")}>{value}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            // The key is kept even when the job is not in the register that was
+            // loaded — a case still belongs to it, and quietly dropping the link
+            // would put the evidence in the wrong folder.
+            <div style={css("margin-top:7px;font-size:11.5px;color:#B45309")}>
+              ผูกกับงาน {jobKey} — ยังไม่พบงานนี้ในทะเบียนที่โหลดไว้ เคสยังผูกกับงานถูกต้อง
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 16px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap")}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="หัวข้อเคสใหม่"
           style={css("flex:1;min-width:220px;height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px")} />
@@ -235,7 +319,7 @@ export function Incidents({ prefill, onPrefillTaken, onToast }: {
       <div style={css("display:grid;grid-template-columns:" + (chosen ? "1fr 1.2fr" : "1fr") + ";gap:14px;align-items:start")}>
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-            <thead><tr>{["เลขที่", "หัวข้อ", "หมวด", "ขั้นตอน", "กำหนด"].map((h) => (
+            <thead><tr>{["เลขที่", "หัวข้อ", "งาน", "หมวด", "ขั้นตอน", "กำหนด"].map((h) => (
               <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
             ))}</tr></thead>
             <tbody>
@@ -244,18 +328,31 @@ export function Incidents({ prefill, onPrefillTaken, onToast }: {
                   style={css("cursor:pointer;border-bottom:1px solid #F1F5F9;background:" + (c.id === picked ? "#F2F7FC" : c.overdue ? "#FEF6F5" : "#fff"))}>
                   <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;font-weight:600")}>{c.reference}</td>
                   <td style={css(CELL + ";color:#0A2240")}>{c.title}</td>
+                  {/* Which shipment, not which key. A case with no job is a
+                      case about the operation rather than about a load, and
+                      says so instead of showing a blank. */}
+                  <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>
+                    {c.jobKey
+                      ? (() => {
+                        const job = byKey.get(c.jobKey);
+                        return job
+                          ? [job.jobCode || job.abs || job.container, job.customer].filter(Boolean).join(" · ")
+                          : c.jobKey;
+                      })()
+                      : "ไม่ผูกกับงาน"}
+                  </td>
                   <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>{CATEGORY_TH[c.category] ?? c.category}</td>
                   <td style={css(CELL + ";font-size:11.5px;color:" + (c.stage === "closed" ? "#16794C" : "#B45309"))}>{STAGE_TH[c.stage] ?? c.stage}</td>
                   <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;color:" + (c.overdue ? "#B42318" : "#7B8CA0"))}>{c.dueDate || "—"}</td>
                 </tr>
               ))}
-              {!cases.length && <tr><td colSpan={5} style={css("padding:28px;text-align:center;color:#94A3B8")}>ยังไม่มีเคส</td></tr>}
+              {!cases.length && <tr><td colSpan={6} style={css("padding:28px;text-align:center;color:#94A3B8")}>ยังไม่มีเคส</td></tr>}
             </tbody>
           </table>
         </div>
 
         {chosen && (
-          <Detail case_={chosen} busy={busy}
+          <Detail case_={chosen} busy={busy} job={byKey.get(chosen.jobKey) ?? null} onOpenJob={onOpenJob}
             onSave={(fields) => void post(`/${chosen.id}`, fields)}
             onAdvance={() => void post(`/${chosen.id}/advance`, {})}
             onUpload={(file, kind) => void upload(chosen.id, file, kind)}
@@ -273,8 +370,11 @@ const EVIDENCE_KINDS: [string, string][] = [
   ["supplier-report", "รายงานจากผู้ขนส่ง"], ["customer-information", "ข้อมูลจากลูกค้า"],
 ];
 
-function Detail({ case_, busy, onSave, onAdvance, onUpload, onClose }: {
+function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onClose }: {
   case_: Case; busy: boolean;
+  /** The job this case is about, when the register holds it. */
+  job: Job | null;
+  onOpenJob?: (jobKey: string) => void;
   onSave: (fields: Record<string, string>) => void;
   onAdvance: () => void;
   onUpload: (file: File, kind: string) => void;
@@ -296,6 +396,32 @@ function Detail({ case_, busy, onSave, onAdvance, onUpload, onClose }: {
         </div>
         <button onClick={onClose} style={css("border:none;background:none;font-size:17px;color:#94A3B8;cursor:pointer;line-height:1;padding:0")}>×</button>
       </div>
+
+      {job && (
+        <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;background:#F7FAFD")}>
+          <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:8px")}>
+            <span style={css("font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>งานที่เกี่ยวข้อง</span>
+            {onOpenJob && (
+              <button onClick={() => onOpenJob(case_.jobKey)}
+                style={css("border:none;background:none;padding:0;font-size:11.5px;color:#2E7DD1;cursor:pointer;font-family:inherit;text-decoration:underline")}>
+                เปิดงาน
+              </button>
+            )}
+          </div>
+          <div style={css("margin-top:7px;display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:6px 16px")}>
+            {JOB_FACTS.map(([label, read]) => {
+              const value = read(job).trim();
+              if (!value) return null;
+              return (
+                <div key={label} style={css("display:flex;gap:6px;font-size:11.5px;min-width:0")}>
+                  <span style={css("flex:0 0 78px;color:#7B8CA0")}>{label}</span>
+                  <span style={css("color:#16232F;font-weight:600;overflow-wrap:anywhere")}>{value}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;gap:4px;flex-wrap:wrap")}>
         {STAGES.map((stage, i) => (

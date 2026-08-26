@@ -2327,7 +2327,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {(screen === "incident" || screen === "carpar") && (
               <Incidents
                 prefill={incidentDraft}
+                jobs={ops?.jobs ?? []}
                 onPrefillTaken={() => setIncidentDraft(null)}
+                // Back to the job the case is about. The same route the
+                // assistant already uses, so there is one way in and not two.
+                onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }}
                 onToast={setToast}
               />
             )}
