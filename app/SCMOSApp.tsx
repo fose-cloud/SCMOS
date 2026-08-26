@@ -2346,7 +2346,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 rather than the demo file. Incident and CAR/PAR are one register
                 in the database — a case carries its kind — so both menu names
                 open the same cases rather than two half-registers. */}
-            {screen === "subcontractors" && <Suppliers canManage={isSupervisor} onToast={setToast} />}
+            {/* The capability the supplier API actually enforces, not the one
+                 that happens to be granted alongside it. Both go to supervisors
+                 today, so this changes nothing now and stops the screen and the
+                 API disagreeing the first time they do not. */}
+            {screen === "subcontractors" && <Suppliers canManage={able("ManageSuppliers")} onToast={setToast} />}
             {(screen === "incident" || screen === "carpar") && (
               <Incidents
                 prefill={incidentDraft}

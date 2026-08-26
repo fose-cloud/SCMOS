@@ -20,7 +20,26 @@ type Summary = {
   jobs: number; lanes: number; trucks: number; drivers: number;
   lastScore: number | null; lastEvaluatedPeriod: string;
   aliases: string[]; expiringDocuments: number;
+  vendorNo: string; taxId: string; address: string;
+  dgCapable: boolean; reeferCapable: boolean; isoTankCapable: boolean; gpsEquipped: boolean;
+  /**
+   * Everything hanging off the row — jobs, rates, documents, evaluations,
+   * contacts, lorries, drivers, capacity.
+   *
+   * The API refuses to remove a row holding any of it, and counts them itself.
+   * This is that same count, sent so the button can be greyed before somebody
+   * clicks it rather than after.
+   */
+  attached: number;
 };
+
+/** Everything a supplier row stores. Absent fields are left as they are. */
+type Edit = Partial<{
+  code: string; name: string; status: string;
+  vendorNo: string; taxId: string; address: string;
+  serviceArea: string; serviceType: string;
+  dgCapable: boolean; reeferCapable: boolean; isoTankCapable: boolean; gpsEquipped: boolean;
+}>;
 
 const STATUS_TONE: Record<string, string> = {
   approved: "#16794C", draft: "#7B8CA0", "pending-audit": "#B45309",
@@ -181,6 +200,34 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
       await load();
     } catch (error) {
       onToast("นำเข้าไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setBusy(false); }
+  }
+
+  /** Removes a supplier the register is not using. Refused by the API if it is. */
+  async function remove(row: Summary) {
+    if (row.attached > 0) {
+      // Named rather than totalled, so somebody can see what to go and clear.
+      const held = [
+        row.jobs ? `งาน ${row.jobs}` : "",
+        row.lanes ? `เส้นทางราคา ${row.lanes}` : "",
+        row.trucks ? `รถ ${row.trucks}` : "",
+        row.drivers ? `พนักงานขับรถ ${row.drivers}` : "",
+      ].filter(Boolean).join(" · ");
+      onToast(`ลบ ${row.name} ไม่ได้ — ยังมีข้อมูลผูกอยู่ ${row.attached} รายการ${held ? ` (${held})` : ""}`);
+      return;
+    }
+    if (!window.confirm(`ลบ ${row.name} (${row.code}) ออกจากทะเบียนหรือไม่?`
+      + "\n\nรายการนี้ไม่มีงาน ราคา หรือเอกสารผูกอยู่")) return;
+
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/suppliers/${row.id}?reason=${encodeURIComponent("ลบรายการที่ไม่ได้ใช้")}`,
+        { method: "DELETE" });
+      const reply = await response.json().catch(() => null) as { message?: string } | null;
+      onToast(reply?.message ?? (response.ok ? "ลบแล้ว" : `ลบไม่สำเร็จ (${response.status})`));
+      if (response.ok) { setPicked(null); await load(); }
+    } catch (error) {
+      onToast("ลบไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     } finally { setBusy(false); }
   }
 
@@ -349,6 +396,8 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
 
       {picked !== null && canManage && (
         <Manage supplier={rows.find((r) => r.id === picked)!} busy={busy}
+          onEdit={(fields) => void post(`${picked}/edit`, fields)}
+          onRemove={() => void remove(rows.find((r) => r.id === picked)!)}
           onAlias={(alias) => void post(`${picked}/alias`, { alias })}
           onStatus={(status) => void post(`${picked}/status`, { status })}
           onEvaluate={(period, safety, documents, note) =>
@@ -368,8 +417,10 @@ const SUPPLIER_FOLDERS: [string, string][] = [
   ["Training", "อบรม"], ["Contract", "สัญญา"], ["Other", "อื่นๆ"],
 ];
 
-function Manage({ supplier, busy, onAlias, onStatus, onEvaluate, onUpload }: {
+function Manage({ supplier, busy, onEdit, onRemove, onAlias, onStatus, onEvaluate, onUpload }: {
   supplier: Summary; busy: boolean;
+  onEdit: (fields: Edit) => void;
+  onRemove: () => void;
   onAlias: (alias: string) => void;
   onStatus: (status: string) => void;
   onEvaluate: (period: string, safety: number | null, documents: number | null, note: string) => void;
@@ -384,7 +435,9 @@ function Manage({ supplier, busy, onAlias, onStatus, onEvaluate, onUpload }: {
   const [expiry, setExpiry] = useState("");
 
   return (
-    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px")}>
+    <div style={css("display:flex;flex-direction:column;gap:14px")}>
+      <Details supplier={supplier} busy={busy} onEdit={onEdit} onRemove={onRemove} />
+      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px")}>
       <div>
         <Label>ผูกชื่อที่สะกดต่างกันเข้ากับ {supplier.name}</Label>
         <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
@@ -454,6 +507,125 @@ function Manage({ supplier, busy, onAlias, onStatus, onEvaluate, onUpload }: {
           </label>
         </div>
       </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The company's own details, all of them editable.
+ *
+ * Everything on this card was typed by somebody, so all of it can be corrected
+ * — including the code and the name, which the table shows and nothing else
+ * could change. What is deliberately not here is the other half of the table:
+ * jobs, rate lanes and the last score are counted from the register, the rate
+ * book and the evaluations. A counted figure you can type over stops meaning
+ * anything, so those are corrected where they come from and are shown here
+ * read-only, with where to go.
+ */
+function Details({ supplier, busy, onEdit, onRemove }: {
+  supplier: Summary; busy: boolean; onEdit: (fields: Edit) => void; onRemove: () => void;
+}) {
+  // Seeded from the row and re-seeded when a different supplier is picked, so
+  // an edit box never carries one company's text over onto another.
+  const [draft, setDraft] = useState<Edit>({});
+  const [seeded, setSeeded] = useState(supplier.id);
+  if (seeded !== supplier.id) { setSeeded(supplier.id); setDraft({}); }
+
+  const value = <K extends keyof Summary & keyof Edit>(field: K) =>
+    (draft[field] ?? supplier[field]) as Summary[K];
+  const set = (field: keyof Edit, next: string | boolean) =>
+    setDraft((held) => ({ ...held, [field]: next }));
+
+  const dirty = Object.keys(draft).length > 0;
+  const attached = supplier.attached;
+
+  const text = (field: keyof Edit & keyof Summary, label: string, hint = "") => (
+    <label style={css("display:flex;flex-direction:column;gap:3px")}>
+      <span style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</span>
+      <input value={String(value(field) ?? "")} onChange={(e) => set(field, e.target.value)}
+        placeholder={hint}
+        style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px;font-family:inherit")} />
+    </label>
+  );
+
+  const flag = (field: keyof Edit & keyof Summary, label: string) => (
+    <label key={field} style={css("display:inline-flex;gap:5px;align-items:center;font-size:12px;color:#465A6E;cursor:pointer")}>
+      <input type="checkbox" checked={Boolean(value(field))}
+        onChange={(e) => set(field, e.target.checked)} />
+      {label}
+    </label>
+  );
+
+  return (
+    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
+      <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:11px")}>
+        <Label>ข้อมูลบริษัท — แก้ไขได้ทุกช่อง</Label>
+        <span style={css("font-size:11.5px;color:#94A3B8")}>
+          งาน {supplier.jobs.toLocaleString()} · เส้นทางราคา {supplier.lanes.toLocaleString()} ·
+          คะแนนล่าสุด {supplier.lastScore ?? "—"} — สามอย่างนี้นับมาจากทะเบียนงาน ตารางราคา และผลประเมิน จึงแก้ที่ต้นทาง
+        </span>
+      </div>
+
+      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px")}>
+        {text("code", "รหัส", "ไม่ซ้ำกับรายอื่น")}
+        {text("name", "ชื่อบริษัท")}
+        <label style={css("display:flex;flex-direction:column;gap:3px")}>
+          <span style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>สถานะ</span>
+          <select value={String(value("status"))} onChange={(e) => set("status", e.target.value)}
+            style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff;font-family:inherit")}>
+            {["draft", "pending-audit", "approved", "suspended", "rejected"].map((id) => (
+              <option key={id} value={id}>{STATUS_TH[id] ?? id}</option>
+            ))}
+          </select>
+        </label>
+        {text("vendorNo", "เลขผู้ขาย")}
+        {text("taxId", "เลขประจำตัวผู้เสียภาษี")}
+        {text("serviceType", "ประเภทบริการ", "FCL, LCL, ISO TANK")}
+        {text("serviceArea", "พื้นที่ให้บริการ")}
+        {text("address", "ที่อยู่")}
+      </div>
+
+      <div style={css("display:flex;gap:14px;flex-wrap:wrap;margin-top:11px")}>
+        {flag("dgCapable", "สินค้าอันตราย")}
+        {flag("reeferCapable", "ตู้เย็น")}
+        {flag("isoTankCapable", "ไอโซแท็งก์")}
+        {flag("gpsEquipped", "มี GPS")}
+      </div>
+
+      <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:13px;padding-top:11px;border-top:1px solid #EEF3F8")}>
+        <Button label="บันทึกการแก้ไข" tone="#0A2240" busy={busy || !dirty}
+          onClick={() => { onEdit(draft); setDraft({}); }} />
+        {dirty && (
+          <button onClick={() => setDraft({})}
+            style={css("height:29px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit")}>
+            ยกเลิก
+          </button>
+        )}
+
+        <span style={css("flex:1")} />
+
+        {/* Only for a row nothing is using. A company that has worked is
+            merged into the row that holds its history, never deleted — the
+            API refuses it either way, and greying it here says why before
+            somebody clicks. */}
+        <button onClick={onRemove} disabled={busy || attached > 0}
+          title={attached > 0
+            ? "ลบไม่ได้ — ยังมีงาน ราคา หรือเอกสารผูกอยู่ ถ้าเป็นบริษัทซ้ำให้ใช้ปุ่มรวมรายการ"
+            : "ลบรายการนี้ออกจากทะเบียน"}
+          style={css("height:29px;padding:0 13px;border-radius:4px;font-size:12px;font-weight:600;font-family:inherit;border:1px solid "
+            + (attached > 0 ? "#DCE4EC" : "#B42318")
+            + ";background:#fff;color:" + (attached > 0 ? "#B6C2CE" : "#B42318")
+            + ";cursor:" + (attached > 0 ? "not-allowed" : "pointer"))}>
+          ลบออกจากทะเบียน
+        </button>
+      </div>
+
+      {attached > 0 && (
+        <div style={css("font-size:11px;color:#94A3B8;margin-top:6px;text-align:right")}>
+          ลบไม่ได้เพราะยังมีข้อมูลผูกอยู่ — บริษัทที่เคยมีงานจะไม่ถูกลบ แต่ใช้ &ldquo;รวมรายการซ้ำ&rdquo; แทน
+        </div>
+      )}
     </div>
   );
 }

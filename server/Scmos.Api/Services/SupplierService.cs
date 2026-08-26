@@ -9,7 +9,22 @@ public record SupplierSummary(
     bool DgCapable, bool ReeferCapable, bool IsoTankCapable, bool GpsEquipped,
     int Jobs, int Lanes, int Trucks, int Drivers,
     int? LastScore, string LastEvaluatedPeriod,
-    IReadOnlyList<string> Aliases, int ExpiringDocuments);
+    IReadOnlyList<string> Aliases, int ExpiringDocuments,
+    // Carried so the register's own screen can edit them. Everything stored
+    // about a company is here; what is missing from this record is what is
+    // counted rather than typed.
+    string VendorNo, string TaxId, string Address,
+    /// <summary>
+    /// Everything hanging off this row, counted the same eight ways
+    /// <see cref="SupplierService.HoldingsAsync"/> counts them.
+    ///
+    /// It exists so the screen and the API cannot disagree about whether a row
+    /// can be removed. The screen greys its delete button on this number; the
+    /// API refuses on its own count. Two rules for one decision is how they end
+    /// up saying different things, so this is the same rule read twice, and the
+    /// two must be changed together.
+    /// </summary>
+    int Attached);
 
 public record SupplierProfileView(
     SupplierSummary Summary,
@@ -95,6 +110,21 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             .Where(document => document.SupplierId != null && document.ExpiryDate != "")
             .ToListAsync(token);
 
+        // The rest of what a row can be holding, in bulk. Counted here rather
+        // than per supplier because the register runs to eighty-odd companies
+        // and this screen opens on every visit.
+        async Task<Dictionary<int, int>> Count<T>(IQueryable<T> set,
+            System.Linq.Expressions.Expression<Func<T, int>> owner) where T : class
+            => await set.AsNoTracking().GroupBy(owner)
+                .Select(group => new { Id = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(entry => entry.Id, entry => entry.Count, token);
+
+        var docCounts = await Count(db.Documents.Where(row => row.SupplierId != null),
+            row => row.SupplierId!.Value);
+        var evaluationCounts = await Count(db.SupplierEvaluations, row => row.SupplierId);
+        var contactCounts = await Count(db.SupplierContacts, row => row.SupplierId);
+        var capacityCounts = await Count(db.SupplierCapacities, row => row.SupplierId);
+
         return suppliers.Select(supplier => new SupplierSummary(
             supplier.Id, supplier.Code, supplier.Name, supplier.Status,
             supplier.ServiceType, supplier.ServiceArea,
@@ -111,7 +141,16 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             // count would make it disappear at exactly the wrong moment.
             documents.Count(document => document.SupplierId == supplier.Id
                 && (DocumentService.IsExpiring(document.ExpiryDate)
-                    || DocumentService.IsExpired(document.ExpiryDate))))).ToList();
+                    || DocumentService.IsExpired(document.ExpiryDate))),
+            supplier.VendorNo, supplier.TaxId, supplier.Address,
+            jobCounts.GetValueOrDefault(supplier.Id)
+                + laneCounts.GetValueOrDefault(supplier.Id)
+                + docCounts.GetValueOrDefault(supplier.Id)
+                + evaluationCounts.GetValueOrDefault(supplier.Id)
+                + contactCounts.GetValueOrDefault(supplier.Id)
+                + truckCounts.GetValueOrDefault(supplier.Id)
+                + driverCounts.GetValueOrDefault(supplier.Id)
+                + capacityCounts.GetValueOrDefault(supplier.Id))).ToList();
     }
 
     public async Task<SupplierProfileView?> ProfileAsync(int id, CancellationToken token)
@@ -691,5 +730,239 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
                 ? $"ย้ายข้อมูล {moved} รายการมาที่ {keep.Name} แล้ว — แต่ยังลบ {fold.Code} ไม่ได้ เพราะมีผลประเมินรอบเดียวกันทั้งสองราย"
                 : $"รวม {fold.Code} เข้ากับ {keep.Name} แล้ว — ย้ายข้อมูล {moved} รายการ",
             keepId);
+    }
+
+    /// <summary>What a supplier row is holding, and therefore whether it can go.</summary>
+    /// <param name="Jobs">
+    /// Counted through the aliases, the same way the register's own list counts
+    /// them, so a company whose jobs are all spelled the short way is not
+    /// mistaken for one that has never worked.
+    /// </param>
+    public record SupplierHoldings(
+        int Jobs, int Lanes, int Documents, int Evaluations,
+        int Contacts, int Trucks, int Drivers, int Capacity)
+    {
+        public int Total => Jobs + Lanes + Documents + Evaluations
+            + Contacts + Trucks + Drivers + Capacity;
+
+        /// <summary>What is in the way, named, for somebody to read.</summary>
+        public string Describe() => string.Join(" · ", new[]
+        {
+            Jobs > 0 ? $"งาน {Jobs}" : null,
+            Lanes > 0 ? $"เส้นทางราคา {Lanes}" : null,
+            Documents > 0 ? $"เอกสาร {Documents}" : null,
+            Evaluations > 0 ? $"ผลประเมิน {Evaluations}" : null,
+            Contacts > 0 ? $"ผู้ติดต่อ {Contacts}" : null,
+            Trucks > 0 ? $"รถ {Trucks}" : null,
+            Drivers > 0 ? $"พนักงานขับรถ {Drivers}" : null,
+            Capacity > 0 ? $"แผนกำลังรถ {Capacity}" : null,
+        }.Where(part => part is not null));
+    }
+
+    /// <summary>
+    /// Everything hanging off one supplier row.
+    ///
+    /// The same eight things <see cref="SupplierSummary.Attached"/> totals for
+    /// the list. That total is what greys the screen's delete button and this
+    /// is what refuses the call, so the two have to count the same set — change
+    /// one and change the other.
+    /// </summary>
+    internal async Task<SupplierHoldings> HoldingsAsync(int id, CancellationToken token)
+    {
+        var aliases = await db.SupplierAliases.AsNoTracking()
+            .Where(alias => alias.SupplierId == id)
+            .Select(alias => alias.Alias).ToListAsync(token);
+        var spellings = aliases.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var jobs = 0;
+        if (spellings.Count > 0)
+        {
+            foreach (var carrier in await db.OperationJobs.AsNoTracking()
+                         .Where(job => job.Trucker != "").Select(job => job.Trucker).ToListAsync(token))
+                if (spellings.Contains(carrier.Trim().ToUpperInvariant())) jobs++;
+        }
+
+        return new SupplierHoldings(
+            jobs,
+            await db.RateLanes.CountAsync(row => row.SupplierId == id, token),
+            await db.Documents.CountAsync(row => row.SupplierId == id, token),
+            await db.SupplierEvaluations.CountAsync(row => row.SupplierId == id, token),
+            await db.SupplierContacts.CountAsync(row => row.SupplierId == id, token),
+            await db.SupplierTrucks.CountAsync(row => row.SupplierId == id, token),
+            await db.SupplierDrivers.CountAsync(row => row.SupplierId == id, token),
+            await db.SupplierCapacities.CountAsync(row => row.SupplierId == id, token));
+    }
+
+    /// <summary>
+    /// Removes a supplier that is holding nothing.
+    ///
+    /// The register is a list of companies, and a list nobody may take a wrong
+    /// name off is a list that only ever grows — a typo, a company that never
+    /// traded, a name pasted twice. So a row can be removed, and the rule is
+    /// what makes it safe rather than a confirmation box: a row with a single
+    /// job, rate, document, evaluation, contact, lorry, driver or capacity line
+    /// against it is refused, and what is in the way is named. Nothing is
+    /// cascaded and nothing is orphaned, because there is by definition nothing
+    /// there to cascade to.
+    ///
+    /// Its own spellings go with it. An alias is not a record about the
+    /// company, it is how the company is written, and leaving them behind would
+    /// point at a row that no longer exists.
+    ///
+    /// A company that has traded is not deleted, it is merged — see
+    /// <see cref="MergeAsync"/>, which moves the history first and only then
+    /// removes the row it emptied.
+    /// </summary>
+    public async Task<SupplierResult> RemoveAsync(int id, string by, CancellationToken token)
+    {
+        var supplier = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == id, token);
+        if (supplier is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
+
+        var holdings = await HoldingsAsync(id, token);
+        if (holdings.Total > 0)
+            return new SupplierResult(false,
+                $"ลบ {supplier.Name} ไม่ได้ — ยังมี {holdings.Describe()} ผูกอยู่"
+                + (holdings.Jobs > 0
+                    ? " · ถ้าเป็นบริษัทเดียวกับอีกรายให้ใช้ \"รวมรายการซ้ำ\" แทน"
+                    : ""));
+
+        var name = supplier.Name;
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var work = await db.Database.BeginTransactionAsync(token);
+            db.SupplierAliases.RemoveRange(
+                await db.SupplierAliases.Where(alias => alias.SupplierId == id).ToListAsync(token));
+            db.Suppliers.Remove(supplier);
+            await db.SaveChangesAsync(token);
+            await work.CommitAsync(token);
+        });
+
+        return new SupplierResult(true, $"ลบ {name} ออกจากทะเบียนแล้ว", id);
+    }
+
+    /// <summary>
+    /// Every field of a supplier that is typed rather than counted.
+    ///
+    /// Null means "leave this one alone", so a screen editing one box does not
+    /// have to send, and be trusted with, the other eleven.
+    /// </summary>
+    public record SupplierEdit(
+        string? Code, string? Name, string? Status,
+        string? VendorNo, string? TaxId, string? Address,
+        string? ServiceArea, string? ServiceType,
+        bool? DgCapable, bool? ReeferCapable, bool? IsoTankCapable, bool? GpsEquipped);
+
+    /// <summary>
+    /// Corrects a company's own details.
+    ///
+    /// Everything the register stores about a company can be changed here,
+    /// because everything here was typed by somebody and anything typed can be
+    /// typed wrong. What cannot be changed is the other half of the screen —
+    /// jobs, rate lanes and the last score are counted from the register, the
+    /// rate book and the evaluations, and a figure you can overwrite is a
+    /// figure that no longer means anything. Correct those where they come
+    /// from.
+    ///
+    /// Two of the fields carry a rule the rest do not:
+    ///
+    /// <b>Code</b> is unique, so a change that collides is refused by name
+    /// rather than by a five hundred from the database.
+    ///
+    /// <b>Name</b> keeps the old spelling as an alias instead of replacing it.
+    /// The aliases are the only chain between a job and a company — a job says
+    /// "SANGJA", not "supplier 14" — so renaming the row without keeping the
+    /// old spelling would silently detach every job the company has ever done.
+    /// The new name is added as a spelling too, so a job typed the new way
+    /// resolves from now on.
+    /// </summary>
+    public async Task<SupplierResult> EditAsync(int id, SupplierEdit edit, string by, CancellationToken token)
+    {
+        var supplier = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == id, token);
+        if (supplier is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
+
+        var changed = new List<string>();
+
+        if (edit.Code is not null)
+        {
+            var code = edit.Code.Trim().ToUpperInvariant();
+            if (code.Length == 0) return new SupplierResult(false, "รหัสว่างไม่ได้");
+            if (code != supplier.Code)
+            {
+                if (await db.Suppliers.AnyAsync(row => row.Id != id && row.Code == code, token))
+                    return new SupplierResult(false, $"รหัส {code} มีผู้ขนส่งรายอื่นใช้อยู่แล้ว");
+                changed.Add($"รหัส {supplier.Code} → {code}");
+                supplier.Code = code;
+            }
+        }
+
+        if (edit.Name is not null)
+        {
+            var name = edit.Name.Trim();
+            if (name.Length == 0) return new SupplierResult(false, "ชื่อว่างไม่ได้");
+            if (name != supplier.Name)
+            {
+                var key = name.ToUpperInvariant();
+                var held = await db.SupplierAliases.AsNoTracking()
+                    .FirstOrDefaultAsync(alias => alias.Alias == key, token);
+                if (held is not null && held.SupplierId != id)
+                    return new SupplierResult(false, $"ชื่อ {name} เป็นของผู้ขนส่งรายอื่นอยู่แล้ว");
+
+                changed.Add($"ชื่อ {supplier.Name} → {name}");
+                // The old spelling stays. Every job this company has done says
+                // the old name, and nothing else joins the two.
+                if (held is null)
+                    db.SupplierAliases.Add(new SupplierAlias
+                    { SupplierId = id, Alias = key, Source = "manual", Confirmed = true });
+                supplier.Name = name;
+            }
+        }
+
+        if (edit.Status is not null && edit.Status.Trim() != supplier.Status)
+        {
+            var wanted = edit.Status.Trim();
+            var allowed = new[] { "draft", "pending-audit", "approved", "suspended", "rejected" };
+            if (!allowed.Contains(wanted)) return new SupplierResult(false, $"สถานะ {wanted} ไม่ถูกต้อง");
+            changed.Add($"สถานะ {supplier.Status} → {wanted}");
+            supplier.Status = wanted;
+            if (wanted == "approved")
+            {
+                supplier.ApprovedAt = DateTimeOffset.UtcNow;
+                supplier.ApprovedBy = by;
+            }
+        }
+
+        void Text(string label, string? value, Func<string> read, Action<string> write)
+        {
+            if (value is null) return;
+            var trimmed = value.Trim();
+            if (trimmed == read()) return;
+            changed.Add($"{label} → {(trimmed.Length == 0 ? "(ว่าง)" : trimmed)}");
+            write(trimmed);
+        }
+
+        Text("เลขผู้ขาย", edit.VendorNo, () => supplier.VendorNo, value => supplier.VendorNo = value);
+        Text("เลขประจำตัวผู้เสียภาษี", edit.TaxId, () => supplier.TaxId, value => supplier.TaxId = value);
+        Text("ที่อยู่", edit.Address, () => supplier.Address, value => supplier.Address = value);
+        Text("พื้นที่ให้บริการ", edit.ServiceArea, () => supplier.ServiceArea, value => supplier.ServiceArea = value);
+        Text("ประเภทบริการ", edit.ServiceType, () => supplier.ServiceType, value => supplier.ServiceType = value);
+
+        void Flag(string label, bool? value, Func<bool> read, Action<bool> write)
+        {
+            if (value is null || value.Value == read()) return;
+            changed.Add($"{label}: {(value.Value ? "ใช่" : "ไม่")}");
+            write(value.Value);
+        }
+
+        Flag("สินค้าอันตราย", edit.DgCapable, () => supplier.DgCapable, value => supplier.DgCapable = value);
+        Flag("ตู้เย็น", edit.ReeferCapable, () => supplier.ReeferCapable, value => supplier.ReeferCapable = value);
+        Flag("ไอโซแท็งก์", edit.IsoTankCapable, () => supplier.IsoTankCapable, value => supplier.IsoTankCapable = value);
+        Flag("มี GPS", edit.GpsEquipped, () => supplier.GpsEquipped, value => supplier.GpsEquipped = value);
+
+        if (changed.Count == 0) return new SupplierResult(true, "ไม่มีอะไรเปลี่ยน", id);
+
+        supplier.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+        return new SupplierResult(true, $"แก้ไข {supplier.Name} แล้ว — {string.Join(" · ", changed)}", id);
     }
 }

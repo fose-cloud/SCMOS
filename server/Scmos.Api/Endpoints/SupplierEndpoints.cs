@@ -19,6 +19,14 @@ public static class SupplierEndpoints
     /// <summary>Which row survives a merge, and which is folded into it.</summary>
     public record MergeBody(int KeepId, int FoldId, string? Reason);
 
+    /// <summary>Every stored field of a supplier. Null leaves one alone.</summary>
+    public record EditBody(
+        string? Code, string? Name, string? Status,
+        string? VendorNo, string? TaxId, string? Address,
+        string? ServiceArea, string? ServiceType,
+        bool? DgCapable, bool? ReeferCapable, bool? IsoTankCapable, bool? GpsEquipped,
+        string? Reason);
+
     public record AliasBody(string? Alias, string? Reason);
     public record EvaluateBody(string? Period, int? Safety, int? Documents, string? Note);
     /// <summary>
@@ -138,6 +146,36 @@ public static class SupplierEndpoints
                 user => service.MergeAsync(body.KeepId, body.FoldId, user.Signature, token),
                 "merge", "supplier", body.KeepId.ToString(), "รวมรายการซ้ำ",
                 body.FoldId.ToString(), body.KeepId.ToString(), body.Reason ?? ""));
+
+        // Correcting a company's own details — every field of it.
+        //
+        // The register's screen shows seven columns and only three of them are
+        // stored: the rest are counted from the jobs, the rate book and the
+        // evaluations, and are corrected where they come from rather than
+        // typed over here.
+        suppliers.MapPost("/{id:int}/edit", async (int id, [FromBody] EditBody body, HttpContext context,
+            IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
+            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+                user => service.EditAsync(id, new SupplierService.SupplierEdit(
+                    body.Code, body.Name, body.Status, body.VendorNo, body.TaxId, body.Address,
+                    body.ServiceArea, body.ServiceType,
+                    body.DgCapable, body.ReeferCapable, body.IsoTankCapable, body.GpsEquipped),
+                    user.Signature, token),
+                AuditActions.Update, "supplier", id.ToString(), "ข้อมูลบริษัท", "",
+                body.Name ?? body.Code ?? "", body.Reason ?? ""));
+
+        // Taking a company off the register.
+        //
+        // Refused by the service unless the row is holding nothing at all, so
+        // this is not the dangerous verb it looks like: what it removes is a
+        // name somebody typed wrong or a company that never traded. A company
+        // with history is merged, not deleted.
+        suppliers.MapDelete("/{id:int}", async (int id, string? reason, HttpContext context,
+            IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
+            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+                user => service.RemoveAsync(id, user.Signature, token),
+                "remove", "supplier", id.ToString(), "ลบออกจากทะเบียน", id.ToString(), "",
+                reason ?? ""));
 
         suppliers.MapPost("/{id:int}/alias", async (int id, [FromBody] AliasBody body, HttpContext context,
             IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
