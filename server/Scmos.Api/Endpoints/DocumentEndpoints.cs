@@ -29,11 +29,11 @@ public static class DocumentEndpoints
                 ? ApiResults.SignInRequired
                 : Results.Json(new { job = BlobPaths.JobFolders, supplier = BlobPaths.SupplierFolders }));
 
-        group.MapGet("", async (string? jobKey, int? supplierId, long? caseId, string? folder,
+        group.MapGet("", async (string? jobKey, int? supplierId, long? caseId, long? issueId, string? folder,
             HttpContext context, IUserAccessor users, DocumentService documents, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
-            return Results.Json(await documents.ListAsync(jobKey, supplierId, caseId, folder, token));
+            return Results.Json(await documents.ListAsync(jobKey, supplierId, caseId, issueId, folder, token));
         });
 
         group.MapPost("", async (HttpContext context, IUserAccessor users, DocumentService documents,
@@ -53,6 +53,7 @@ public static class DocumentEndpoints
             var jobKey = Text(form, "jobKey");
             var supplierId = Number(form, "supplierId");
             var caseId = Number(form, "caseId");
+            var issueId = Number(form, "issueId");
             var folder = Text(form, "folder");
             var kind = Text(form, "kind");
             var note = Text(form, "note");
@@ -60,13 +61,16 @@ public static class DocumentEndpoints
             // Exactly one owner. A file attached to a job *and* a supplier would
             // have to be filed in two trees, and picking one silently is how the
             // structure starts drifting from what people believe it is.
-            var owners = new[] { jobKey.Length > 0, supplierId > 0, caseId > 0 }.Count(set => set);
+            var owners = new[] { jobKey.Length > 0, supplierId > 0, caseId > 0, issueId > 0 }
+                .Count(set => set);
             if (owners != 1)
-                return ApiResults.Error("ระบุอย่างใดอย่างหนึ่ง: jobKey, supplierId หรือ caseId",
+                return ApiResults.Error("ระบุอย่างใดอย่างหนึ่ง: jobKey, supplierId, caseId หรือ issueId",
                     StatusCodes.Status400BadRequest);
 
             var result = caseId > 0
                 ? await documents.AddToCaseAsync(caseId, kind, note, file, user, token)
+                : issueId > 0
+                    ? await documents.AddToIssueAsync(issueId, kind, note, file, user, token)
                 : supplierId > 0
                     ? await documents.AddToSupplierAsync((int)supplierId, folder, kind,
                         Text(form, "expiryDate"), note, file, user, token)

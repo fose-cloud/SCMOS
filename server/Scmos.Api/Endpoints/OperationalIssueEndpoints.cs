@@ -25,7 +25,9 @@ public static class OperationalIssueEndpoints
         string? Code, string? FoundOn, string? FoundAt, string? Source, string? Reporter,
         string? JobRef, string? JobKey, string? Detail, string? Category, string? Severity,
         string? Impact, string? Channel, string? Owner, string? OwnerId, string? DueOn,
-        string? Status, string? RootCause);
+        string? Status, string? RootCause,
+        // Optional so the Excel import, which has no such columns, still binds.
+        string? Driver = null, string? ContainerNo = null, string? Licence = null);
 
     public record ImportBody(List<IssueBody>? Issues);
 
@@ -148,6 +150,9 @@ public static class OperationalIssueEndpoints
         DueOn = Clean(body.DueOn, 20),
         Status = Clean(body.Status, 30),
         RootCause = Clean(body.RootCause, 120),
+        Driver = Clean(body.Driver, 160),
+        ContainerNo = Clean(body.ContainerNo, 80),
+        Licence = Clean(body.Licence, 60),
     };
 
     private static string Clean(string? value, int max)

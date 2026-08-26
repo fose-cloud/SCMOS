@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Scmos.Api.Data;
 
@@ -11,9 +12,11 @@ using Scmos.Api.Data;
 namespace Scmos.Api.Data.Migrations
 {
     [DbContext(typeof(ScmosDbContext))]
-    partial class ScmosDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260826040025_IssueDriverContainerLicence")]
+    partial class IssueDriverContainerLicence
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2661,10 +2664,6 @@ namespace Scmos.Api.Data.Migrations
                         .HasColumnType("nvarchar(30)")
                         .HasColumnName("folder");
 
-                    b.Property<long?>("IssueId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("issue_id");
-
                     b.Property<string>("JobKey")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -2739,9 +2738,6 @@ namespace Scmos.Api.Data.Migrations
 
                     b.HasIndex("CaseId")
                         .HasDatabaseName("document_case_idx");
-
-                    b.HasIndex("IssueId")
-                        .HasDatabaseName("document_issue_idx");
 
                     b.HasIndex("ObjectKey")
                         .IsUnique()

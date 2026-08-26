@@ -8,6 +8,7 @@ import {
 import { parseIssueWorkbook } from "../issuesExcel";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { apiFetch } from "../api";
 
 /**
  * What went wrong today, and which job it went wrong on.
@@ -58,6 +59,40 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
   const [issues, setIssues] = useState<Issue[] | null>(null);
   const [summary, setSummary] = useState<IssueSummary | null>(null);
   const [form, setForm] = useState<IssueForm | null>(null);
+  /**
+   * The issue a file is being attached to, and the input that picks it.
+   *
+   * One hidden input for the whole table rather than one per row: a file input
+   * per issue is a hundred of them on a busy month, and the browser keeps every
+   * one alive.
+   */
+  const attachTo = useRef<number | null>(null);
+  const attachInput = useRef<HTMLInputElement>(null);
+
+  /**
+   * Attaches a photograph or a document to an issue that already exists.
+   *
+   * After the issue is logged rather than while it is being typed: the file has
+   * to belong to something, and until the issue is saved there is nothing for
+   * it to belong to. Where it is kept is the API's business — the job's own
+   * Images folder when the issue names a job, and a folder under the year and
+   * the issue code when the reference never matched one.
+   */
+  async function attach(file: File) {
+    const id = attachTo.current;
+    if (!id) return;
+    try {
+      const body = new FormData();
+      body.append("issueId", String(id));
+      body.append("kind", /^image\//.test(file.type) ? "photo" : "document");
+      body.append("file", file);
+      const response = await apiFetch("/api/documents", { method: "POST", body });
+      const reply = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      onToast(reply?.message ?? reply?.error ?? (response.ok ? "แนบไฟล์แล้ว" : `แนบไฟล์ไม่สำเร็จ (${response.status})`));
+    } catch (error) {
+      onToast("แนบไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
   const [status, setStatus] = useState("OUTSTANDING");
   const [severity, setSeverity] = useState("ALL");
   const [query, setQuery] = useState("");
@@ -223,12 +258,25 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
           </Note>
         ) : (
           <div style={css("overflow-x:auto")}>
+            {/* One input for the whole table. A file input per row would be a
+                hundred of them on a busy month, all kept alive by the browser. */}
+            <input
+              ref={attachInput}
+              type="file"
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+              style={css("display:none")}
+              onChange={(e) => {
+                const chosen = e.target.files?.[0];
+                if (chosen) void attach(chosen);
+                e.target.value = "";
+              }}
+            />
             <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
               <thead>
                 <tr>
                   {["รหัส", "วันที่พบ", "แหล่ง", "งานที่เกี่ยวข้อง", "รายละเอียด",
                     "หมวด", "ความรุนแรง", "ผู้รับผิดชอบ", "กำหนดเสร็จ", "สถานะ",
-                    ...(onEscalate ? ["CAR / PAR"] : [])].map((head) => (
+                    "ไฟล์แนบ", ...(onEscalate ? ["CAR / PAR"] : [])].map((head) => (
                     <th key={head} style={TH}>{head}</th>
                   ))}
                 </tr>
@@ -244,6 +292,14 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
                     <td style={css(TD + ";white-space:nowrap")}>{issue.source || "—"}</td>
                     <td style={css(TD + ";min-width:190px")}>
                       <JobLink issue={issue} />
+                      {/* The lorry under the shipment it belongs to, rather
+                          than three more columns on a table that already has
+                          ten. Blank when nobody recorded it, which is honest. */}
+                      {(issue.containerNo || issue.licence || issue.driver) && (
+                        <div style={css("color:#7B8CA0;margin-top:3px;font-size:11px")}>
+                          {[issue.containerNo, issue.licence, issue.driver].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
                     </td>
                     <td style={css(TD + ";min-width:280px;max-width:420px")}>
                       <div>{issue.detail}</div>
@@ -276,6 +332,15 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
                           <option key={s} value={s}>{s}</option>
                         ))}
                       </select>
+                    </td>
+                    <td style={css(TD + ";white-space:nowrap")}>
+                      <button
+                        onClick={() => { attachTo.current = issue.id; attachInput.current?.click(); }}
+                        className="ghost-btn"
+                        style={css("height:26px;padding:0 10px;border:1px solid #D3DBE3;background:#fff;color:#465A6E;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}
+                      >
+                        แนบไฟล์
+                      </button>
                     </td>
                     {onEscalate && (
                       <td style={css(TD + ";white-space:nowrap")}>
@@ -383,6 +448,28 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
         </Field>
       </div>
 
+      {/*
+        The lorry the problem happened on, beside the shipment reference rather
+        than buried under the detail. These are the three things a person on the
+        phone can always give you — the driver's name, the box number and the
+        plate — and the three a CAR/PAR raised from this issue has to name
+        later, by which time nobody remembers the box number.
+      */}
+      <div style={css("display:flex;gap:12px;flex-wrap:wrap")}>
+        <Field label="ชื่อ - สกุล พนักงานขับรถ" width="240px">
+          <input value={draft.driver ?? ""} onChange={(e) => onField("driver", e.target.value)}
+            style={INPUT} placeholder="เช่น นายสมชาย ใจดี" />
+        </Field>
+        <Field label="Container No." width="190px">
+          <input value={draft.containerNo ?? ""} onChange={(e) => onField("containerNo", e.target.value)}
+            style={css(INPUT_RAW + ";font-family:'IBM Plex Mono',monospace;text-transform:uppercase")} />
+        </Field>
+        <Field label="ทะเบียนรถ" width="160px">
+          <input value={draft.licence ?? ""} onChange={(e) => onField("licence", e.target.value)}
+            style={css(INPUT_RAW + ";font-family:'IBM Plex Mono',monospace")} />
+        </Field>
+      </div>
+
       <Field label="รายละเอียดปัญหา" width="100%">
         <textarea value={draft.detail} onChange={(e) => onField("detail", e.target.value)} rows={2}
           style={css("border:1px solid #C9D6E2;border-radius:4px;padding:7px 10px;font-size:12.5px;font-family:inherit;resize:vertical;width:100%")} />
@@ -426,7 +513,10 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
 /* ------------------------------------------------------------------ pieces */
 
 const LABEL = css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600");
-const INPUT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;font-family:inherit;width:100%");
+// The declaration, kept as text so a field that wants one more rule can add
+// to it rather than restate the whole thing and drift from it.
+const INPUT_RAW = "height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;font-family:inherit;width:100%";
+const INPUT = css(INPUT_RAW);
 const SELECT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;font-family:inherit;background:#fff;width:100%");
 const TH = css("background:#F4F7FA;padding:7px 10px;text-align:left;font-size:10px;color:#465A6E;border-bottom:1px solid #D8E0E8;white-space:nowrap");
 const TD = "padding:8px 10px;border-bottom:1px solid #F1F5F9;vertical-align:top";

@@ -375,6 +375,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.Severity).HasColumnName("severity").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.Impact).HasColumnName("impact").HasDefaultValue("");
             entry.Property(e => e.Channel).HasColumnName("channel").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.Driver).HasColumnName("driver").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.ContainerNo).HasColumnName("container_no").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.Licence).HasColumnName("licence").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.Owner).HasColumnName("owner").HasMaxLength(160).HasDefaultValue("");
             entry.Property(e => e.OwnerId).HasColumnName("owner_id").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.DueOn).HasColumnName("due_on").HasMaxLength(20).HasDefaultValue("");
@@ -515,6 +518,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(120).HasDefaultValue("");
             entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
             entry.Property(e => e.CaseId).HasColumnName("case_id");
+            entry.Property(e => e.IssueId).HasColumnName("issue_id");
             entry.Property(e => e.DriverId).HasColumnName("driver_id");
             entry.Property(e => e.Folder).HasColumnName("folder").HasMaxLength(30);
             entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(60).HasDefaultValue("");
@@ -534,6 +538,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => new { e.JobKey, e.Folder }).HasDatabaseName("document_job_idx");
             entry.HasIndex(e => e.SupplierId).HasDatabaseName("document_supplier_idx");
             entry.HasIndex(e => e.CaseId).HasDatabaseName("document_case_idx");
+            entry.HasIndex(e => e.IssueId).HasDatabaseName("document_issue_idx");
         });
 
         // The indexes are the three questions an audit asks: what happened to

@@ -9,6 +9,8 @@ public record IssueView(
     string JobRef, string JobKey, string Detail, string Category, string Severity,
     string Impact, string Channel, string Owner, string OwnerId, string DueOn,
     string Status, string RootCause,
+    /// <summary>Who was driving, what was on the lorry, and which lorry.</summary>
+    string Driver, string ContainerNo, string Licence,
     /// <summary>The job it attached to, when it attached to one.</summary>
     string JobCustomer, string JobTrucker, string JobDate,
     /// <summary>Hours allowed for this severity, and whether it is past them.</summary>
@@ -137,6 +139,7 @@ public class OperationalIssueService(ScmosDbContext db)
                 issue.JobRef, issue.JobKey, issue.Detail, issue.Category, issue.Severity,
                 issue.Impact, issue.Channel, issue.Owner, issue.OwnerId, issue.DueOn,
                 issue.Status, issue.RootCause,
+                issue.Driver, issue.ContainerNo, issue.Licence,
                 job?.Customer ?? "", job?.Trucker ?? "", job?.WorkDate ?? "",
                 hours, IsOverdue(issue, hours, now));
         }).ToList();
@@ -317,6 +320,9 @@ public class OperationalIssueService(ScmosDbContext db)
                 case "impact": issue.Impact = value.Trim(); break;
                 case "detail": issue.Detail = value.Trim(); break;
                 case "channel": issue.Channel = value.Trim(); break;
+                case "driver": issue.Driver = value.Trim(); break;
+                case "containerno": issue.ContainerNo = value.Trim(); break;
+                case "licence": issue.Licence = value.Trim(); break;
                 case "reporter": issue.Reporter = value.Trim(); break;
                 case "jobref":
                     issue.JobRef = value.Trim();

@@ -499,6 +499,21 @@ public class OperationalIssue
     /// <summary>How it came in: phone, Line, Teams, email, on site.</summary>
     public string Channel { get; set; } = "";
 
+    /*
+     * Who was driving, what they were carrying and on which lorry.
+     *
+     * Kept on the issue and not only on the job. Two thirds of these rows are
+     * about a driver, a container or a plate, and the job they attach to is
+     * exactly the thing that sometimes does not exist — a written reference
+     * that matched nothing still describes a real problem with a real lorry.
+     * They are also what the case escalated from here has to name, and asking
+     * somebody to remember a container number a week later is asking for a
+     * different container number.
+     */
+    public string Driver { get; set; } = "";
+    public string ContainerNo { get; set; } = "";
+    public string Licence { get; set; } = "";
+
     /// <summary>The SMT member holding it, and the id behind the name.</summary>
     public string Owner { get; set; } = "";
     public string OwnerId { get; set; } = "";

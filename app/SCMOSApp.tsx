@@ -2481,6 +2481,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               foundAt: nowHM(),
               // Whoever is moving it is usually who rang in about it.
               reporter: drawerJob.trucker || "",
+              // The lorry, off the job, so nobody types a container number back
+              // in from memory. All three are editable — the job's driver is
+              // who was rostered, and the problem may be about a stand-in.
+              driver: drawerJob.driver || "",
+              containerNo: drawerJob.container || "",
+              licence: drawerJob.licence || "",
             });
             setDrawer(null);
             go("issues");

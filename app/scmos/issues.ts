@@ -30,6 +30,18 @@ export type Issue = {
   dueOn: string;
   status: string;
   rootCause: string;
+  /**
+   * Who was driving, what was on the lorry, and which lorry.
+   *
+   * Held on the issue rather than only read off the job, because the job is
+   * exactly the thing that sometimes is not there: a written reference that
+   * matched nothing still describes a real problem with a real lorry. They are
+   * also what a CAR/PAR escalated from here has to name, and asking somebody
+   * for a container number a week later gets a different container number.
+   */
+  driver: string;
+  containerNo: string;
+  licence: string;
   /** Read off the attached job, so the log shows what the issue is about. */
   jobCustomer: string;
   jobTrucker: string;

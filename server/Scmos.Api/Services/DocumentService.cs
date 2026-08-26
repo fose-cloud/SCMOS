@@ -174,6 +174,49 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
         });
     }
 
+    /// <summary>
+    /// A photograph or a document attached while an issue is being logged.
+    ///
+    /// Filed in the job's own tree when the issue names a job, under Images,
+    /// because that is where somebody looking through a job's paperwork expects
+    /// to find a picture of what went wrong. An issue whose reference never
+    /// matched a job goes under the year and ISSUE instead — that reference
+    /// still describes something real, and refusing the file because the
+    /// register has no row for it would lose the only evidence there is.
+    /// </summary>
+    public async Task<DocumentResult> AddToIssueAsync(long issueId, string kind, string note,
+        IFormFile file, AppUser user, CancellationToken token)
+    {
+        var record = await db.OperationalIssues.AsNoTracking()
+            .FirstOrDefaultAsync(row => row.Id == issueId, token);
+        if (record is null) return new DocumentResult(false, "ไม่พบรายการปัญหานี้");
+
+        var job = record.JobKey.Length == 0 ? null : await db.OperationJobs.AsNoTracking()
+            .FirstOrDefaultAsync(row => row.Key == record.JobKey, token);
+
+        var year = job is null
+            ? (record.CreatedAt == default ? DateTimeOffset.Now : record.CreatedAt).Year.ToString("D4")
+            : BlobPaths.YearOf(job.WorkDate);
+        var customer = job?.Customer ?? "ISSUE";
+        var reference = job is null
+            ? FirstFilled(record.Code, record.JobRef, record.Id.ToString())
+            : FirstFilled(job.JobCode, job.Container, job.Key);
+        var key = BlobPaths.ForJob(year, customer, reference, "Images", file.FileName);
+
+        return await StoreAsync(key, file, user, token, document =>
+        {
+            document.Scope = "job";
+            document.IssueId = record.Id;
+            document.JobKey = record.JobKey;
+            document.Folder = "Images";
+            document.Kind = kind.Trim().Length > 0 ? kind.Trim() : "photo";
+            document.Note = note.Trim();
+            document.Year = year;
+            document.Customer = customer;
+            document.JobRef = reference;
+        });
+    }
+
     /// <summary>The one place bytes are written and a row is recorded.</summary>
     private async Task<DocumentResult> StoreAsync(string objectKey, IFormFile file, AppUser user,
         CancellationToken token, Action<StoredDocument> describe)
@@ -218,13 +261,14 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     /* ----------------------------------------------------------- reading */
 
     public async Task<IReadOnlyList<DocumentView>> ListAsync(string? jobKey, int? supplierId,
-        long? caseId, string? folder, CancellationToken token)
+        long? caseId, long? issueId, string? folder, CancellationToken token)
     {
         var query = db.Documents.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(jobKey)) query = query.Where(d => d.JobKey == jobKey);
         if (supplierId is not null) query = query.Where(d => d.SupplierId == supplierId);
         if (caseId is not null) query = query.Where(d => d.CaseId == caseId);
+        if (issueId is not null) query = query.Where(d => d.IssueId == issueId);
         if (!string.IsNullOrWhiteSpace(folder) && folder != "All")
             query = query.Where(d => d.Folder == folder);
 

@@ -31,6 +31,17 @@ public class StoredDocument
     public long? CaseId { get; set; }
 
     /// <summary>
+    /// The operational issue, when the file was attached while logging one.
+    ///
+    /// Its own owner rather than filing under the job: an issue often names a
+    /// shipment the register never held, and a photograph of a damaged pallet
+    /// belongs to the report of the damage whether or not that reference ever
+    /// matched a job. Where it does match, the file still lands in that job's
+    /// tree — the owner says which record it belongs to, not where it is kept.
+    /// </summary>
+    public long? IssueId { get; set; }
+
+    /// <summary>
     /// The driver, for a certificate or a photograph of them. A fourth owner
     /// rather than filing under their carrier: the paperwork belongs to the
     /// person, follows them if they move, and some drivers have no carrier.
