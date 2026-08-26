@@ -131,10 +131,9 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi)
             // thing this API does. Computing it here meant the front page, the
             // screen the app opens on, sat saying "loading" until it finished.
             //
-            // So the board answers from the day's own rows and these two arrive
-            // in a second request. Placeholders rather than omissions, so the
+            // So the board answers from the day's own rows and this one arrives
+            // in a second request. A placeholder rather than an omission, so the
             // row keeps its shape and the reader can see what is still coming.
-            Pending("onTimePickup", "รับตู้ตรงเวลา"),
             Pending("onTimeDelivery", "ส่งมอบตรงเวลา"),
         };
 
@@ -189,13 +188,11 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi)
     public async Task<IReadOnlyList<Figure>> RatesAsync(CancellationToken token)
     {
         var report = await kpi.BuildAsync(Period.All, token);
-        var pickup = report.Measures.FirstOrDefault(m => m.Id == nameof(MeasureId.OnTimePickup));
         var delivery = report.Measures.FirstOrDefault(m => m.Id == nameof(MeasureId.OnTimeDelivery));
-        return
-        [
-            From("onTimePickup", pickup, "รับตู้ตรงเวลา"),
-            From("onTimeDelivery", delivery, "ส่งมอบตรงเวลา"),
-        ];
+        // On-time pickup went with the measure behind it. A tile that can only
+        // ever say "ยังวัดไม่ได้" is worse than no tile: it reads as a number
+        // somebody forgot to fill in rather than a thing nobody measures.
+        return [From("onTimeDelivery", delivery, "ส่งมอบตรงเวลา")];
     }
 
     private static Figure From(string id, Measure? measure, string thai) =>

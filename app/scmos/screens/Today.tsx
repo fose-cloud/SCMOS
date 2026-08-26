@@ -25,7 +25,7 @@ type Board = {
 const TONE: Record<string, string> = {
   total: "#0A2240", completed: "#16794C", inTransit: "#1D5FA8",
   pending: "#B45309", delay: "#B42318",
-  truckConfirmation: "#0A2240", onTimePickup: "#1D5FA8", onTimeDelivery: "#16794C",
+  truckConfirmation: "#0A2240", onTimeDelivery: "#16794C",
   openIncident: "#B42318", openCarPar: "#B45309", documentWarning: "#B45309", capacityRisk: "#B42318",
 };
 

@@ -48,7 +48,6 @@ public static class Notifications
     /// thing to talk about even though the difference is one shipment.
     /// </summary>
     public const int OnTimeTarget = 95;
-    public const int ConfirmationTarget = 90;
 
     /// <summary>How near an expiry has to be before it is worth saying so.</summary>
     public const int ExpiryWarningDays = 60;

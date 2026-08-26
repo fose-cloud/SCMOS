@@ -194,6 +194,28 @@ public static partial class JobRules
     /// base travels with the figure everywhere it is shown, because 55% of 630
     /// is a different claim from 55% of 2,102.
     /// </summary>
+    /// <summary>
+    /// Whether a DD/MM/YYYY date falls in the period being reported on.
+    ///
+    /// Here rather than in each service. The operational report and the measures
+    /// engine each had their own copy of these four lines, which is the shape of
+    /// bug this codebase keeps finding: two readings of one rule that agree
+    /// until the day somebody adjusts one of them.
+    ///
+    /// Takes a date rather than a job, because an operational issue is dated by
+    /// when it was found and some of them never reach a job at all.
+    /// </summary>
+    public static bool InPeriod(string date, string year, string month, string day)
+    {
+        if (year.Length == 0 && month.Length == 0 && day.Length == 0) return true;
+        var (jobYear, jobMonth, jobDay) = Formats.PartsOf(date);
+        if (jobYear.Length == 0) return false;
+        if (year.Length > 0 && year != jobYear) return false;
+        if (month.Length > 0 && month != jobMonth) return false;
+        if (day.Length > 0 && day != jobDay) return false;
+        return true;
+    }
+
     public static bool IsMeasurable(JobRecord job) =>
         Formats.TimeMinutes(job.PlanTime) is not null
         && Formats.TimeMinutes(job.ArrTime) is not null

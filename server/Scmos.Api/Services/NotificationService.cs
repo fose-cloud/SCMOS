@@ -154,8 +154,7 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             if (measure.Value is not double value) continue;
             var target = measure.Id switch
             {
-                nameof(MeasureId.OnTimeDelivery) or nameof(MeasureId.OnTimePickup) => Notifications.OnTimeTarget,
-                nameof(MeasureId.ConfirmationSla) => Notifications.ConfirmationTarget,
+                nameof(MeasureId.OnTimeDelivery) => Notifications.OnTimeTarget,
                 _ => 0,
             };
             if (target == 0 || value >= target) continue;

@@ -12,8 +12,6 @@ namespace Scmos.Api.Rules;
 public enum MeasureId
 {
     OnTimeDelivery,
-    OnTimePickup,
-    ConfirmationSla,
     Delay,
     Accident,
     CarPar,
@@ -48,12 +46,6 @@ public static class KpiMeasures
         // have none, and say so rather than being given a plausible round number.
         new(MeasureId.OnTimeDelivery, "On-Time Delivery", "ส่งมอบตรงเวลา", MeasureKind.Rate,
             "วันและเวลาตามแผน กับวันและเวลาที่ถึงจริง ในทะเบียนงาน", true, 95),
-
-        new(MeasureId.OnTimePickup, "On-Time Pickup", "รับตู้ตรงเวลา", MeasureKind.Rate,
-            "milestone รับตู้ที่บันทึกเวลาแผนและเวลาจริงไว้ (shipment_milestones)", true, 95),
-
-        new(MeasureId.ConfirmationSla, "Confirmation SLA", "ตอบยืนยันภายใน SLA", MeasureKind.Rate,
-            "คำขอรถที่ผู้ขนส่งตอบกลับ (supplier_requests) และ pre-run ที่ได้รับคำตอบ (pre_run_checks)", true, 90),
 
         new(MeasureId.Delay, "Delay", "ความล่าช้า", MeasureKind.Count,
             "รายการความล่าช้าที่บันทึกพร้อมหมวด (delay_records)", false),

@@ -118,7 +118,6 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
 
         var keys = jobs.Select(job => job.Key).ToHashSet();
 
-        var milestones = await db.ShipmentMilestones.AsNoTracking().ToListAsync(token);
         var requests = await db.SupplierRequests.AsNoTracking().ToListAsync(token);
         var preRuns = await db.PreRunChecks.AsNoTracking().ToListAsync(token);
         var delays = await db.DelayRecords.AsNoTracking().ToListAsync(token);
@@ -133,7 +132,6 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         var unattributed = periodIssues.Count(issue =>
             issue.JobKey.Length == 0 || !keys.Contains(issue.JobKey));
 
-        milestones = milestones.Where(m => keys.Contains(m.JobKey)).ToList();
         requests = requests.Where(r => keys.Contains(r.JobKey)).ToList();
         preRuns = preRuns.Where(p => keys.Contains(p.JobKey)).ToList();
         delays = delays.Where(d => keys.Contains(d.JobKey)).ToList();
@@ -141,8 +139,6 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         var measures = new List<Measure>
         {
             OnTimeDelivery(jobs),
-            OnTimePickup(milestones),
-            ConfirmationSla(requests, preRuns),
             Delay(delays, jobs),
             Accident(cases),
             CarPar(cases),
@@ -212,14 +208,19 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         return report with { Measures = measures };
     }
 
-    /// <summary>Every month the register has work in, oldest first.</summary>
+    /// <summary>
+    /// Every month the register has work in, oldest first.
+    ///
+    /// Off the same snapshot as everything else on this screen. It used to ask
+    /// SQL on its own, which could offer a month the figures beside it had not
+    /// loaded yet — a trend with a point nothing else could account for.
+    /// </summary>
     private async Task<List<string>> MonthsAsync(CancellationToken token)
     {
-        var dates = await db.OperationJobs.AsNoTracking()
-            .Select(job => job.WorkDate).ToListAsync(token);
+        var snapshot = await register.ReadAsync(token);
 
-        return dates
-            .Select(date => Formats.PartsOf(date))
+        return snapshot.Rows
+            .Select(row => Formats.PartsOf(row.Record?.Date ?? ""))
             .Where(parts => parts.Year.Length > 0 && parts.Month.Length > 0)
             .Select(parts => $"{parts.Year}-{parts.Month}")
             .Distinct()
@@ -239,68 +240,6 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
                 : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง");
     }
 
-    private static Measure OnTimePickup(List<ShipmentMilestone> milestones)
-    {
-        // Only the pickup milestone, and only where both a plan and an actual
-        // were recorded. The plan workbooks do not carry a pickup time, so this
-        // measures what the operators entered, not what was imported.
-        var pickups = milestones
-            .Where(m => m.Stage == Stage.PickedUp.ToString() && m.ActualAt is not null)
-            .Where(m => Formats.TimeMinutes(TimePart(m.PlannedAt)) is not null)
-            .ToList();
-
-        var met = pickups.Count(m =>
-        {
-            var planned = Formats.TimeMinutes(TimePart(m.PlannedAt));
-            var actual = m.ActualAt!.Value.ToLocalTime();
-            return planned is not null && actual.Hour * 60 + actual.Minute <= planned.Value;
-        });
-
-        return Rate(MeasureId.OnTimePickup, met, pickups.Count,
-            pickups.Count == 0
-                ? "ยังไม่มี milestone รับตู้ที่บันทึกทั้งเวลาแผนและเวลาจริง"
-                : $"วัดจาก {pickups.Count} milestone ที่บันทึกไว้");
-    }
-
-    private Measure ConfirmationSla(List<SupplierRequest> requests, List<PreRunCheck> preRuns)
-    {
-        var answered = requests.Where(r => r.RespondedAt is not null).ToList();
-        var answeredInTime = answered.Count(r =>
-            (r.RespondedAt!.Value - r.RequestedAt).TotalMinutes <= _sla);
-
-        var preRunAnswered = preRuns.Where(p => p.RespondedAt is not null).ToList();
-        var preRunInTime = preRunAnswered.Count(p =>
-            (p.RespondedAt!.Value - p.SentAt).TotalMinutes <= _sla);
-
-        var total = answered.Count + preRunAnswered.Count;
-        var met = answeredInTime + preRunInTime;
-
-        var breakdown = new List<Counted>
-        {
-            new($"ขอกำลังรถ ตอบใน SLA", answeredInTime),
-            new($"ขอกำลังรถ เกิน SLA", answered.Count - answeredInTime),
-            new($"Pre-run ตอบใน SLA", preRunInTime),
-            new($"Pre-run เกิน SLA", preRunAnswered.Count - preRunInTime),
-            new("ขอกำลังรถ ยังไม่ตอบ", requests.Count(r => r.Outcome == "pending")),
-            new("Pre-run ยังไม่ตอบ", preRuns.Count(p => p.Outcome == "pending")),
-        };
-
-        return Rate(MeasureId.ConfirmationSla, met, total,
-            total == 0
-                ? $"ยังไม่มีคำขอที่ได้รับคำตอบ — SLA ที่ตั้งไว้คือ {_sla} นาที"
-                : $"SLA {_sla} นาที · วัดจากคำตอบ {total} ครั้ง",
-            breakdown);
-    }
-
-    /// <summary>
-    /// How much is running late.
-    ///
-    /// Reported zero for months while the workspace showed sixty-four delayed
-    /// jobs, because it counted only <c>delay_records</c> — the categorised,
-    /// attributed rows somebody is meant to write and nobody has. The register's
-    /// own statuses are the weaker source and the one that actually has data, so
-    /// they are used when the records are empty, and the note says which it is.
-    /// </summary>
     private static Measure Delay(List<DelayRecord> delays,
         List<(string Key, string Carrier, JobRecord Record)> jobs)
     {
@@ -536,14 +475,6 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
     /// date, and some of them never reach a job at all — so the test has to take
     /// the date rather than the record it came off.
     /// </summary>
-    private static bool InPeriod(string date, Period period)
-    {
-        if (period.IsAll) return true;
-        var (year, month, day) = Formats.PartsOf(date);
-        if (year.Length == 0) return false;
-        if (period.Year.Length > 0 && period.Year != year) return false;
-        if (period.Month.Length > 0 && period.Month != month) return false;
-        if (period.Day.Length > 0 && period.Day != day) return false;
-        return true;
-    }
+    private static bool InPeriod(string date, Period period) =>
+        period.IsAll || JobRules.InPeriod(date, period.Year, period.Month, period.Day);
 }

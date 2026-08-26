@@ -42,23 +42,29 @@ public record KpiReport(
 /// Every count comes from the same rules the workspace colours a row by, so a
 /// job the grid calls "action required" is a job this counts as action required.
 /// </summary>
-public class KpiService(ScmosDbContext db)
+public class KpiService(JobRegisterCache register)
 {
     public async Task<KpiReport> BuildAsync(Period period, CancellationToken token)
     {
-        // The whole register is read and judged in memory rather than in SQL.
-        // The rules parse hand-typed dates and times that SQL cannot be trusted
-        // to read the same way — that difference is the entire reason the data
-        // standard exists — so correctness wins over pushing the work down.
-        var rows = await db.OperationJobs
-            .AsNoTracking()
-            .Select(job => job.Data)
-            .ToListAsync(token);
+        // The same snapshot the measures engine reads, not a second query.
+        //
+        // This used to go to SQL directly while the engine read the shared
+        // snapshot, and the snapshot lives five minutes. So for up to five
+        // minutes after any edit or import, the two halves of the KPI screen
+        // described different registers: the counts at the top current, the
+        // measures underneath them from before. Same numbers, same instant, or
+        // people are right not to trust either.
+        //
+        // The register is still judged in memory rather than in SQL. The rules
+        // parse hand-typed dates and times that SQL cannot be trusted to read
+        // the same way — that difference is the entire reason the data standard
+        // exists — so correctness wins over pushing the work down.
+        var snapshot = await register.ReadAsync(token);
 
-        var jobs = new List<JobRecord>(rows.Count);
-        foreach (var row in rows)
+        var jobs = new List<JobRecord>(snapshot.Rows.Count);
+        foreach (var row in snapshot.Rows)
         {
-            var job = JobRecord.From(row);
+            var job = row.Record;
             if (job is not null && Matches(job, period)) jobs.Add(job);
         }
 
@@ -130,16 +136,8 @@ public class KpiService(ScmosDbContext db)
     /// no usable date is only in scope when nothing is being filtered — it
     /// belongs to no month, and quietly counting it in July would be a lie.
     /// </summary>
-    private static bool Matches(JobRecord job, Period period)
-    {
-        if (period.IsAll) return true;
-        var (year, month, day) = Formats.PartsOf(job.Date);
-        if (year.Length == 0) return false;
-        if (period.Year.Length > 0 && period.Year != year) return false;
-        if (period.Month.Length > 0 && period.Month != month) return false;
-        if (period.Day.Length > 0 && period.Day != day) return false;
-        return true;
-    }
+    private static bool Matches(JobRecord job, Period period) =>
+        period.IsAll || JobRules.InPeriod(job.Date, period.Year, period.Month, period.Day);
 
     private static int Percent(int part, int whole) =>
         whole == 0 ? 0 : (int)Math.Round(part * 100.0 / whole, MidpointRounding.AwayFromZero);
