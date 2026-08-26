@@ -154,7 +154,7 @@ public static class OperationalIssueEndpoints
         Driver = Clean(body.Driver, 160),
         ContainerNo = Clean(body.ContainerNo, 80),
         Licence = Clean(body.Licence, 60),
-        AccidentGrade = Clean(body.AccidentGrade, 10),
+        AccidentGrade = Clean(body.AccidentGrade, 20),
     };
 
     private static string Clean(string? value, int max)

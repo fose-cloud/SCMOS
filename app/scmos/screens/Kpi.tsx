@@ -64,15 +64,35 @@ type ScoreLine = {
   percent: number | null; count: number; base: number; target: number; note: string;
 };
 
+/** The tally the customer's own monthly report is laid out in. */
+type CarrierTally = {
+  transportAccidentMajor: number;
+  transportAccidentMinor: number;
+  loadingAccident: number;
+  complaints: number;
+  breakdownNoComplaint: number;
+};
+
 type CarrierScore = {
   carrier: string; shipments: number; lines: ScoreLine[];
   weighted: number | null; weightAvailable: number; ungradedAccidents: number;
+  tally: CarrierTally;
 };
+
+/** The columns of that report, in its order and its words. */
+const TALLY_COLUMNS: [string, (t: CarrierTally) => number][] = [
+  ["Transport Accident (Major)", (t) => t.transportAccidentMajor],
+  ["Transport Accident (Minor)", (t) => t.transportAccidentMinor],
+  ["Loading Accident", (t) => t.loadingAccident],
+  ["Complaint (Internal & external)", (t) => t.complaints],
+  ["Truck break down / No customer complaint", (t) => t.breakdownNoComplaint],
+];
 
 type EngineReport = {
   jobs: number; measures: Measure[]; suppliers: SupplierScore[];
   scorecard?: CarrierScore[] | null;
   unattributedIssues?: number;
+  issuesInPeriod?: number;
 };
 
 /**
@@ -293,22 +313,26 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
         <Panel
           title="คะแนนตามสัญญา (Carrier Scorecard)"
           note={
-            "คิดจากรายการใน Operational Issues ที่ผูกกับงานของผู้ขนส่งรายนั้น"
-            + (engine.unattributedIssues
-              ? ` · อีก ${engine.unattributedIssues} รายการไม่ได้ผูกกับงาน จึงไม่เข้าคะแนนของใคร`
-              : "")
+            // Says how much it counted, not only how it counted. A card of
+            // straight hundreds is either a clean month or a broken link, and
+            // the reader is owed the difference.
+            engine.issuesInPeriod === 0
+              ? "ไม่มีรายการใน Operational Issues ในช่วงเวลานี้ — ทุกเกณฑ์จึงเป็น 100% เพราะไม่มีเหตุให้หัก ไม่ใช่เพราะระบบนับไม่เจอ"
+              : `คิดจาก ${engine.issuesInPeriod} รายการใน Operational Issues ในช่วงนี้`
+                + (engine.unattributedIssues
+                  ? ` · ${engine.unattributedIssues} รายการเลขงานจับคู่ไม่ได้ จึงไม่เข้าคะแนนของใคร`
+                  : " · ผูกกับงานได้ทั้งหมด")
           }
         >
           <div style={css("overflow-x:auto")}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
                 <tr>
-                  {[["ผู้ขนส่ง", "left"], ["Shipment", "right"],
-                    ["Minor 15%", "right"], ["Major 35%", "right"], ["รายงาน 20%", "right"],
-                    ["ตรวจรถ 10%", "right"], ["ตรงเวลา 10%", "right"], ["ความพึงพอใจ 10%", "right"],
+                  {[["TRUCK", "left"], ["Total individual shipment", "right"],
+                    ...TALLY_COLUMNS.map(([head]) => [head, "right"] as [string, string]),
                     ["คะแนนรวม", "right"]].map(([head, align]) => (
                     <th key={head} style={css("padding:8px 12px;text-align:" + align
-                      + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{head}</th>
+                      + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;vertical-align:bottom;max-width:130px")}>{head}</th>
                   ))}
                 </tr>
               </thead>
@@ -322,30 +346,25 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
                       </button>
                       {row.ungradedAccidents > 0 && (
                         <div style={css("font-size:11px;color:#B45309;margin-top:2px")}>
-                          อุบัติเหตุยังไม่ระบุระดับ {row.ungradedAccidents} เคส
+                          อุบัติเหตุยังไม่ระบุชนิด {row.ungradedAccidents} เคส
                         </div>
                       )}
                     </td>
                     <td style={NUM_S}>{row.shipments.toLocaleString()}</td>
-                    {["accident-minor", "accident-major", "damage-reporting",
-                      "vehicle-readiness", "on-time", "satisfaction"].map((id) => {
-                      const line = row.lines.find((l) => l.id === id);
+
+                    {/* Counts, as their report writes them. A zero is a real
+                        answer here and is shown as one — it is the column
+                        everybody wants to be zero. */}
+                    {TALLY_COLUMNS.map(([head, read]) => {
+                      const value = read(row.tally);
                       return (
-                        <td key={id} style={NUM_S} title={line?.note ?? ""}>
-                          {/* A criterion nothing could measure shows a dash and
-                              its reason on hover, not a zero. A zero here reads
-                              as "they failed it". */}
-                          {line?.percent == null
-                            ? <span style={css("color:#B4C0CC")}>—</span>
-                            : <>
-                              {line.percent.toFixed(1)}%
-                              {line.count > 0 && (
-                                <span style={css("color:#94A3B8;font-weight:400")}> ({line.count})</span>
-                              )}
-                            </>}
+                        <td key={head} style={css("padding:8px 12px;text-align:right;font-family:'IBM Plex Mono',monospace;color:"
+                          + (value > 0 ? "#B42318;font-weight:700" : "#94A3B8"))}>
+                          {value}
                         </td>
                       );
                     })}
+
                     <td style={css("padding:8px 12px;text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;color:"
                       + (row.weighted == null ? "#B4C0CC" : row.weighted >= 95 ? "#16794C" : row.weighted >= 85 ? "#B45309" : "#B42318"))}>
                       {row.weighted == null ? "—" : row.weighted.toFixed(1)}
@@ -361,10 +380,17 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
             </table>
           </div>
 
-          <div style={css("padding:10px 14px;font-size:11px;color:#7B8CA0;line-height:1.7;border-top:1px solid #F1F5F9")}>
-            เกณฑ์ที่เขียนไว้เป็นอัตราการเกิดเหตุ (เช่น อุบัติเหตุ ÷ shipment) ถูกคิดเป็นคะแนนโดยเอา 100 ลบอัตรานั้น
-            เพราะเป้าคือ 100% ซึ่งหมายถึงไม่มีเหตุเลย · เกณฑ์ที่ยังวัดไม่ได้จะไม่ถูกให้ 0
-            แต่ถูกตัดออกจากน้ำหนักแล้วปรับฐานคะแนนตามน้ำหนักที่เหลือ และแสดงไว้ว่าเหลือเท่าไร
+          {/* What each column counts, said once under the table rather than in
+              six tooltips nobody hovers over. */}
+          <div style={css("padding:10px 14px;font-size:11px;color:#7B8CA0;line-height:1.8;border-top:1px solid #F1F5F9")}>
+            ตัวเลขในตารางคือ<b>จำนวนครั้ง</b>ที่บันทึกไว้ใน Operational Issues ของงานที่ผู้ขนส่งรายนั้นวิ่ง ·
+            อุบัติเหตุสามช่องแยกตามชนิดที่ระบุไว้ในรายการปัญหา (Transport Major / Transport Minor / Loading) ·
+            ข้อร้องเรียนนับทั้งจากลูกค้า และจากภายใน (CS · Shipping · Billing · คลัง) ·
+            รถเสียนับเฉพาะครั้งที่<b>ไม่มี</b>ข้อร้องเรียนจากลูกค้าในงานเดียวกัน จะได้ไม่ถูกนับซ้ำสองช่อง
+            <div style={css("margin-top:5px")}>
+              คะแนนรวมคิดตามน้ำหนักในสัญญา โดยเกณฑ์ที่ยังวัดไม่ได้จะไม่ถูกให้ 0
+              แต่ถูกตัดออกจากน้ำหนักแล้วปรับฐานคะแนนตามน้ำหนักที่เหลือ ซึ่งแสดงกำกับไว้ใต้คะแนน
+            </div>
           </div>
         </Panel>
       ) : null}

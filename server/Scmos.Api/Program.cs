@@ -131,6 +131,11 @@ var app = builder.Build();
 // `dotnet run -- --seed ../../public/data/ops.json` keys the delivered plan into
 // an empty register. It is idempotent on the job key, so running it twice is
 // the same as running it once.
+// Arithmetic only: no database, no register, nothing written. It answers the
+// question a screen of straight hundreds cannot — whether the scorecard is
+// counting wrongly, or there is genuinely nothing to count.
+if (ScorecardCheck.Run(args)) return 0;
+
 if (args.Contains("--seed"))
 {
     return await PlanSeeder.RunAsync(app, args);

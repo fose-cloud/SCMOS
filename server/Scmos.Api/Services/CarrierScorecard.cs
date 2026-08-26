@@ -19,11 +19,28 @@ public record ScoreLine(
 /// the scorecard asks for is not recorded anywhere, and the total is scaled to
 /// it rather than the missing criterion being scored as zero or as full marks.
 /// </param>
+/// <summary>
+/// The counts the customer's own monthly report is laid out in.
+///
+/// Their form is a tally per carrier — how many of each thing happened — and
+/// the weighted score is worked out from it. Both are sent: the tallies are
+/// what somebody checks against their own sheet, the score is what the contract
+/// is judged on, and showing one without the other means a figure nobody can
+/// reconcile.
+/// </summary>
+public record CarrierTally(
+    int TransportAccidentMajor,
+    int TransportAccidentMinor,
+    int LoadingAccident,
+    int Complaints,
+    int BreakdownNoComplaint);
+
 public record CarrierScore(
     string Carrier, int Shipments,
     IReadOnlyList<ScoreLine> Lines,
     double? Weighted, double WeightAvailable,
-    int UngradedAccidents);
+    int UngradedAccidents,
+    CarrierTally Tally);
 
 /// <summary>
 /// The carrier scorecard the customer's contract is judged on.
@@ -53,14 +70,22 @@ public static class CarrierScorecard
     /// <summary>The category a damage or discrepancy report is logged under.</summary>
     private const string DamageCategory = "สินค้าชำรุด/สูญหาย";
 
+    /// <summary>The category a lorry that would not run is logged under.</summary>
+    private const string BreakdownCategory = "รถ/อุปกรณ์ไม่พร้อม";
+
     /// <summary>
-    /// Where a complaint comes from.
+    /// Where a complaint comes from, inside the company and outside it.
     ///
-    /// The agreement says the customer and customer service, and these are the
-    /// sources the issue form offers that mean those two.
+    /// The report column reads "Complaint (Internal &amp; external)", so both
+    /// halves count: the customer complaining is external, and CS, shipping,
+    /// billing or the warehouse raising it is internal. Customs, the depot and
+    /// the forwarder are none of those — a customs hold is a fact about the
+    /// shipment, not somebody complaining about the haulier — so they are left
+    /// out.
     /// </summary>
     private static readonly HashSet<string> ComplaintSources =
-        new(StringComparer.OrdinalIgnoreCase) { "Customer", "CS", "CS/Shipping" };
+        new(StringComparer.OrdinalIgnoreCase)
+        { "Customer", "CS", "CS/Shipping", "Shipping", "Billing", "Warehouse" };
 
     /// <summary>Minutes allowed to report: five for an accident, thirty otherwise.</summary>
     private const int AccidentReportMinutes = 5;
@@ -95,27 +120,35 @@ public static class CarrierScorecard
             var mine = attributed.Where(issue => keys.Contains(issue.JobKey)).ToList();
 
             var accidents = mine.Where(IsAccident).ToList();
-            var minor = accidents.Count(issue => Graded(issue) == "Minor");
-            var major = accidents.Count(issue => Graded(issue) == "Major");
+            var minor = accidents.Count(issue => Graded(issue) == "Transport (Minor)");
+            var major = accidents.Count(issue => Graded(issue) == "Transport (Major)");
+            var loading = accidents.Count(issue => Graded(issue) == "Loading");
             var ungraded = accidents.Count(issue => Graded(issue).Length == 0);
 
-            var complaints = mine.Count(issue => ComplaintSources.Contains(issue.Source.Trim()));
+            // A lorry that would not run, where the customer never complained
+            // about it. The pairing is the point: a breakdown the customer felt
+            // is already counted as a complaint, and counting it twice would
+            // punish one event under two headings.
+            var breakdownNoComplaint = mine.Count(issue =>
+                IsBreakdown(issue)
+                && !mine.Any(other => other.JobKey == issue.JobKey && IsComplaint(other)));
+
+            var complaints = mine.Count(IsComplaint);
 
             var reports = mine.Where(issue => IsAccident(issue) || IsDamage(issue)).ToList();
             var onTimeReports = reports.Count(ReportedInTime);
 
             var lateWithComplaint = group.Count(job =>
                 LateBeyond(job.Record, LateMinutes)
-                && mine.Any(issue => issue.JobKey == job.Key
-                    && ComplaintSources.Contains(issue.Source.Trim())));
+                && mine.Any(issue => issue.JobKey == job.Key && IsComplaint(issue)));
 
             var lines = new List<ScoreLine>
             {
-                Rate("accident-minor", "Zero Accident — Minor", "อุบัติเหตุเล็กน้อย",
+                Rate("accident-minor", "Transport Accident (Minor)", "อุบัติเหตุระหว่างขนส่ง (เล็กน้อย)",
                     15, minor, shipments, 100,
                     ungraded > 0 ? $"ยังไม่ระบุระดับ {ungraded} เคส — ไม่ถูกนับในคะแนน" : ""),
 
-                Rate("accident-major", "Zero Accident — Major", "อุบัติเหตุใหญ่",
+                Rate("accident-major", "Transport Accident (Major)", "อุบัติเหตุระหว่างขนส่ง (ใหญ่)",
                     35, major, shipments, 100,
                     ungraded > 0 ? $"ยังไม่ระบุระดับ {ungraded} เคส — ไม่ถูกนับในคะแนน" : ""),
 
@@ -143,9 +176,9 @@ public static class CarrierScorecard
                     10, lateWithComplaint, shipments, 95,
                     $"ช้ากว่านัดเกิน {LateMinutes} นาที และมีข้อร้องเรียน"),
 
-                Rate("satisfaction", "Customer satisfaction", "ความพึงพอใจของลูกค้า",
+                Rate("satisfaction", "Complaint (Internal & external)", "ข้อร้องเรียน (ภายใน/ภายนอก)",
                     10, complaints, shipments, 95,
-                    "ข้อร้องเรียนจากลูกค้าและ CS"),
+                    "ข้อร้องเรียนจากลูกค้า และจากภายใน (CS · Shipping · Billing · คลัง)"),
             };
 
             var measured = lines.Where(line => line.Percent is not null).ToList();
@@ -154,7 +187,8 @@ public static class CarrierScorecard
                 ? null
                 : Round(measured.Sum(line => line.Percent!.Value * line.Weight) / available);
 
-            scores.Add(new CarrierScore(group.Key, shipments, lines, weighted, available, ungraded));
+            scores.Add(new CarrierScore(group.Key, shipments, lines, weighted, available, ungraded,
+                new CarrierTally(major, minor, loading, complaints, breakdownNoComplaint)));
         }
 
         return scores;
@@ -183,12 +217,48 @@ public static class CarrierScorecard
     private static bool IsDamage(OperationalIssue issue) =>
         issue.Category.Trim().Equals(DamageCategory, StringComparison.Ordinal);
 
-    /// <summary>Minor, Major, or empty when nobody has said which.</summary>
+    private static bool IsBreakdown(OperationalIssue issue) =>
+        issue.Category.Trim().Equals(BreakdownCategory, StringComparison.Ordinal);
+
+    /// <summary>
+    /// An issue that is somebody complaining, rather than one that merely came
+    /// in through them.
+    ///
+    /// The source says who reported it and the category says what it was, and
+    /// reading the source alone conflates the two: a loading accident reported
+    /// by the warehouse is the warehouse doing its job, not the warehouse
+    /// complaining. Counted as both, one event lands in the accident column and
+    /// the complaint column and the haulier is marked down twice for it.
+    ///
+    /// So an accident or a breakdown is never a complaint — each already has a
+    /// column of its own. Everything else raised by the customer or by CS,
+    /// shipping, billing or the warehouse is.
+    /// </summary>
+    private static bool IsComplaint(OperationalIssue issue) =>
+        !IsAccident(issue) && !IsBreakdown(issue)
+        && ComplaintSources.Contains(issue.Source.Trim());
+
+    /// <summary>
+    /// Which of the three kinds of accident this was, or empty when nobody has
+    /// said.
+    ///
+    /// The customer's report separates a transport accident from one that
+    /// happened while loading, and the transport one by how serious it was. All
+    /// three are one field on the issue with three values, because they are one
+    /// question — what kind of accident was it — and splitting them across two
+    /// fields would allow a loading accident marked Major, which their form has
+    /// no column for.
+    ///
+    /// The two older spellings are still read. Anything graded before this
+    /// change says "Minor" or "Major", and re-reading those as ungraded would
+    /// quietly drop accidents out of a score somebody has already seen.
+    /// </summary>
     private static string Graded(OperationalIssue issue)
     {
         var grade = issue.AccidentGrade.Trim();
-        if (grade.Equals("minor", StringComparison.OrdinalIgnoreCase)) return "Minor";
-        if (grade.Equals("major", StringComparison.OrdinalIgnoreCase)) return "Major";
+        if (grade.Equals("loading", StringComparison.OrdinalIgnoreCase)) return "Loading";
+        if (grade.Contains("minor", StringComparison.OrdinalIgnoreCase)) return "Transport (Minor)";
+        if (grade.Contains("major", StringComparison.OrdinalIgnoreCase)) return "Transport (Major)";
         return "";
     }
 

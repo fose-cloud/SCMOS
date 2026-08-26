@@ -67,7 +67,16 @@ public record KpiEngineReport(
     /// </summary>
     IReadOnlyList<CarrierScore>? Scorecard = null,
     /// <summary>Issues in the period that name no job, so belong to nobody's score.</summary>
-    int UnattributedIssues = 0);
+    int UnattributedIssues = 0,
+    /// <summary>
+    /// How many issues were in the period at all.
+    ///
+    /// Sent so the screen can tell "nothing went wrong" from "nothing was
+    /// counted". A scorecard of straight hundreds means one or the other and
+    /// they are not the same news; without this figure the reader cannot tell
+    /// which, and the honest reading of a perfect score is suspicion.
+    /// </summary>
+    int IssuesInPeriod = 0);
 
 /// <summary>
 /// The KPI engine.
@@ -147,7 +156,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         };
 
         var report = new KpiEngineReport(period, jobs.Count, measures, scores,
-            DateTimeOffset.UtcNow.ToString("O"), scorecard, unattributed);
+            DateTimeOffset.UtcNow.ToString("O"), scorecard, unattributed, periodIssues.Count);
 
         // Held against the register it was read from. An hour is not a
         // staleness window — the key changes the moment the register does — it

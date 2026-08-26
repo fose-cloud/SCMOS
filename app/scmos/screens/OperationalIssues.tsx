@@ -477,9 +477,12 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
           a third of somebody's mark on a guess.
         */}
         {(draft.category ?? "") === ACCIDENT_CATEGORY && (
-          <Field label="ระดับอุบัติเหตุ (KPI)" width="170px">
+          <Field label="ชนิดอุบัติเหตุ (KPI)" width="215px">
+            {/* The three the customer's report has a column for. One field
+                rather than two, because a loading accident graded Major is a
+                combination their form cannot show. */}
             <Select value={draft.accidentGrade ?? ""} onChange={(v) => onField("accidentGrade", v)}
-              options={["Minor", "Major"]} />
+              options={["Transport (Major)", "Transport (Minor)", "Loading"]} />
           </Field>
         )}
       </div>
