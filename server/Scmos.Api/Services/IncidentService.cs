@@ -71,7 +71,8 @@ public class IncidentService(ScmosDbContext db)
     /// people raising a case at once cannot pick the same number.
     /// </summary>
     public async Task<IncidentResult> RaiseAsync(string jobKey, string kind, string category,
-        string title, string by, CancellationToken token)
+        string title, string by, CancellationToken token,
+        string where = "", string when = "", string who = "")
     {
         if (title.Trim().Length == 0) return new IncidentResult(false, "ต้องระบุหัวข้อ");
 
@@ -95,6 +96,12 @@ public class IncidentService(ScmosDbContext db)
             Category = wantedCategory,
             Title = title.Trim(),
             Stage = "open",
+            // Three of the six, filled from the job the case came off. The
+            // other three are the case itself — what went wrong, why, and how —
+            // and nothing but a person can put those in.
+            Where = where.Trim(),
+            When = when.Trim(),
+            Who = who.Trim(),
             RaisedBy = by,
             RaisedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,

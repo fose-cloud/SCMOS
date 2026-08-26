@@ -143,6 +143,54 @@ const JOB_FACTS: [string, (job: Job) => string][] = [
   ["ผู้รับผิดชอบ", (j) => j.op],
 ];
 
+/**
+ * The three of the 5W1H a job can answer, and only those.
+ *
+ * Where the load was going, when it was due, who was driving. What went wrong,
+ * why it went wrong and how are the case itself — a job knows none of them, and
+ * a form that arrives with those filled in from a shipment record is a form
+ * people stop reading. Blanks are the honest answer and they are left blank.
+ *
+ * Written as sentences rather than a run of values, because these boxes are
+ * read by whoever picks the case up, and "ผู้ขนส่ง JTC · คนขับ สมชาย 08x" is a
+ * sentence while "JTC, สมชาย, 08x" is a row somebody has to decode.
+ */
+function seedFromJob(job: Job): { where: string; when: string; who: string } {
+  // A label is skipped when the value already opens with it. The pickup note
+  // on an import job is a whole sentence — "รับตู้ 02.07.26 .08.00 น." — and
+  // labelling that produced "รับตู้ รับตู้ 02.07.26", which reads like a
+  // stutter and is the sort of thing that makes people distrust the rest.
+  const parts = (entries: [string, string][]) =>
+    entries
+      .filter(([, value]) => value && value.trim())
+      .map(([label, value]) => {
+        const text = value.trim();
+        return text.startsWith(label) ? text : `${label} ${text}`;
+      })
+      .join(" · ");
+
+  return {
+    where: parts([
+      ["ปลายทาง", job.destination],
+      ["โรงงาน/สถานที่โหลด", job.plant],
+      ["ลานตู้", job.cyYard],
+      ["คืนตู้", job.returnLoc],
+    ]),
+    when: parts([
+      ["แผน", [job.date, job.planTime].filter(Boolean).join(" ")],
+      ["รับตู้", [job.pickupPlan, job.pickupTime].filter(Boolean).join(" ")],
+      ["ถึงจริง", [job.arrDate, job.arrTime].filter(Boolean).join(" ")],
+      ["ปิดตู้", [job.closingDate, job.closingTime].filter(Boolean).join(" ")],
+    ]),
+    who: parts([
+      ["ผู้ขนส่ง", job.trucker],
+      ["คนขับ", [job.driver, job.contact].filter(Boolean).join(" ")],
+      ["ทะเบียน", job.licence],
+      ["ผู้รับผิดชอบงาน", job.op],
+    ]),
+  };
+}
+
 export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }: {
   /**
    * A job sent over from the workspace drawer.
@@ -276,6 +324,11 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
           </div>
 
           {raisingAgainst ? (
+            <>
+            <div style={css("margin-top:8px;font-size:11px;color:#5A6B7D;line-height:1.6")}>
+              เปิดเคสแล้วระบบจะเติมช่อง <b>Where · When · Who</b> จากงานนี้ให้เอง —
+              ส่วน <b>What · Why · How</b> เว้นว่างไว้ เพราะข้อมูลงานตอบไม่ได้ว่าเกิดอะไรขึ้น
+            </div>
             <div style={css("margin-top:9px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px 20px")}>
               {JOB_FACTS.map(([label, read]) => {
                 const value = read(raisingAgainst).trim();
@@ -288,6 +341,7 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
                 );
               })}
             </div>
+            </>
           ) : (
             // The key is kept even when the job is not in the register that was
             // loaded — a case still belongs to it, and quietly dropping the link
@@ -310,7 +364,13 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
           style={css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff")}>
           {Object.entries(CATEGORY_TH).map(([id, th]) => <option key={id} value={id}>{th}</option>)}
         </select>
-        <button onClick={() => { void post("", { kind, category, title, jobKey }); setTitle(""); setJobKey(""); }}
+        <button onClick={() => {
+          // The job's own answers travel with the case rather than being typed
+          // in again off the screen next door.
+          const seed = raisingAgainst ? seedFromJob(raisingAgainst) : {};
+          void post("", { kind, category, title, jobKey, ...seed });
+          setTitle(""); setJobKey("");
+        }}
           disabled={busy || !title.trim()}
           style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:" + (busy || !title.trim() ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
         >เปิดเคส</button>
