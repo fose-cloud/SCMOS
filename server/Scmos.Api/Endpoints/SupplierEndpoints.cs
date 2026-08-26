@@ -32,6 +32,16 @@ public static class SupplierEndpoints
     public record RaiseBody(string? JobKey, string? Kind, string? Category, string? Title,
         string? What = null, string? Where = null, string? When = null, string? Who = null);
     public record ReasonBody(string? Reason);
+
+    /// <param name="Names">One haulage company per line, as their paperwork spells it.</param>
+    /// <param name="Aliases">
+    /// The short forms the plan sheets use, each naming the company it belongs
+    /// to: "SJ = Sangja Transport Co., Ltd.". Without these the register counts
+    /// SANGJA and SJ as two firms, which is what it has been doing.
+    /// </param>
+    public record DirectoryBody(List<string>? Names, List<AliasLine>? Aliases);
+
+    public record AliasLine(string? Alias, string? Company);
     public record InvokeBody(string? Tool, string? Summary, JsonElementPayload? Payload);
     public record DecideBody(bool Approved, string? Note);
     public record AppliedBody(string? Result);
@@ -74,6 +84,37 @@ public static class SupplierEndpoints
                 user => service.SetStatusAsync(id, body.Status ?? "", user.Signature, token),
                 AuditActions.StatusChange, "supplier", id.ToString(), "สถานะการอนุมัติ", "",
                 body.Status ?? "", body.Reason ?? ""));
+
+        // The agreed list of haulage companies. Pasted in rather than shipped:
+        // these names belong to the business the same way the customer list and
+        // the rate book do, and the rule here is that they live in the database
+        // and never in the repository or a deployment package.
+        suppliers.MapPost("/directory", async ([FromBody] DirectoryBody body, HttpContext context,
+            IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ทะเบียนผู้ขนส่ง", StatusCodes.Status403Forbidden);
+
+            var names = body.Names ?? [];
+            var aliases = (body.Aliases ?? [])
+                .Select(line => (Alias: line.Alias ?? "", Company: line.Company ?? ""))
+                .Where(line => line.Alias.Length > 0 && line.Company.Length > 0)
+                .ToList();
+
+            if (names.Count == 0 && aliases.Count == 0)
+                return ApiResults.Error("ไม่มีรายชื่อให้นำเข้า", StatusCodes.Status400BadRequest);
+
+            var result = await service.ImportDirectoryAsync(names, aliases, user.Signature, token);
+
+            await audit.RecordAsync(user, "import", "supplier-directory", "all",
+                "ทะเบียนผู้ขนส่ง", "", "",
+                $"เพิ่ม {result.Added} · มีอยู่แล้ว {result.AlreadyThere} · ผูกชื่อย่อ {result.AliasesLinked}",
+                "", token);
+
+            return Results.Json(result);
+        });
 
         suppliers.MapPost("/{id:int}/alias", async (int id, [FromBody] AliasBody body, HttpContext context,
             IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>

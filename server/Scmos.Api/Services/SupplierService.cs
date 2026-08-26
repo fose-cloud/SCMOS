@@ -201,6 +201,113 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         return new SupplierResult(true, $"{supplier.Name}: {wanted}", supplier.Id);
     }
 
+    /// <summary>What one import of the carrier directory did.</summary>
+    public record DirectoryResult(
+        int Added, int AlreadyThere, int AliasesLinked,
+        IReadOnlyList<string> AliasesWithNoCompany);
+
+    /// <summary>
+    /// Loads the agreed list of haulage companies, and the short forms the plan
+    /// sheets write them as.
+    /// </summary>
+    /// <remarks>
+    /// The list is pasted in rather than shipped with the application, and that
+    /// is deliberate. Sixty-odd company names are the same kind of data as the
+    /// customer list and the rate book: they belong to the business, not to the
+    /// software, and the rule here has been that they live in the database and
+    /// never in the repository or a deployment package.
+    ///
+    /// Nothing is deleted and nothing is overwritten. A company already on the
+    /// register keeps its status, its vendor number and its documents — an
+    /// import is somebody saying "these companies exist", not "these are the
+    /// only companies that have ever existed". Removing a haulier is a decision
+    /// with paperwork attached and does not belong in a bulk paste.
+    ///
+    /// The aliases are what make the whole thing worth doing. The register
+    /// spells one company four ways — SANGJA and SJ, ACN and A.C.N — and every
+    /// figure grouped by haulier has been counting those as different firms.
+    /// </remarks>
+    public async Task<DirectoryResult> ImportDirectoryAsync(
+        IReadOnlyList<string> names,
+        IReadOnlyList<(string Alias, string Company)> aliases,
+        string by, CancellationToken token)
+    {
+        static string Key(string value) =>
+            new(value.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+        var added = 0;
+        var already = 0;
+
+        foreach (var raw in names)
+        {
+            var name = raw.Trim();
+            if (name.Length == 0) continue;
+
+            var key = name.ToUpperInvariant();
+            var existing = await db.SupplierAliases.AsNoTracking()
+                .FirstOrDefaultAsync(alias => alias.Alias == key, token);
+            if (existing is not null) { already++; continue; }
+
+            var code = Key(name);
+            var supplier = new Supplier
+            {
+                Name = name,
+                Code = code.Length > 0 ? code[..Math.Min(6, code.Length)] : "SUP",
+                Status = "approved",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            db.Suppliers.Add(supplier);
+            await db.SaveChangesAsync(token);
+
+            // Its own name is its first alias, so a job that spells the company
+            // out in full resolves without anybody adding anything.
+            db.SupplierAliases.Add(new SupplierAlias
+            { SupplierId = supplier.Id, Alias = key, Source = "directory", Confirmed = true });
+            added++;
+        }
+        await db.SaveChangesAsync(token);
+
+        var linked = 0;
+        var orphans = new List<string>();
+
+        foreach (var (shortForm, company) in aliases)
+        {
+            var alias = shortForm.Trim().ToUpperInvariant();
+            var wanted = company.Trim().ToUpperInvariant();
+            if (alias.Length == 0 || wanted.Length == 0) continue;
+
+            var owner = await db.SupplierAliases.AsNoTracking()
+                .FirstOrDefaultAsync(entry => entry.Alias == wanted, token);
+            if (owner is null)
+            {
+                // Named a company that is not on the list. Reported rather than
+                // created: a haulier invented by a typo in an alias line is
+                // exactly the sort of row nobody later dares delete.
+                orphans.Add($"{shortForm.Trim()} → {company.Trim()}");
+                continue;
+            }
+
+            var held = await db.SupplierAliases.FirstOrDefaultAsync(entry => entry.Alias == alias, token);
+            if (held is null)
+            {
+                db.SupplierAliases.Add(new SupplierAlias
+                { SupplierId = owner.SupplierId, Alias = alias, Source = "directory", Confirmed = true });
+                linked++;
+            }
+            else if (held.SupplierId != owner.SupplierId)
+            {
+                held.SupplierId = owner.SupplierId;
+                held.Confirmed = true;
+                held.Source = "directory";
+                linked++;
+            }
+        }
+        await db.SaveChangesAsync(token);
+
+        return new DirectoryResult(added, already, linked, orphans);
+    }
+
     /// <summary>Attaches a spelling to a supplier — how TTP gets merged into a company.</summary>
     public async Task<SupplierResult> LinkAliasAsync(int id, string alias, string by, CancellationToken token)
     {

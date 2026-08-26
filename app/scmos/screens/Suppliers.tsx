@@ -35,6 +35,9 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The paste box for the agreed list of haulage companies. */
+  const [directory, setDirectory] = useState("");
+  const [showDirectory, setShowDirectory] = useState(false);
 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/suppliers", { headers: { accept: "application/json" } });
@@ -89,6 +92,62 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
     } finally { setBusy(false); }
   }
 
+  /**
+   * Reads the pasted list.
+   *
+   * A plain line is a company. A line with an equals sign is a short form and
+   * the company it belongs to — "SJ = Sangja Transport Co., Ltd." — which is
+   * how SANGJA and SJ stop being counted as two firms.
+   */
+  function readDirectory(text: string) {
+    const names: string[] = [];
+    const aliases: { alias: string; company: string }[] = [];
+
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const equals = trimmed.indexOf("=");
+      if (equals > 0) {
+        aliases.push({
+          alias: trimmed.slice(0, equals).trim(),
+          company: trimmed.slice(equals + 1).trim(),
+        });
+      } else {
+        names.push(trimmed);
+      }
+    }
+    return { names, aliases };
+  }
+
+  async function importDirectory() {
+    const { names, aliases } = readDirectory(directory);
+    if (!names.length && !aliases.length) { onToast("ยังไม่มีรายชื่อในกล่อง"); return; }
+
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/suppliers/directory", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ names, aliases }),
+      });
+      const reply = await response.json().catch(() => null) as {
+        added?: number; alreadyThere?: number; aliasesLinked?: number;
+        aliasesWithNoCompany?: string[]; message?: string;
+      } | null;
+
+      if (!response.ok) { onToast(reply?.message ?? `นำเข้าไม่สำเร็จ (${response.status})`); return; }
+
+      const orphans = reply?.aliasesWithNoCompany ?? [];
+      onToast(`เพิ่ม ${reply?.added ?? 0} ราย · มีอยู่แล้ว ${reply?.alreadyThere ?? 0} · ผูกชื่อย่อ ${reply?.aliasesLinked ?? 0}`
+        + (orphans.length ? ` · ชื่อย่อที่หาบริษัทไม่เจอ ${orphans.length}: ${orphans.join(", ")}` : ""));
+      setDirectory("");
+      setShowDirectory(false);
+      await load();
+    } catch (error) {
+      onToast("นำเข้าไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setBusy(false); }
+  }
+
   if (!rows) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>กำลังโหลด…</div>;
   }
@@ -113,9 +172,54 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap")}>
           <span style={css("font-size:12.5px;color:#465A6E")}><b style={css("color:#0A2240")}>{shown.length}</b> ราย</span>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาชื่อหรือชื่อที่สะกดต่างกัน"
-            style={css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;min-width:240px")} />
+          <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap")}>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาชื่อหรือชื่อที่สะกดต่างกัน"
+              style={css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;min-width:240px")} />
+            {canManage && (
+              <button onClick={() => setShowDirectory((open) => !open)}
+                style={css("height:30px;padding:0 12px;border:1px solid #0A2240;background:" + (showDirectory ? "#0A2240" : "#fff")
+                  + ";color:" + (showDirectory ? "#fff" : "#0A2240") + ";border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                นำเข้าทะเบียนผู้ขนส่ง
+              </button>
+            )}
+          </div>
         </div>
+
+        {showDirectory && canManage && (
+          <div style={css("padding:13px 16px;border-bottom:1px solid #E9EFF5;background:#F8FAFC")}>
+            <div style={css("font-size:11.5px;color:#5A6B7D;line-height:1.75;margin-bottom:8px")}>
+              วางรายชื่อบริษัทขนส่ง <b>บรรทัดละหนึ่งชื่อ</b> ตามที่จดทะเบียนไว้ ·
+              บรรทัดที่มีเครื่องหมาย <b>=</b> คือการผูกชื่อย่อกับบริษัท เช่น{" "}
+              <code style={css("background:#EEF3F8;padding:1px 5px;border-radius:3px")}>SJ = Sangja Transport Co., Ltd.</code>
+              <div style={css("margin-top:5px;color:#7B8CA0")}>
+                ไม่มีการลบหรือทับของเดิม — บริษัทที่มีอยู่แล้วจะคงสถานะ เลขผู้ขาย และเอกสารไว้ทั้งหมด ·
+                รายชื่อเก็บในฐานข้อมูล ไม่ได้ฝังไว้ในโค้ดหรือไปกับตัวติดตั้ง
+              </div>
+            </div>
+            <textarea
+              value={directory}
+              onChange={(e) => setDirectory(e.target.value)}
+              rows={8}
+              placeholder={"DGT Cross Haul Co., Ltd.\nJTC Logistics Co., Ltd.\n…\n\nSJ = Sangja Transport Co., Ltd."}
+              style={css("width:100%;border:1px solid #C9D6E2;border-radius:4px;padding:8px 10px;font-size:12px;font-family:'IBM Plex Mono',monospace;resize:vertical")}
+            />
+            <div style={css("display:flex;gap:8px;align-items:center;margin-top:8px")}>
+              <button onClick={importDirectory} disabled={busy}
+                style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:" + (busy ? "#C3CFDB" : "#0A2240")
+                  + ";color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                {busy ? "กำลังนำเข้า…" : "นำเข้า"}
+              </button>
+              <span style={css("font-size:11.5px;color:#7B8CA0")}>
+                {(() => {
+                  const { names, aliases } = readDirectory(directory);
+                  return names.length || aliases.length
+                    ? `อ่านได้ ${names.length} ชื่อบริษัท · ${aliases.length} ชื่อย่อ`
+                    : "ยังไม่มีรายชื่อในกล่อง";
+                })()}
+              </span>
+            </div>
+          </div>
+        )}
         <div style={css("overflow-x:auto")}>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead><tr>{["รหัส", "ชื่อ", "สถานะ", "งาน", "เส้นทางราคา", "คะแนนล่าสุด", "ชื่อที่สะกดต่างกัน"].map((h, i) => (
