@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 
 /**
@@ -38,7 +39,7 @@ const SCOPES: [string, string][] = [
 ];
 
 export function Verification({ canUpload, onToast }: { canUpload: boolean; onToast: (m: string) => void }) {
-  const [board, setBoard] = useState<Board | null>(null);
+  const [board, setBoard] = useRemembered<Board>("verification");
   const [scope, setScope] = useState("outstanding");
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,10 +53,10 @@ export function Verification({ canUpload, onToast }: { canUpload: boolean; onToa
     let cancelled = false;
     (async () => {
       const data = await load(scope);
-      if (!cancelled) setBoard(data);
+      if (!cancelled) setBoard((held) => data ?? held);
     })();
     return () => { cancelled = true; };
-  }, [load, scope]);
+  }, [load, scope, setBoard]);
 
   async function act(path: string, body: unknown) {
     if (busy) return;

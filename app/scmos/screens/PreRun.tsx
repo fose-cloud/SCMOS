@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { stamp } from "./WorkflowPanel";
 import type { Job } from "../ops";
 import { css } from "../theme";
@@ -48,15 +49,16 @@ export function PreRun({ jobs, canEdit, onToast }: {
   jobs: Job[]; canEdit: (job: Job) => boolean; onToast: (m: string) => void;
 }) {
   const [date, setDate] = useState(tomorrow());
-  const [list, setList] = useState<List | null>(null);
+  const [list, setList] = useRemembered<List>(`prerun.${date}`);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     const response = await apiFetch(`/api/pre-run?date=${encodeURIComponent(date)}`, {
       headers: { accept: "application/json" },
     });
-    setList(response.ok ? await response.json() as List : null);
-  }, [date]);
+    const body = response.ok ? await response.json() as List : null;
+    setList((held) => body ?? held);
+  }, [date, setList]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,10 +67,10 @@ export function PreRun({ jobs, canEdit, onToast }: {
         headers: { accept: "application/json" },
       });
       const body = response.ok ? await response.json() as List : null;
-      if (!cancelled) setList(body);
+      if (!cancelled) setList((held) => body ?? held);
     })();
     return () => { cancelled = true; };
-  }, [date]);
+  }, [date, setList]);
 
   async function post(path: string, body: unknown) {
     if (busy) return;

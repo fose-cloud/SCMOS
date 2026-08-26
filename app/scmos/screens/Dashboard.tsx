@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { css, STATUS_LADDER, STATUS_TH } from "../theme";
+import { useRemembered } from "../pageCache";
 import type { Db, Ship } from "../demo";
 import type { WsTarget } from "../alerts";
 import { opsStats, STATUS_RE as RE, type Job, type OpsStats } from "../ops";
@@ -248,7 +249,7 @@ type ScoreRow = { carrier: string; shipments: number; weighted: number | null; w
  * after the first paint, and the panel simply does not appear until it answers.
  */
 function ContractScores({ period, onOpen }: { period: Period; onOpen: () => void }) {
-  const [rows, setRows] = useState<ScoreRow[] | null>(null);
+  const [rows, setRows] = useRemembered<ScoreRow[]>("dashboard");
 
   // The same three parameters the KPI screen sends, so both read one period.
   const query = new URLSearchParams();
@@ -266,10 +267,10 @@ function ContractScores({ period, onOpen }: { period: Period; onOpen: () => void
         if (!response.ok || !alive) return;
         const body = await response.json() as { scorecard?: ScoreRow[] | null };
         if (alive) setRows(body.scorecard ?? []);
-      } catch { if (alive) setRows([]); }
+      } catch { /* the scorecard stays as it was; a failed read is not a clean month */ }
     })();
     return () => { alive = false; };
-  }, [search]);
+  }, [search, setRows]);
 
   if (!rows?.length) return null;
 

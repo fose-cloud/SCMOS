@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 
 /**
@@ -35,7 +36,7 @@ type Draft = { licence: string; driver: string; contact: string };
 const EMPTY: Draft = { licence: "", driver: "", contact: "" };
 
 export function CarrierPortal({ onToast }: { onToast: (message: string) => void }) {
-  const [portal, setPortal] = useState<Portal | null>(null);
+  const [portal, setPortal] = useRemembered<Portal>("carrier-portal");
   const [refused, setRefused] = useState("");
   const [tab, setTab] = useState<"new" | "accepted">("new");
   const [open, setOpen] = useState<string | null>(null);
@@ -47,7 +48,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     if (response.ok) { setPortal(await response.json() as Portal); setRefused(""); return; }
     const body = await response.json().catch(() => ({})) as { error?: string };
     setRefused(body.error || `เปิดหน้างานไม่ได้ (${response.status})`);
-  }, []);
+  }, [setPortal]);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
   // in a microtask rather than while this body does — the rule cannot see

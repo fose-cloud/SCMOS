@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css, STATUS_RE } from "../theme";
 import type { Period } from "../period";
 import type { Job } from "../ops";
@@ -115,6 +116,17 @@ const DRILL: Record<string, { kpi?: string; status?: string }> = {
   Delay: { kpi: "Delay" },
 };
 
+/**
+ * What the KPI card is showing, as one string.
+ *
+ * The cached figures are keyed by it so that changing the period does not leave
+ * last month's numbers sitting under this month's heading while the new ones
+ * are on their way.
+ */
+function kpiKey(period: Period): string {
+  return `kpi.${period.year ?? ""}.${period.month ?? ""}.${period.day ?? ""}`;
+}
+
 export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
   period: Period;
   /**
@@ -131,8 +143,8 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
   /** Opens the workspace on the jobs behind a figure. */
   onOpenJobs: (filter: { kpi?: string; trucker?: string; status?: string }) => void;
 }) {
-  const [report, setReport] = useState<KpiReport | null>(null);
-  const [engine, setEngine] = useState<EngineReport | null>(null);
+  const [report, setReport] = useRemembered<KpiReport>(kpiKey(period));
+  const [engine, setEngine] = useRemembered<EngineReport>(kpiKey(period) + ".engine");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -170,7 +182,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
       }
     })();
     return () => { cancelled = true; };
-  }, [period]);
+  }, [period, setEngine, setReport]);
 
   // Drawn above every state of this screen, including the two that return
   // early. A period you cannot change while the figures are loading, or after

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
@@ -207,7 +208,7 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
   onOpenJob?: (jobKey: string) => void;
   onToast: (m: string) => void;
 }) {
-  const [cases, setCases] = useState<Case[] | null>(null);
+  const [cases, setCases] = useRemembered<Case[]>("incidents");
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState("");
@@ -225,18 +226,19 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/incidents", { headers: { accept: "application/json" } });
-    setCases(response.ok ? await response.json() as Case[] : []);
-  }, []);
+    const body = response.ok ? await response.json() as Case[] : null;
+    setCases((held) => body ?? held ?? []);
+  }, [setCases]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const response = await apiFetch("/api/incidents", { headers: { accept: "application/json" } });
-      const body = response.ok ? await response.json() as Case[] : [];
-      if (!cancelled) setCases(body);
+      const body = response.ok ? await response.json() as Case[] : null;
+      if (!cancelled) setCases((held) => body ?? held ?? []);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [setCases]);
 
   /** A job arriving from the workspace, taken once and then let go of. */
   useEffect(() => {

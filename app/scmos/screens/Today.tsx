@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 
 /**
@@ -34,7 +35,7 @@ export function Today({ onDrill, onSettled }: {
   /** Lets secondary startup work wait until the primary board has answered. */
   onSettled: () => void;
 }) {
-  const [board, setBoard] = useState<Board | null>(null);
+  const [board, setBoard] = useRemembered<Board>("today");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -52,7 +53,7 @@ export function Today({ onDrill, onSettled }: {
       }
     })();
     return () => { cancelled = true; };
-  }, [onSettled]);
+  }, [onSettled, setBoard]);
 
   /**
    * The two whole-register rates, fetched after the board is on screen.
@@ -82,7 +83,7 @@ export function Today({ onDrill, onSettled }: {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [setBoard]);
 
   if (error) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-left:3px solid #B42318;border-radius:5px;padding:20px;font-size:12.5px;color:#B42318")}>อ่านแดชบอร์ดไม่สำเร็จ · {error}</div>;

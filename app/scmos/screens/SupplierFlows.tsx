@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 
 /**
@@ -32,22 +33,23 @@ const STATUS_TH: Record<string, string> = {
 
 /** Shared loader — both screens read the same register. */
 function useSuppliers() {
-  const [rows, setRows] = useState<Summary[] | null>(null);
+  const [rows, setRows] = useRemembered<Summary[]>("supplier-flows");
 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/suppliers", { headers: { accept: "application/json" } });
-    setRows(response.ok ? await response.json() as Summary[] : []);
-  }, []);
+    const body = response.ok ? await response.json() as Summary[] : null;
+    setRows((held) => body ?? held ?? []);
+  }, [setRows]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const response = await apiFetch("/api/suppliers", { headers: { accept: "application/json" } });
-      const body = response.ok ? await response.json() as Summary[] : [];
-      if (!cancelled) setRows(body);
+      const body = response.ok ? await response.json() as Summary[] : null;
+      if (!cancelled) setRows((held) => body ?? held ?? []);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [setRows]);
 
   return { rows, load };
 }

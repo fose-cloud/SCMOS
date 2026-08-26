@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 
 /**
@@ -101,7 +102,7 @@ export function Training({ onToast, registerCustomers }: {
   registerCustomers: string[];
 }) {
   const [tab, setTab] = useState<"dashboard" | "drivers" | "requirements">("dashboard");
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [summary, setSummary] = useRemembered<Summary>("training");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -147,7 +148,7 @@ export function Training({ onToast, registerCustomers }: {
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
     }
-  }, [customer]);
+  }, [customer, setSummary]);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
   // in a microtask rather than while this body does — the rule cannot see

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
 
@@ -50,7 +51,7 @@ const STATE_TONE: Record<string, string> = {
 export function Assistant({ canApprove, onToast, onOpenJob }: {
   canApprove: boolean; onToast: (m: string) => void; onOpenJob: (key: string) => void;
 }) {
-  const [tools, setTools] = useState<Tool[] | null>(null);
+  const [tools, setTools] = useRemembered<Tool[]>("assistant.tools");
   const [forbidden, setForbidden] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [risk, setRisk] = useState<Risk | null>(null);
@@ -69,7 +70,7 @@ export function Assistant({ canApprove, onToast, onOpenJob }: {
       setTools([]);
     }
     setApprovals(queueResponse.ok ? await queueResponse.json() as Approval[] : []);
-  }, []);
+  }, [setTools]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +92,7 @@ export function Assistant({ canApprove, onToast, onOpenJob }: {
       setRisk(answer);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [setTools]);
 
   async function post(path: string, body: unknown) {
     if (busy) return;

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 
 /**
@@ -49,7 +50,7 @@ const STATUS_TH: Record<string, string> = {
 };
 
 export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast: (m: string) => void }) {
-  const [rows, setRows] = useState<Summary[] | null>(null);
+  const [rows, setRows] = useRemembered<Summary[]>("suppliers");
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,11 +68,26 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
       apiFetch("/api/suppliers", { headers: { accept: "application/json" } }),
       apiFetch("/api/suppliers/duplicates", { headers: { accept: "application/json" } }),
     ]);
-    setRows(list.ok ? await list.json() as Summary[] : []);
-    setDupes(duplicates.ok ? await duplicates.json() as Duplicate[] : []);
-  }, []);
+    const body = list.ok ? await list.json() as Summary[] : null;
+    setRows((held) => body ?? held ?? []);
+    if (duplicates.ok) setDupes(await duplicates.json() as Duplicate[]);
+  }, [setRows]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [list, duplicates] = await Promise.all([
+        apiFetch("/api/suppliers", { headers: { accept: "application/json" } }),
+        apiFetch("/api/suppliers/duplicates", { headers: { accept: "application/json" } }),
+      ]);
+      const rows = list.ok ? await list.json() as Summary[] : null;
+      const dupes = duplicates.ok ? await duplicates.json() as Duplicate[] : null;
+      if (cancelled) return;
+      setRows((held) => rows ?? held ?? []);
+      if (dupes) setDupes(dupes);
+    })();
+    return () => { cancelled = true; };
+  }, [setRows]);
 
   async function post(path: string, body: unknown) {
     if (busy) return;

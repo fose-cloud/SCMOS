@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { badge, css } from "./theme";
+import { onFetching } from "./api";
 import { HEADINGS, NAV, SUB_NAV, type Screen } from "./nav";
 import type { SearchGroup, SearchHit } from "./search";
 
@@ -13,6 +14,28 @@ export type FilterDef = {
   options: string[];
   onChange: (value: string) => void;
 };
+
+/**
+ * Says out loud that what is on the screen may be a moment behind.
+ *
+ * Every screen now draws what it last held instead of a placeholder, so the
+ * wait for the database to wake up happens behind figures rather than in front
+ * of them. That is a better wait, but only if it is visible: a figure nobody
+ * told you was stale is a figure you act on.
+ */
+function Refreshing() {
+  const [busy, setBusy] = useState(false);
+  useEffect(() => onFetching(setBusy), []);
+  if (!busy) return null;
+  return (
+    <span title="กำลังดึงข้อมูลล่าสุด — ตัวเลขที่เห็นอยู่คือข้อมูลครั้งก่อน"
+      style={css("display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#8FB3D9;white-space:nowrap")}>
+      <span style={css("width:6px;height:6px;border-radius:50%;background:#5B9BD5;animation:scmos-pulse 1.1s ease-in-out infinite")} />
+      กำลังอัปเดต…
+      <style>{"@keyframes scmos-pulse{0%,100%{opacity:.25}50%{opacity:1}}"}</style>
+    </span>
+  );
+}
 
 function NavIcon({ rects, color }: { rects: number[][]; color: string }) {
   return (
@@ -214,6 +237,7 @@ export function Chrome(p: Props) {
         <div className="only-wide" style={css("flex:1")} />
 
         <div className="header-actions" style={css("flex:none;display:flex;align-items:center;gap:8px")}>
+          <Refreshing />
           <button
             className="hdr-btn"
             onClick={p.onToggleNotif}

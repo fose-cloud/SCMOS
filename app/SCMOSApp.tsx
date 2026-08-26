@@ -15,7 +15,7 @@ import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecisi
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
 import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
 import { SaveQueue } from "./scmos/saveQueue";
-import { forget, pageCacheKey, readCachedPage, writeCachedPage } from "./scmos/pageCache";
+import { forget, pageCacheKey, readCachedPage, rememberOperator, writeCachedPage } from "./scmos/pageCache";
 import { cleanupJobs, duplicateGroups, type CleanupReport, type DupGroup } from "./scmos/cleanup";
 import { ALL_PERIOD, filterPeriod, periodLabel, type Period } from "./scmos/period";
 import { CleanupReportModal, DuplicatesModal } from "./scmos/overlays/DataOverlays";
@@ -185,6 +185,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // call is idempotent and touches no React state. Deployed, it does nothing —
   // App Service has already said who this is.
   setDevUser(auth);
+
+  // Same reasoning, and the same guarantee the saved workspace pages have had:
+  // what a screen remembers is scoped to whoever is signed in, so a shared
+  // machine cannot draw one person the screen the last person was on.
+  rememberOperator(auth?.user ?? "");
   const [loginU, setLoginU] = useState("watsana");
   const [loginP, setLoginP] = useState("password");
   const [loginErr, setLoginErr] = useState("");

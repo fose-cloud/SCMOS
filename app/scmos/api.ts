@@ -21,8 +21,37 @@ export function setDevUser(account: Account | null) {
   devUser = account?.user ?? "";
 }
 
+/**
+ * How many calls are out, and who wants to know.
+ *
+ * Screens now draw what they last held rather than a placeholder, which is the
+ * point — but it means a figure on the screen is last time's answer until this
+ * time's arrives, and nothing about it looks any different. So the fact that a
+ * request is in the air is published, and the header says so. Without it a
+ * number that is twenty minutes old is indistinguishable from one that is
+ * current, and somebody plans a truck around it.
+ */
+let outstanding = 0;
+const watchers = new Set<(busy: boolean) => void>();
+
+/** Told whenever the app starts or stops waiting on the API. */
+export function onFetching(watch: (busy: boolean) => void): () => void {
+  watchers.add(watch);
+  watch(outstanding > 0);
+  return () => { watchers.delete(watch); };
+}
+
+function settle(delta: number) {
+  const was = outstanding > 0;
+  outstanding = Math.max(0, outstanding + delta);
+  const now = outstanding > 0;
+  if (was !== now) watchers.forEach((watch) => watch(now));
+}
+
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (devUser) headers.set("x-scmos-dev-user", devUser);
-  return fetch(path, { ...init, headers, cache: "no-store" });
+  settle(1);
+  return fetch(path, { ...init, headers, cache: "no-store" })
+    .finally(() => settle(-1));
 }

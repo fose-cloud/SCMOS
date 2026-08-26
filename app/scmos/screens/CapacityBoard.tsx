@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 
 /**
@@ -23,15 +24,16 @@ type Board = { days: Day[]; cells: Cell[]; vehicleTypes: string[]; anyReported: 
 type Supplier = { id: number; code: string; name: string; status: string };
 
 export function CapacityBoard({ canEdit, onToast }: { canEdit: boolean; onToast: (m: string) => void }) {
-  const [board, setBoard] = useState<Board | null>(null);
+  const [board, setBoard] = useRemembered<Board>("capacity");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ supplierId: "", date: "", vehicleType: "20F", available: "", committed: "" });
 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/capacity?days=7", { headers: { accept: "application/json" } });
-    setBoard(response.ok ? await response.json() as Board : null);
-  }, []);
+    const data = response.ok ? await response.json() as Board : null;
+    setBoard((held) => data ?? held);
+  }, [setBoard]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +45,7 @@ export function CapacityBoard({ canEdit, onToast }: { canEdit: boolean; onToast:
       const data = boardResponse.ok ? await boardResponse.json() as Board : null;
       const list = supplierResponse.ok ? await supplierResponse.json() as Supplier[] : [];
       if (cancelled) return;
-      setBoard(data);
+      setBoard((held) => data ?? held);
       setSuppliers(list);
       setForm((prev) => ({
         ...prev,
@@ -52,7 +54,7 @@ export function CapacityBoard({ canEdit, onToast }: { canEdit: boolean; onToast:
       }));
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [setBoard]);
 
   async function report() {
     if (busy) return;

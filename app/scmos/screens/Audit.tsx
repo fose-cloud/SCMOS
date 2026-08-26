@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { stageThai, stamp } from "./WorkflowPanel";
 import { css } from "../theme";
 
@@ -59,8 +60,8 @@ const KIND_TONE: Record<string, string> = {
 };
 
 export function Audit({ canView }: { canView: boolean }) {
-  const [entries, setEntries] = useState<Entry[] | null>(null);
-  const [trail, setTrail] = useState<Trail[] | null>(null);
+  const [entries, setEntries] = useRemembered<Entry[]>("audit.entries");
+  const [trail, setTrail] = useRemembered<Trail[]>("audit.trail");
   const [denied, setDenied] = useState(false);
   const [view, setView] = useState<"trail" | "workflow">("trail");
   const [kind, setKind] = useState("All");
@@ -75,15 +76,17 @@ export function Audit({ canView }: { canView: boolean }) {
       ]);
       const rows = trailResponse.ok
         ? (await trailResponse.json() as { entries: Trail[] }).entries
-        : [];
-      const flow = flowResponse.ok ? await flowResponse.json() as Entry[] : [];
+        : null;
+      const flow = flowResponse.ok ? await flowResponse.json() as Entry[] : null;
       if (cancelled) return;
       setDenied(trailResponse.status === 403);
-      setTrail(rows);
-      setEntries(flow);
+      // A refusal or an outage leaves the last trail on screen rather than an
+      // empty one, which would read as "nothing happened" and be remembered.
+      setTrail((held) => rows ?? held ?? []);
+      setEntries((held) => flow ?? held ?? []);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [setEntries, setTrail]);
 
   if (!entries || !trail) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>กำลังโหลด…</div>;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
 
@@ -36,9 +37,9 @@ const STATE_TH: Record<string, string> = {
 };
 
 export function Documents({ canReview }: { canReview: boolean }) {
-  const [docs, setDocs] = useState<Doc[] | null>(null);
+  const [docs, setDocs] = useRemembered<Doc[]>("documents");
   const [retention, setRetention] = useState<RetentionItem[]>([]);
-  const [policy, setPolicy] = useState<Policy | null>(null);
+  const [policy, setPolicy] = useRemembered<Policy>("documents.policy");
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState("All");
 
@@ -51,16 +52,16 @@ export function Documents({ canReview }: { canReview: boolean }) {
         // and simply sees no tier column rather than an error.
         apiFetch("/api/documents/retention?all=true", { headers: { accept: "application/json" } }),
       ]);
-      const list = listResponse.ok ? await listResponse.json() as Doc[] : [];
+      const list = listResponse.ok ? await listResponse.json() as Doc[] : null;
       const review = retentionResponse.ok
         ? await retentionResponse.json() as { items: RetentionItem[]; policy: Policy }
         : null;
       if (cancelled) return;
-      setDocs(list);
+      setDocs((held) => list ?? held ?? []);
       if (review) { setRetention(review.items); setPolicy(review.policy); }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [setDocs, setPolicy]);
 
   if (!docs) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>กำลังโหลด…</div>;

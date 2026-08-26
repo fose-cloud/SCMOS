@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import { RateInquiry } from "./RateInquiry";
 
@@ -30,7 +31,7 @@ export function Quotation({ diesel, onDiesel, onToast }: {
   const [customer, setCustomer] = useState("");
   const [destination, setDestination] = useState("");
   const [vehicle, setVehicle] = useState("20F");
-  const [quotes, setQuotes] = useState<Quote[] | null>(null);
+  const [quotes, setQuotes] = useRemembered<Quote[]>("quotation");
   const [busy, setBusy] = useState(false);
   /**
    * Two halves of the same job, on one screen.

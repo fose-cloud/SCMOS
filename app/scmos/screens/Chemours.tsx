@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Job } from "../ops";
+import { useRemembered } from "../pageCache";
 import { apiFetch } from "../api";
 import { CargoForm, type FormTemplate } from "./CargoForm";
 import { ChemoursRates, readRateCard, type RateCard } from "./ChemoursRates";
@@ -75,10 +76,10 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
   canEditRates: boolean;
   onToast: (message: string) => void;
 }) {
-  const [card, setCard] = useState<RateCard | null>(null);
+  const [card, setCard] = useRemembered<RateCard>("chemours.rates");
   const [saving, setSaving] = useState(false);
   /** The receipt shapes already on file, so the picker is filled before anybody opens a folder. */
-  const [templates, setTemplates] = useState<FormTemplate[] | null>(null);
+  const [templates, setTemplates] = useRemembered<FormTemplate[]>("chemours.forms");
 
   const haulerNames = useMemo(
     () => [...new Set(jobs.map((job) => job.trucker).filter(Boolean))].sort(),
@@ -110,10 +111,10 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
         if (!response.ok || !alive) return;
         const rows = await response.json() as { customer: string; sourceFile: string; columns: string[] }[];
         if (alive) setTemplates(rows.map((row) => ({ customer: row.customer, file: row.sourceFile, columns: row.columns })));
-      } catch { if (alive) setTemplates([]); }
+      } catch { /* the templates stay as they were rather than emptying */ }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [setCard, setTemplates]);
 
   /**
    * Opens one haulier's card and adds it to whatever is already on screen.
@@ -235,7 +236,7 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
     if (!response.ok) throw new Error(answer?.message ?? `บันทึกไม่สำเร็จ (${response.status})`);
     setTemplates(rows);
     return answer?.customers ?? rows.length;
-  }, []);
+  }, [setTemplates]);
 
   // The receipt is a blank document until somebody fills it in, and the rate
   // card has no jobs in it, so neither wants the filters this screen used to

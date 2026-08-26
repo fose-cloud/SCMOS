@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
+import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
 import { clearOwnerJobs } from "../store";
 import { css } from "../theme";
@@ -77,7 +78,7 @@ export function Administration({ jobs, me, onToast }: {
   me: string;
   onToast: (m: string) => void;
 }) {
-  const [dir, setDir] = useState<Directory | null>(null);
+  const [dir, setDir] = useRemembered<Directory>("administration");
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ email: "", name: "", role: "Operation User", note: "", signIn: "invite" });
@@ -122,7 +123,7 @@ export function Administration({ jobs, me, onToast }: {
       setFailure({ retryable: true,
         message: "ติดต่อ API ไม่ได้: " + (error instanceof Error ? error.message : String(error)) });
     }
-  }, []);
+  }, [setDir]);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
   // in a microtask rather than while this body does — the rule cannot see
