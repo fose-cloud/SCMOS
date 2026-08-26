@@ -20,7 +20,6 @@ export function JobDrawer(p: {
   /** Opens the issue log with this job already attached. */
   onRaiseIssue: () => void;
   /** Opens a CAR/PAR case on this job, for the 5W1H and the photographs. */
-  onRaiseIncident: () => void;
 }) {
   const { job: j } = p;
   const rows: [string, string | undefined][] =
@@ -190,13 +189,16 @@ export function JobDrawer(p: {
           style={css("height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
           แจ้งปัญหา · Operation Issue
         </button>
-        {/* The heavier of the two. An operational issue is the day's log; this
-            is the quality case with 5W1H, a root cause and photographs, and it
-            is raised on the job so the evidence files land against it. */}
-        <button className="ghost-btn" onClick={p.onRaiseIncident}
-          style={css("height:34px;padding:0 13px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
-          Incident Report · CAR/PAR
-        </button>
+        {/*
+          A CAR/PAR is not raised from here any more.
+          
+          The procedure is that a problem is logged as an operational issue
+          first, and only the ones that turn out to warrant it are escalated
+          into a case — from the issue, which by then carries what happened and
+          who found it. A button here let somebody open an 8D straight off a job
+          with none of that behind it, which is skipping the step that produces
+          the evidence. The escalation lives on the issue instead.
+        */}
       </div>
     </aside>
   );

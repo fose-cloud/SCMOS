@@ -72,7 +72,7 @@ public class IncidentService(ScmosDbContext db)
     /// </summary>
     public async Task<IncidentResult> RaiseAsync(string jobKey, string kind, string category,
         string title, string by, CancellationToken token,
-        string where = "", string when = "", string who = "")
+        string what = "", string where = "", string when = "", string who = "")
     {
         if (title.Trim().Length == 0) return new IncidentResult(false, "ต้องระบุหัวข้อ");
 
@@ -96,9 +96,11 @@ public class IncidentService(ScmosDbContext db)
             Category = wantedCategory,
             Title = title.Trim(),
             Stage = "open",
-            // Three of the six, filled from the job the case came off. The
-            // other three are the case itself — what went wrong, why, and how —
-            // and nothing but a person can put those in.
+            // Four of the six. Where, When and Who come off the job; What
+            // comes off the operational issue this was escalated from, which is
+            // the record of what went wrong. Why and how stay empty — those are
+            // what the investigation is for.
+            What = what.Trim(),
             Where = where.Trim(),
             When = when.Trim(),
             Who = who.Trim(),

@@ -63,8 +63,12 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     // are raised out of it: a problem logged here that turns out to be serious
     // is the evidence an incident or a CAR/PAR gets opened from.
     ["issues", "Operational Issues", "ปัญหาประจำวัน", [[2, 2, 12, 2], [2, 6, 12, 2], [2, 10, 8, 2], [12, 10, 2, 2]]],
-    ["incident", "Incident", "เหตุผิดปกติ", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
-    ["carpar", "CAR / PAR", "การแก้ไข/ป้องกัน", [[7, 2, 2, 8], [7, 12, 2, 2]]],
+    // One entry, because there was only ever one register behind the two. A
+    // case carries its kind, so "Incident" and "CAR / PAR" opened the same
+    // cases and the same screen — two doors into one room, and no way to tell
+    // from the menu which one anybody was looking at. The `carpar` screen id
+    // still resolves, so a saved view or a link that names it still works.
+    ["incident", "Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
   ],
 
   // Still in the order the work happens — a booking is taken, the run is

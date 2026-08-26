@@ -19,14 +19,18 @@ public static class SupplierEndpoints
     public record AliasBody(string? Alias, string? Reason);
     public record EvaluateBody(string? Period, int? Safety, int? Documents, string? Note);
     /// <summary>
-    /// Opening a case. The last four are what the job it was raised from can
-    /// answer of the 5W1H — where the load was going, when it was due, who was
-    /// driving. What went wrong, why and how are not among them: a job knows
-    /// none of those, and a form that arrives with them filled in is a form
-    /// somebody stops reading.
+    /// Opening a case, with the four of the 5W1H that are already known.
+    ///
+    /// Where, When and Who come off the job — where the load was going, when it
+    /// was due, who was driving. What comes off the operational issue the case
+    /// was escalated from, which is the record of what actually went wrong.
+    ///
+    /// Why and how are not here and are not seeded. Those are the case: they
+    /// are what the investigation is for, and a form that arrives with them
+    /// answered is a form nobody investigates.
     /// </summary>
     public record RaiseBody(string? JobKey, string? Kind, string? Category, string? Title,
-        string? Where = null, string? When = null, string? Who = null);
+        string? What = null, string? Where = null, string? When = null, string? Who = null);
     public record ReasonBody(string? Reason);
     public record InvokeBody(string? Tool, string? Summary, JsonElementPayload? Payload);
     public record DecideBody(bool Approved, string? Note);
@@ -139,7 +143,7 @@ public static class SupplierEndpoints
             await GuardedIncident(context, users, audit, token,
                 (user, _) => service.RaiseAsync(body.JobKey ?? "", body.Kind ?? "CAR",
                     body.Category ?? "other", body.Title ?? "", user.Signature, token,
-                    body.Where ?? "", body.When ?? "", body.Who ?? ""),
+                    body.What ?? "", body.Where ?? "", body.When ?? "", body.Who ?? ""),
                 "create", body.Title ?? "", "", "", "open", ""));
 
         incidents.MapPost("/{id:long}", async (long id, [FromBody] Dictionary<string, string> body,

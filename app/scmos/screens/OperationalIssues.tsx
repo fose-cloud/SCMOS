@@ -32,7 +32,7 @@ const SEVERITY_TONE: Record<string, string> = {
   "ต่ำ": "#5C7285",
 };
 
-export function OperationalIssues({ jobs, prefill, onPrefillTaken, onToast }: {
+export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, onToast }: {
   /** The register, so a new issue can name a job the person is looking at. */
   jobs: Job[];
   /**
@@ -44,6 +44,15 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onToast }: {
    */
   prefill?: NewIssue | null;
   onPrefillTaken?: () => void;
+  /**
+   * Escalates one issue into a CAR/PAR case.
+   *
+   * The only way a case gets opened. The procedure is that a problem is logged
+   * here first and only the ones that warrant it are escalated, so a case
+   * always has an issue behind it — which is what carries what went wrong, when
+   * it was found and who found it. A job on its own says none of that.
+   */
+  onEscalate?: (issue: Issue) => void;
   onToast: (message: string) => void;
 }) {
   const [issues, setIssues] = useState<Issue[] | null>(null);
@@ -218,7 +227,8 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onToast }: {
               <thead>
                 <tr>
                   {["รหัส", "วันที่พบ", "แหล่ง", "งานที่เกี่ยวข้อง", "รายละเอียด",
-                    "หมวด", "ความรุนแรง", "ผู้รับผิดชอบ", "กำหนดเสร็จ", "สถานะ"].map((head) => (
+                    "หมวด", "ความรุนแรง", "ผู้รับผิดชอบ", "กำหนดเสร็จ", "สถานะ",
+                    ...(onEscalate ? ["CAR / PAR"] : [])].map((head) => (
                     <th key={head} style={TH}>{head}</th>
                   ))}
                 </tr>
@@ -267,6 +277,21 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onToast }: {
                         ))}
                       </select>
                     </td>
+                    {onEscalate && (
+                      <td style={css(TD + ";white-space:nowrap")}>
+                        {/* Offered on every issue rather than only the severe
+                            ones. Which problems warrant a case is a judgement
+                            the quality team makes, not a threshold this screen
+                            should be enforcing on their behalf. */}
+                        <button
+                          onClick={() => onEscalate(issue)}
+                          className="ghost-btn"
+                          style={css("height:26px;padding:0 10px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}
+                        >
+                          เปิด CAR/PAR
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

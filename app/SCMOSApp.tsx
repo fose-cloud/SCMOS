@@ -234,7 +234,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * lives.
    */
   const [incidentDraft, setIncidentDraft] =
-    useState<{ jobKey: string; title: string } | null>(null);
+    useState<{ jobKey: string; title: string; what: string; issueCode: string } | null>(null);
 
   const [addCat, setAddCat] = useState<string | null>(null);
   /** Rows inserted into the grid and still being filled in. See insertRow. */
@@ -2277,6 +2277,19 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 jobs={ops?.jobs ?? []}
                 prefill={issueDraft}
                 onPrefillTaken={() => setIssueDraft(null)}
+                // The one way a CAR/PAR gets opened. The issue carries what
+                // went wrong and which job it happened on, which is exactly
+                // what the case needs and what a job on its own cannot say.
+                onEscalate={(issue) => {
+                  setIncidentDraft({
+                    jobKey: issue.jobKey,
+                    title: [issue.code, issue.detail].filter(Boolean).join(" · ").slice(0, 160),
+                    what: issue.detail,
+                    issueCode: issue.code,
+                  });
+                  go("incident");
+                  setToast("เปิดเคส CAR/PAR จากปัญหา " + issue.code);
+                }}
                 onToast={setToast}
               />
             )}
@@ -2472,16 +2485,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             setDrawer(null);
             go("issues");
             setToast("เปิดฟอร์มแจ้งปัญหาของงาน " + (drawerJob.jobCode || drawerJob.customer));
-          }}
-          onRaiseIncident={() => {
-            setIncidentDraft({
-              jobKey: drawerJob.key,
-              title: [drawerJob.customer, drawerJob.jobCode || drawerJob.abs || drawerJob.container]
-                .filter(Boolean).join(" · "),
-            });
-            setDrawer(null);
-            go("incident");
-            setToast("เปิดเคส CAR/PAR ของงาน " + (drawerJob.jobCode || drawerJob.customer));
           }}
           onEdit={() => {
             if (!canEditJob(drawerJob)) {

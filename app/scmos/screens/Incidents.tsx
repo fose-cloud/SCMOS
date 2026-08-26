@@ -193,12 +193,13 @@ function seedFromJob(job: Job): { where: string; when: string; who: string } {
 
 export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }: {
   /**
-   * A job sent over from the workspace drawer.
+   * An operational issue escalated into a case.
    *
-   * The case is opened against its key, which is what makes the evidence files
-   * land in the job's own folder rather than under a loose case number.
+   * A case is only ever opened this way. The issue carries what went wrong and
+   * which job it happened on; the job key is what makes the evidence files land
+   * in that job's own folder rather than under a loose case number.
    */
-  prefill?: { jobKey: string; title: string } | null;
+  prefill?: { jobKey: string; title: string; what: string; issueCode: string } | null;
   /** The register, so a case can show the job it is about and not just its key. */
   jobs: Job[];
   onPrefillTaken?: () => void;
@@ -212,6 +213,9 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
   const [title, setTitle] = useState("");
   /** The job the next case will be raised against, when one was sent over. */
   const [jobKey, setJobKey] = useState("");
+  /** What went wrong, brought over from the issue. Only it can answer this. */
+  const [what, setWhat] = useState("");
+  const [fromIssue, setFromIssue] = useState("");
   const [kind, setKind] = useState("CAR");
   const [category, setCategory] = useState("accident");
 
@@ -242,6 +246,8 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTitle(prefill.title);
     setJobKey(prefill.jobKey);
+    setWhat(prefill.what);
+    setFromIssue(prefill.issueCode);
     onPrefillTaken?.();
   }, [prefill, onPrefillTaken]);
 
@@ -303,11 +309,11 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
         shipment it belonged to, which is a poor thing to ask somebody to sign
         an 8D against.
       */}
-      {jobKey && (
+      {(jobKey || fromIssue) && (
         <div style={css("background:#F7FAFD;border:1px solid #C9DCEC;border-radius:5px;padding:12px 16px")}>
           <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap")}>
             <span style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>
-              เปิดเคสจากงานนี้
+              {fromIssue ? `เปิดเคสจากปัญหา ${fromIssue}` : "เปิดเคสจากงานนี้"}
             </span>
             <div style={css("display:flex;gap:10px;align-items:baseline")}>
               {onOpenJob && raisingAgainst && (
@@ -326,8 +332,9 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
           {raisingAgainst ? (
             <>
             <div style={css("margin-top:8px;font-size:11px;color:#5A6B7D;line-height:1.6")}>
-              เปิดเคสแล้วระบบจะเติมช่อง <b>Where · When · Who</b> จากงานนี้ให้เอง —
-              ส่วน <b>What · Why · How</b> เว้นว่างไว้ เพราะข้อมูลงานตอบไม่ได้ว่าเกิดอะไรขึ้น
+              เปิดเคสแล้วระบบจะเติมช่อง <b>Where · When · Who</b> จากงานนี้
+              {what ? <> และ <b>What</b> จากรายละเอียดของปัญหา</> : null} ให้เอง —
+              ส่วน <b>Why · How</b> เว้นว่างไว้ เพราะนั่นคือสิ่งที่การสอบสวนต้องหาคำตอบ
             </div>
             <div style={css("margin-top:9px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px 20px")}>
               {JOB_FACTS.map(([label, read]) => {
@@ -368,8 +375,8 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
           // The job's own answers travel with the case rather than being typed
           // in again off the screen next door.
           const seed = raisingAgainst ? seedFromJob(raisingAgainst) : {};
-          void post("", { kind, category, title, jobKey, ...seed });
-          setTitle(""); setJobKey("");
+          void post("", { kind, category, title, jobKey, what, ...seed });
+          setTitle(""); setJobKey(""); setWhat(""); setFromIssue("");
         }}
           disabled={busy || !title.trim()}
           style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:" + (busy || !title.trim() ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
