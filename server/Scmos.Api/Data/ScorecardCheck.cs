@@ -70,7 +70,7 @@ public static class ScorecardCheck
         var ssl = scores.First(score => score.Carrier == "SSL");
         var kot = scores.First(score => score.Carrier == "THAIKOT");
 
-        var checks = new (string What, object Got, object Want)[]
+        var checks = new (string What, object? Got, object? Want)[]
         {
             ("SSL shipments", ssl.Shipments, 4),
             ("SSL transport accident (major)", ssl.Tally.TransportAccidentMajor, 1),
@@ -96,7 +96,7 @@ public static class ScorecardCheck
             // A major accident on one of four shipments is a 25% rate, so 75.
             ("SSL major score", Line(ssl, "accident-major").Percent, 75.0),
             ("SSL minor score", Line(ssl, "accident-minor").Percent, 100.0),
-            ("SSL vehicle readiness (nothing records it)", Line(ssl, "vehicle-readiness").Percent, null!),
+            ("SSL vehicle readiness (nothing records it)", Line(ssl, "vehicle-readiness").Percent, null),
 
             ("THAIKOT shipments", kot.Shipments, 2),
             ("THAIKOT complaints", kot.Tally.Complaints, 0),

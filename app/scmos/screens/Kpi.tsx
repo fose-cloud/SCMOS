@@ -76,7 +76,15 @@ type CarrierTally = {
 type CarrierScore = {
   carrier: string; shipments: number; lines: ScoreLine[];
   weighted: number | null; weightAvailable: number; ungradedAccidents: number;
-  tally: CarrierTally;
+  /**
+   * Optional on purpose.
+   *
+   * The web and the API deploy separately, and the web has been live against an
+   * older API before — once because that API's build failed while this one
+   * succeeded. Reading a field the other side has not started sending yet
+   * throws, and a KPI screen that throws is worse than one missing a column.
+   */
+  tally?: CarrierTally;
 };
 
 /** The columns of that report, in its order and its words. */
@@ -356,7 +364,12 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
                         answer here and is shown as one — it is the column
                         everybody wants to be zero. */}
                     {TALLY_COLUMNS.map(([head, read]) => {
-                      const value = read(row.tally);
+                      const value = row.tally ? read(row.tally) : null;
+                      if (value === null) {
+                        return (
+                          <td key={head} style={css("padding:8px 12px;text-align:right;color:#B4C0CC")}>—</td>
+                        );
+                      }
                       return (
                         <td key={head} style={css("padding:8px 12px;text-align:right;font-family:'IBM Plex Mono',monospace;color:"
                           + (value > 0 ? "#B42318;font-weight:700" : "#94A3B8"))}>
