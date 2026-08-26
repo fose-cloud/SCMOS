@@ -131,14 +131,15 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
         body: JSON.stringify({ names, aliases }),
       });
       const reply = await response.json().catch(() => null) as {
-        added?: number; alreadyThere?: number; aliasesLinked?: number;
+        added?: number; alreadyThere?: number; renamed?: number; aliasesLinked?: number;
         aliasesWithNoCompany?: string[]; message?: string;
       } | null;
 
       if (!response.ok) { onToast(reply?.message ?? `นำเข้าไม่สำเร็จ (${response.status})`); return; }
 
       const orphans = reply?.aliasesWithNoCompany ?? [];
-      onToast(`เพิ่ม ${reply?.added ?? 0} ราย · มีอยู่แล้ว ${reply?.alreadyThere ?? 0} · ผูกชื่อย่อ ${reply?.aliasesLinked ?? 0}`
+      onToast(`เพิ่มใหม่ ${reply?.added ?? 0} ราย · เปลี่ยนเป็นชื่อเต็ม ${reply?.renamed ?? 0} ราย`
+        + ` · มีอยู่แล้ว ${reply?.alreadyThere ?? 0} · ผูกชื่อย่อ ${reply?.aliasesLinked ?? 0}`
         + (orphans.length ? ` · ชื่อย่อที่หาบริษัทไม่เจอ ${orphans.length}: ${orphans.join(", ")}` : ""));
       setDirectory("");
       setShowDirectory(false);

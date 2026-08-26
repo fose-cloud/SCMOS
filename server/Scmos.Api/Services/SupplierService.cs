@@ -203,8 +203,31 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
 
     /// <summary>What one import of the carrier directory did.</summary>
     public record DirectoryResult(
-        int Added, int AlreadyThere, int AliasesLinked,
+        int Added, int AlreadyThere, int Renamed, int AliasesLinked,
         IReadOnlyList<string> AliasesWithNoCompany);
+
+    /// <summary>
+    /// A six-letter code nothing else holds.
+    ///
+    /// The column is unique, and the register was seeded with codes cut the
+    /// same way, so the obvious one is often already taken. A digit is added
+    /// until one is free rather than letting the insert fail — which is what it
+    /// did, with a five hundred and no explanation.
+    /// </summary>
+    private static string Free(string stem, HashSet<string> taken)
+    {
+        var code = stem[..Math.Min(6, stem.Length)];
+        if (!taken.Contains(code)) return code;
+
+        for (var suffix = 2; suffix < 1000; suffix++)
+        {
+            var tail = suffix.ToString();
+            var head = code[..Math.Max(1, Math.Min(code.Length, 6 - tail.Length))];
+            var candidate = head + tail;
+            if (!taken.Contains(candidate)) return candidate;
+        }
+        return code + Guid.NewGuid().ToString("N")[..4];
+    }
 
     /// <summary>
     /// Loads the agreed list of haulage companies, and the short forms the plan
@@ -235,8 +258,28 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         static string Key(string value) =>
             new(value.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
 
+        /// The company's own name, with the legal suffix and the country off.
+        static string Stem(string name)
+        {
+            var text = System.Text.RegularExpressions.Regex.Replace(name,
+                @"\((Thailand|Thailnad)\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            text = System.Text.RegularExpressions.Regex.Replace(text,
+                @"(Co\.?,?\s*Ltd\.?|Company Limited|Limited Partnership|Ltd\.?,?\s*Partnership|Public Company Limited|Ltd\.?)\s*$",
+                "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return Key(text);
+        }
+
         var added = 0;
         var already = 0;
+        var renamed = 0;
+
+        // Every code in use, so a new one never collides. The column is unique
+        // and the register was seeded with six-letter codes derived the same
+        // way, so WEALTH was taken long before this import went anywhere near
+        // "Wealthy Logistic Co., Ltd." — which is what made it fail outright.
+        var takenCodes = new HashSet<string>(
+            await db.Suppliers.AsNoTracking().Select(row => row.Code).ToListAsync(token),
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (var raw in names)
         {
@@ -244,15 +287,46 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             if (name.Length == 0) continue;
 
             var key = name.ToUpperInvariant();
-            var existing = await db.SupplierAliases.AsNoTracking()
+            var exact = await db.SupplierAliases.AsNoTracking()
                 .FirstOrDefaultAsync(alias => alias.Alias == key, token);
-            if (existing is not null) { already++; continue; }
+            if (exact is not null) { already++; continue; }
 
-            var code = Key(name);
+            // The same company under the short name the team has always used.
+            //
+            // The register holds WEALTHY with its documents and its evaluations;
+            // this list calls it Wealthy Logistic Co., Ltd. Adding a second row
+            // would give one haulier two entries and split its history, so the
+            // row that is already there takes the official name instead. Only
+            // when exactly one existing company could be meant — anything less
+            // certain is left alone and a new row is created.
+            var stem = Stem(name);
+            var candidates = await db.Suppliers.AsNoTracking()
+                .Select(row => new { row.Id, row.Name, row.Code })
+                .ToListAsync(token);
+            var sameFirm = candidates
+                .Where(row => Key(row.Name).Length >= 2 && stem.StartsWith(Key(row.Name), StringComparison.Ordinal))
+                .ToList();
+
+            if (sameFirm.Count == 1)
+            {
+                var row = await db.Suppliers.FirstAsync(entry => entry.Id == sameFirm[0].Id, token);
+                row.Name = name;
+                row.UpdatedAt = DateTimeOffset.UtcNow;
+                db.SupplierAliases.Add(new SupplierAlias
+                { SupplierId = row.Id, Alias = key, Source = "directory", Confirmed = true });
+                await db.SaveChangesAsync(token);
+                renamed++;
+                continue;
+            }
+
+            var stub = Key(name);
+            var code = Free(stub.Length > 0 ? stub : "SUP", takenCodes);
+            takenCodes.Add(code);
+
             var supplier = new Supplier
             {
                 Name = name,
-                Code = code.Length > 0 ? code[..Math.Min(6, code.Length)] : "SUP",
+                Code = code,
                 Status = "approved",
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow,
@@ -305,7 +379,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         }
         await db.SaveChangesAsync(token);
 
-        return new DirectoryResult(added, already, linked, orphans);
+        return new DirectoryResult(added, already, renamed, linked, orphans);
     }
 
     /// <summary>Attaches a spelling to a supplier — how TTP gets merged into a company.</summary>
