@@ -105,6 +105,24 @@ public static partial class Formats
         return year * 10000 + month * 100 + day;
     }
 
+    /// <summary>
+    /// A DD/MM/YYYY date and an HH:MM time read as one moment.
+    ///
+    /// Both halves must parse. DateNumber compares two dates perfectly well and
+    /// cannot subtract them — 01/03 minus 28/02 is 73 in that arithmetic — so
+    /// anything asking "how long between these two" needs this instead.
+    /// </summary>
+    public static DateTime? Moment(string? date, string? time)
+    {
+        var text = Clean(date);
+        if (!DateTime.TryParseExact(text, "dd/MM/yyyy",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var day)) return null;
+
+        var minutes = TimeMinutes(time);
+        return minutes is null ? null : day.AddMinutes(minutes.Value);
+    }
+
     /// <summary>HH:MM to minutes since midnight, or null when it will not parse.</summary>
     public static int? TimeMinutes(string? value)
     {

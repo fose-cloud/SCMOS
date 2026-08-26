@@ -468,6 +468,20 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
           <input value={draft.licence ?? ""} onChange={(e) => onField("licence", e.target.value)}
             style={css(INPUT_RAW + ";font-family:'IBM Plex Mono',monospace")} />
         </Field>
+
+        {/*
+          Only on an accident, because it means nothing on anything else — and
+          asked for there because the carrier scorecard weights a major accident
+          at 35% against a minor one's 15%. An accident left ungraded is counted
+          and reported and kept out of the score: guessing which it was would put
+          a third of somebody's mark on a guess.
+        */}
+        {(draft.category ?? "") === ACCIDENT_CATEGORY && (
+          <Field label="ระดับอุบัติเหตุ (KPI)" width="170px">
+            <Select value={draft.accidentGrade ?? ""} onChange={(v) => onField("accidentGrade", v)}
+              options={["Minor", "Major"]} />
+          </Field>
+        )}
       </div>
 
       <Field label="รายละเอียดปัญหา" width="100%">
@@ -515,6 +529,15 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
 const LABEL = css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600");
 // The declaration, kept as text so a field that wants one more rule can add
 // to it rather than restate the whole thing and drift from it.
+/**
+ * The category an accident is logged under.
+ *
+ * Written here and in CarrierScorecard.cs, which is one copy too many —
+ * but the list itself comes from the API, and hard-coding the whole list
+ * on this side to avoid repeating one string would be the worse trade.
+ */
+const ACCIDENT_CATEGORY = "ความปลอดภัย/อุบัติเหตุ";
+
 const INPUT_RAW = "height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;font-family:inherit;width:100%";
 const INPUT = css(INPUT_RAW);
 const SELECT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;font-family:inherit;background:#fff;width:100%");

@@ -1,0 +1,233 @@
+using Scmos.Api.Data;
+using Scmos.Api.Rules;
+
+namespace Scmos.Api.Services;
+
+/// <summary>One line of a carrier's scorecard.</summary>
+/// <param name="Id">Stable key, so the screen and a spreadsheet agree.</param>
+/// <param name="Weight">Its share of the hundred, as agreed with the customer.</param>
+/// <param name="Percent">The score out of a hundred, or null when it cannot be measured.</param>
+/// <param name="Count">What went wrong — accidents, late reports, complaints.</param>
+/// <param name="Base">What it was measured against — shipments, or reports due.</param>
+public record ScoreLine(
+    string Id, string English, string Thai, double Weight,
+    double? Percent, int Count, int Base, double Target, string Note);
+
+/// <param name="Weighted">The weighted total, out of the weight actually available.</param>
+/// <param name="WeightAvailable">
+/// The weight of the criteria that could be measured. Below 100 when something
+/// the scorecard asks for is not recorded anywhere, and the total is scaled to
+/// it rather than the missing criterion being scored as zero or as full marks.
+/// </param>
+public record CarrierScore(
+    string Carrier, int Shipments,
+    IReadOnlyList<ScoreLine> Lines,
+    double? Weighted, double WeightAvailable,
+    int UngradedAccidents);
+
+/// <summary>
+/// The carrier scorecard the customer's contract is judged on.
+///
+/// Five criteria and their weights come from the agreement, not from here:
+/// accidents at 15% minor and 35% major, damage reporting at 20%, vehicle
+/// readiness at 10%, on-time delivery at 10%, customer satisfaction at 10%.
+///
+/// Four of the five are stated in the agreement as a rate of things going
+/// wrong — accidents over shipments, complaints over shipments — against a
+/// target of a hundred percent. A rate of failures cannot be compared to a
+/// target of perfection, so each is scored as a hundred less that rate. The
+/// fifth, damage reporting, is stated the other way round already: reports made
+/// inside the deadline over reports due, which is a score as it stands.
+///
+/// Everything is attributed through the job. An operational issue names a job,
+/// the job names the carrier, and that is the only chain that exists — an issue
+/// whose written reference never matched a job cannot be laid at anybody's
+/// door, so it is counted for the company and reported separately rather than
+/// distributed among carriers who may have had nothing to do with it.
+/// </summary>
+public static class CarrierScorecard
+{
+    /// <summary>The category an accident is logged under in the issue register.</summary>
+    private const string AccidentCategory = "ความปลอดภัย/อุบัติเหตุ";
+
+    /// <summary>The category a damage or discrepancy report is logged under.</summary>
+    private const string DamageCategory = "สินค้าชำรุด/สูญหาย";
+
+    /// <summary>
+    /// Where a complaint comes from.
+    ///
+    /// The agreement says the customer and customer service, and these are the
+    /// sources the issue form offers that mean those two.
+    /// </summary>
+    private static readonly HashSet<string> ComplaintSources =
+        new(StringComparer.OrdinalIgnoreCase) { "Customer", "CS", "CS/Shipping" };
+
+    /// <summary>Minutes allowed to report: five for an accident, thirty otherwise.</summary>
+    private const int AccidentReportMinutes = 5;
+    private const int ReportMinutes = 30;
+
+    /// <summary>Late by more than this and the shipment is not on time.</summary>
+    private const int LateMinutes = 30;
+
+    public static IReadOnlyList<CarrierScore> Build(
+        IReadOnlyList<(string Key, string Carrier, JobRecord Record)> jobs,
+        IReadOnlyList<OperationalIssue> issues,
+        IReadOnlyList<PreRunCheck> preRuns)
+    {
+        var carrierOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var job in jobs) carrierOf[job.Key] = job.Carrier;
+
+        // Only issues that reach a job in this period. The rest are real and are
+        // reported elsewhere; they are simply not anybody's score.
+        var attributed = issues
+            .Where(issue => issue.JobKey.Length > 0 && carrierOf.ContainsKey(issue.JobKey))
+            .ToList();
+
+        var byCarrier = jobs.GroupBy(job => job.Carrier)
+            .Where(group => group.Key.Length > 0)
+            .OrderBy(group => group.Key, StringComparer.Ordinal);
+
+        var scores = new List<CarrierScore>();
+        foreach (var group in byCarrier)
+        {
+            var shipments = group.Count();
+            var keys = group.Select(job => job.Key).ToHashSet(StringComparer.Ordinal);
+            var mine = attributed.Where(issue => keys.Contains(issue.JobKey)).ToList();
+
+            var accidents = mine.Where(IsAccident).ToList();
+            var minor = accidents.Count(issue => Graded(issue) == "Minor");
+            var major = accidents.Count(issue => Graded(issue) == "Major");
+            var ungraded = accidents.Count(issue => Graded(issue).Length == 0);
+
+            var complaints = mine.Count(issue => ComplaintSources.Contains(issue.Source.Trim()));
+
+            var reports = mine.Where(issue => IsAccident(issue) || IsDamage(issue)).ToList();
+            var onTimeReports = reports.Count(ReportedInTime);
+
+            var lateWithComplaint = group.Count(job =>
+                LateBeyond(job.Record, LateMinutes)
+                && mine.Any(issue => issue.JobKey == job.Key
+                    && ComplaintSources.Contains(issue.Source.Trim())));
+
+            var lines = new List<ScoreLine>
+            {
+                Rate("accident-minor", "Zero Accident — Minor", "อุบัติเหตุเล็กน้อย",
+                    15, minor, shipments, 100,
+                    ungraded > 0 ? $"ยังไม่ระบุระดับ {ungraded} เคส — ไม่ถูกนับในคะแนน" : ""),
+
+                Rate("accident-major", "Zero Accident — Major", "อุบัติเหตุใหญ่",
+                    35, major, shipments, 100,
+                    ungraded > 0 ? $"ยังไม่ระบุระดับ {ungraded} เคส — ไม่ถูกนับในคะแนน" : ""),
+
+                // Already a score rather than a failure rate: reports made
+                // inside the deadline, over reports that were due.
+                new("damage-reporting", "Cargo damage & Discrepancy Reporting",
+                    "รายงานความเสียหายภายในเวลา", 20,
+                    reports.Count == 0 ? null : Round(onTimeReports * 100.0 / reports.Count),
+                    onTimeReports, reports.Count, 100,
+                    reports.Count == 0
+                        ? "ไม่มีรายงานความเสียหายในเดือนนี้"
+                        : $"ในกำหนด {onTimeReports} จาก {reports.Count} รายงาน · อุบัติเหตุ {AccidentReportMinutes} นาที · อื่นๆ {ReportMinutes} นาที"),
+
+                // Not measured, and not substituted. The pre-run check on file
+                // is the carrier confirming which lorry will turn up, which is a
+                // different question from whether that lorry passed a safety
+                // inspection. Scoring one as the other would put ten percent of
+                // a carrier's mark on a measurement nobody took.
+                new("vehicle-readiness", "Safety readiness of transport vehicles",
+                    "ความพร้อมด้านความปลอดภัยของรถ", 10,
+                    null, 0, preRuns.Count(check => Same(check.Carrier, group.Key)), 100,
+                    "ยังไม่มีบันทึกผลตรวจความพร้อมรถ (ผ่าน/ไม่ผ่าน) ในระบบ — เกณฑ์นี้ยังคิดคะแนนไม่ได้"),
+
+                Rate("on-time", "On time delivery", "ส่งมอบตรงเวลา",
+                    10, lateWithComplaint, shipments, 95,
+                    $"ช้ากว่านัดเกิน {LateMinutes} นาที และมีข้อร้องเรียน"),
+
+                Rate("satisfaction", "Customer satisfaction", "ความพึงพอใจของลูกค้า",
+                    10, complaints, shipments, 95,
+                    "ข้อร้องเรียนจากลูกค้าและ CS"),
+            };
+
+            var measured = lines.Where(line => line.Percent is not null).ToList();
+            var available = measured.Sum(line => line.Weight);
+            double? weighted = available <= 0
+                ? null
+                : Round(measured.Sum(line => line.Percent!.Value * line.Weight) / available);
+
+            scores.Add(new CarrierScore(group.Key, shipments, lines, weighted, available, ungraded));
+        }
+
+        return scores;
+    }
+
+    /// <summary>
+    /// A criterion stated as a rate of failures, turned into a score.
+    ///
+    /// The agreement writes these as "(count / shipments) × 100" against a
+    /// target of 100%. Read literally that asks a carrier to have accidents on
+    /// every shipment, which is plainly not what it means: the target is
+    /// perfection, so the score is a hundred less the failure rate. Floored at
+    /// zero, because a carrier cannot be worse than no marks.
+    /// </summary>
+    private static ScoreLine Rate(string id, string english, string thai, double weight,
+        int count, int shipments, double target, string note)
+    {
+        double? percent = shipments == 0 ? null : Round(Math.Max(0, 100 - (count * 100.0 / shipments)));
+        return new ScoreLine(id, english, thai, weight, percent, count, shipments, target,
+            shipments == 0 ? "ไม่มี shipment ในเดือนนี้" : note);
+    }
+
+    private static bool IsAccident(OperationalIssue issue) =>
+        issue.Category.Trim().Equals(AccidentCategory, StringComparison.Ordinal);
+
+    private static bool IsDamage(OperationalIssue issue) =>
+        issue.Category.Trim().Equals(DamageCategory, StringComparison.Ordinal);
+
+    /// <summary>Minor, Major, or empty when nobody has said which.</summary>
+    private static string Graded(OperationalIssue issue)
+    {
+        var grade = issue.AccidentGrade.Trim();
+        if (grade.Equals("minor", StringComparison.OrdinalIgnoreCase)) return "Minor";
+        if (grade.Equals("major", StringComparison.OrdinalIgnoreCase)) return "Major";
+        return "";
+    }
+
+    /// <summary>
+    /// Whether the report went in inside the time the agreement allows.
+    ///
+    /// Measured from when the problem was found to when it was recorded here.
+    /// An issue with no time of discovery cannot be measured and is counted as
+    /// late — not to be harsh, but because the alternative is to treat a missing
+    /// timestamp as compliance, and the missing timestamps would then be the
+    /// cheapest way to a perfect score.
+    /// </summary>
+    private static bool ReportedInTime(OperationalIssue issue)
+    {
+        var found = Formats.Moment(issue.FoundOn, issue.FoundAt);
+        if (found is null || issue.CreatedAt == default) return false;
+
+        var allowed = IsAccident(issue) ? AccidentReportMinutes : ReportMinutes;
+        var minutes = (issue.CreatedAt - found.Value).TotalMinutes;
+
+        // A report logged before it was found is a clock disagreement, not a
+        // fast report; it counts as inside the window rather than being read as
+        // a negative delay somebody could game.
+        return minutes <= allowed;
+    }
+
+    /// <summary>
+    /// Whether the shipment arrived more than the allowed minutes after its
+    /// plan, using the register's own reading of lateness rather than a second
+    /// one written here.
+    /// </summary>
+    private static bool LateBeyond(JobRecord record, int minutes)
+    {
+        var late = JobRules.MinutesLate(record);
+        return late is not null && late > minutes;
+    }
+
+    private static bool Same(string a, string b) =>
+        a.Trim().Equals(b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private static double Round(double value) => Math.Round(value, 1, MidpointRounding.AwayFromZero);
+}

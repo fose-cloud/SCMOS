@@ -42,6 +42,16 @@ export type Issue = {
   driver: string;
   containerNo: string;
   licence: string;
+  /**
+   * Minor or Major, on an accident. Blank on anything else.
+   *
+   * Its own field rather than read off severity. The severity ladder answers
+   * "how fast must this be dealt with", which is a different question from how
+   * serious the accident was — and the carrier scorecard weights Major at 35%
+   * against Minor's 15%, so deriving one from the other would rest a third of a
+   * carrier's mark on a mapping nobody agreed to.
+   */
+  accidentGrade: string;
   /** Read off the attached job, so the log shows what the issue is about. */
   jobCustomer: string;
   jobTrucker: string;

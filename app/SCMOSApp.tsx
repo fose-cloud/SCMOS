@@ -2166,6 +2166,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 // Every figure on the dashboard is a way into the workspace:
                 // clicking one lands on the same jobs it counted.
                 onDrill={openTarget}
+                onOpenKpi={() => go("kpi")}
               />
             )}
 

@@ -11,6 +11,8 @@ public record IssueView(
     string Status, string RootCause,
     /// <summary>Who was driving, what was on the lorry, and which lorry.</summary>
     string Driver, string ContainerNo, string Licence,
+    /// <summary>Minor or Major on an accident; blank otherwise and blank when ungraded.</summary>
+    string AccidentGrade,
     /// <summary>The job it attached to, when it attached to one.</summary>
     string JobCustomer, string JobTrucker, string JobDate,
     /// <summary>Hours allowed for this severity, and whether it is past them.</summary>
@@ -139,7 +141,7 @@ public class OperationalIssueService(ScmosDbContext db)
                 issue.JobRef, issue.JobKey, issue.Detail, issue.Category, issue.Severity,
                 issue.Impact, issue.Channel, issue.Owner, issue.OwnerId, issue.DueOn,
                 issue.Status, issue.RootCause,
-                issue.Driver, issue.ContainerNo, issue.Licence,
+                issue.Driver, issue.ContainerNo, issue.Licence, issue.AccidentGrade,
                 job?.Customer ?? "", job?.Trucker ?? "", job?.WorkDate ?? "",
                 hours, IsOverdue(issue, hours, now));
         }).ToList();
@@ -323,6 +325,7 @@ public class OperationalIssueService(ScmosDbContext db)
                 case "driver": issue.Driver = value.Trim(); break;
                 case "containerno": issue.ContainerNo = value.Trim(); break;
                 case "licence": issue.Licence = value.Trim(); break;
+                case "accidentgrade": issue.AccidentGrade = value.Trim(); break;
                 case "reporter": issue.Reporter = value.Trim(); break;
                 case "jobref":
                     issue.JobRef = value.Trim();

@@ -514,6 +514,23 @@ public class OperationalIssue
     public string ContainerNo { get; set; } = "";
     public string Licence { get; set; } = "";
 
+    /// <summary>
+    /// Minor or Major, on an accident. Blank on anything else, and blank on an
+    /// accident nobody has graded yet.
+    ///
+    /// Its own field rather than read off Severity. The severity ladder is
+    /// วิกฤต · สูง · ปานกลาง · ต่ำ and answers "how fast must this be dealt
+    /// with", which is a different question from how serious the accident was —
+    /// a minor scrape that blocks a customer's gate is urgent and minor at
+    /// once. The carrier scorecard weights Major at 35% and Minor at 15%, so
+    /// deriving one from the other would put more than a third of a carrier's
+    /// score on a mapping nobody agreed to.
+    ///
+    /// An ungraded accident is counted and reported, and left out of the score.
+    /// Guessing either way would be inventing the answer.
+    /// </summary>
+    public string AccidentGrade { get; set; } = "";
+
     /// <summary>The SMT member holding it, and the id behind the name.</summary>
     public string Owner { get; set; } = "";
     public string OwnerId { get; set; } = "";

@@ -55,7 +55,19 @@ public record KpiEngineReport(
     int Jobs,
     IReadOnlyList<Measure> Measures,
     IReadOnlyList<SupplierScore> Suppliers,
-    string ComputedAt);
+    string ComputedAt,
+    /// <summary>
+    /// The contract scorecard, one line per carrier.
+    ///
+    /// Beside the older supplier score rather than replacing it: that one is
+    /// this system's own reading of how a carrier is doing, and this one is the
+    /// customer's agreement scored to its own weights. They answer different
+    /// questions and will disagree, which is fine as long as nobody has to
+    /// guess which is which.
+    /// </summary>
+    IReadOnlyList<CarrierScore>? Scorecard = null,
+    /// <summary>Issues in the period that name no job, so belong to nobody's score.</summary>
+    int UnattributedIssues = 0);
 
 /// <summary>
 /// The KPI engine.
@@ -111,6 +123,15 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         var preRuns = await db.PreRunChecks.AsNoTracking().ToListAsync(token);
         var delays = await db.DelayRecords.AsNoTracking().ToListAsync(token);
         var cases = await db.IncidentCases.AsNoTracking().ToListAsync(token);
+        var issues = await db.OperationalIssues.AsNoTracking().ToListAsync(token);
+
+        // Issues are kept for the whole period, matched or not: the ones that
+        // reach a job are somebody's score, and the ones that do not are still
+        // worth counting so the total on screen is the whole month.
+        var periodIssues = issues.Where(issue => InPeriod(issue.FoundOn, period)).ToList();
+        var scorecard = CarrierScorecard.Build(jobs, periodIssues, preRuns);
+        var unattributed = periodIssues.Count(issue =>
+            issue.JobKey.Length == 0 || !keys.Contains(issue.JobKey));
 
         milestones = milestones.Where(m => keys.Contains(m.JobKey)).ToList();
         requests = requests.Where(r => keys.Contains(r.JobKey)).ToList();
@@ -130,7 +151,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         };
 
         var report = new KpiEngineReport(period, jobs.Count, measures, scores,
-            DateTimeOffset.UtcNow.ToString("O"));
+            DateTimeOffset.UtcNow.ToString("O"), scorecard, unattributed);
 
         // Held against the register it was read from. An hour is not a
         // staleness window — the key changes the moment the register does — it
@@ -506,10 +527,19 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         return parts.Length switch { 0 => "", 1 => parts[0].Contains(':') ? parts[0] : "", _ => parts[^1] };
     }
 
-    private static bool InPeriod(JobRecord job, Period period)
+    private static bool InPeriod(JobRecord job, Period period) => InPeriod(job.Date, period);
+
+    /// <summary>
+    /// The same period test over a bare DD/MM/YYYY date.
+    ///
+    /// An operational issue is dated by when it was found, not by a job's plan
+    /// date, and some of them never reach a job at all — so the test has to take
+    /// the date rather than the record it came off.
+    /// </summary>
+    private static bool InPeriod(string date, Period period)
     {
         if (period.IsAll) return true;
-        var (year, month, day) = Formats.PartsOf(job.Date);
+        var (year, month, day) = Formats.PartsOf(date);
         if (year.Length == 0) return false;
         if (period.Year.Length > 0 && period.Year != year) return false;
         if (period.Month.Length > 0 && period.Month != month) return false;

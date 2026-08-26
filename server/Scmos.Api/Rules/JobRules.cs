@@ -200,6 +200,24 @@ public static partial class JobRules
         && Formats.DateNumber(job.Date) > 0
         && Formats.DateNumber(job.ArrDate) > 0;
 
+    /// <summary>
+    /// How many minutes after its plan the shipment arrived, or null when it
+    /// cannot be measured. Negative when it arrived early.
+    ///
+    /// Beside IsOnTime rather than worked out again wherever somebody needs a
+    /// threshold: the carrier scorecard counts arrivals more than thirty
+    /// minutes late, and a second reading of "late" would disagree with this
+    /// one the first time one of them was adjusted.
+    /// </summary>
+    public static double? MinutesLate(JobRecord job)
+    {
+        if (!IsMeasurable(job)) return null;
+        var planned = Formats.Moment(job.Date, job.PlanTime);
+        var arrived = Formats.Moment(job.ArrDate, job.ArrTime);
+        if (planned is null || arrived is null) return null;
+        return (arrived.Value - planned.Value).TotalMinutes;
+    }
+
     public static bool IsOnTime(JobRecord job)
     {
         if (!IsMeasurable(job)) return false;

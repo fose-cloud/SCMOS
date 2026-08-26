@@ -56,7 +56,22 @@ type SupplierScore = {
   score: number | null;
 };
 
-type EngineReport = { jobs: number; measures: Measure[]; suppliers: SupplierScore[] };
+/** One criterion of the contract scorecard, for one carrier. */
+type ScoreLine = {
+  id: string; english: string; thai: string; weight: number;
+  percent: number | null; count: number; base: number; target: number; note: string;
+};
+
+type CarrierScore = {
+  carrier: string; shipments: number; lines: ScoreLine[];
+  weighted: number | null; weightAvailable: number; ungradedAccidents: number;
+};
+
+type EngineReport = {
+  jobs: number; measures: Measure[]; suppliers: SupplierScore[];
+  scorecard?: CarrierScore[] | null;
+  unattributedIssues?: number;
+};
 
 /**
  * Which workspace slice answers "why is this number what it is".
@@ -238,6 +253,86 @@ export function Kpi({ period, onDrill, onOpenJobs }: {
           </div>
         </div>
       )}
+
+      {engine?.scorecard?.length ? (
+        <Panel
+          title="คะแนนตามสัญญา (Carrier Scorecard)"
+          note={
+            "คิดจากรายการใน Operational Issues ที่ผูกกับงานของผู้ขนส่งรายนั้น"
+            + (engine.unattributedIssues
+              ? ` · อีก ${engine.unattributedIssues} รายการไม่ได้ผูกกับงาน จึงไม่เข้าคะแนนของใคร`
+              : "")
+          }
+        >
+          <div style={css("overflow-x:auto")}>
+            <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
+              <thead>
+                <tr>
+                  {[["ผู้ขนส่ง", "left"], ["Shipment", "right"],
+                    ["Minor 15%", "right"], ["Major 35%", "right"], ["รายงาน 20%", "right"],
+                    ["ตรวจรถ 10%", "right"], ["ตรงเวลา 10%", "right"], ["ความพึงพอใจ 10%", "right"],
+                    ["คะแนนรวม", "right"]].map(([head, align]) => (
+                    <th key={head} style={css("padding:8px 12px;text-align:" + align
+                      + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{head}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {engine.scorecard.map((row) => (
+                  <tr key={row.carrier} style={css("border-bottom:1px solid #F1F5F9")}>
+                    <td style={css("padding:8px 12px")}>
+                      <button onClick={() => onOpenJobs({ trucker: row.carrier })}
+                        style={css("border:none;background:none;padding:0;font-family:inherit;font-size:12.5px;font-weight:600;color:#0A5FA8;cursor:pointer")}>
+                        {row.carrier} →
+                      </button>
+                      {row.ungradedAccidents > 0 && (
+                        <div style={css("font-size:11px;color:#B45309;margin-top:2px")}>
+                          อุบัติเหตุยังไม่ระบุระดับ {row.ungradedAccidents} เคส
+                        </div>
+                      )}
+                    </td>
+                    <td style={NUM_S}>{row.shipments.toLocaleString()}</td>
+                    {["accident-minor", "accident-major", "damage-reporting",
+                      "vehicle-readiness", "on-time", "satisfaction"].map((id) => {
+                      const line = row.lines.find((l) => l.id === id);
+                      return (
+                        <td key={id} style={NUM_S} title={line?.note ?? ""}>
+                          {/* A criterion nothing could measure shows a dash and
+                              its reason on hover, not a zero. A zero here reads
+                              as "they failed it". */}
+                          {line?.percent == null
+                            ? <span style={css("color:#B4C0CC")}>—</span>
+                            : <>
+                              {line.percent.toFixed(1)}%
+                              {line.count > 0 && (
+                                <span style={css("color:#94A3B8;font-weight:400")}> ({line.count})</span>
+                              )}
+                            </>}
+                        </td>
+                      );
+                    })}
+                    <td style={css("padding:8px 12px;text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;color:"
+                      + (row.weighted == null ? "#B4C0CC" : row.weighted >= 95 ? "#16794C" : row.weighted >= 85 ? "#B45309" : "#B42318"))}>
+                      {row.weighted == null ? "—" : row.weighted.toFixed(1)}
+                      {row.weightAvailable < 100 && (
+                        <div style={css("font-size:10.5px;color:#94A3B8;font-weight:400")}>
+                          จากน้ำหนัก {row.weightAvailable}%
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={css("padding:10px 14px;font-size:11px;color:#7B8CA0;line-height:1.7;border-top:1px solid #F1F5F9")}>
+            เกณฑ์ที่เขียนไว้เป็นอัตราการเกิดเหตุ (เช่น อุบัติเหตุ ÷ shipment) ถูกคิดเป็นคะแนนโดยเอา 100 ลบอัตรานั้น
+            เพราะเป้าคือ 100% ซึ่งหมายถึงไม่มีเหตุเลย · เกณฑ์ที่ยังวัดไม่ได้จะไม่ถูกให้ 0
+            แต่ถูกตัดออกจากน้ำหนักแล้วปรับฐานคะแนนตามน้ำหนักที่เหลือ และแสดงไว้ว่าเหลือเท่าไร
+          </div>
+        </Panel>
+      ) : null}
 
       {engine && engine.suppliers.some((s) => s.score !== null) && (
         <Panel

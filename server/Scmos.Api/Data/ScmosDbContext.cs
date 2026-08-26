@@ -378,6 +378,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.Driver).HasColumnName("driver").HasMaxLength(160).HasDefaultValue("");
             entry.Property(e => e.ContainerNo).HasColumnName("container_no").HasMaxLength(80).HasDefaultValue("");
             entry.Property(e => e.Licence).HasColumnName("licence").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.AccidentGrade).HasColumnName("accident_grade").HasMaxLength(10).HasDefaultValue("");
             entry.Property(e => e.Owner).HasColumnName("owner").HasMaxLength(160).HasDefaultValue("");
             entry.Property(e => e.OwnerId).HasColumnName("owner_id").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.DueOn).HasColumnName("due_on").HasMaxLength(20).HasDefaultValue("");

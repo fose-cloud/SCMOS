@@ -7,6 +7,7 @@ import type { WsTarget } from "../alerts";
 import { opsStats, STATUS_RE as RE, type Job, type OpsStats } from "../ops";
 import { ALL_PERIOD, latestDay, monthLabel, periodLabel, periodOptions, type Period } from "../period";
 import { dowOf, money, pad } from "../util";
+import { apiFetch } from "../api";
 
 /**
  * The three dashboard tabs answer three different questions, so they are three
@@ -38,6 +39,8 @@ type Props = {
   note?: string;
   tab: string;
   onDrill: (patch: Drill) => void;
+  /** Opens the KPI screen, where the full scorecard is. */
+  onOpenKpi?: () => void;
 };
 
 const CAT_COLOUR: Record<string, string> = { IMPORT: "#0A2240", EXPORT: "#6FA8DC", DELIVERY: "#0A6E8A" };
@@ -300,7 +303,85 @@ const DEMO_BADGE = (
 
 /* ------------------------------------------------------------- dashboard */
 
-export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, loaded, note, tab, onDrill }: Props) {
+/** One carrier's line on the contract scorecard, as the KPI engine sends it. */
+type ScoreRow = { carrier: string; shipments: number; weighted: number | null; weightAvailable: number };
+
+/**
+ * The contract scorecard, in one line per carrier that is not meeting it.
+ *
+ * Fetched here rather than computed: the engine already works it out and caches
+ * it against the register's own timestamp, and this screen has been hung once
+ * before by doing arithmetic over the whole register on the way in. One request,
+ * after the first paint, and the panel simply does not appear until it answers.
+ */
+function ContractScores({ period, onOpen }: { period: Period; onOpen: () => void }) {
+  const [rows, setRows] = useState<ScoreRow[] | null>(null);
+
+  // The same three parameters the KPI screen sends, so both read one period.
+  const query = new URLSearchParams();
+  if (period.year && period.year !== "ALL") query.set("year", period.year);
+  if (period.month && period.month !== "ALL") query.set("month", period.month);
+  if (period.day && period.day !== "ALL") query.set("day", period.day.slice(0, 2));
+  const search = query.toString();
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const response = await apiFetch(`/api/kpi/measures?${search}`,
+          { headers: { accept: "application/json" } });
+        if (!response.ok || !alive) return;
+        const body = await response.json() as { scorecard?: ScoreRow[] | null };
+        if (alive) setRows(body.scorecard ?? []);
+      } catch { if (alive) setRows([]); }
+    })();
+    return () => { alive = false; };
+  }, [search]);
+
+  if (!rows?.length) return null;
+
+  // Below the ninety-five the agreement asks for, worst first. A carrier meeting
+  // it does not need a line on the landing screen.
+  const short = rows
+    .filter((row) => row.weighted !== null && row.weighted < 95)
+    .sort((a, b) => (a.weighted ?? 0) - (b.weighted ?? 0));
+
+  return (
+    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 16px")}>
+      <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap")}>
+        <span style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>คะแนนตามสัญญา · ผู้ขนส่งที่ยังไม่ถึงเป้า</span>
+        <button onClick={onOpen}
+          style={css("border:none;background:none;padding:0;font-size:11.5px;color:#2E7DD1;cursor:pointer;font-family:inherit;text-decoration:underline")}>
+          ดูคะแนนเต็ม
+        </button>
+      </div>
+
+      {short.length === 0 ? (
+        <div style={css("margin-top:7px;font-size:12px;color:#16794C")}>
+          ผู้ขนส่งทุกรายที่วัดได้อยู่ที่ 95% ขึ้นไป
+        </div>
+      ) : (
+        <div style={css("margin-top:8px;display:flex;flex-direction:column;gap:5px")}>
+          {short.slice(0, 5).map((row) => (
+            <div key={row.carrier} style={css("display:flex;justify-content:space-between;gap:12px;font-size:12px")}>
+              <span style={css("color:#16232F;font-weight:600;overflow-wrap:anywhere")}>{row.carrier}</span>
+              <span style={css("white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-weight:700;color:"
+                + ((row.weighted ?? 0) >= 85 ? "#B45309" : "#B42318"))}>
+                {(row.weighted ?? 0).toFixed(1)}
+                <span style={css("color:#94A3B8;font-weight:400")}> · {row.shipments} shipment</span>
+              </span>
+            </div>
+          ))}
+          {short.length > 5 && (
+            <div style={css("font-size:11px;color:#7B8CA0")}>และอีก {short.length - 5} ราย</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, loaded, note, tab, onDrill, onOpenKpi }: Props) {
   const s = opsStats(jobs);
   const total = s.jobs.length;
   const pct = (n: number) => (total ? Math.round((n / total) * 100) + "%" : "—");
@@ -332,6 +413,13 @@ export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, l
       {tab === "Wall Board" ? <WallBoard s={s} period={period} />
         : tab === "Operational" ? <Operational s={s} onDrill={onDrill} />
           : <Executive s={s} db={db} fl={fl} total={total} pct={pct} onDrill={onDrill} />}
+
+      {/* Only on the executive view, and only once the request answers. That is
+          the view already asking "how are we doing"; the wall board is for a
+          screen on the wall and the operational tab is for today's work. */}
+      {tab !== "Wall Board" && tab !== "Operational" && onOpenKpi && (
+        <ContractScores period={period} onOpen={onOpenKpi} />
+      )}
     </div>
   );
 }
