@@ -25,6 +25,24 @@ const STATUS_TONE: Record<string, string> = {
   approved: "#16794C", draft: "#7B8CA0", "pending-audit": "#B45309",
   suspended: "#B42318", rejected: "#B42318",
 };
+/** One side of a duplicate pair, as the API reports it. */
+type Side = { id: number; code: string; name: string; aliases: number; attached: number };
+type Duplicate = { name: string; keep: Side; fold: Side[] };
+
+/** One row of a duplicate pair, with what it is holding. */
+function Row({ side, tone }: { side: Side; tone: "keep" | "fold" }) {
+  const keep = tone === "keep";
+  return (
+    <span style={css("display:inline-flex;gap:6px;align-items:baseline;border:1px solid " + (keep ? "#A7D3BC" : "#E3D3D3")
+      + ";background:" + (keep ? "#F1F9F5" : "#FBF6F6") + ";border-radius:4px;padding:3px 9px")}>
+      <b style={css("font-family:ui-monospace,monospace;font-size:11.5px;color:" + (keep ? "#16794C" : "#8A5A5A"))}>{side.code}</b>
+      <span style={css("font-size:11px;color:#7B8CA0")}>
+        {keep ? "เก็บไว้" : "รวมเข้า"} · ชื่อย่อ {side.aliases} · ข้อมูลผูกอยู่ {side.attached}
+      </span>
+    </span>
+  );
+}
+
 const STATUS_TH: Record<string, string> = {
   approved: "อนุมัติแล้ว", draft: "ร่าง", "pending-audit": "รอตรวจ",
   suspended: "ระงับ", rejected: "ไม่ผ่าน",
@@ -38,21 +56,22 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
   /** The paste box for the agreed list of haulage companies. */
   const [directory, setDirectory] = useState("");
   const [showDirectory, setShowDirectory] = useState(false);
+  /** Hauliers the register holds twice, and which row keeps the history. */
+  const [dupes, setDupes] = useState<Duplicate[]>([]);
 
   const load = useCallback(async () => {
-    const response = await apiFetch("/api/suppliers", { headers: { accept: "application/json" } });
-    setRows(response.ok ? await response.json() as Summary[] : []);
+    // Both in flight together: the duplicate check reads the same table the
+    // list does, and waiting for one before asking for the other only makes a
+    // sleeping database take twice as long to answer.
+    const [list, duplicates] = await Promise.all([
+      apiFetch("/api/suppliers", { headers: { accept: "application/json" } }),
+      apiFetch("/api/suppliers/duplicates", { headers: { accept: "application/json" } }),
+    ]);
+    setRows(list.ok ? await list.json() as Summary[] : []);
+    setDupes(duplicates.ok ? await duplicates.json() as Duplicate[] : []);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const response = await apiFetch("/api/suppliers", { headers: { accept: "application/json" } });
-      const body = response.ok ? await response.json() as Summary[] : [];
-      if (!cancelled) setRows(body);
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  useEffect(() => { void load(); }, [load]);
 
   async function post(path: string, body: unknown) {
     if (busy) return;
@@ -149,6 +168,35 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
     } finally { setBusy(false); }
   }
 
+  /**
+   * Folds a duplicate row into the one holding the history.
+   *
+   * Confirmed first because it moves paperwork between rows and removes one,
+   * and because what the register says about a haulier is not something to
+   * change on a mis-click.
+   */
+  async function merge(group: Duplicate, fold: Duplicate["fold"][number]) {
+    const moving = fold.aliases + fold.attached;
+    const warning = moving > 0
+      ? `\n\nจะย้ายข้อมูล ${moving} รายการมาที่ ${group.keep.code} ก่อนลบ`
+      : "\n\nรายการที่ถูกลบไม่มีข้อมูลผูกอยู่เลย";
+    if (!window.confirm(`รวม ${fold.code} (${fold.name}) เข้ากับ ${group.keep.code} หรือไม่?${warning}`)) return;
+
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/suppliers/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keepId: group.keep.id, foldId: fold.id, reason: "รวมรายการซ้ำในทะเบียน" }),
+      });
+      const reply = await response.json().catch(() => null) as { message?: string } | null;
+      onToast(reply?.message ?? (response.ok ? "รวมรายการแล้ว" : `รวมไม่สำเร็จ (${response.status})`));
+      if (response.ok) await load();
+    } catch (error) {
+      onToast("รวมไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setBusy(false); }
+  }
+
   if (!rows) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>กำลังโหลด…</div>;
   }
@@ -169,6 +217,41 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
         <Tile label="มีงานแต่ไม่มีราคา" value={noRates} note="คิดต้นทุนไม่ได้" colour="#B45309" />
         <Tile label="เอกสารใกล้หมดอายุ" value={rows.reduce((n, r) => n + r.expiringDocuments, 0)} note="ภายใน 60 วัน" colour="#B42318" />
       </div>
+
+      {dupes.length > 0 && (
+        <div style={css("background:#FFFBEB;border:1px solid #F5D9A6;border-radius:5px;padding:13px 16px")}>
+          <div style={css("font-size:12.5px;font-weight:600;color:#92400E;margin-bottom:3px")}>
+            มีบริษัทเดียวกันอยู่ในทะเบียนมากกว่าหนึ่งรายการ ({dupes.length} เจ้า)
+          </div>
+          <div style={css("font-size:11.5px;color:#8A6A3B;line-height:1.7;margin-bottom:9px")}>
+            เกิดจากการนำเข้ารอบที่ล้มกลางคัน — รายการที่บันทึกไปก่อนหน้านั้นค้างอยู่ ·
+            การรวมจะ<b>ย้าย</b>ชื่อย่อ เอกสาร เส้นทางราคา และผลประเมินไปไว้ที่รายการที่มีประวัติ
+            แล้วจึงลบรายการที่ว่างเปล่า — ไม่มีข้อมูลใดหายไป
+          </div>
+          <div style={css("display:flex;flex-direction:column;gap:7px")}>
+            {dupes.map((group) => (
+              <div key={group.keep.id} style={css("background:#fff;border:1px solid #EFE0C4;border-radius:4px;padding:9px 11px")}>
+                <div style={css("font-size:12.5px;font-weight:600;color:#0A2240;margin-bottom:5px")}>{group.name}</div>
+                <div style={css("display:flex;flex-wrap:wrap;gap:7px;align-items:center")}>
+                  <Row side={group.keep} tone="keep" />
+                  {group.fold.map((fold) => (
+                    <span key={fold.id} style={css("display:flex;gap:6px;align-items:center")}>
+                      <Row side={fold} tone="fold" />
+                      {canManage && (
+                        <button onClick={() => void merge(group, fold)} disabled={busy}
+                          style={css("height:25px;padding:0 10px;border:1px solid #B45309;background:" + (busy ? "#E5DCCB" : "#fff")
+                            + ";color:#B45309;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                          รวมเข้ากับ {group.keep.code}
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap")}>

@@ -16,6 +16,9 @@ public static class SupplierEndpoints
 {
     public record RegisterBody(string? Name, string? Code, string? ServiceType, string? ServiceArea, string? Reason);
     public record StatusBody(string? Status, string? Reason);
+    /// <summary>Which row survives a merge, and which is folded into it.</summary>
+    public record MergeBody(int KeepId, int FoldId, string? Reason);
+
     public record AliasBody(string? Alias, string? Reason);
     public record EvaluateBody(string? Period, int? Safety, int? Documents, string? Note);
     /// <summary>
@@ -115,6 +118,26 @@ public static class SupplierEndpoints
 
             return Results.Json(result);
         });
+
+        // Hauliers the register holds twice, and the merge that undoes it.
+        //
+        // Reading them is open to anybody signed in — knowing the register has
+        // a problem is not a privileged act. Merging is not: it moves history
+        // between rows and removes one, so it wants the same right as any other
+        // change to the register, and it is audited by row, not in bulk.
+        suppliers.MapGet("/duplicates", async (HttpContext context, IUserAccessor users,
+            SupplierService service, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await service.DuplicatesAsync(token));
+        });
+
+        suppliers.MapPost("/merge", async ([FromBody] MergeBody body, HttpContext context,
+            IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
+            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+                user => service.MergeAsync(body.KeepId, body.FoldId, user.Signature, token),
+                "merge", "supplier", body.KeepId.ToString(), "รวมรายการซ้ำ",
+                body.FoldId.ToString(), body.KeepId.ToString(), body.Reason ?? ""));
 
         suppliers.MapPost("/{id:int}/alias", async (int id, [FromBody] AliasBody body, HttpContext context,
             IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>

@@ -272,112 +272,146 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         var added = 0;
         var already = 0;
         var renamed = 0;
-
-        // Every code in use, so a new one never collides. The column is unique
-        // and the register was seeded with six-letter codes derived the same
-        // way, so WEALTH was taken long before this import went anywhere near
-        // "Wealthy Logistic Co., Ltd." — which is what made it fail outright.
-        var takenCodes = new HashSet<string>(
-            await db.Suppliers.AsNoTracking().Select(row => row.Code).ToListAsync(token),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var raw in names)
-        {
-            var name = raw.Trim();
-            if (name.Length == 0) continue;
-
-            var key = name.ToUpperInvariant();
-            var exact = await db.SupplierAliases.AsNoTracking()
-                .FirstOrDefaultAsync(alias => alias.Alias == key, token);
-            if (exact is not null) { already++; continue; }
-
-            // The same company under the short name the team has always used.
-            //
-            // The register holds WEALTHY with its documents and its evaluations;
-            // this list calls it Wealthy Logistic Co., Ltd. Adding a second row
-            // would give one haulier two entries and split its history, so the
-            // row that is already there takes the official name instead. Only
-            // when exactly one existing company could be meant — anything less
-            // certain is left alone and a new row is created.
-            var stem = Stem(name);
-            var candidates = await db.Suppliers.AsNoTracking()
-                .Select(row => new { row.Id, row.Name, row.Code })
-                .ToListAsync(token);
-            var sameFirm = candidates
-                .Where(row => Key(row.Name).Length >= 2 && stem.StartsWith(Key(row.Name), StringComparison.Ordinal))
-                .ToList();
-
-            if (sameFirm.Count == 1)
-            {
-                var row = await db.Suppliers.FirstAsync(entry => entry.Id == sameFirm[0].Id, token);
-                row.Name = name;
-                row.UpdatedAt = DateTimeOffset.UtcNow;
-                db.SupplierAliases.Add(new SupplierAlias
-                { SupplierId = row.Id, Alias = key, Source = "directory", Confirmed = true });
-                await db.SaveChangesAsync(token);
-                renamed++;
-                continue;
-            }
-
-            var stub = Key(name);
-            var code = Free(stub.Length > 0 ? stub : "SUP", takenCodes);
-            takenCodes.Add(code);
-
-            var supplier = new Supplier
-            {
-                Name = name,
-                Code = code,
-                Status = "approved",
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            };
-            db.Suppliers.Add(supplier);
-            await db.SaveChangesAsync(token);
-
-            // Its own name is its first alias, so a job that spells the company
-            // out in full resolves without anybody adding anything.
-            db.SupplierAliases.Add(new SupplierAlias
-            { SupplierId = supplier.Id, Alias = key, Source = "directory", Confirmed = true });
-            added++;
-        }
-        await db.SaveChangesAsync(token);
-
         var linked = 0;
         var orphans = new List<string>();
 
-        foreach (var (shortForm, company) in aliases)
+        // All of it or none of it.
+        //
+        // This used to save after every company with nothing around it, so the
+        // run that failed on a duplicate code had already committed everything
+        // before the failure — and left JTC Logistics on the register twice,
+        // one of them with no aliases because the alias was still unsaved in
+        // the tracker when the throw came. A partial import is worse than a
+        // failed one: a failed one you simply run again.
+        //
+        // Through the execution strategy because this context retries on
+        // failure, and a retrying strategy refuses a transaction opened by
+        // hand. The lambda can run more than once, so the counters are reset
+        // inside it rather than outside.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            var alias = shortForm.Trim().ToUpperInvariant();
-            var wanted = company.Trim().ToUpperInvariant();
-            if (alias.Length == 0 || wanted.Length == 0) continue;
+            await using var work = await db.Database.BeginTransactionAsync(token);
+            added = 0; already = 0; renamed = 0; linked = 0;
+            orphans.Clear();
 
-            var owner = await db.SupplierAliases.AsNoTracking()
-                .FirstOrDefaultAsync(entry => entry.Alias == wanted, token);
-            if (owner is null)
-            {
-                // Named a company that is not on the list. Reported rather than
-                // created: a haulier invented by a typo in an alias line is
-                // exactly the sort of row nobody later dares delete.
-                orphans.Add($"{shortForm.Trim()} → {company.Trim()}");
-                continue;
-            }
+            // The register as it stands, read once and kept in step as the loop
+            // changes it. Read once because seventy-two names meant seventy-two
+            // reads of the whole table; kept in step because a company added or
+            // renamed earlier in this same run has to be a candidate for the
+            // next one — which is how a half-finished row from an earlier
+            // import gets recognised instead of doubled.
+            var known = (await db.Suppliers.AsNoTracking()
+                .Select(row => new { row.Id, row.Name })
+                .ToListAsync(token))
+                .Select(row => (row.Id, row.Name)).ToList();
 
-            var held = await db.SupplierAliases.FirstOrDefaultAsync(entry => entry.Alias == alias, token);
-            if (held is null)
+            // Every code in use, so a new one never collides. The column is
+            // unique and the register was seeded with six-letter codes cut the
+            // same way, so WEALTH was taken long before this import went
+            // anywhere near "Wealthy Logistic Co., Ltd."
+            var takenCodes = new HashSet<string>(
+                await db.Suppliers.AsNoTracking().Select(row => row.Code).ToListAsync(token),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var raw in names)
             {
+                var name = raw.Trim();
+                if (name.Length == 0) continue;
+
+                var key = name.ToUpperInvariant();
+                var exact = await db.SupplierAliases.AsNoTracking()
+                    .FirstOrDefaultAsync(alias => alias.Alias == key, token);
+                if (exact is not null) { already++; continue; }
+
+                // The same company under the short name the team has always
+                // used. The register holds WEALTHY with its documents and its
+                // evaluations; this list calls it Wealthy Logistic Co., Ltd.
+                // Adding a second row would give one haulier two entries and
+                // split its history, so the row already there takes the
+                // official name instead — but only when exactly one existing
+                // company could be meant. Anything less certain is left alone.
+                var stem = Stem(name);
+                var sameFirm = known
+                    .Where(row => Key(row.Name).Length >= 2
+                        && stem.StartsWith(Key(row.Name), StringComparison.Ordinal))
+                    .ToList();
+
+                if (sameFirm.Count == 1)
+                {
+                    var row = await db.Suppliers.FirstAsync(entry => entry.Id == sameFirm[0].Id, token);
+                    row.Name = name;
+                    row.UpdatedAt = DateTimeOffset.UtcNow;
+                    db.SupplierAliases.Add(new SupplierAlias
+                    { SupplierId = row.Id, Alias = key, Source = "directory", Confirmed = true });
+                    await db.SaveChangesAsync(token);
+                    known.Remove(sameFirm[0]);
+                    known.Add((row.Id, row.Name));
+                    renamed++;
+                    continue;
+                }
+
+                var stub = Key(name);
+                var code = Free(stub.Length > 0 ? stub : "SUP", takenCodes);
+                takenCodes.Add(code);
+
+                var supplier = new Supplier
+                {
+                    Name = name,
+                    Code = code,
+                    Status = "approved",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                };
+                db.Suppliers.Add(supplier);
+                await db.SaveChangesAsync(token);
+
+                // Its own name is its first alias, so a job spelling the
+                // company out in full resolves without anybody adding anything.
                 db.SupplierAliases.Add(new SupplierAlias
-                { SupplierId = owner.SupplierId, Alias = alias, Source = "directory", Confirmed = true });
-                linked++;
+                { SupplierId = supplier.Id, Alias = key, Source = "directory", Confirmed = true });
+                await db.SaveChangesAsync(token);
+                known.Add((supplier.Id, supplier.Name));
+                added++;
             }
-            else if (held.SupplierId != owner.SupplierId)
+
+            foreach (var (shortForm, company) in aliases)
             {
-                held.SupplierId = owner.SupplierId;
-                held.Confirmed = true;
-                held.Source = "directory";
-                linked++;
+                var alias = shortForm.Trim().ToUpperInvariant();
+                var wanted = company.Trim().ToUpperInvariant();
+                if (alias.Length == 0 || wanted.Length == 0) continue;
+
+                var owner = await db.SupplierAliases.AsNoTracking()
+                    .FirstOrDefaultAsync(entry => entry.Alias == wanted, token);
+                if (owner is null)
+                {
+                    // Named a company that is not on the list. Reported rather
+                    // than created: a haulier invented by a typo in an alias
+                    // line is exactly the sort of row nobody later dares
+                    // delete.
+                    orphans.Add($"{shortForm.Trim()} → {company.Trim()}");
+                    continue;
+                }
+
+                var held = await db.SupplierAliases.FirstOrDefaultAsync(entry => entry.Alias == alias, token);
+                if (held is null)
+                {
+                    db.SupplierAliases.Add(new SupplierAlias
+                    { SupplierId = owner.SupplierId, Alias = alias, Source = "directory", Confirmed = true });
+                    linked++;
+                }
+                else if (held.SupplierId != owner.SupplierId)
+                {
+                    held.SupplierId = owner.SupplierId;
+                    held.Confirmed = true;
+                    held.Source = "directory";
+                    linked++;
+                }
             }
-        }
-        await db.SaveChangesAsync(token);
+            await db.SaveChangesAsync(token);
+
+            await work.CommitAsync(token);
+        });
 
         return new DirectoryResult(added, already, renamed, linked, orphans);
     }
@@ -475,5 +509,187 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
                 ? "บันทึกการประเมินแล้ว — ยังไม่มีข้อมูลพอให้คะแนน"
                 : $"ประเมิน {supplier.Name} รอบ {period}: {total} คะแนน (เกรด {grade})",
             id);
+    }
+
+    /// <summary>One haulier the register holds more than once.</summary>
+    /// <param name="Keep">The row with the history — the one to keep.</param>
+    /// <param name="Fold">The rows holding nothing, to go into it.</param>
+    public record DuplicateGroup(string Name, SupplierSide Keep, IReadOnlyList<SupplierSide> Fold);
+
+    /// <param name="Attached">
+    /// Everything hanging off this row. Jobs are not counted here: a job names
+    /// a haulier by spelling, not by id, so what a row really holds is its
+    /// aliases and its paperwork.
+    /// </param>
+    public record SupplierSide(int Id, string Code, string Name, int Aliases, int Attached);
+
+    /// <summary>The name with punctuation, spacing and the legal suffix off.</summary>
+    private static string NameStem(string name)
+    {
+        var text = System.Text.RegularExpressions.Regex.Replace(name,
+            @"\((Thailand|Thailnad)\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        text = System.Text.RegularExpressions.Regex.Replace(text,
+            @"(Co\.?,?\s*Ltd\.?|Company Limited|Limited Partnership|Ltd\.?,?\s*Partnership|Public Company Limited|Ltd\.?)\s*$",
+            "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return new(text.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+    }
+
+    /// <summary>
+    /// Companies the register lists twice, and which of the two has the history.
+    ///
+    /// Two rows are the same haulier when their names match once punctuation,
+    /// spacing and the legal suffix are off — SANGJA and "Sangja Transport
+    /// Co., Ltd." are one firm — so the comparison is on the stem, not the
+    /// string. The row that keeps its history wins: most aliases, then most
+    /// paperwork, then the oldest, because the oldest is what other things were
+    /// attached to first.
+    /// </summary>
+    public async Task<IReadOnlyList<DuplicateGroup>> DuplicatesAsync(CancellationToken token)
+    {
+        var rows = await db.Suppliers.AsNoTracking()
+            .Select(row => new { row.Id, row.Code, row.Name, row.CreatedAt })
+            .ToListAsync(token);
+
+        var aliasCount = (await db.SupplierAliases.AsNoTracking()
+            .GroupBy(alias => alias.SupplierId)
+            .Select(group => new { Id = group.Key, N = group.Count() })
+            .ToListAsync(token))
+            .ToDictionary(entry => entry.Id, entry => entry.N);
+
+        var attached = new Dictionary<int, int>();
+        async Task Tally<T>(IQueryable<T> set, System.Linq.Expressions.Expression<Func<T, int>> owner)
+            where T : class
+        {
+            var counted = await set.AsNoTracking().GroupBy(owner)
+                .Select(group => new { Id = group.Key, N = group.Count() })
+                .ToListAsync(token);
+            foreach (var entry in counted)
+                attached[entry.Id] = attached.TryGetValue(entry.Id, out var had) ? had + entry.N : entry.N;
+        }
+
+        await Tally(db.SupplierContacts, row => row.SupplierId);
+        await Tally(db.SupplierTrucks, row => row.SupplierId);
+        await Tally(db.SupplierDrivers, row => row.SupplierId);
+        await Tally(db.SupplierCapacities, row => row.SupplierId);
+        await Tally(db.SupplierEvaluations, row => row.SupplierId);
+        await Tally(db.RateLanes.Where(row => row.SupplierId != null), row => row.SupplierId!.Value);
+        await Tally(db.Documents.Where(row => row.SupplierId != null), row => row.SupplierId!.Value);
+
+        SupplierSide Side(int id, string code, string name) => new(
+            id, code, name,
+            aliasCount.TryGetValue(id, out var a) ? a : 0,
+            attached.TryGetValue(id, out var t) ? t : 0);
+
+        var groups = new List<DuplicateGroup>();
+        foreach (var group in rows.GroupBy(row => NameStem(row.Name)).Where(g => g.Key.Length > 0))
+        {
+            if (group.Count() < 2) continue;
+
+            var ordered = group
+                .OrderByDescending(row => aliasCount.TryGetValue(row.Id, out var a) ? a : 0)
+                .ThenByDescending(row => attached.TryGetValue(row.Id, out var t) ? t : 0)
+                .ThenBy(row => row.CreatedAt)
+                .ToList();
+
+            // The longest spelling is the official one, so the merged row takes
+            // it even when the history sits on the row still called "JTC".
+            var full = group.OrderByDescending(row => row.Name.Length).First().Name;
+
+            groups.Add(new DuplicateGroup(full,
+                Side(ordered[0].Id, ordered[0].Code, ordered[0].Name),
+                ordered.Skip(1).Select(row => Side(row.Id, row.Code, row.Name)).ToList()));
+        }
+
+        return groups.OrderBy(group => group.Name, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// Folds one row of the register into another and removes the emptied one.
+    ///
+    /// This is the only place a supplier row is ever removed, and it removes
+    /// one only after everything it held has been moved to the row that
+    /// survives: aliases, contacts, lorries, drivers, capacity, evaluations,
+    /// rate lanes and documents. What goes is an empty row, not a record —
+    /// nothing written about the haulier is lost, it simply all ends up in one
+    /// place.
+    ///
+    /// It exists because an import that failed halfway left rows behind, and
+    /// because two rows for one haulier is not a cosmetic problem: every figure
+    /// grouped by supplier counts them as two firms.
+    /// </summary>
+    public async Task<SupplierResult> MergeAsync(int keepId, int foldId, string by, CancellationToken token)
+    {
+        if (keepId == foldId) return new SupplierResult(false, "เป็นรายการเดียวกัน");
+
+        var keep = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == keepId, token);
+        var fold = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == foldId, token);
+        if (keep is null || fold is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
+
+        var moved = 0;
+        var clashes = 0;
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var work = await db.Database.BeginTransactionAsync(token);
+            moved = 0;
+            clashes = 0;
+
+            // An alias the surviving row already holds is dropped rather than
+            // moved: the column is unique, and two rows spelled the same way is
+            // the very thing being undone.
+            var held = await db.SupplierAliases.Where(row => row.SupplierId == keepId)
+                .Select(row => row.Alias).ToListAsync(token);
+            foreach (var alias in await db.SupplierAliases.Where(row => row.SupplierId == foldId).ToListAsync(token))
+            {
+                if (held.Contains(alias.Alias)) db.SupplierAliases.Remove(alias);
+                else { alias.SupplierId = keepId; moved++; }
+            }
+
+            foreach (var row in await db.SupplierContacts.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            { row.SupplierId = keepId; moved++; }
+            foreach (var row in await db.SupplierTrucks.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            { row.SupplierId = keepId; moved++; }
+            foreach (var row in await db.SupplierDrivers.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            { row.SupplierId = keepId; moved++; }
+            foreach (var row in await db.SupplierCapacities.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            { row.SupplierId = keepId; moved++; }
+            foreach (var row in await db.RateLanes.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            { row.SupplierId = keepId; moved++; }
+            foreach (var row in await db.Documents.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            { row.SupplierId = keepId; moved++; }
+
+            // One evaluation per supplier per period, so a period both rows
+            // were scored in keeps the surviving row's score and the other is
+            // left where it is. The row cannot then be removed, and the caller
+            // is told why rather than a score being quietly thrown away.
+            var periods = await db.SupplierEvaluations.Where(r => r.SupplierId == keepId)
+                .Select(r => r.Period).ToListAsync(token);
+            foreach (var row in await db.SupplierEvaluations.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            {
+                if (periods.Contains(row.Period)) { clashes++; continue; }
+                row.SupplierId = keepId;
+                moved++;
+            }
+
+            // The official spelling survives the merge even when the history
+            // sat on the row spelled short.
+            if (fold.Name.Length > keep.Name.Length) keep.Name = fold.Name;
+            keep.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(token);
+
+            if (clashes == 0)
+            {
+                db.Suppliers.Remove(fold);
+                await db.SaveChangesAsync(token);
+            }
+
+            await work.CommitAsync(token);
+        });
+
+        return new SupplierResult(true,
+            clashes > 0
+                ? $"ย้ายข้อมูล {moved} รายการมาที่ {keep.Name} แล้ว — แต่ยังลบ {fold.Code} ไม่ได้ เพราะมีผลประเมินรอบเดียวกันทั้งสองราย"
+                : $"รวม {fold.Code} เข้ากับ {keep.Name} แล้ว — ย้ายข้อมูล {moved} รายการ",
+            keepId);
     }
 }
