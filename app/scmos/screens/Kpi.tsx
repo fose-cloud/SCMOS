@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { css, STATUS_RE } from "../theme";
 import type { Period } from "../period";
+import type { Job } from "../ops";
+import { PeriodBar } from "../PeriodBar";
 
 /**
  * Operational KPI.
@@ -85,8 +87,18 @@ const DRILL: Record<string, { kpi?: string; status?: string }> = {
   Delay: { kpi: "Delay" },
 };
 
-export function Kpi({ period, onDrill, onOpenJobs }: {
+export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
   period: Period;
+  /**
+   * The picker on this screen, and the same one the dashboard carries.
+   *
+   * Every figure here is already computed for a period — the request has always
+   * sent year, month and day — but there was nothing on the screen to change it,
+   * so it only ever showed whatever period had last been chosen somewhere else.
+   */
+  onPeriod: (period: Period) => void;
+  /** The register, so the picker can only offer months that have work in them. */
+  allJobs: Job[];
   onDrill: (screen: string) => void;
   /** Opens the workspace on the jobs behind a figure. */
   onOpenJobs: (filter: { kpi?: string; trucker?: string; status?: string }) => void;
@@ -132,19 +144,38 @@ export function Kpi({ period, onDrill, onOpenJobs }: {
     return () => { cancelled = true; };
   }, [period]);
 
+  // Drawn above every state of this screen, including the two that return
+  // early. A period you cannot change while the figures are loading, or after
+  // they failed, is a period you are stuck with — and the usual reason a KPI
+  // request fails is that it was asked for a month nobody has data for.
+  const bar = (
+    <PeriodBar
+      allJobs={allJobs}
+      shown={report?.total ?? 0}
+      period={period}
+      onPeriod={onPeriod}
+    />
+  );
+
   if (error) {
     return (
-      <div style={css("background:#fff;border:1px solid #F3C9C4;border-left:3px solid #B42318;border-radius:5px;padding:20px 22px")}>
-        <div style={css("font-size:13.5px;font-weight:650;color:#B42318;margin-bottom:5px")}>คำนวณ KPI ไม่สำเร็จ</div>
-        <div style={css("font-size:12.5px;color:#5A6B7D")}>{error}</div>
+      <div style={css("display:flex;flex-direction:column;gap:14px")}>
+        {bar}
+        <div style={css("background:#fff;border:1px solid #F3C9C4;border-left:3px solid #B42318;border-radius:5px;padding:20px 22px")}>
+          <div style={css("font-size:13.5px;font-weight:650;color:#B42318;margin-bottom:5px")}>คำนวณ KPI ไม่สำเร็จ</div>
+          <div style={css("font-size:12.5px;color:#5A6B7D")}>{error}</div>
+        </div>
       </div>
     );
   }
 
   if (!report) {
     return (
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
-        กำลังคำนวณ KPI…
+      <div style={css("display:flex;flex-direction:column;gap:14px")}>
+        {bar}
+        <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
+          กำลังคำนวณ KPI…
+        </div>
       </div>
     );
   }
@@ -153,7 +184,11 @@ export function Kpi({ period, onDrill, onOpenJobs }: {
     .reduce((sum, s) => sum + s.value, 0);
 
   return (
-    <div style={css("display:flex;flex-direction:column;gap:14px;opacity:" + (loading ? ".55" : "1"))}>
+    <div style={css("display:flex;flex-direction:column;gap:14px")}>
+      {bar}
+      {/* The figures dim while a new period is being fetched; the picker does
+          not, because it is what somebody is using at that moment. */}
+      <div style={css("display:flex;flex-direction:column;gap:14px;opacity:" + (loading ? ".55" : "1"))}>
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:11px")}>
         <Tile label="งานทั้งหมด" value={report.total.toLocaleString()} note={`${report.byDay.length} วันปฏิบัติงาน`} colour="#0A2240" />
         <Tile
@@ -439,6 +474,7 @@ export function Kpi({ period, onDrill, onOpenJobs }: {
             ])}
           />
         </Panel>
+      </div>
       </div>
     </div>
   );

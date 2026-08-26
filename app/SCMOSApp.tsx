@@ -2222,6 +2222,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "kpi" && (
               <Kpi
                 period={period}
+                // The same period state the dashboard uses, so moving between
+                // the two screens keeps the month somebody chose.
+                onPeriod={setPeriod}
+                allJobs={ops?.jobs ?? []}
                 onDrill={(next) => setScreen(next as Screen)}
                 // Every figure on the KPI screen is a way into the jobs behind
                 // it. A rate you cannot open is a rate you cannot act on.
