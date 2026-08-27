@@ -9,6 +9,7 @@ import { parseIssueWorkbook } from "../issuesExcel";
 import type { Job } from "../ops";
 import { css } from "../theme";
 import { apiFetch } from "../api";
+import { useCarriers } from "../carriers";
 
 /**
  * What went wrong today, and which job it went wrong on.
@@ -125,6 +126,14 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<NewIssue>({ detail: "" });
+  /**
+   * The issue the form is editing, or null when it is raising a new one.
+   *
+   * One form for both. Every field of an issue is on it already, so a second
+   * editor would be the same twelve controls written twice — and the two would
+   * drift the first time a field was added to one of them.
+   */
+  const [editing, setEditing] = useState<Issue | null>(null);
   const file = useRef<HTMLInputElement>(null);
 
   /**
@@ -206,15 +215,44 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
     void load();
   }
 
+  /** Opens one issue in the form, every field of it. */
+  function edit(issue: Issue) {
+    setEditing(issue);
+    setDraft({
+      foundOn: issue.foundOn, foundAt: issue.foundAt, source: issue.source,
+      reporter: issue.reporter, jobRef: issue.jobRef, detail: issue.detail,
+      category: issue.category, severity: issue.severity, impact: issue.impact,
+      channel: issue.channel, owner: issue.owner, dueOn: issue.dueOn,
+      status: issue.status, rootCause: issue.rootCause,
+      driver: issue.driver, containerNo: issue.containerNo, licence: issue.licence,
+      accidentGrade: issue.accidentGrade, scorecardColumn: issue.scorecardColumn,
+    });
+    setAdding(true);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function stopEditing() {
+    setEditing(null);
+    setAdding(false);
+    setDraft({ detail: "" });
+  }
+
   async function save() {
     if (!draft.detail.trim()) { onToast("ต้องกรอกรายละเอียดปัญหา"); return; }
     setBusy(true);
-    const result = await raiseIssue(draft);
+
+    // Editing sends the whole draft rather than working out what moved. The
+    // API takes each field as it comes and ignores what it does not own, so a
+    // field set back to its own value costs one comparison and nothing else —
+    // and "what changed" is one more thing to get wrong.
+    const result = editing
+      ? await updateIssue(editing.id, draft as Record<string, string>)
+      : await raiseIssue(draft);
+
     setBusy(false);
     if (!result.ok) { onToast("บันทึกไม่สำเร็จ — " + result.message); return; }
     onToast(result.message || "บันทึกแล้ว");
-    setAdding(false);
-    setDraft({ detail: "" });
+    stopEditing();
     void load();
   }
 
@@ -284,8 +322,10 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
       </div>
 
       {adding && form && (
-        <AddIssue form={form} jobs={jobs} draft={draft} onField={(k, v) =>
-          setDraft((prev) => ({ ...prev, [k]: v }))} onSave={save} busy={busy} />
+        <AddIssue form={form} jobs={jobs} draft={draft} editingCode={editing?.code ?? ""}
+          onCancel={stopEditing}
+          onField={(k, v) => setDraft((prev) => ({ ...prev, [k]: v }))}
+          onSave={save} busy={busy} />
       )}
 
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden")}>
@@ -325,7 +365,16 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
               <tbody>
                 {rows.map((issue) => (
                   <tr key={issue.id} className="row-hover">
-                    <td style={css(TD + ";font-family:'IBM Plex Mono',monospace;white-space:nowrap")}>{issue.code}</td>
+                    {/* The code opens the row in the form above, every field
+                        of it. No extra column: the code is the row's name and
+                        clicking a row's name to open it is what people try. */}
+                    <td style={css(TD + ";font-family:'IBM Plex Mono',monospace;white-space:nowrap")}>
+                      <button onClick={() => edit(issue)} disabled={busy}
+                        title="แก้ไขรายการนี้"
+                        style={css("border:none;background:none;padding:0;font-family:inherit;font-size:12.5px;color:#0A5FA8;font-weight:600;cursor:pointer;text-decoration:underline")}>
+                        {issue.code}
+                      </button>
+                    </td>
                     <td style={css(TD + ";white-space:nowrap")}>
                       {issue.foundOn || "—"}
                       {issue.foundAt && <span style={css("color:#94A3B8")}> {issue.foundAt}</span>}
@@ -469,10 +518,13 @@ function JobLink({ issue }: { issue: Issue }) {
   );
 }
 
-function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
+function AddIssue({ form, jobs, draft, editingCode, onCancel, onField, onSave, busy }: {
   form: IssueForm;
   jobs: Job[];
   draft: NewIssue;
+  /** The code being edited, or empty when raising a new issue. */
+  editingCode: string;
+  onCancel: () => void;
   onField: (key: string, value: string) => void;
   onSave: () => void;
   busy: boolean;
@@ -490,6 +542,10 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
    * haulier's mark, and a rule written twice in this codebase has drifted every
    * single time — so the form shows the API's answer, not its own opinion of it.
    */
+  // The haulage companies the register holds, so this form and the workspace
+  // offer one list of names rather than two.
+  const carriers = useCarriers();
+
   const [derived, setDerived] = useState("");
   const category = draft.category ?? "";
   const source = draft.source ?? "";
@@ -519,7 +575,13 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
   }, [jobs]);
 
   return (
-    <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:15px 16px;display:flex;flex-direction:column;gap:12px")}>
+    <div style={css("background:#fff;border:1px solid " + (editingCode ? "#BBD5EE" : "#E3E8EE")
+      + ";border-radius:6px;padding:15px 16px;display:flex;flex-direction:column;gap:12px")}>
+      {editingCode && (
+        <div style={css("font-size:12.5px;font-weight:600;color:#0A2240;background:#F2F7FC;border:1px solid #BBD5EE;border-radius:4px;padding:8px 11px")}>
+          กำลังแก้ไข {editingCode} — แก้ได้ทุกช่อง
+        </div>
+      )}
       <div style={css("display:flex;gap:12px;flex-wrap:wrap")}>
         <Field label="วันที่พบ (วว/ดด/ปปปป)" width="150px">
           <input value={draft.foundOn ?? ""} onChange={(e) => onField("foundOn", e.target.value)}
@@ -532,8 +594,23 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
         <Field label="แหล่งปัญหา" width="170px">
           <Select value={draft.source ?? ""} onChange={(v) => onField("source", v)} options={form.sources} />
         </Field>
-        <Field label="ผู้แจ้ง / บริษัทขนส่ง" width="190px">
-          <input value={draft.reporter ?? ""} onChange={(e) => onField("reporter", e.target.value)} style={INPUT} />
+        {/*
+          The haulage companies come from the subcontractor register, the same
+          list the workspace's TRUCK column is answered from.
+
+          A list to choose from rather than a fixed one, because this field is
+          "who reported it OR which haulier" — often a person's name, and a
+          dropdown that refuses one would be worse than the free text it
+          replaced. What it stops is a fifth spelling of a company that is
+          already on the register.
+        */}
+        <Field label="ผู้แจ้ง / บริษัทขนส่ง" width="230px">
+          <input value={draft.reporter ?? ""} list="scmos-issue-carriers"
+            onChange={(e) => onField("reporter", e.target.value)} style={INPUT}
+            placeholder={carriers.ready ? "เลือกบริษัทขนส่ง หรือพิมพ์ชื่อผู้แจ้ง" : ""} />
+          <datalist id="scmos-issue-carriers">
+            {carriers.names.map((name) => <option key={name} value={name} />)}
+          </datalist>
         </Field>
         <Field label="เลขงาน / Shipment Ref." width="220px">
           <input list="scmos-issue-refs" value={draft.jobRef ?? ""}
@@ -631,10 +708,15 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
 
       <div style={css("display:flex;gap:10px;align-items:center")}>
         <button onClick={onSave} disabled={busy || !draft.detail.trim()} style={BTN_PRIMARY}>
-          {busy ? "กำลังบันทึก…" : "บันทึกปัญหา"}
+          {busy ? "กำลังบันทึก…" : editingCode ? `บันทึกการแก้ไข ${editingCode}` : "บันทึกปัญหา"}
         </button>
+        {editingCode && (
+          <button onClick={onCancel} disabled={busy} style={BTN_SECONDARY}>ยกเลิก</button>
+        )}
         <span style={css("font-size:11.5px;color:#7B8CA0")}>
-          รหัสปัญหาออกให้อัตโนมัติต่อจากเลขล่าสุด · ไม่ระบุผู้รับผิดชอบจะถือว่าเป็นของผู้บันทึก
+          {editingCode
+            ? "แก้ได้ทุกช่อง · เปลี่ยนเลขงานแล้วระบบจะจับคู่กับทะเบียนงานให้ใหม่"
+            : "รหัสปัญหาออกให้อัตโนมัติต่อจากเลขล่าสุด · ไม่ระบุผู้รับผิดชอบจะถือว่าเป็นของผู้บันทึก"}
         </span>
       </div>
     </div>
