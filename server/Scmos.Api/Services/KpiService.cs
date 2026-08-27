@@ -42,7 +42,7 @@ public record KpiReport(
 /// Every count comes from the same rules the workspace colours a row by, so a
 /// job the grid calls "action required" is a job this counts as action required.
 /// </summary>
-public class KpiService(JobRegisterCache register)
+public class KpiService(JobRegisterCache register, CarrierDirectory carriers)
 {
     public async Task<KpiReport> BuildAsync(Period period, CancellationToken token)
     {
@@ -60,6 +60,7 @@ public class KpiService(JobRegisterCache register)
         // the same way — that difference is the entire reason the data standard
         // exists — so correctness wins over pushing the work down.
         var snapshot = await register.ReadAsync(token);
+        var directory = await carriers.ReadAsync(token);
 
         var jobs = new List<JobRecord>(snapshot.Rows.Count);
         foreach (var row in snapshot.Rows)
@@ -96,9 +97,12 @@ public class KpiService(JobRegisterCache register)
             .OrderByDescending(entry => entry.Total)
             .ToList();
 
-        var carriers = jobs
+        // Grouped by company, not by spelling. SJ's jobs and SANGJA's jobs are
+        // one carrier's load once the register says the two spellings mean one
+        // firm, and this panel sat beside a scorecard that already knew it.
+        var carrierLoads = jobs
             .Where(job => Formats.Clean(job.Trucker).Length > 0)
-            .GroupBy(job => job.Trucker.Trim().ToUpperInvariant())
+            .GroupBy(job => directory.Company(job.Trucker), StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
                 var measured = group.Count(JobRules.IsMeasurable);
@@ -125,7 +129,7 @@ public class KpiService(JobRegisterCache register)
             jobs.Count(JobRules.GateInRisk),
             jobs.Count(job => Formats.DateNumber(job.Date) == 0),
             team,
-            carriers,
+            carrierLoads,
             byDay,
             period,
             DateTimeOffset.UtcNow.ToString("O"));

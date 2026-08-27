@@ -43,6 +43,7 @@ builder.Services.AddDbContext<ScmosDbContext>(options =>
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<JobRegisterCache>();
 builder.Services.AddScoped<JobsRepository>();
+builder.Services.AddScoped<CarrierDirectory>();
 builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<KpiService>();
 builder.Services.AddScoped<KpiEngine>();

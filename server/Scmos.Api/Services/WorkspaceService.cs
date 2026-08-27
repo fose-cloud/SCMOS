@@ -18,7 +18,7 @@ namespace Scmos.Api.Services;
 /// come from the same pass as the rows, so the strip cannot promise a number
 /// the grid then fails to show.
 /// </summary>
-public class WorkspaceService(JobRegisterCache register)
+public class WorkspaceService(JobRegisterCache register, CarrierDirectory carriers)
 {
     /// <param name="Assignee">
     /// "My Work", an operator's display name, or ALL. Ignored on the MY JOBS
@@ -50,6 +50,7 @@ public class WorkspaceService(JobRegisterCache register)
     public async Task<Page> ReadAsync(Query query, CancellationToken token)
     {
         var snapshot = await register.ReadAsync(token);
+        var directory = await carriers.ReadAsync(token);
         var updatedAt = snapshot.UpdatedAt;
 
         // One "today" for the whole answer. Reading the clock per job would let
@@ -84,7 +85,10 @@ public class WorkspaceService(JobRegisterCache register)
             .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
             .Where(job => MatchesAssignee(job, query))
             .Where(job => Is(job.Customer, query.Customer))
-            .Where(job => Is(job.Trucker, query.Trucker))
+            // Through the register: choosing "Sangja Transport Co., Ltd."
+            // finds the jobs written SJ and SANGJA as well, which is the whole
+            // reason the spellings were reconciled.
+            .Where(job => NotSet(query.Trucker) || directory.Same(job.Trucker, query.Trucker))
             .Where(job => Is(job.Type, query.Type))
             .Where(job => Is(job.Status, query.Status))
             .Where(job => MatchesKpi(job, query))

@@ -87,7 +87,7 @@ public record KpiEngineReport(
 /// that would answer a measure do not exist yet, the measure says so and names
 /// what it needs.
 /// </summary>
-public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCache cache,
+public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDirectory carriers, IMemoryCache cache,
     IOptions<PreRunOptions> preRun)
 {
     private readonly int _sla = preRun.Value.SlaMinutes > 0 ? preRun.Value.SlaMinutes : PreRun.DefaultSlaMinutes;
@@ -112,7 +112,14 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
     public async Task<KpiEngineReport> BuildAsync(Period period, CancellationToken token)
     {
         var snapshot = await register.ReadAsync(token);
-        var key = CacheKey(period, snapshot.UpdatedAt);
+
+        // The register says which company each spelling on a job means. Every
+        // figure below is grouped by haulier, so merging two rows of the
+        // register changes all of them — its stamp belongs in the key, or a
+        // report cached against the jobs alone would go on showing one company
+        // as two until a job happened to change.
+        var directory = await carriers.ReadAsync(token);
+        var key = CacheKey(period, snapshot.UpdatedAt) + "|" + directory.Stamp;
         if (cache.TryGetValue(key, out KpiEngineReport? ready) && ready is not null) return ready;
 
         var rows = snapshot.Rows;
@@ -122,7 +129,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, IMemoryCach
         {
             var record = row.Record;
             if (record is null || !InPeriod(record, period)) continue;
-            jobs.Add((row.Key, row.Trucker.Trim().ToUpperInvariant(), record));
+            jobs.Add((row.Key, directory.Company(row.Trucker), record));
         }
 
         var keys = jobs.Select(job => job.Key).ToHashSet();

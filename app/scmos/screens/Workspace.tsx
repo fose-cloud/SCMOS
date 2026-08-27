@@ -573,6 +573,28 @@ export function Workspace(p: Props) {
     return Object.keys(m).sort((a, b) => m[b] - m[a]).slice(0, n);
   };
 
+  /**
+   * The hauliers to offer as chips, named as the register names them.
+   *
+   * Counted by company rather than by spelling, so SJ's jobs and SANGJA's jobs
+   * make one chip carrying both — which is the difference between a filter that
+   * finds a carrier's work and one that finds the third of it somebody happened
+   * to spell that way. Busiest first, because that is the order somebody
+   * reaches for. A haulier the register has never heard of keeps its own chip
+   * under whatever the job says: it is real work, and hiding it until the
+   * paperwork catches up would be the wrong way round.
+   */
+  const carrierChips = (n: number) => {
+    const m: Record<string, number> = {};
+    base.forEach((j) => {
+      const name = j.trucker && carriers.ready
+        ? (carriers.companyOf(j.trucker) ?? j.trucker)
+        : j.trucker;
+      if (name) m[name] = (m[name] || 0) + 1;
+    });
+    return Object.keys(m).sort((a, b) => m[b] - m[a] || a.localeCompare(b)).slice(0, n);
+  };
+
   // ---- row filtering ----------------------------------------------------
   let list = base.slice();
   const tabRule = WORKSPACE_TABS[ws.tab];
@@ -583,7 +605,15 @@ export function Workspace(p: Props) {
     else if (M.operators.indexOf(ws.assignee) >= 0) list = list.filter((j) => j.op === ws.assignee);
   }
   if (ws.cust !== "ALL") list = list.filter((j) => j.customer === ws.cust);
-  if (ws.trucker !== "ALL") list = list.filter((j) => j.trucker === ws.trucker);
+  if (ws.trucker !== "ALL") {
+    // Both sides through the register, so picking a company finds every
+    // spelling of it — the same reckoning the API uses for the same filter.
+    const wanted = carriers.ready ? (carriers.companyOf(ws.trucker) ?? ws.trucker) : ws.trucker;
+    list = list.filter((j) => {
+      const mine = carriers.ready ? (carriers.companyOf(j.trucker) ?? j.trucker) : j.trucker;
+      return mine === wanted;
+    });
+  }
   if (ws.type !== "ALL") list = list.filter((j) => j.type === ws.type);
   if (ws.status !== "ALL") list = list.filter((j) => j.status === ws.status);
   if (ws.date !== "ALL" && anchor) list = list.filter((j) => j.date === anchor);
@@ -1827,7 +1857,7 @@ export function Workspace(p: Props) {
 
             <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
               <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TRUCKER</span>
-              {["ALL"].concat(topOf("trucker", 12)).map((c) => (
+              {["ALL"].concat(carrierChips(12)).map((c) => (
                 <button key={c} onClick={() => p.set({ trucker: c, page: 1 })} style={css(chipStyle(ws.trucker === c, "#16794C", "#E3F4EB"))}>{c}</button>
               ))}
             </div>
