@@ -105,9 +105,51 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     /// the register, the next read produces a different timestamp, and this
     /// recomputes. Two callers asking for the same period over the same
     /// register get the same answer without computing it twice.
+    ///
+    /// The register is not the only thing it is read from, and that was a bug.
+    /// Somebody graded an accident in Operational Issues, came back to the
+    /// scorecard, and saw the old figures — because nothing about the issues
+    /// was in this key and the report is held for an hour. Everything the
+    /// report reads has to be able to invalidate it, so the caller adds a stamp
+    /// for the rest.
     /// </summary>
     private static string CacheKey(Period period, DateTimeOffset updatedAt) =>
-        $"kpi-report-v1|{period}|{updatedAt.UtcTicks}";
+        $"kpi-report-v2|{period}|{updatedAt.UtcTicks}";
+
+    /// <summary>
+    /// A stamp that moves whenever anything the report reads besides the
+    /// register does.
+    ///
+    /// A count and a latest-touched time per table. Both halves are needed: the
+    /// time alone misses a deletion, the count alone misses an edit. These are
+    /// aggregates over indexed columns and cost almost nothing — the cache
+    /// exists to avoid judging thirty thousand jobs against eight measures, not
+    /// to avoid four cheap reads.
+    /// </summary>
+    private async Task<string> InputsStampAsync(CancellationToken token)
+    {
+        async Task<string> Of<T>(IQueryable<T> set, System.Linq.Expressions.Expression<Func<T, DateTimeOffset>> touched)
+            where T : class
+        {
+            var rows = set.AsNoTracking();
+            var count = await rows.CountAsync(token);
+            if (count == 0) return "0";
+            var last = await rows.MaxAsync(touched, token);
+            return $"{count}.{last.UtcTicks}";
+        }
+
+        // Each table stamped by the newest time it actually records. A delay is
+        // stamped when it was detected and a pre-run when it went out; neither
+        // keeps an edited-at, so a later correction to one of those will not
+        // show until the register or the issues move. Said plainly rather than
+        // left to be discovered: the two that carry the scorecard — the issues
+        // and the cases — do keep one, and those are the ones being edited.
+        var issues = await Of(db.OperationalIssues, row => row.UpdatedAt);
+        var cases = await Of(db.IncidentCases, row => row.UpdatedAt);
+        var delays = await Of(db.DelayRecords, row => row.DetectedAt);
+        var preRuns = await Of(db.PreRunChecks, row => row.SentAt);
+        return $"{issues}|{cases}|{delays}|{preRuns}";
+    }
 
     public async Task<KpiEngineReport> BuildAsync(Period period, CancellationToken token)
     {
@@ -119,7 +161,9 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         // report cached against the jobs alone would go on showing one company
         // as two until a job happened to change.
         var directory = await carriers.ReadAsync(token);
-        var key = CacheKey(period, snapshot.UpdatedAt) + "|" + directory.Stamp;
+        var key = CacheKey(period, snapshot.UpdatedAt)
+            + "|" + directory.Stamp
+            + "|" + await InputsStampAsync(token);
         if (cache.TryGetValue(key, out KpiEngineReport? ready) && ready is not null) return ready;
 
         var rows = snapshot.Rows;
