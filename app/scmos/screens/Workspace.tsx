@@ -1236,6 +1236,185 @@ export function Workspace(p: Props) {
    * gets it — IMPORT and EXPORT are two tables of one selection, and a second
    * copy would be two controls fighting over one value.
    */
+  /**
+   * Everything that steers the grid, in the grid's own header.
+   *
+   * Tabs, categories, the count, what is narrowing it, whether saving is
+   * working, and the four filters. It used to be a band above the table and
+   * before that five separate panels; the table's header row had a title and
+   * a lot of white space, and this fits in it.
+   *
+   * Written once now. It has been carried as two identical copies since it
+   * was first portalled into the page header — one for the portal and one for
+   * the fallback — and two copies of markup this size is one edit away from
+   * two different bars.
+   */
+  const controlBar = (
+  <>
+            {/*
+              One bar, where five panels used to be.
+  
+              What is on it earns its place: which category you are in and how many
+              that is, how much of it you are looking at and what is narrowing it,
+              whether your typing is actually being saved, and the way to open
+              everything else. The greeting that used to head this panel is gone —
+              the name is already in the corner of every screen, and it cost a
+              full-width band above the work.
+            */}
+            <div style={css("display:flex;align-items:center;gap:10px;padding:9px 13px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
+              {/*
+                The tabs, on the bar rather than on a white strip of their own.
+  
+                Three of them and a metre of empty space beside them was a row
+                the job rows were not getting, and this is where they were asked
+                to be — with the category buttons and the filters, one block.
+              */}
+              <div style={css("display:flex;align-items:center;gap:4px")}>
+                {p.tabs.map((t) => (
+                  <button key={t.label} onClick={t.go}
+                    style={css("height:28px;padding:0 13px;border:1px solid "
+                      + (t.active ? "#4E9BE8" : "transparent") + ";background:"
+                      + (t.active ? "#16406E" : "transparent")
+                      + ";color:" + (t.active ? "#fff" : "#9FD0FF")
+                      + ";border-radius:4px;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
+                      + (t.active ? "600" : "400"))}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+  
+              <span style={css("width:1px;height:20px;background:#24476E")} />
+  
+              <div style={css("display:flex;align-items:center;gap:6px")}>
+                {(p.lockedCat ? [] : CATEGORIES).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => p.set({ cat: c, page: 1 })}
+                    style={css(
+                      "display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border:1px solid " +
+                      (ws.cat === c ? "#4E9BE8" : "#24476E") + ";background:" + (ws.cat === c ? "#16406E" : "transparent") +
+                      ";color:#fff;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:.05em",
+                    )}
+                  >
+                    {c}
+                    <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:" + (ws.cat === c ? "#9FD0FF" : "#7FA5CC"))}>
+                      {complete
+                        ? inCat(c).length
+                        : c === "ALL" ? serverTotal : server?.[c]?.total ?? "…"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+  
+              <span style={css("width:1px;height:20px;background:#24476E")} />
+  
+              {/* How much of it is on screen, and what is keeping the rest off. */}
+              <span style={css("font-size:12.5px;font-weight:600;color:#fff;font-family:'IBM Plex Mono',monospace")}>
+                {complete ? list.length : serverTotal}
+              </span>
+              <span style={css("font-size:11.5px;color:#7FA5CC")}>
+                จาก {complete ? all.length : serverTotal} งาน
+              </span>
+  
+              {activeFilters.map(([label, value, clear]) => (
+                <button
+                  key={label + value}
+                  onClick={clear}
+                  title={"เอา " + label + " ออก"}
+                  style={css("height:23px;padding:0 8px;border:1px solid #24476E;background:#0E2B4F;color:#DCEBFB;border-radius:12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px")}
+                >
+                  <span style={css("color:#7FA5CC")}>{label}:</span>
+                  <span style={css("font-weight:600")}>{value}</span>
+                  <span style={css("color:#7FA5CC")}>✕</span>
+                </button>
+              ))}
+  
+              {activeFilters.length > 1 && (
+                <button onClick={clearAll} style={css("height:23px;padding:0 10px;border:1px solid #24476E;background:transparent;color:#9FD0FF;border-radius:12px;font-size:11px;cursor:pointer")}>
+                  ล้างทั้งหมด
+                </button>
+              )}
+  
+              <span style={css("flex:1;min-width:8px")} />
+  
+              {/* Whether what you type is actually being kept. */}
+              <span
+                title={p.sync.message}
+                style={css(
+                  "display:flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:13px;font-size:11px;border:1px solid " +
+                  (p.sync.state === "error" ? "#7A2F2A" : p.sync.state === "off" ? "#7A5A2A" : "#24476E") +
+                  ";background:" + (p.sync.state === "error" ? "#3A1E1C" : p.sync.state === "off" ? "#3A2E18" : "#0E2B4F") +
+                  ";color:" + (p.sync.state === "error" ? "#FF9C8F" : p.sync.state === "off" ? "#FFC978" : "#9FD0FF"),
+                )}
+              >
+                <span style={css("width:7px;height:7px;border-radius:50%;background:" +
+                  (p.sync.state === "error" ? "#FF6B5B" : p.sync.state === "off" ? "#FFC978"
+                    : p.sync.state === "saving" || p.sync.state === "waking" || p.sync.state === "stale"
+                      ? "#9FD0FF" : "#3CB371"))} />
+                {p.sync.state === "stale" ? "แสดงข้อมูลที่บันทึกไว้ครั้งก่อน · กำลังดึงข้อมูลล่าสุด"
+                  : p.sync.state === "waking" ? "กำลังปลุกฐานข้อมูล… รอสักครู่ อย่าเพิ่งคีย์งาน"
+                  : p.sync.state === "saving" ? "กำลังบันทึกลงฐานข้อมูล…"
+                  : p.sync.state === "error" ? "บันทึกไม่สำเร็จ — กดแก้ซ้ำอีกครั้ง"
+                    : p.sync.state === "off" ? "ยังไม่ได้ต่อฐานข้อมูล — รีเฟรชหน้าเพื่อลองใหม่ · งานที่คีย์ไว้ตอนนี้จะหาย"
+                      : p.sync.at ? "บันทึกลงฐานข้อมูลแล้ว " + p.sync.at
+                        : "ต่อฐานข้อมูลแล้ว"}
+              </span>
+              {complete && (
+                <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
+                  {(isMyJob
+                    ? ([] as [keyof PanelPrefs, string][])
+                    : ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
+                        ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
+                  ).map(([key, label]) => (
+                    <button key={key} onClick={panel(key)}
+                      style={css("height:26px;padding:0 10px;border:1px solid "
+                        + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
+                        + (p.panels[key] ? "#16406E" : "transparent")
+                        + ";color:#DCEBFB;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit")}>
+                      {p.panels[key] ? "▾" : "▸"} {label}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+            <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 13px;background:#0E2B4F;border:1px solid #24476E;border-radius:5px")}>
+              <FilterPick label="ASSIGNED" value={ws.assignee}
+                options={["All Team", "My Work"].concat(M.operators)}
+                onPick={(v) => p.set({ assignee: v, page: 1 })} />
+              {/*
+                Every value, not the busiest eleven.
+  
+                These were rows of chips capped at eleven or twelve, which meant a
+                customer or a haulier outside the top of the list could not be
+                chosen from this screen at all — you had to know to type it in the
+                search box. A dropdown carries the lot and costs one line instead
+                of four.
+              */}
+              <FilterPick label="CUSTOMER" value={ws.cust}
+                options={["ALL"].concat(allOf("customer"))}
+                onPick={(v) => p.set({ cust: v, page: 1 })} />
+              <FilterPick label="TRUCKER" value={ws.trucker}
+                options={["ALL"].concat(carrierChips(999))}
+                onPick={(v) => p.set({ trucker: v, page: 1 })} />
+              <FilterPick label="TYPE" value={ws.type}
+                options={["ALL"].concat(allOf("type"))}
+                onPick={(v) => p.set({ type: v, page: 1 })} />
+  
+              <span style={css("flex:1;min-width:6px")} />
+              <span style={css("display:flex;align-items:center;gap:12px")}>
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#9FD0FF")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
+                  MY JOB — editable
+                </span>
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#7FA5CC")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
+                  TEAM JOB — view only
+                </span>
+              </span>
+            </div>
+  </>
+  );
+
   // ปี → เดือน → วัน, the same period model the dashboard reports on.
   const periodControls = (
       <div style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%")}>
@@ -1624,345 +1803,6 @@ export function Workspace(p: Props) {
         </div>
       )}
 
-      {/*
-        The bar goes up beside the title and the tabs, not at the top of the
-        body.
-
-        Through a portal rather than by moving the markup, because every
-        number and every toggle on it is read from this screen's own state —
-        lifting the bar into the header would mean lifting all of that with
-        it. The DOM belongs up there; the state belongs here.
-
-        Until the slot exists — the first render, and server rendering, where
-        there is no document at all — the bar draws where it always did, so
-        nothing disappears while React catches up.
-      */}
-      {slot ? createPortal(
-        <>
-          {/*
-            One bar, where five panels used to be.
-
-            What is on it earns its place: which category you are in and how many
-            that is, how much of it you are looking at and what is narrowing it,
-            whether your typing is actually being saved, and the way to open
-            everything else. The greeting that used to head this panel is gone —
-            the name is already in the corner of every screen, and it cost a
-            full-width band above the work.
-          */}
-          <div style={css("display:flex;align-items:center;gap:10px;padding:9px 13px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
-            {/*
-              The tabs, on the bar rather than on a white strip of their own.
-
-              Three of them and a metre of empty space beside them was a row
-              the job rows were not getting, and this is where they were asked
-              to be — with the category buttons and the filters, one block.
-            */}
-            <div style={css("display:flex;align-items:center;gap:4px")}>
-              {p.tabs.map((t) => (
-                <button key={t.label} onClick={t.go}
-                  style={css("height:28px;padding:0 13px;border:1px solid "
-                    + (t.active ? "#4E9BE8" : "transparent") + ";background:"
-                    + (t.active ? "#16406E" : "transparent")
-                    + ";color:" + (t.active ? "#fff" : "#9FD0FF")
-                    + ";border-radius:4px;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
-                    + (t.active ? "600" : "400"))}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            <span style={css("width:1px;height:20px;background:#24476E")} />
-
-            <div style={css("display:flex;align-items:center;gap:6px")}>
-              {(p.lockedCat ? [] : CATEGORIES).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => p.set({ cat: c, page: 1 })}
-                  style={css(
-                    "display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border:1px solid " +
-                    (ws.cat === c ? "#4E9BE8" : "#24476E") + ";background:" + (ws.cat === c ? "#16406E" : "transparent") +
-                    ";color:#fff;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:.05em",
-                  )}
-                >
-                  {c}
-                  <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:" + (ws.cat === c ? "#9FD0FF" : "#7FA5CC"))}>
-                    {complete
-                      ? inCat(c).length
-                      : c === "ALL" ? serverTotal : server?.[c]?.total ?? "…"}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <span style={css("width:1px;height:20px;background:#24476E")} />
-
-            {/* How much of it is on screen, and what is keeping the rest off. */}
-            <span style={css("font-size:12.5px;font-weight:600;color:#fff;font-family:'IBM Plex Mono',monospace")}>
-              {complete ? list.length : serverTotal}
-            </span>
-            <span style={css("font-size:11.5px;color:#7FA5CC")}>
-              จาก {complete ? all.length : serverTotal} งาน
-            </span>
-
-            {activeFilters.map(([label, value, clear]) => (
-              <button
-                key={label + value}
-                onClick={clear}
-                title={"เอา " + label + " ออก"}
-                style={css("height:23px;padding:0 8px;border:1px solid #24476E;background:#0E2B4F;color:#DCEBFB;border-radius:12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px")}
-              >
-                <span style={css("color:#7FA5CC")}>{label}:</span>
-                <span style={css("font-weight:600")}>{value}</span>
-                <span style={css("color:#7FA5CC")}>✕</span>
-              </button>
-            ))}
-
-            {activeFilters.length > 1 && (
-              <button onClick={clearAll} style={css("height:23px;padding:0 10px;border:1px solid #24476E;background:transparent;color:#9FD0FF;border-radius:12px;font-size:11px;cursor:pointer")}>
-                ล้างทั้งหมด
-              </button>
-            )}
-
-            <span style={css("flex:1;min-width:8px")} />
-
-            {/* Whether what you type is actually being kept. */}
-            <span
-              title={p.sync.message}
-              style={css(
-                "display:flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:13px;font-size:11px;border:1px solid " +
-                (p.sync.state === "error" ? "#7A2F2A" : p.sync.state === "off" ? "#7A5A2A" : "#24476E") +
-                ";background:" + (p.sync.state === "error" ? "#3A1E1C" : p.sync.state === "off" ? "#3A2E18" : "#0E2B4F") +
-                ";color:" + (p.sync.state === "error" ? "#FF9C8F" : p.sync.state === "off" ? "#FFC978" : "#9FD0FF"),
-              )}
-            >
-              <span style={css("width:7px;height:7px;border-radius:50%;background:" +
-                (p.sync.state === "error" ? "#FF6B5B" : p.sync.state === "off" ? "#FFC978"
-                  : p.sync.state === "saving" || p.sync.state === "waking" || p.sync.state === "stale"
-                    ? "#9FD0FF" : "#3CB371"))} />
-              {p.sync.state === "stale" ? "แสดงข้อมูลที่บันทึกไว้ครั้งก่อน · กำลังดึงข้อมูลล่าสุด"
-                : p.sync.state === "waking" ? "กำลังปลุกฐานข้อมูล… รอสักครู่ อย่าเพิ่งคีย์งาน"
-                : p.sync.state === "saving" ? "กำลังบันทึกลงฐานข้อมูล…"
-                : p.sync.state === "error" ? "บันทึกไม่สำเร็จ — กดแก้ซ้ำอีกครั้ง"
-                  : p.sync.state === "off" ? "ยังไม่ได้ต่อฐานข้อมูล — รีเฟรชหน้าเพื่อลองใหม่ · งานที่คีย์ไว้ตอนนี้จะหาย"
-                    : p.sync.at ? "บันทึกลงฐานข้อมูลแล้ว " + p.sync.at
-                      : "ต่อฐานข้อมูลแล้ว"}
-            </span>
-            {complete && (
-              <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
-                {(isMyJob
-                  ? ([] as [keyof PanelPrefs, string][])
-                  : ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
-                      ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
-                ).map(([key, label]) => (
-                  <button key={key} onClick={panel(key)}
-                    style={css("height:26px;padding:0 10px;border:1px solid "
-                      + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
-                      + (p.panels[key] ? "#16406E" : "transparent")
-                      + ";color:#DCEBFB;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit")}>
-                    {p.panels[key] ? "▾" : "▸"} {label}
-                  </button>
-                ))}
-              </span>
-            )}
-          </div>
-          <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 13px;background:#0E2B4F;border:1px solid #24476E;border-radius:5px")}>
-            <FilterPick label="ASSIGNED" value={ws.assignee}
-              options={["All Team", "My Work"].concat(M.operators)}
-              onPick={(v) => p.set({ assignee: v, page: 1 })} />
-            {/*
-              Every value, not the busiest eleven.
-
-              These were rows of chips capped at eleven or twelve, which meant a
-              customer or a haulier outside the top of the list could not be
-              chosen from this screen at all — you had to know to type it in the
-              search box. A dropdown carries the lot and costs one line instead
-              of four.
-            */}
-            <FilterPick label="CUSTOMER" value={ws.cust}
-              options={["ALL"].concat(allOf("customer"))}
-              onPick={(v) => p.set({ cust: v, page: 1 })} />
-            <FilterPick label="TRUCKER" value={ws.trucker}
-              options={["ALL"].concat(carrierChips(999))}
-              onPick={(v) => p.set({ trucker: v, page: 1 })} />
-            <FilterPick label="TYPE" value={ws.type}
-              options={["ALL"].concat(allOf("type"))}
-              onPick={(v) => p.set({ type: v, page: 1 })} />
-
-            <span style={css("flex:1;min-width:6px")} />
-            <span style={css("display:flex;align-items:center;gap:12px")}>
-              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#9FD0FF")}>
-                <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
-                MY JOB — editable
-              </span>
-              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#7FA5CC")}>
-                <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
-                TEAM JOB — view only
-              </span>
-            </span>
-          </div>
-        </>, slot) : (<>
-          {/*
-            One bar, where five panels used to be.
-
-            What is on it earns its place: which category you are in and how many
-            that is, how much of it you are looking at and what is narrowing it,
-            whether your typing is actually being saved, and the way to open
-            everything else. The greeting that used to head this panel is gone —
-            the name is already in the corner of every screen, and it cost a
-            full-width band above the work.
-          */}
-          <div style={css("display:flex;align-items:center;gap:10px;padding:9px 13px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
-            {/*
-              The tabs, on the bar rather than on a white strip of their own.
-
-              Three of them and a metre of empty space beside them was a row
-              the job rows were not getting, and this is where they were asked
-              to be — with the category buttons and the filters, one block.
-            */}
-            <div style={css("display:flex;align-items:center;gap:4px")}>
-              {p.tabs.map((t) => (
-                <button key={t.label} onClick={t.go}
-                  style={css("height:28px;padding:0 13px;border:1px solid "
-                    + (t.active ? "#4E9BE8" : "transparent") + ";background:"
-                    + (t.active ? "#16406E" : "transparent")
-                    + ";color:" + (t.active ? "#fff" : "#9FD0FF")
-                    + ";border-radius:4px;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
-                    + (t.active ? "600" : "400"))}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            <span style={css("width:1px;height:20px;background:#24476E")} />
-
-            <div style={css("display:flex;align-items:center;gap:6px")}>
-              {(p.lockedCat ? [] : CATEGORIES).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => p.set({ cat: c, page: 1 })}
-                  style={css(
-                    "display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border:1px solid " +
-                    (ws.cat === c ? "#4E9BE8" : "#24476E") + ";background:" + (ws.cat === c ? "#16406E" : "transparent") +
-                    ";color:#fff;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:.05em",
-                  )}
-                >
-                  {c}
-                  <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:" + (ws.cat === c ? "#9FD0FF" : "#7FA5CC"))}>
-                    {complete
-                      ? inCat(c).length
-                      : c === "ALL" ? serverTotal : server?.[c]?.total ?? "…"}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <span style={css("width:1px;height:20px;background:#24476E")} />
-
-            {/* How much of it is on screen, and what is keeping the rest off. */}
-            <span style={css("font-size:12.5px;font-weight:600;color:#fff;font-family:'IBM Plex Mono',monospace")}>
-              {complete ? list.length : serverTotal}
-            </span>
-            <span style={css("font-size:11.5px;color:#7FA5CC")}>
-              จาก {complete ? all.length : serverTotal} งาน
-            </span>
-
-            {activeFilters.map(([label, value, clear]) => (
-              <button
-                key={label + value}
-                onClick={clear}
-                title={"เอา " + label + " ออก"}
-                style={css("height:23px;padding:0 8px;border:1px solid #24476E;background:#0E2B4F;color:#DCEBFB;border-radius:12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px")}
-              >
-                <span style={css("color:#7FA5CC")}>{label}:</span>
-                <span style={css("font-weight:600")}>{value}</span>
-                <span style={css("color:#7FA5CC")}>✕</span>
-              </button>
-            ))}
-
-            {activeFilters.length > 1 && (
-              <button onClick={clearAll} style={css("height:23px;padding:0 10px;border:1px solid #24476E;background:transparent;color:#9FD0FF;border-radius:12px;font-size:11px;cursor:pointer")}>
-                ล้างทั้งหมด
-              </button>
-            )}
-
-            <span style={css("flex:1;min-width:8px")} />
-
-            {/* Whether what you type is actually being kept. */}
-            <span
-              title={p.sync.message}
-              style={css(
-                "display:flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:13px;font-size:11px;border:1px solid " +
-                (p.sync.state === "error" ? "#7A2F2A" : p.sync.state === "off" ? "#7A5A2A" : "#24476E") +
-                ";background:" + (p.sync.state === "error" ? "#3A1E1C" : p.sync.state === "off" ? "#3A2E18" : "#0E2B4F") +
-                ";color:" + (p.sync.state === "error" ? "#FF9C8F" : p.sync.state === "off" ? "#FFC978" : "#9FD0FF"),
-              )}
-            >
-              <span style={css("width:7px;height:7px;border-radius:50%;background:" +
-                (p.sync.state === "error" ? "#FF6B5B" : p.sync.state === "off" ? "#FFC978"
-                  : p.sync.state === "saving" || p.sync.state === "waking" || p.sync.state === "stale"
-                    ? "#9FD0FF" : "#3CB371"))} />
-              {p.sync.state === "stale" ? "แสดงข้อมูลที่บันทึกไว้ครั้งก่อน · กำลังดึงข้อมูลล่าสุด"
-                : p.sync.state === "waking" ? "กำลังปลุกฐานข้อมูล… รอสักครู่ อย่าเพิ่งคีย์งาน"
-                : p.sync.state === "saving" ? "กำลังบันทึกลงฐานข้อมูล…"
-                : p.sync.state === "error" ? "บันทึกไม่สำเร็จ — กดแก้ซ้ำอีกครั้ง"
-                  : p.sync.state === "off" ? "ยังไม่ได้ต่อฐานข้อมูล — รีเฟรชหน้าเพื่อลองใหม่ · งานที่คีย์ไว้ตอนนี้จะหาย"
-                    : p.sync.at ? "บันทึกลงฐานข้อมูลแล้ว " + p.sync.at
-                      : "ต่อฐานข้อมูลแล้ว"}
-            </span>
-            {complete && (
-              <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
-                {(isMyJob
-                  ? ([] as [keyof PanelPrefs, string][])
-                  : ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
-                      ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
-                ).map(([key, label]) => (
-                  <button key={key} onClick={panel(key)}
-                    style={css("height:26px;padding:0 10px;border:1px solid "
-                      + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
-                      + (p.panels[key] ? "#16406E" : "transparent")
-                      + ";color:#DCEBFB;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit")}>
-                    {p.panels[key] ? "▾" : "▸"} {label}
-                  </button>
-                ))}
-              </span>
-            )}
-          </div>
-          <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 13px;background:#0E2B4F;border:1px solid #24476E;border-radius:5px")}>
-            <FilterPick label="ASSIGNED" value={ws.assignee}
-              options={["All Team", "My Work"].concat(M.operators)}
-              onPick={(v) => p.set({ assignee: v, page: 1 })} />
-            {/*
-              Every value, not the busiest eleven.
-
-              These were rows of chips capped at eleven or twelve, which meant a
-              customer or a haulier outside the top of the list could not be
-              chosen from this screen at all — you had to know to type it in the
-              search box. A dropdown carries the lot and costs one line instead
-              of four.
-            */}
-            <FilterPick label="CUSTOMER" value={ws.cust}
-              options={["ALL"].concat(allOf("customer"))}
-              onPick={(v) => p.set({ cust: v, page: 1 })} />
-            <FilterPick label="TRUCKER" value={ws.trucker}
-              options={["ALL"].concat(carrierChips(999))}
-              onPick={(v) => p.set({ trucker: v, page: 1 })} />
-            <FilterPick label="TYPE" value={ws.type}
-              options={["ALL"].concat(allOf("type"))}
-              onPick={(v) => p.set({ type: v, page: 1 })} />
-
-            <span style={css("flex:1;min-width:6px")} />
-            <span style={css("display:flex;align-items:center;gap:12px")}>
-              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#9FD0FF")}>
-                <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
-                MY JOB — editable
-              </span>
-              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#7FA5CC")}>
-                <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
-                TEAM JOB — view only
-              </span>
-            </span>
-          </div>
-      </>)}
 
       {!complete && (
         <div style={css("background:#F4F8FC;border:1px solid #BBD5EE;border-left:3px solid #2E7DD1;border-radius:5px;padding:10px 14px;font-size:11.5px;color:#475569")}>
@@ -2151,6 +1991,13 @@ export function Workspace(p: Props) {
             </div>
       )}
 
+      {/*
+        No grid means no header to put the bar in, and the tabs are on that bar
+        — an empty tab would leave nothing to leave it by. So it falls back to
+        the page header's slot, which is where it lived before.
+      */}
+      {grids.length === 0 && (slot ? createPortal(controlBar, slot) : controlBar)}
+
       {/* Both are rendered; the stylesheet shows one. `.grid-only` is hidden on
           a phone and `.cards-only` on everything else, so neither has to ask how
           wide the screen is — see the note in JobCards. */}
@@ -2162,7 +2009,7 @@ export function Workspace(p: Props) {
               // tables of one selection, and a second copy of the filter would
               // be two controls fighting over one value.
               model={grid.layout === grids[0].layout
-                ? { ...grid.model, controls: periodControls }
+                ? { ...grid.model, controls: <>{controlBar}{periodControls}</> }
                 : grid.model}
               // Both pagers, always. The grid reads whichever source is live —
               // the API's answer while the register is still arriving, the
