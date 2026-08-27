@@ -40,3 +40,30 @@ public class VehicleTypeRow
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+/// <summary>
+/// What a one-off pass over the register overwrote, so it can be put back.
+///
+/// The register has no history table — that absence is why every bulk write
+/// against it has to be argued about first. This is not a general fix for
+/// that; it is the specific undo for the type-and-product pass, written in the
+/// same transaction as the change so there is no window where the change
+/// exists and the means to reverse it does not.
+/// </summary>
+public class TypeMigrationBackup
+{
+    public int Id { get; set; }
+
+    /// <summary>The job this came off.</summary>
+    public string JobKey { get; set; } = "";
+
+    /// <summary>A run stamp, so one pass can be reversed without touching another.</summary>
+    public string Batch { get; set; } = "";
+
+    public string OldType { get; set; } = "";
+    public string NewType { get; set; } = "";
+    public string OldProduct { get; set; } = "";
+    public string NewProduct { get; set; } = "";
+
+    public DateTimeOffset TakenAt { get; set; }
+}

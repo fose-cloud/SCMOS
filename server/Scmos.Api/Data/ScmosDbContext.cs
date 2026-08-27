@@ -45,6 +45,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<SupplierDriver> SupplierDrivers => Set<SupplierDriver>();
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
     public DbSet<VehicleTypeRow> VehicleTypes => Set<VehicleTypeRow>();
+    public DbSet<TypeMigrationBackup> TypeMigrationBackups => Set<TypeMigrationBackup>();
     public DbSet<SupplierEvaluation> SupplierEvaluations => Set<SupplierEvaluation>();
 
     public DbSet<FuelBand> FuelBands => Set<FuelBand>();
@@ -630,6 +631,18 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.TrainingExpiry).HasMaxLength(20).HasDefaultValue("");
             e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("active");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_driver_idx");
+        });
+
+        model.Entity<TypeMigrationBackup>(e =>
+        {
+            e.ToTable("type_migration_backup");
+            e.Property(x => x.JobKey).HasMaxLength(60);
+            e.Property(x => x.Batch).HasMaxLength(40);
+            e.Property(x => x.OldType).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.NewType).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.OldProduct).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.NewProduct).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => x.Batch).HasDatabaseName("type_migration_batch_idx");
         });
 
         model.Entity<VehicleTypeRow>(e =>

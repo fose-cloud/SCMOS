@@ -18,6 +18,11 @@ on:
         description: "Apply EF migrations to the production database"
         type: boolean
         default: true
+      normaliseTypes:
+        description: "Vehicle types: report what a cleanup would change, write it, or put the last run back"
+        type: choice
+        options: ["no", "report", "apply", "undo"]
+        default: "no"
 
 env:
   DOTNET_VERSION: "10.0.x"
@@ -104,6 +109,32 @@ jobs:
 
           chmod +x publish/migrate
           ./publish/migrate --connection "$CONNECTION_STRING"
+
+      # The one-off pass over the vehicle types. It runs here because this is
+      # where the connection string already lives — nobody has to copy a secret
+      # anywhere to clean up a column.
+      #
+      # "report" writes nothing. "apply" copies every value it overwrites into
+      # type_migration_backup in the same transaction, so "undo" can put the
+      # register back exactly as it was.
+      - name: Vehicle type cleanup
+        if: github.event_name == 'workflow_dispatch' && inputs.normaliseTypes != 'no'
+        env:
+          ConnectionStrings__ScmosDb: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: |
+          if [ -z "$ConnectionStrings__ScmosDb" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
+            exit 1
+          fi
+
+          case "${{ inputs.normaliseTypes }}" in
+            report) extra="" ;;
+            apply)  extra="--apply" ;;
+            undo)   extra="--undo" ;;
+          esac
+
+          dotnet publish/Scmos.Api.dll --normalise-types $extra
 
       - name: Deploy API to Azure App Service
         uses: azure/webapps-deploy@v3
