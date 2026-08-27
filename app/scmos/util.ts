@@ -183,8 +183,13 @@ export function cols(
   return defs.map((d) => ({
     label: d[0],
     style:
+      // Centred unless the column says otherwise. A header sitting hard left
+      // over a column two hundred pixels wide reads as belonging to the column
+      // before it; centred, each label sits over its own space. An explicit
+      // alignment still wins, so a number column's header stays with its
+      // figures.
       "position:sticky;top:0;z-index:2;background:#F4F7FA;padding:6px 11px;text-align:" +
-      (d[1] || "left") +
+      (d[1] || "center") +
       ";font-size:10.5px;font-weight:600;color:#465A6E;letter-spacing:.05em;text-transform:uppercase;" +
       "white-space:nowrap;border-bottom:1px solid #D8E0E8;cursor:pointer;user-select:none",
     sort: () => onSort(d[0]),
