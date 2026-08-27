@@ -514,12 +514,20 @@ export function Chrome(p: Props) {
                   <p style={css("margin:6px 0 0;font-size:12.5px;color:#64748B;max-width:900px;text-wrap:pretty")}>{p.blurb}</p>
                 )}
               </div>
-              <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:"
-                + (p.lockScroll ? "0" : "10px"))}>
-                {p.actions.map((a) => (
-                  <button key={a.label} onClick={a.go} style={css(a.style)}>{a.label}</button>
-                ))}
-              </div>
+              {/*
+                A screen that draws its own controls draws these too.
+
+                They sat up here, and full screen hides everything above the
+                grid — so the one place you would want to import from was the
+                one place they were not.
+              */}
+              {!p.lockScroll && (
+                <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:10px")}>
+                  {p.actions.map((a) => (
+                    <button key={a.label} onClick={a.go} style={css(a.style)}>{a.label}</button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* The strip scrolls, not the page. Reaching CALENDAR by dragging the

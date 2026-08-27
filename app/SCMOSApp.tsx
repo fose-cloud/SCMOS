@@ -2190,6 +2190,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   ws={wsState}
                   tabCounts={wsCounts}
                   tabs={tabs}
+                  // Drawn on the grid's header instead of the page heading,
+                  // which full screen hides.
+                  actions={actions}
                   set={(patch) => {
                     if (patch.tab !== undefined) setTab(patch.tab);
                     if (patch.q !== undefined) setQ(patch.q);

@@ -141,6 +141,8 @@ type Props = {
    * counts stay one thing; only where they are drawn changes.
    */
   tabs: { label: string; active: boolean; go: () => void }[];
+  /** Import, export and the rest, drawn on the grid's header. */
+  actions: { label: string; style: string; go: () => void }[];
   onPanel: (key: keyof PanelPrefs) => void;
   /** Bulk actions over the ticked rows; all three only touch jobs you may edit. */
   onBulkStatus: (keys: string[], status: string) => void;
@@ -485,6 +487,18 @@ export function Workspace(p: Props) {
    * this one and does not exist while the server renders. Null until then, and
    * the bar simply draws in place until it is found.
    */
+  /**
+   * Whether the workspace is full screen, held here rather than in the grid.
+   *
+   * A flag, not the layout it was switched on from. The grid's key is its
+   * layout, so changing the category replaces the component and everything it
+   * held — and keying this by layout only moved the same bug up a level:
+   * switching from ALL to EXPORT no longer destroyed the flag but no longer
+   * matched it either, so it still dropped out. It is full screen or it is
+   * not, whatever the grid underneath happens to be showing.
+   */
+  const [isFull, setIsFull] = useState(false);
+
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   // A genuine synchronous set in an effect, not the usual false positive, and
   // there is no other way round it: the slot belongs to a component above this
@@ -2026,8 +2040,13 @@ export function Workspace(p: Props) {
               // be two controls fighting over one value.
               model={grid.layout === grids[0].layout
                 ? { ...grid.model, fill: true, banner: bulkBar,
+                    actions: p.actions,
                     controls: <>{controlBar}{periodControls}</> }
                 : { ...grid.model, fill: true }}
+              // The first grid is the one that fills the screen: it is the one
+              // carrying the controls, and two full-screen grids is not a thing.
+              full={isFull && grid.layout === grids[0].layout}
+              onFull={() => setIsFull((on) => !on)}
               // Both pagers, always. The grid reads whichever source is live —
               // the API's answer while the register is still arriving, the
               // register itself once it is here — and telling only one of them

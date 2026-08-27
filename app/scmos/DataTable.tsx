@@ -43,12 +43,29 @@ export type TableModel = {
    * the middle of a report is still a card.
    */
   fill?: boolean;
+  /**
+   * The screen's own buttons — import, export, add — on this header.
+   *
+   * They belong wherever the grid is, and the grid can be full screen.
+   */
+  actions?: { label: string; style: string; go: () => void }[];
 };
 
 type Props = {
   model: TableModel;
   onPage: (page: number) => void;
   onTool: (label: string) => void;
+  /**
+   * Full screen, held by whoever draws this table.
+   *
+   * Kept outside because the grid's key is its layout, and changing the
+   * category changes the layout — so the table is a new component and anything
+   * it held goes with it. Choosing a filter threw you out of full screen,
+   * which is the moment you least want to be thrown out. Absent, the table
+   * keeps the flag itself, which is fine on a screen that draws one table.
+   */
+  full?: boolean;
+  onFull?: () => void;
 };
 
 /** One nudge sideways — about a column, the distance Excel's arrows move. */
@@ -65,7 +82,8 @@ const TOOL_BTN =
 const TOOL_BTN_DARK =
   "height:30px;padding:0 14px;border:1px solid #24476E;background:transparent;color:#DCEBFB;border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit";
 
-export function DataTable({ model, onPage, onTool }: Props) {
+export function DataTable(p: Props) {
+  const { model, onPage, onTool } = p;
   /**
    * The scrolling box, so the sideways controls can drive it.
    *
@@ -131,7 +149,8 @@ export function DataTable({ model, onPage, onTool }: Props) {
    * a fixed panel over the page gives the same thing minus the tab bar. What
    * must not happen is a button that appears to do nothing.
    */
-  const [overlay, setOverlay] = useState(false);
+  const [ownOverlay, setOwnOverlay] = useState(false);
+  const overlay = p.full ?? ownOverlay;
   const full = native || overlay;
 
   const toggleFull = () => {
@@ -145,7 +164,8 @@ export function DataTable({ model, onPage, onTool }: Props) {
     // What it costs is the browser's tab bar, which stays. That is the trade
     // that was asked for.
     if (document.fullscreenElement === shell.current) { void document.exitFullscreen(); return; }
-    setOverlay((on) => !on);
+    if (p.onFull) { p.onFull(); return; }
+    setOwnOverlay((on) => !on);
   };
 
   useEffect(() => {
@@ -156,12 +176,16 @@ export function DataTable({ model, onPage, onTool }: Props) {
 
   // Escape closes the fallback the way it closes the real thing, so the two
   // behave alike and nobody has to know which one they got.
+  const onFull = p.onFull;
   useEffect(() => {
     if (!overlay) return;
-    const leave = (e: KeyboardEvent) => { if (e.key === "Escape") setOverlay(false); };
+    const leave = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (onFull) onFull(); else setOwnOverlay(false);
+    };
     window.addEventListener("keydown", leave);
     return () => window.removeEventListener("keydown", leave);
-  }, [overlay]);
+  }, [overlay, onFull]);
 
   const from = model.total === 0 ? 0 : (model.page - 1) * model.per + 1;
   const to = Math.min(model.page * model.per, model.total);
@@ -195,6 +219,9 @@ export function DataTable({ model, onPage, onTool }: Props) {
           <span style={css("font-size:11.5px;color:" + (model.fill ? "#7FA5CC" : "#94A3B8"))}>{model.meta}</span>
         </div>
         <div style={css("display:flex;gap:7px;align-items:center")}>
+          {(model.actions ?? []).map((a) => (
+            <button key={a.label} onClick={a.go} style={css(a.style)}>{a.label}</button>
+          ))}
           {(model.tools ?? ["Columns", "Sort", "Export Excel"]).map((label) => (
             <button key={label} className="ghost-btn" onClick={() => onTool(label)}
               style={css(model.fill ? TOOL_BTN_DARK : TOOL_BTN)}>
