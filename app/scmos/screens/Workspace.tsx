@@ -1448,18 +1448,13 @@ export function Workspace(p: Props) {
               <FilterPick label="TYPE" value={ws.type}
                 options={["ALL"].concat(allOf("type"))}
                 onPick={(v) => p.set({ type: v, page: 1 })} />
-  
-              <span style={css("flex:1;min-width:6px")} />
-              <span style={css("display:flex;align-items:center;gap:12px")}>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#9FD0FF")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
-                  MY JOB — editable
-                </span>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#7FA5CC")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
-                  TEAM JOB — view only
-                </span>
-              </span>
+              {/*
+                The colour legend is gone.
+
+                It read as two checkboxes and was neither — nothing to click,
+                and it explained a shading the OWN column already spells out in
+                words on every single row.
+              */}
             </div>
   </>
   );
