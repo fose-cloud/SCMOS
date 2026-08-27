@@ -555,12 +555,36 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
     /// <param name="Fold">The rows holding nothing, to go into it.</param>
     public record DuplicateGroup(string Name, SupplierSide Keep, IReadOnlyList<SupplierSide> Fold);
 
-    /// <param name="Attached">
-    /// Everything hanging off this row. Jobs are not counted here: a job names
-    /// a haulier by spelling, not by id, so what a row really holds is its
-    /// aliases and its paperwork.
+    /// <param name="Jobs">
+    /// Counted through this row's own spellings. A job names a haulier by
+    /// spelling, not by id, so this moves with the aliases when the row is
+    /// merged — but it has to be shown, because a row carrying 255 jobs and no
+    /// paperwork was being offered as the empty half of the pair.
     /// </param>
-    public record SupplierSide(int Id, string Code, string Name, int Aliases, int Attached);
+    /// <param name="Attached">Rates, documents, evaluations, lorries and the rest.</param>
+    public record SupplierSide(int Id, string Code, string Name, int Aliases, int Jobs, int Attached);
+
+    /// <summary>
+    /// The name as its words, with the legal suffix and the punctuation gone.
+    ///
+    /// Whole words because that is the difference between a short name and a
+    /// coincidence: SANGJA is the whole of the first word of "Sangja
+    /// Transport", and PK is only the first two letters of PKN.
+    /// </summary>
+    private static string[] Words(string name)
+    {
+        var text = System.Text.RegularExpressions.Regex.Replace(name,
+            @"\((Thailand|Thailnad)\)", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        text = System.Text.RegularExpressions.Regex.Replace(text,
+            @"(Co\.?,?\s*Ltd\.?|Company Limited|Limited Partnership|Ltd\.?,?\s*Partnership|Public Company Limited|Ltd\.?)\s*$",
+            " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        return text.ToUpperInvariant()
+            .Split([' ', '\t', '.', ',', '-', '/', '(', ')', '&'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => new string(word.Where(char.IsLetterOrDigit).ToArray()))
+            .Where(word => word.Length > 0)
+            .ToArray();
+    }
 
     /// <summary>The name with punctuation, spacing and the legal suffix off.</summary>
     private static string NameStem(string name)
@@ -574,14 +598,89 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
     }
 
     /// <summary>
+    /// Which rows of the register are one company, by id.
+    ///
+    /// Returns each row's set, so two rows in the same set are the same firm.
+    /// No database, so it can be run against a register written out by hand —
+    /// see <c>--check-duplicates</c>. It has been wrong twice, both times by
+    /// being too narrow, and both times invisibly, because a duplicate nobody
+    /// detects looks exactly like a register with no duplicates in it.
+    /// </summary>
+    public static Dictionary<int, int> SameCompany(
+        IReadOnlyList<(int Id, string Name)> rows,
+        IReadOnlyList<(int SupplierId, string Alias)> aliases)
+    {
+        var union = rows.ToDictionary(row => row.Id, row => row.Id);
+        int Root(int id) { while (union[id] != id) id = union[id] = union[union[id]]; return id; }
+        void Join(int a, int b) { var (ra, rb) = (Root(a), Root(b)); if (ra != rb) union[rb] = ra; }
+
+        // The names match once punctuation, spacing and the legal suffix are off.
+        foreach (var same in rows.GroupBy(row => NameStem(row.Name)).Where(g => g.Key.Length > 0))
+            foreach (var row in same.Skip(1)) Join(same.First().Id, row.Id);
+
+        // One row's name is a spelling another row already holds. Compared on
+        // the normalisation the aliases are stored in, so "DGT Cross Haul Co.,
+        // Ltd." finds "DGT CROSS HAUL CO., LTD."
+        var byName = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var row in rows) byName[row.Name.Trim().ToUpperInvariant()] = row.Id;
+        foreach (var (supplierId, alias) in aliases)
+            if (byName.TryGetValue(alias.Trim().ToUpperInvariant(), out var named)
+                && named != supplierId
+                && union.ContainsKey(supplierId))
+                Join(named, supplierId);
+
+        // The short name the team types, against the official one it was
+        // registered under: SANGJA and "Sangja Transport Co., Ltd."
+        //
+        // On whole words, not on letters. "PK" is a run of letters at the front
+        // of "PKN Logistics" and it is not the same firm; "SANGJA" is the whole
+        // first word of "Sangja Transport" and it is. Two companies whose names
+        // merely start alike stay two.
+        //
+        // And only where the short name reaches exactly one longer one. A row
+        // called "THAI" beside "Thai Kot" and "Thai Smile" says nothing about
+        // which — joining it to both would quietly make those two one company,
+        // so an ambiguous name joins nothing and is left for somebody to say.
+        var words = rows.ToDictionary(row => row.Id, row => Words(row.Name));
+        foreach (var row in rows)
+        {
+            var mine = words[row.Id];
+            if (mine.Length == 0) continue;
+
+            var longer = rows.Where(other => other.Id != row.Id
+                && words[other.Id].Length > mine.Length
+                && words[other.Id].Take(mine.Length).SequenceEqual(mine)).ToList();
+
+            if (longer.Count == 1) Join(longer[0].Id, row.Id);
+        }
+
+        return rows.ToDictionary(row => row.Id, row => Root(row.Id));
+    }
+
+    /// <summary>
     /// Companies the register lists twice, and which of the two has the history.
     ///
-    /// Two rows are the same haulier when their names match once punctuation,
-    /// spacing and the legal suffix are off — SANGJA and "Sangja Transport
-    /// Co., Ltd." are one firm — so the comparison is on the stem, not the
-    /// string. The row that keeps its history wins: most aliases, then most
-    /// paperwork, then the oldest, because the oldest is what other things were
-    /// attached to first.
+    /// Two kinds of evidence, and the second is the stronger one.
+    ///
+    /// <b>The names match</b> once punctuation, spacing and the legal suffix
+    /// are off: SANGJA and "Sangja Transport Co., Ltd." are one firm.
+    ///
+    /// <b>One row's name is a spelling the other row holds.</b> This is what
+    /// the name test misses and what the register actually looks like: a row
+    /// called "DGT" carrying the spelling "DGT CROSS HAUL CO., LTD.", beside a
+    /// row called "DGT Cross Haul Co., Ltd." carrying the spelling "DGT" —
+    /// crossed over, 255 jobs on one and 47 rate lanes on the other, and
+    /// nothing matching because "DGT" and "DGTCROSSHAUL" are not the same
+    /// string. Somebody has already said these two spellings mean one company,
+    /// by attaching them; the only thing missing was reading it.
+    ///
+    /// Evidence joins in both directions and carries: if A is B and B is C then
+    /// all three are one company and are offered as one group, rather than as
+    /// two pairs that have to be merged in the right order.
+    ///
+    /// The row that keeps the history wins: most jobs, then most paperwork,
+    /// then most spellings, then the oldest, because the oldest is what other
+    /// things were attached to first.
     /// </summary>
     public async Task<IReadOnlyList<DuplicateGroup>> DuplicatesAsync(CancellationToken token)
     {
@@ -589,11 +688,24 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             .Select(row => new { row.Id, row.Code, row.Name, row.CreatedAt })
             .ToListAsync(token);
 
-        var aliasCount = (await db.SupplierAliases.AsNoTracking()
-            .GroupBy(alias => alias.SupplierId)
-            .Select(group => new { Id = group.Key, N = group.Count() })
-            .ToListAsync(token))
-            .ToDictionary(entry => entry.Id, entry => entry.N);
+        var aliases = await db.SupplierAliases.AsNoTracking()
+            .Select(alias => new { alias.SupplierId, alias.Alias })
+            .ToListAsync(token);
+
+        var aliasCount = aliases.GroupBy(alias => alias.SupplierId)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        // Jobs per row, through that row's own spellings — the same reckoning
+        // the register's list uses, so the two screens cannot disagree about
+        // which half of a pair is the busy one.
+        var owner = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var alias in aliases) owner[alias.Alias] = alias.SupplierId;
+
+        var jobCounts = new Dictionary<int, int>();
+        foreach (var carrier in await db.OperationJobs.AsNoTracking()
+                     .Where(job => job.Trucker != "").Select(job => job.Trucker).ToListAsync(token))
+            if (owner.TryGetValue(carrier.Trim().ToUpperInvariant(), out var id))
+                jobCounts[id] = jobCounts.GetValueOrDefault(id) + 1;
 
         var attached = new Dictionary<int, int>();
         async Task Tally<T>(IQueryable<T> set, System.Linq.Expressions.Expression<Func<T, int>> owner)
@@ -616,22 +728,28 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
 
         SupplierSide Side(int id, string code, string name) => new(
             id, code, name,
-            aliasCount.TryGetValue(id, out var a) ? a : 0,
-            attached.TryGetValue(id, out var t) ? t : 0);
+            aliasCount.GetValueOrDefault(id),
+            jobCounts.GetValueOrDefault(id),
+            attached.GetValueOrDefault(id));
+
+        var sets = SameCompany(
+            rows.Select(row => (row.Id, row.Name)).ToList(),
+            aliases.Select(alias => (alias.SupplierId, alias.Alias)).ToList());
 
         var groups = new List<DuplicateGroup>();
-        foreach (var group in rows.GroupBy(row => NameStem(row.Name)).Where(g => g.Key.Length > 0))
+        foreach (var group in rows.GroupBy(row => sets[row.Id]))
         {
             if (group.Count() < 2) continue;
 
             var ordered = group
-                .OrderByDescending(row => aliasCount.TryGetValue(row.Id, out var a) ? a : 0)
-                .ThenByDescending(row => attached.TryGetValue(row.Id, out var t) ? t : 0)
+                .OrderByDescending(row => jobCounts.GetValueOrDefault(row.Id))
+                .ThenByDescending(row => attached.GetValueOrDefault(row.Id))
+                .ThenByDescending(row => aliasCount.GetValueOrDefault(row.Id))
                 .ThenBy(row => row.CreatedAt)
                 .ToList();
 
             // The longest spelling is the official one, so the merged row takes
-            // it even when the history sits on the row still called "JTC".
+            // it even when the history sits on the row still called "DGT".
             var full = group.OrderByDescending(row => row.Name.Length).First().Name;
 
             groups.Add(new DuplicateGroup(full,

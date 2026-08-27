@@ -135,6 +135,7 @@ var app = builder.Build();
 // question a screen of straight hundreds cannot — whether the scorecard is
 // counting wrongly, or there is genuinely nothing to count.
 if (ScorecardCheck.Run(args)) return 0;
+if (DuplicateCheck.Run(args)) return 0;
 
 if (args.Contains("--seed"))
 {

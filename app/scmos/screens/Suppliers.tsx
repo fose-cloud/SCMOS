@@ -46,7 +46,7 @@ const STATUS_TONE: Record<string, string> = {
   suspended: "#B42318", rejected: "#B42318",
 };
 /** One side of a duplicate pair, as the API reports it. */
-type Side = { id: number; code: string; name: string; aliases: number; attached: number };
+type Side = { id: number; code: string; name: string; aliases: number; jobs: number; attached: number };
 type Duplicate = { name: string; keep: Side; fold: Side[] };
 
 /** One row of a duplicate pair, with what it is holding. */
@@ -57,7 +57,7 @@ function Row({ side, tone }: { side: Side; tone: "keep" | "fold" }) {
       + ";background:" + (keep ? "#F1F9F5" : "#FBF6F6") + ";border-radius:4px;padding:3px 9px")}>
       <b style={css("font-family:ui-monospace,monospace;font-size:11.5px;color:" + (keep ? "#16794C" : "#8A5A5A"))}>{side.code}</b>
       <span style={css("font-size:11px;color:#7B8CA0")}>
-        {keep ? "เก็บไว้" : "รวมเข้า"} · ชื่อย่อ {side.aliases} · ข้อมูลผูกอยู่ {side.attached}
+        {keep ? "เก็บไว้" : "รวมเข้า"} · งาน {side.jobs.toLocaleString()} · ชื่อย่อ {side.aliases} · อื่นๆ {side.attached}
       </span>
     </span>
   );
@@ -242,6 +242,7 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
     const moving = fold.aliases + fold.attached;
     const warning = moving > 0
       ? `\n\nจะย้ายข้อมูล ${moving} รายการมาที่ ${group.keep.code} ก่อนลบ`
+        + (fold.jobs > 0 ? ` · งาน ${fold.jobs.toLocaleString()} รายการจะตามชื่อย่อไปด้วย` : "")
       : "\n\nรายการที่ถูกลบไม่มีข้อมูลผูกอยู่เลย";
     if (!window.confirm(`รวม ${fold.code} (${fold.name}) เข้ากับ ${group.keep.code} หรือไม่?${warning}`)) return;
 
@@ -289,7 +290,8 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
           <div style={css("font-size:11.5px;color:#8A6A3B;line-height:1.7;margin-bottom:9px")}>
             เกิดจากการนำเข้ารอบที่ล้มกลางคัน — รายการที่บันทึกไปก่อนหน้านั้นค้างอยู่ ·
             การรวมจะ<b>ย้าย</b>ชื่อย่อ เอกสาร เส้นทางราคา และผลประเมินไปไว้ที่รายการที่มีประวัติ
-            แล้วจึงลบรายการที่ว่างเปล่า — ไม่มีข้อมูลใดหายไป
+            แล้วจึงลบรายการที่ว่างเปล่า — ไม่มีข้อมูลใดหายไป · งานตามไปด้วยเอง เพราะงานอ้างบริษัทจาก<b>การสะกด</b>
+            และชื่อย่อทุกอันจะมาอยู่ที่รายการเดียวกัน
           </div>
           <div style={css("display:flex;flex-direction:column;gap:7px")}>
             {dupes.map((group) => (
