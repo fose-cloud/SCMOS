@@ -209,6 +209,16 @@ button { cursor: pointer; }
  * has no controls of its own.
  */
 #scmos-screen-toolbar {
-  padding: 12px 0 14px;
+  /* Part of the header band, not a card in the page: same white, same side
+     padding as the title above it, and a rule under it where the header's own
+     used to be. */
+  background: #fff;
+  border-bottom: 1px solid #D8E0E8;
+  padding: 12px 24px 14px;
+  /* The screen hands over a bar and some rows; the spacing between them is the
+     header's business, not theirs. */
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
 }
 #scmos-screen-toolbar:empty { display: none; }

@@ -508,24 +508,25 @@ export function Chrome(p: Props) {
 
           </div>
 
+          {/*
+            Where a screen's own controls go.
+
+            Immediately under the tabs and drawn as part of the same white
+            header band — the point of moving them was that they belong with
+            the title, and a card floating in the page background below a grey
+            gap is what they already were.
+
+            Outside the sticky element on purpose. The workspace's filters run
+            to four rows, and pinned they left sixty pixels of grid on a laptop:
+            a header is only worth sticking while it leaves room for the work
+            underneath it. So they sit against the title and scroll away once
+            you are reading rows.
+
+            Empty when nothing fills it, and an empty div costs nothing.
+          */}
+          <div id={TOOLBAR_SLOT} />
+
           <div style={css("padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px")}>
-            {/*
-              Where a screen's own controls go — first thing under the tabs.
-
-              Filled by whichever screen is open, through a portal, so the
-              controls stay next to the state they read while their DOM sits up
-              here above everything else the screen draws.
-
-              Deliberately not inside the sticky header. The workspace's filters
-              run to four rows, and pinned they left sixty pixels of grid on a
-              laptop — a header is only worth sticking while it leaves room for
-              the work underneath it. Here they are the first thing you see and
-              they get out of the way once you are reading rows.
-
-              Empty when nothing fills it, and an empty div costs nothing.
-            */}
-            <div id={TOOLBAR_SLOT} />
-
             {p.filters && (
               <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap")}>
                 <span style={css("font-size:11px;font-weight:600;color:#0A2240;letter-spacing:.06em;padding-right:4px")}>FILTERS</span>
