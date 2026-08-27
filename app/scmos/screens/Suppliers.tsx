@@ -238,24 +238,30 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
    * and because what the register says about a haulier is not something to
    * change on a mis-click.
    */
-  async function merge(group: Duplicate, fold: Duplicate["fold"][number]) {
-    const moving = fold.aliases + fold.attached;
-    const warning = moving > 0
-      ? `\n\nจะย้ายข้อมูล ${moving} รายการมาที่ ${group.keep.code} ก่อนลบ`
-        + (fold.jobs > 0 ? ` · งาน ${fold.jobs.toLocaleString()} รายการจะตามชื่อย่อไปด้วย` : "")
-      : "\n\nรายการที่ถูกลบไม่มีข้อมูลผูกอยู่เลย";
-    if (!window.confirm(`รวม ${fold.code} (${fold.name}) เข้ากับ ${group.keep.code} หรือไม่?${warning}`)) return;
+  async function merge(
+    keep: { id: number; code: string; name: string },
+    fold: { id: number; code: string; name: string; jobs: number; others: number },
+  ) {
+    const moving = [
+      fold.jobs ? `งาน ${fold.jobs.toLocaleString()}` : "",
+      fold.others ? `ข้อมูลอื่น ${fold.others.toLocaleString()} รายการ` : "",
+    ].filter(Boolean).join(" · ");
+
+    if (!window.confirm(
+      `รวม ${fold.code} (${fold.name}) เข้ากับ ${keep.code} (${keep.name}) หรือไม่?`
+      + (moving ? `\n\nจะย้าย ${moving} มาที่ ${keep.code} แล้วจึงลบ ${fold.code}` : "")
+      + `\n\nชื่อย่อ เอกสาร และผลประเมินย้ายมาทั้งหมด — ไม่มีข้อมูลใดหายไป`)) return;
 
     setBusy(true);
     try {
       const response = await apiFetch("/api/suppliers/merge", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keepId: group.keep.id, foldId: fold.id, reason: "รวมรายการซ้ำในทะเบียน" }),
+        body: JSON.stringify({ keepId: keep.id, foldId: fold.id, reason: "รวมรายการซ้ำในทะเบียน" }),
       });
       const reply = await response.json().catch(() => null) as { message?: string } | null;
       onToast(reply?.message ?? (response.ok ? "รวมรายการแล้ว" : `รวมไม่สำเร็จ (${response.status})`));
-      if (response.ok) await load();
+      if (response.ok) { setPicked(keep.id); await load(); }
     } catch (error) {
       onToast("รวมไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     } finally { setBusy(false); }
@@ -303,7 +309,10 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
                     <span key={fold.id} style={css("display:flex;gap:6px;align-items:center")}>
                       <Row side={fold} tone="fold" />
                       {canManage && (
-                        <button onClick={() => void merge(group, fold)} disabled={busy}
+                        <button
+                          onClick={() => void merge(group.keep,
+                            { ...fold, others: fold.attached })}
+                          disabled={busy}
                           style={css("height:25px;padding:0 10px;border:1px solid #B45309;background:" + (busy ? "#E5DCCB" : "#fff")
                             + ";color:#B45309;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
                           รวมเข้ากับ {group.keep.code}
@@ -397,7 +406,11 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
       </div>
 
       {picked !== null && canManage && (
-        <Manage supplier={rows.find((r) => r.id === picked)!} busy={busy}
+        <Manage supplier={rows.find((r) => r.id === picked)!} others={rows} busy={busy}
+          onMerge={(keep, fold) => void merge(keep,
+            // A register row's total counts its jobs; the dialog names those
+            // separately, so they come back out of it here.
+            { ...fold, others: Math.max(0, fold.attached - fold.jobs) })}
           onEdit={(fields) => void post(`${picked}/edit`, fields)}
           onRemove={() => void remove(rows.find((r) => r.id === picked)!)}
           onAlias={(alias) => void post(`${picked}/alias`, { alias })}
@@ -419,8 +432,12 @@ const SUPPLIER_FOLDERS: [string, string][] = [
   ["Training", "อบรม"], ["Contract", "สัญญา"], ["Other", "อื่นๆ"],
 ];
 
-function Manage({ supplier, busy, onEdit, onRemove, onAlias, onStatus, onEvaluate, onUpload }: {
-  supplier: Summary; busy: boolean;
+function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, onStatus, onEvaluate, onUpload }: {
+  supplier: Summary;
+  /** The rest of the register, so two rows for one firm can be joined by hand. */
+  others: Summary[];
+  busy: boolean;
+  onMerge: (keep: Summary, fold: Summary) => void;
   onEdit: (fields: Edit) => void;
   onRemove: () => void;
   onAlias: (alias: string) => void;
@@ -438,7 +455,8 @@ function Manage({ supplier, busy, onEdit, onRemove, onAlias, onStatus, onEvaluat
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
-      <Details supplier={supplier} busy={busy} onEdit={onEdit} onRemove={onRemove} />
+      <Details supplier={supplier} others={others} busy={busy}
+        onEdit={onEdit} onRemove={onRemove} onMerge={onMerge} />
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px")}>
       <div>
         <Label>ผูกชื่อที่สะกดต่างกันเข้ากับ {supplier.name}</Label>
@@ -525,14 +543,21 @@ function Manage({ supplier, busy, onEdit, onRemove, onAlias, onStatus, onEvaluat
  * anything, so those are corrected where they come from and are shown here
  * read-only, with where to go.
  */
-function Details({ supplier, busy, onEdit, onRemove }: {
-  supplier: Summary; busy: boolean; onEdit: (fields: Edit) => void; onRemove: () => void;
+function Details({ supplier, others, busy, onEdit, onRemove, onMerge }: {
+  supplier: Summary; others: Summary[]; busy: boolean;
+  onEdit: (fields: Edit) => void;
+  onRemove: () => void;
+  onMerge: (keep: Summary, fold: Summary) => void;
 }) {
   // Seeded from the row and re-seeded when a different supplier is picked, so
   // an edit box never carries one company's text over onto another.
   const [draft, setDraft] = useState<Edit>({});
   const [seeded, setSeeded] = useState(supplier.id);
-  if (seeded !== supplier.id) { setSeeded(supplier.id); setDraft({}); }
+  /** The other row this one is the same company as, once somebody says so. */
+  const [pair, setPair] = useState("");
+  /** Which of the two keeps its code. The busier one by default. */
+  const [keepThis, setKeepThis] = useState(true);
+  if (seeded !== supplier.id) { setSeeded(supplier.id); setDraft({}); setPair(""); }
 
   const value = <K extends keyof Summary & keyof Edit>(field: K) =>
     (draft[field] ?? supplier[field]) as Summary[K];
@@ -541,6 +566,7 @@ function Details({ supplier, busy, onEdit, onRemove }: {
 
   const dirty = Object.keys(draft).length > 0;
   const attached = supplier.attached;
+  const mate = others.find((row) => String(row.id) === pair && row.id !== supplier.id);
 
   const text = (field: keyof Edit & keyof Summary, label: string, hint = "") => (
     <label style={css("display:flex;flex-direction:column;gap:3px")}>
@@ -625,9 +651,56 @@ function Details({ supplier, busy, onEdit, onRemove }: {
 
       {attached > 0 && (
         <div style={css("font-size:11px;color:#94A3B8;margin-top:6px;text-align:right")}>
-          ลบไม่ได้เพราะยังมีข้อมูลผูกอยู่ — บริษัทที่เคยมีงานจะไม่ถูกลบ แต่ใช้ &ldquo;รวมรายการซ้ำ&rdquo; แทน
+          ลบไม่ได้เพราะยังมีข้อมูลผูกอยู่ — บริษัทที่เคยมีงานจะไม่ถูกลบ แต่ใช้การรวมรายการแทน
         </div>
       )}
+
+      {/*
+        Joining two rows by hand.
+
+        The panel above finds the pairs that can be proved from the register
+        itself — the names match, or one row's name is a spelling the other
+        holds. Some pairs cannot be proved and never will be: TATIYAPOL and
+        TATIYAPON differ by one letter and are one company, PK and PKN differ
+        by one letter and are two, and no rule reads both of those correctly.
+        Somebody who knows says so here instead.
+      */}
+      <div style={css("margin-top:13px;padding-top:11px;border-top:1px solid #EEF3F8")}>
+        <Label>รวมกับอีกรายการ — ถ้าเป็นบริษัทเดียวกัน</Label>
+        <div style={css("font-size:11px;color:#94A3B8;margin:4px 0 8px;line-height:1.7")}>
+          ใช้เมื่อรู้ว่าสองรายการคือเจ้าเดียวกันแต่ระบบพิสูจน์เองไม่ได้ เช่นสะกดต่างกันหนึ่งตัว ·
+          ข้อมูลทั้งหมดจะย้ายมารวมกัน ไม่มีอะไรหายไป
+        </div>
+        <div style={css("display:flex;gap:7px;align-items:center;flex-wrap:wrap")}>
+          <select value={pair} onChange={(e) => { setPair(e.target.value); setKeepThis(true); }}
+            style={css("flex:1;min-width:250px;height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff;font-family:inherit")}>
+            <option value="">— เลือกรายการที่เป็นบริษัทเดียวกัน —</option>
+            {others.filter((row) => row.id !== supplier.id)
+              .map((row) => (
+                <option key={row.id} value={String(row.id)}>
+                  {row.code} · {row.name} — งาน {row.jobs.toLocaleString()} · ราคา {row.lanes.toLocaleString()}
+                </option>
+              ))}
+          </select>
+          {mate && (
+            <Button label={`รวมเป็นรายการเดียว`} tone="#B45309" busy={busy}
+              onClick={() => onMerge(keepThis ? supplier : mate, keepThis ? mate : supplier)} />
+          )}
+        </div>
+
+        {mate && (
+          <div style={css("margin-top:8px;background:#FFFBEB;border:1px solid #F5D9A6;border-radius:4px;padding:9px 11px;font-size:11.5px;color:#8A6A3B;line-height:1.8")}>
+            เหลือรายการเดียว รหัส <b style={css("font-family:ui-monospace,monospace")}>{(keepThis ? supplier : mate).code}</b>{" "}
+            ชื่อ <b>{[supplier.name, mate.name].sort((a, b) => b.length - a.length)[0]}</b> —
+            งาน {(supplier.jobs + mate.jobs).toLocaleString()} · เส้นทางราคา {(supplier.lanes + mate.lanes).toLocaleString()} ·
+            ชื่อย่อ {[...new Set([...supplier.aliases, ...mate.aliases])].length}
+            <button onClick={() => setKeepThis((held) => !held)}
+              style={css("margin-left:8px;height:23px;padding:0 9px;border:1px solid #C9A96A;background:#fff;color:#8A6A3B;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit")}>
+              ใช้รหัส {(keepThis ? mate : supplier).code} แทน
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
