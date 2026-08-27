@@ -162,7 +162,12 @@ export const TAB_DEFS: Record<string, string[]> = {
   // JOBS narrows to the person — the rest show the whole team, because seeing
   // what the team is carrying is the point, and ownership controls editing
   // rather than looking.
-  myjob: ["MY JOBS", "PENDING", "TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "COMPLETED", "CALENDAR"],
+  // Three questions, not eight. Whose is it, is it still to do, is it done —
+  // and the five that used to sit up here were all narrowings of the middle
+  // one: of the work still to do, what is today's, what is tomorrow's, what is
+  // late, what is missing paperwork, what does the month look like. They are
+  // offered inside PENDING now, where they belong.
+  myjob: ["MY JOBS", "PENDING", "COMPLETED"],
   // TODAY leads: the first question anyone opening the system has is what is
   // happening now, and it is the one tab whose every figure comes from the API.
   dashboard: ["TODAY", "Executive", "Operational", "Wall Board"],

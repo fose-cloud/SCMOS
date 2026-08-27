@@ -52,7 +52,7 @@ const MAX_BYTES = 400_000;
 export function pageCacheKey(opId: string, query: PageQuery): string {
   return [
     opId,
-    query.tab, query.cat ?? "", query.year ?? "", query.month ?? "", query.day ?? "",
+    query.tab, query.focus ?? "", query.cat ?? "", query.year ?? "", query.month ?? "", query.day ?? "",
     query.from ?? "", query.to ?? "",
     query.q ?? "", query.sort ?? "", query.dir ?? "",
     query.page ?? 1, query.per ?? 25,

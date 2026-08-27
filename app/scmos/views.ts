@@ -9,6 +9,8 @@
 
 export type ViewState = {
   tab: string;
+  /** The narrowing inside the tab; views saved before it simply lack this. */
+  focus?: string;
   cat: string;
   cust: string;
   trucker: string;

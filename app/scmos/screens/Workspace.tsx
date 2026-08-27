@@ -13,8 +13,27 @@ import { cell, cols, dnum, dowOf, pad, paginate, tmin, type Cell, type CellOpts 
 import { spanEnd } from "../standard";
 import { useCarriers } from "../carriers";
 
+/**
+ * The narrowings offered inside a tab.
+ *
+ * These were five of the eight tabs across the top. They are all questions
+ * about one list — of the work still to do, what is today's, what is
+ * tomorrow's, what is late, what is missing paperwork, what does the month
+ * look like — so they sit inside the tab that holds that list rather than
+ * beside it. The rules are unchanged and still come from WORKSPACE_TABS: a
+ * focus asks exactly what the tab of the same name asked.
+ */
+export const WS_FOCUSES = ["TODAY", "TOMORROW", "DELAY", "DOCUMENT MISSING", "CALENDAR"] as const;
+
+export const FOCUS_TH: Record<string, string> = {
+  ALL: "ทั้งหมด", TODAY: "วันนี้", TOMORROW: "พรุ่งนี้", DELAY: "ล่าช้า",
+  "DOCUMENT MISSING": "เอกสารไม่ครบ", CALENDAR: "ปฏิทิน",
+};
+
 export type WsState = {
   tab: string;
+  /** The narrowing inside the tab: "ALL", or one of WS_FOCUSES. */
+  focus: string;
   cat: string;
   cust: string;
   trucker: string;
@@ -124,6 +143,14 @@ type Props = {
   sync: { state: "idle" | "waking" | "stale" | "saving" | "saved" | "error" | "off"; at: string; message: string };
   /** Which panels above the grid are expanded, and which one to fold. */
   panels: PanelPrefs;
+  /**
+   * The tab strip's counts, which the narrowings inside a tab also read.
+   *
+   * Computed once where the strip is drawn rather than again here — a chip
+   * saying 79 that opens 31 rows is worse than no chip, and two counts of the
+   * same thing is how that happens.
+   */
+  tabCounts: Record<string, number>;
   onPanel: (key: keyof PanelPrefs) => void;
   /** Bulk actions over the ticked rows; all three only touch jobs you may edit. */
   onBulkStatus: (keys: string[], status: string) => void;
@@ -421,6 +448,17 @@ export function workspaceTabCounts(ops: Ops | null, opId: string, cat: string): 
     counts[tab] = base.filter((job) => matches(job, opId)).length;
   }
   counts.CALENDAR = new Set(base.map((j) => j.date).filter(Boolean)).size;
+
+  // The same counts again, narrowed to each tab the focuses are offered under,
+  // so a chip cannot say 79 and open 31 rows. Keyed the way the API keys them.
+  for (const tab of ["MY JOBS", "PENDING", "COMPLETED"]) {
+    const inTab = base.filter((job) => WORKSPACE_TABS[tab]?.(job, opId));
+    for (const focus of WS_FOCUSES) {
+      counts[tab + "/" + focus] = focus === "CALENDAR"
+        ? new Set(inTab.map((j) => j.date).filter(Boolean)).size
+        : inTab.filter((job) => WORKSPACE_TABS[focus](job, opId)).length;
+    }
+  }
   return counts;
 }
 
@@ -599,6 +637,14 @@ export function Workspace(p: Props) {
   let list = base.slice();
   const tabRule = WORKSPACE_TABS[ws.tab];
   if (tabRule) list = list.filter((job) => tabRule(job, me.opId));
+
+  // The narrowing chosen inside the tab. The calendar is a way of looking at
+  // the list rather than a cut of it, so it takes nothing out.
+  // Only where the chips are on screen. A narrowing nothing shows is a
+  // narrowing nobody can undo.
+  const focusRule = ws.tab === "PENDING" && ws.focus !== "ALL" && ws.focus !== "CALENDAR"
+    ? WORKSPACE_TABS[ws.focus] : null;
+  if (focusRule) list = list.filter((job) => focusRule(job, me.opId));
 
   if (ws.tab !== "MY JOBS") {
     if (ws.assignee === "My Work") list = list.filter(mineJ);
@@ -974,6 +1020,8 @@ export function Workspace(p: Props) {
   // The tab is a filter and has to say so. TODAY showing "0 จาก 2,102" beside
   // "nothing is filtered" reads as an empty register rather than an empty day.
   // PENDING is the widest view, so it is the way out of every other tab.
+  if (ws.focus !== "ALL") activeFilters.push([
+    "มุมมอง", FOCUS_TH[ws.focus] ?? ws.focus, () => p.set({ focus: "ALL", page: 1 })]);
   if (ws.tab !== "PENDING" && WORKSPACE_TABS[ws.tab]) {
     activeFilters.push(["มุมมอง", ws.tab, () => p.set({ tab: "PENDING", page: 1 })]);
   }
@@ -1003,7 +1051,7 @@ export function Workspace(p: Props) {
 
   const clearAll = () => p.set({
     cat: "ALL", year: "ALL", month: "ALL", date: "ALL", assignee: "All Team", cust: "ALL",
-    trucker: "ALL", type: "ALL", status: "ALL", kpi: "All", q: "", sort: null, page: 1,
+    trucker: "ALL", type: "ALL", status: "ALL", kpi: "All", q: "", sort: null, page: 1, focus: "ALL",
   });
 
   const panel = (key: keyof PanelPrefs) => () => p.onPanel(key);
@@ -1462,6 +1510,44 @@ export function Workspace(p: Props) {
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
+      {/*
+        The five questions that used to be tabs.
+
+        They were never separate lists: every one of them was "of the work
+        still to do, which ones …". Eight tabs across the top made them look
+        like eight places to be, and made the two that matter — whose work is
+        this, is it finished — compete for attention with five that are ways of
+        reading the middle one.
+
+        The counts come from the same place the rows do, narrowed to this tab,
+        so a chip cannot say one number and open a different set.
+      */}
+      {ws.tab === "PENDING" && (
+        <div style={css("display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:9px 13px")}>
+          <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;margin-right:3px")}>มุมมอง</span>
+          {["ALL", ...WS_FOCUSES].map((f) => {
+            const on = ws.focus === f;
+            const n = f === "ALL" ? null : (p.tabCounts[ws.tab + "/" + f] ?? null);
+            return (
+              <button key={f} onClick={() => p.set({ focus: f, page: 1 })}
+                style={css("height:28px;padding:0 12px;border-radius:14px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;border:1px solid "
+                  + (on ? "#0A2240" : "#D8E0E8") + ";background:" + (on ? "#0A2240" : "#fff")
+                  + ";color:" + (on ? "#fff" : "#475569"))}>
+                {FOCUS_TH[f] ?? f}
+                {n !== null && (
+                  <span style={css("margin-left:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;opacity:.75")}>{n}</span>
+                )}
+              </button>
+            );
+          })}
+          {ws.focus === "CALENDAR" && (
+            <span style={css("font-size:11px;color:#94A3B8;margin-left:4px")}>
+              ปฏิทินแสดงงานที่ยังไม่เสร็จทั้งหมด — ไม่ได้กรองออก
+            </span>
+          )}
+        </div>
+      )}
+
       {p.pinned.length > 0 && (
         <div style={css("border:1px solid #CFE3D6;background:#F5FBF8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
           <span style={css(badge("แถวใหม่", "green"))}>แถวใหม่ {p.pinned.length}</span>
@@ -1721,7 +1807,7 @@ export function Workspace(p: Props) {
       </div>
       )}
 
-      {complete && (ws.tab !== "CALENDAR" ? (
+      {complete && (!(ws.tab === "PENDING" && ws.focus === "CALENDAR") ? (
         <div style={css("display:flex;flex-direction:column;gap:13px")}>
           {p.panels.process && (
           <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>

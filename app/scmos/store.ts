@@ -60,7 +60,10 @@ export type JobPage = {
 };
 
 export type PageQuery = {
-  tab: string; cat?: string; year?: string; month?: string; day?: string;
+  tab: string;
+  /** The narrowing chosen inside the tab — today, late, missing paperwork. */
+  focus?: string;
+  cat?: string; year?: string; month?: string; day?: string;
   /** A span of plan dates, dd/MM/yyyy, either end optional. */
   from?: string; to?: string;
   q?: string; sort?: string; dir?: string; page?: number; per?: number;
@@ -83,6 +86,7 @@ export type PageQuery = {
  */
 export async function loadJobsPage(query: PageQuery): Promise<JobPage | null> {
   const params = new URLSearchParams({ tab: query.tab });
+  if (query.focus && query.focus !== "ALL") params.set("focus", query.focus);
   if (query.cat) params.set("cat", query.cat);
   if (query.year) params.set("year", query.year);
   if (query.month) params.set("month", query.month);

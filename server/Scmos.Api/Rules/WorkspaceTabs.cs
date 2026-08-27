@@ -34,6 +34,38 @@ public static class WorkspaceTabs
     public static readonly string[] All =
         [MyJobs, Pending, Today, Tomorrow, Delay, CancelMoved, DocumentMissing, Completed, Calendar];
 
+    /// <summary>Nothing chosen — the whole tab, unnarrowed.</summary>
+    public const string AnyFocus = "ALL";
+
+    /// <summary>
+    /// The narrowings offered inside a tab.
+    ///
+    /// The workspace used to carry eight tabs across the top, and five of them
+    /// were questions about the same list: of the work still to do, what is
+    /// today's, what is tomorrow's, what is late, what is missing paperwork,
+    /// and what does the month look like. They are narrowings of a tab, not
+    /// tabs, so they are offered inside one.
+    ///
+    /// The rules are the ones the tabs already used. A focus asks
+    /// <see cref="Matches"/> the same question the tab did, so "late" cannot
+    /// come to mean one thing here and another there.
+    /// </summary>
+    public static readonly string[] Focuses = [Today, Tomorrow, Delay, DocumentMissing, Calendar];
+
+    /// <summary>
+    /// Whether a job survives the narrowing chosen inside a tab.
+    ///
+    /// The calendar is a way of looking at a list rather than a cut of it, so
+    /// it narrows nothing beyond having a date to be drawn against.
+    /// </summary>
+    public static bool MatchesFocus(string? focus, JobView job, DateOnly today)
+    {
+        var wanted = (focus ?? "").Trim();
+        if (wanted.Length == 0 || wanted == AnyFocus) return true;
+        if (Array.IndexOf(Focuses, wanted) < 0) return true;
+        return Matches(wanted, job, "", today);
+    }
+
     /// <summary>
     /// Not happening. One reading of the status, in one place, because the
     /// question is now asked by four tab rules and the grid's colouring.

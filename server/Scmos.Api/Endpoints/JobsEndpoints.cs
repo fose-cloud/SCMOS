@@ -69,6 +69,7 @@ public static class JobsEndpoints
         group.MapGet("/page", async (string? tab, string? cat, string? year, string? month,
             string? day, string? from, string? to,
             string? q, string? sort, string? dir, int? page, int? per,
+            string? focus,
             string? assignee, string? customer, string? trucker, string? type, string? status,
             string? kpi,
             HttpContext context, IUserAccessor users, WorkspaceService workspace,
@@ -97,6 +98,7 @@ public static class JobsEndpoints
                 // caller may pass — otherwise any signed-in person could ask for
                 // somebody else's workspace by naming their id.
                 OpId: user.OperatorId,
+                Focus: focus ?? "ALL",
                 Assignee: assignee ?? "ALL",
                 Owner: "",
                 Customer: customer ?? "ALL",
