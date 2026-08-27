@@ -1015,9 +1015,6 @@ export function Workspace(p: Props) {
   });
 
   const panel = (key: keyof PanelPrefs) => () => p.onPanel(key);
-  const foldStyle = (open: boolean) =>
-    "height:26px;padding:0 10px;border:1px solid " + (open ? "#BBD5EE" : "#D8E0E8") +
-    ";background:" + (open ? "#F4F8FC" : "#fff") + ";color:#475569;border-radius:4px;font-size:11px;cursor:pointer";
 
   // Export writes the whole filtered set, not just the page being viewed. A
   // split view exports every column, since it holds both kinds of job.
@@ -1454,6 +1451,23 @@ export function Workspace(p: Props) {
     ";background:" + (active ? activeBg : "#fff") + ";color:" + (active ? "#0A2240" : "#64748B") +
     ";border-radius:3px;font-size:11px;cursor:pointer;font-weight:" + (active ? "600" : "400");
 
+  /**
+   * What the period controls are set to, written on the button that opens them.
+   *
+   * The point of shutting a panel is not having to open it to see where you
+   * are — so the toggle stops saying "ช่วงเวลา" as soon as something is chosen
+   * and says the choice instead.
+   */
+  const periodLabel = (() => {
+    if (ws.from || ws.to) return `${ws.from || "…"} – ${ws.to || "…"}`;
+    if (ws.date !== "ALL") return dowOf(anchor) + " " + anchor;
+    const parts = [
+      ws.year !== "ALL" ? ws.year : "",
+      ws.month !== "ALL" ? monthLabel(ws.month) : "",
+    ].filter(Boolean);
+    return parts.length ? parts.join(" ") : "ช่วงเวลา";
+  })();
+
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
 
@@ -1473,14 +1487,68 @@ export function Workspace(p: Props) {
         </div>
       )}
 
-      <div style={css("display:flex;align-items:center;gap:14px;padding:12px 18px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
-        <div style={css("width:36px;height:36px;border-radius:5px;background:#2E7DD1;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600")}>
-          {me.init}
+      {/*
+        One bar, where five panels used to be.
+
+        What is on it earns its place: which category you are in and how many
+        that is, how much of it you are looking at and what is narrowing it,
+        whether your typing is actually being saved, and the way to open
+        everything else. The greeting that used to head this panel is gone —
+        the name is already in the corner of every screen, and it cost a
+        full-width band above the work.
+      */}
+      <div style={css("display:flex;align-items:center;gap:10px;padding:9px 13px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
+        <div style={css("display:flex;align-items:center;gap:6px")}>
+          {(p.lockedCat ? [] : CATEGORIES).map((c) => (
+            <button
+              key={c}
+              onClick={() => p.set({ cat: c, page: 1 })}
+              style={css(
+                "display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border:1px solid " +
+                (ws.cat === c ? "#4E9BE8" : "#24476E") + ";background:" + (ws.cat === c ? "#16406E" : "transparent") +
+                ";color:#fff;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:.05em",
+              )}
+            >
+              {c}
+              <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:" + (ws.cat === c ? "#9FD0FF" : "#7FA5CC"))}>
+                {complete
+                  ? inCat(c).length
+                  : c === "ALL" ? serverTotal : server?.[c]?.total ?? "…"}
+              </span>
+            </button>
+          ))}
         </div>
-        <div style={css("display:flex;flex-direction:column;line-height:1.3")}>
-          <span style={css("font-size:14.5px;font-weight:600;color:#fff")}>Welcome, {me.name}</span>
-          <span style={css("font-size:11px;color:#7FA5CC")}>{me.role} · One team visibility, individual work ownership</span>
-        </div>
+
+        <span style={css("width:1px;height:20px;background:#24476E")} />
+
+        {/* How much of it is on screen, and what is keeping the rest off. */}
+        <span style={css("font-size:12.5px;font-weight:600;color:#fff;font-family:'IBM Plex Mono',monospace")}>
+          {complete ? list.length : serverTotal}
+        </span>
+        <span style={css("font-size:11.5px;color:#7FA5CC")}>
+          จาก {complete ? all.length : serverTotal} งาน
+        </span>
+
+        {activeFilters.map(([label, value, clear]) => (
+          <button
+            key={label + value}
+            onClick={clear}
+            title={"เอา " + label + " ออก"}
+            style={css("height:23px;padding:0 8px;border:1px solid #24476E;background:#0E2B4F;color:#DCEBFB;border-radius:12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px")}
+          >
+            <span style={css("color:#7FA5CC")}>{label}:</span>
+            <span style={css("font-weight:600")}>{value}</span>
+            <span style={css("color:#7FA5CC")}>✕</span>
+          </button>
+        ))}
+
+        {activeFilters.length > 1 && (
+          <button onClick={clearAll} style={css("height:23px;padding:0 10px;border:1px solid #24476E;background:transparent;color:#9FD0FF;border-radius:12px;font-size:11px;cursor:pointer")}>
+            ล้างทั้งหมด
+          </button>
+        )}
+
+        <span style={css("flex:1;min-width:8px")} />
 
         {/* Whether what you type is actually being kept. */}
         <span
@@ -1504,26 +1572,20 @@ export function Workspace(p: Props) {
                 : p.sync.at ? "บันทึกลงฐานข้อมูลแล้ว " + p.sync.at
                   : "ต่อฐานข้อมูลแล้ว"}
         </span>
-        <div style={css("margin-left:auto;display:flex;align-items:center;gap:7px")}>
-          {(p.lockedCat ? [] : CATEGORIES).map((c) => (
-            <button
-              key={c}
-              onClick={() => p.set({ cat: c, page: 1 })}
-              style={css(
-                "display:flex;align-items:center;gap:8px;height:31px;padding:0 14px;border:1px solid " +
-                (ws.cat === c ? "#4E9BE8" : "#24476E") + ";background:" + (ws.cat === c ? "#16406E" : "transparent") +
-                ";color:#fff;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:.05em",
-              )}
-            >
-              {c}
-              <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:" + (ws.cat === c ? "#9FD0FF" : "#7FA5CC"))}>
-                {complete
-                  ? inCat(c).length
-                  : c === "ALL" ? serverTotal : server?.[c]?.total ?? "…"}
-              </span>
-            </button>
-          ))}
-        </div>
+        {complete && (
+          <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
+            {([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
+               ["team", "ภาระทีม"], ["filters", "ตัวกรอง"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
+              <button key={key} onClick={panel(key)}
+                style={css("height:26px;padding:0 10px;border:1px solid "
+                  + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
+                  + (p.panels[key] ? "#16406E" : "transparent")
+                  + ";color:#DCEBFB;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit")}>
+                {p.panels[key] ? "▾" : "▸"} {label}
+              </button>
+            ))}
+          </span>
+        )}
       </div>
 
       {!complete && (
@@ -1532,7 +1594,7 @@ export function Workspace(p: Props) {
         </div>
       )}
 
-      {complete && (<>
+      {complete && p.panels.dates && (<>
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap")}>
         <button onClick={() => step(-1)} aria-label="Previous day" style={css("width:30px;height:31px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#475569;cursor:pointer;font-size:13px")}>‹</button>
         {dates.slice(anchorIndex, anchorIndex + 7).map((d) => {
@@ -1654,43 +1716,6 @@ export function Workspace(p: Props) {
       </div>
       </>)}
 
-      {/* What is narrowing the grid, in one line, with a way out of each. */}
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:9px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
-        <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em")}>กำลังดู</span>
-        <span style={css("font-size:12.5px;font-weight:600;color:#0A2240;font-family:'IBM Plex Mono',monospace")}>{complete ? list.length : serverTotal}</span>
-        <span style={css("font-size:11.5px;color:#64748B")}>จาก {complete ? all.length : serverTotal} งาน</span>
-
-        {activeFilters.length ? activeFilters.map(([label, value, clear]) => (
-          <button
-            key={label + value}
-            onClick={clear}
-            title={"เอา " + label + " ออก"}
-            style={css("height:24px;padding:0 8px;border:1px solid #BBD5EE;background:#F4F8FC;color:#0A2240;border-radius:12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px")}
-          >
-            <span style={css("color:#64748B")}>{label}:</span>
-            <span style={css("font-weight:600")}>{value}</span>
-            <span style={css("color:#94A3B8")}>✕</span>
-          </button>
-        )) : (
-          <span style={css("font-size:11.5px;color:#94A3B8")}>
-            {complete ? "ยังไม่ได้กรองอะไร — เห็นงานทั้งแผน" : "แสดงหน้าข้อมูลล่าสุดจากเซิร์ฟเวอร์"}
-          </span>
-        )}
-
-        {activeFilters.length > 1 && (
-          <button onClick={clearAll} style={css("height:24px;padding:0 10px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:12px;font-size:11px;cursor:pointer")}>
-            ล้างทั้งหมด
-          </button>
-        )}
-
-        <span style={css("margin-left:auto;display:flex;gap:6px;flex-wrap:wrap")}>
-          {complete ? ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"], ["team", "ภาระทีม"], ["filters", "ตัวกรอง"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
-            <button key={key} onClick={panel(key)} style={css(foldStyle(p.panels[key]))}>
-              {p.panels[key] ? "▾" : "▸"} {label}
-            </button>
-          )) : <span style={css("font-size:11px;color:#2E7DD1")}>กำลังเตรียมข้อมูลสรุป…</span>}
-        </span>
-      </div>
 
       {complete && p.panels.kpi && (
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px")}>

@@ -12,9 +12,18 @@
  * but they push the job list off the screen, so each one folds away and the
  * choice is remembered.
  */
-export type PanelPrefs = { kpi: boolean; process: boolean; team: boolean; filters: boolean };
+export type PanelPrefs = {
+  kpi: boolean; process: boolean; team: boolean; filters: boolean;
+  /**
+   * The date strip and the period bar, which used to be two panels nobody
+   * could put away. Shut by default: most days are worked on "all dates", and
+   * the two of them together cost about a fifth of the screen.
+   */
+  dates: boolean;
+};
 
-export const DEFAULT_PANELS: PanelPrefs = { kpi: true, process: false, team: false, filters: true };
+export const DEFAULT_PANELS: PanelPrefs =
+  { kpi: false, process: false, team: false, filters: false, dates: false };
 
 export type Prefs = {
   /** Screen to open after sign-in. */
@@ -87,6 +96,9 @@ export function loadPrefs(): Prefs {
         process: panels.process === true,
         team: panels.team === true,
         filters: panels.filters !== undefined ? panels.filters === true : DEFAULT_PANELS.filters,
+        // Absent from anything saved before this panel existed, and that reads
+        // as shut — which is the default anyway.
+        dates: panels.dates === true,
       },
     };
   } catch {
