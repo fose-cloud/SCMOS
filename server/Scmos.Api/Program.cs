@@ -137,6 +137,7 @@ var app = builder.Build();
 // counting wrongly, or there is genuinely nothing to count.
 if (ScorecardCheck.Run(args)) return 0;
 if (DuplicateCheck.Run(args)) return 0;
+if (TypeCheck.Run(args)) return 0;
 
 if (args.Contains("--seed"))
 {
