@@ -1028,6 +1028,16 @@ export function Workspace(p: Props) {
 
   const panel = (key: keyof PanelPrefs) => () => p.onPanel(key);
 
+  /**
+   * Whether this is My Job rather than The Chemours domestic grid.
+   *
+   * The same component draws both, and only My Job was asked to lose the KPI
+   * tiles, the process board and the team workload — it is worked in all day,
+   * and every panel on it is a band the job rows do not get. Domestic keeps
+   * them; that menu was explicitly out of scope.
+   */
+  const isMyJob = !p.lockedCat;
+
   // Export writes the whole filtered set, not just the page being viewed. A
   // split view exports every column, since it holds both kinds of job.
   const { onView } = p;
@@ -1601,8 +1611,11 @@ export function Workspace(p: Props) {
             </span>
             {complete && (
               <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
-                {([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
-                   ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
+                {(isMyJob
+                  ? ([["dates", periodLabel]] as [keyof PanelPrefs, string][])
+                  : ([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
+                      ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
+                ).map(([key, label]) => (
                   <button key={key} onClick={panel(key)}
                     style={css("height:26px;padding:0 10px;border:1px solid "
                       + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
@@ -1752,8 +1765,11 @@ export function Workspace(p: Props) {
             </span>
             {complete && (
               <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
-                {([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
-                   ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
+                {(isMyJob
+                  ? ([["dates", periodLabel]] as [keyof PanelPrefs, string][])
+                  : ([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
+                      ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
+                ).map(([key, label]) => (
                   <button key={key} onClick={panel(key)}
                     style={css("height:26px;padding:0 10px;border:1px solid "
                       + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
@@ -1910,7 +1926,7 @@ export function Workspace(p: Props) {
       </>)}
 
 
-      {complete && p.panels.kpi && (
+      {complete && !isMyJob && p.panels.kpi && (
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px")}>
         {KPI_DEFS.map((k) => (
           <button
@@ -1936,7 +1952,7 @@ export function Workspace(p: Props) {
 
       {complete && (
         <div style={css("display:flex;flex-direction:column;gap:13px")}>
-          {p.panels.process && (
+          {!isMyJob && p.panels.process && (
           <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
             <div style={css("display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap")}>
               <h3 style={css("margin:0;font-size:13.5px;font-weight:600;color:#0A2240")}>
@@ -1989,7 +2005,7 @@ export function Workspace(p: Props) {
           </div>
           )}
 
-          {p.panels.team && (
+          {!isMyJob && p.panels.team && (
           <div style={css("display:flex;gap:10px;flex-wrap:wrap")}>
             {workload.map((w) => (
               <button
