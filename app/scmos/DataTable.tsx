@@ -27,6 +27,14 @@ export type TableModel = {
   datalists?: { id: string; options: string[] }[];
   /** Rendered between the header and the grid — the workspace puts its bulk bar here. */
   banner?: ReactNode;
+  /**
+   * Controls drawn on the header row itself, under the title.
+   *
+   * The workspace puts the period filter here. That row carries a title, a
+   * count and two buttons and is half empty; the filter had a full-width panel
+   * to itself for six controls.
+   */
+  controls?: ReactNode;
 };
 
 type Props = {
@@ -172,6 +180,12 @@ export function DataTable({ model, onPage, onTool }: Props) {
           </button>
         </div>
       </div>
+
+      {model.controls && (
+        <div style={css("padding:9px 16px 11px;border-bottom:1px solid #E9EFF5;background:#FBFCFD")}>
+          {model.controls}
+        </div>
+      )}
 
       {model.banner}
 

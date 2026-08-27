@@ -11,7 +11,7 @@ import { DataTable, type TableModel, type TableRow } from "../DataTable";
 import { JobCards } from "../JobCards";
 import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
-import { cell, cols, dnum, dowOf, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
+import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { spanEnd } from "../standard";
 import { useCarriers } from "../carriers";
 
@@ -1228,6 +1228,99 @@ export function Workspace(p: Props) {
   };
 
   /** One grid per section: its own columns, its own page, its own tick-all. */
+  /**
+   * The period filter, drawn inside the first grid's own header.
+   *
+   * That header carries a title, a job count and two buttons, and half of it is
+   * empty; this was a full-width panel for six controls. Only the first grid
+   * gets it — IMPORT and EXPORT are two tables of one selection, and a second
+   * copy would be two controls fighting over one value.
+   */
+  // ปี → เดือน → วัน, the same period model the dashboard reports on.
+  const periodControls = (
+      <div style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%")}>
+      <span style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em")}>ช่วงเวลา</span>
+
+      {([
+      ["ปี", ws.year, ["ALL", ...years], (v: string) => v, (v: string) => p.set({ year: v, month: "ALL", date: "ALL", page: 1 })],
+      ["เดือน", ws.month, ["ALL", ...months], (v: string) => (v === "ALL" ? v : monthLabel(v) + " (" + v + ")"), (v: string) => p.set({ month: v, date: "ALL", page: 1 })],
+      ["วัน", ws.date, ["ALL", ...dates], (v: string) => (v === "ALL" ? v : v.slice(0, 2) + " · " + dateCount[v] + " งาน"), (v: string) => p.set({ date: v, page: 1 })],
+      ] as [string, string, string[], (v: string) => string, (v: string) => void][]).map(([label, value, options, render, onPick]) => (
+      <label key={label} style={css("display:flex;align-items:center;gap:6px")}>
+      <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>{label}</span>
+      <select
+      value={value}
+      onChange={(e) => onPick(e.target.value)}
+      style={css("height:31px;min-width:96px;border:1px solid #D8E0E8;border-radius:4px;background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;cursor:pointer")}
+      >
+      {options.map((o) => <option key={o} value={o}>{o === "ALL" ? "ทั้งหมด" : render(o)}</option>)}
+      </select>
+      </label>
+      ))}
+
+      {/*
+      A span of days, which the pickers beside it cannot express: "the first
+      week of August" is a real question and neither a month nor a single
+      day answers it.
+
+      Typed rather than picked, because a date picker that only offers days
+      the register happens to hold is a picker that hides the empty ones —
+      and "nothing was planned that week" is an answer worth being able to
+      get. Buddhist years are accepted: 01/08/2569 is read as 2026 by the
+      same reader every other date on the job goes through.
+      */}
+      <label style={css("display:flex;align-items:center;gap:6px")}>
+      <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
+      <input
+      value={ws.from}
+      placeholder="25 หรือ 25/08/2026"
+      onChange={(e) => p.set({ from: e.target.value })}
+      onBlur={() => p.set({ date: "ALL", page: 1 })}
+      style={css(SPAN_INPUT)}
+      />
+      <span style={css("font-size:12px;color:#8496A8")}>–</span>
+      <input
+      value={ws.to}
+      placeholder="31 หรือ 31/08/2026"
+      onChange={(e) => p.set({ to: e.target.value })}
+      onBlur={() => p.set({ date: "ALL", page: 1 })}
+      style={css(SPAN_INPUT)}
+      />
+      </label>
+
+      {/*
+      Always in the bar, greyed when there is nothing to clear.
+
+      It used to be rendered only while a filter was set, which was fine
+      while it did not work and confusing the moment it did: pressing it
+      cleared the filters and took the button away with them, so it read as
+      the button vanishing rather than as the filters going. It also clears
+      the two typed boxes now — it appears above them and offers to clear
+      the period, and leaving them behind is what made it look broken.
+      */}
+      <button
+      disabled={!periodNarrowed}
+      onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", from: "", to: "", page: 1 })}
+      style={css("height:29px;padding:0 12px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
+      + (periodNarrowed
+      ? "border:1px solid #BBD5EE;background:#F4F8FC;color:#0A2240;cursor:pointer"
+      : "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"))}
+      >
+      ล้างช่วงเวลา
+      </button>
+
+      <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px")}>
+      <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{base.length}</span>
+      <span style={css("font-size:11.5px;color:#64748B")}>จาก {catBase.length} งานในหมวดนี้</span>
+      {!!undated && (
+      <span style={css("font-size:11px;color:#B45309")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปีหรือเดือน">
+      · วันที่ใช้ไม่ได้ {undated}
+      </span>
+      )}
+      </span>
+      </div>
+  );
+
   const grids = sections.map((section) => {
     // The server already chose this page; paginating it again here would slice
     // twenty-five rows out of twenty-five and report a page count of one.
@@ -1512,23 +1605,6 @@ export function Workspace(p: Props) {
   });
 
 
-  /**
-   * What the period controls are set to, written on the button that opens them.
-   *
-   * The point of shutting a panel is not having to open it to see where you
-   * are — so the toggle stops saying "ช่วงเวลา" as soon as something is chosen
-   * and says the choice instead.
-   */
-  const periodLabel = (() => {
-    if (ws.from || ws.to) return `${ws.from || "…"} – ${ws.to || "…"}`;
-    if (ws.date !== "ALL") return dowOf(anchor) + " " + anchor;
-    const parts = [
-      ws.year !== "ALL" ? ws.year : "",
-      ws.month !== "ALL" ? monthLabel(ws.month) : "",
-    ].filter(Boolean);
-    return parts.length ? parts.join(" ") : "ช่วงเวลา";
-  })();
-
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
 
@@ -1674,8 +1750,8 @@ export function Workspace(p: Props) {
             {complete && (
               <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
                 {(isMyJob
-                  ? ([["dates", periodLabel]] as [keyof PanelPrefs, string][])
-                  : ([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
+                  ? ([] as [keyof PanelPrefs, string][])
+                  : ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
                       ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
                 ).map(([key, label]) => (
                   <button key={key} onClick={panel(key)}
@@ -1836,8 +1912,8 @@ export function Workspace(p: Props) {
             {complete && (
               <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
                 {(isMyJob
-                  ? ([["dates", periodLabel]] as [keyof PanelPrefs, string][])
-                  : ([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
+                  ? ([] as [keyof PanelPrefs, string][])
+                  : ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
                       ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
                 ).map(([key, label]) => (
                   <button key={key} onClick={panel(key)}
@@ -1894,91 +1970,6 @@ export function Workspace(p: Props) {
         </div>
       )}
 
-      {complete && p.panels.dates && (<>
-
-      {/* ปี → เดือน → วัน, the same period model the dashboard reports on. */}
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
-        <span style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em")}>ช่วงเวลา</span>
-
-        {([
-          ["ปี", ws.year, ["ALL", ...years], (v: string) => v, (v: string) => p.set({ year: v, month: "ALL", date: "ALL", page: 1 })],
-          ["เดือน", ws.month, ["ALL", ...months], (v: string) => (v === "ALL" ? v : monthLabel(v) + " (" + v + ")"), (v: string) => p.set({ month: v, date: "ALL", page: 1 })],
-          ["วัน", ws.date, ["ALL", ...dates], (v: string) => (v === "ALL" ? v : v.slice(0, 2) + " · " + dateCount[v] + " งาน"), (v: string) => p.set({ date: v, page: 1 })],
-        ] as [string, string, string[], (v: string) => string, (v: string) => void][]).map(([label, value, options, render, onPick]) => (
-          <label key={label} style={css("display:flex;align-items:center;gap:6px")}>
-            <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>{label}</span>
-            <select
-              value={value}
-              onChange={(e) => onPick(e.target.value)}
-              style={css("height:31px;min-width:96px;border:1px solid #D8E0E8;border-radius:4px;background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;cursor:pointer")}
-            >
-              {options.map((o) => <option key={o} value={o}>{o === "ALL" ? "ทั้งหมด" : render(o)}</option>)}
-            </select>
-          </label>
-        ))}
-
-        {/*
-          A span of days, which the pickers beside it cannot express: "the first
-          week of August" is a real question and neither a month nor a single
-          day answers it.
-
-          Typed rather than picked, because a date picker that only offers days
-          the register happens to hold is a picker that hides the empty ones —
-          and "nothing was planned that week" is an answer worth being able to
-          get. Buddhist years are accepted: 01/08/2569 is read as 2026 by the
-          same reader every other date on the job goes through.
-        */}
-        <label style={css("display:flex;align-items:center;gap:6px")}>
-          <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
-          <input
-            value={ws.from}
-            placeholder="25 หรือ 25/08/2026"
-            onChange={(e) => p.set({ from: e.target.value })}
-            onBlur={() => p.set({ date: "ALL", page: 1 })}
-            style={css(SPAN_INPUT)}
-          />
-          <span style={css("font-size:12px;color:#8496A8")}>–</span>
-          <input
-            value={ws.to}
-            placeholder="31 หรือ 31/08/2026"
-            onChange={(e) => p.set({ to: e.target.value })}
-            onBlur={() => p.set({ date: "ALL", page: 1 })}
-            style={css(SPAN_INPUT)}
-          />
-        </label>
-
-        {/*
-          Always in the bar, greyed when there is nothing to clear.
-
-          It used to be rendered only while a filter was set, which was fine
-          while it did not work and confusing the moment it did: pressing it
-          cleared the filters and took the button away with them, so it read as
-          the button vanishing rather than as the filters going. It also clears
-          the two typed boxes now — it appears above them and offers to clear
-          the period, and leaving them behind is what made it look broken.
-        */}
-        <button
-          disabled={!periodNarrowed}
-          onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", from: "", to: "", page: 1 })}
-          style={css("height:29px;padding:0 12px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
-            + (periodNarrowed
-              ? "border:1px solid #BBD5EE;background:#F4F8FC;color:#0A2240;cursor:pointer"
-              : "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"))}
-        >
-          ล้างช่วงเวลา
-        </button>
-
-        <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px")}>
-          <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{base.length}</span>
-          <span style={css("font-size:11.5px;color:#64748B")}>จาก {catBase.length} งานในหมวดนี้</span>
-          {!!undated && (
-            <span style={css("font-size:11px;color:#B45309")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปีหรือเดือน">
-              · วันที่ใช้ไม่ได้ {undated}
-            </span>
-          )}
-        </span>
-      </div>
-      </>)}
 
 
       {complete && !isMyJob && p.panels.kpi && (
@@ -2167,7 +2158,12 @@ export function Workspace(p: Props) {
         <div key={grid.layout}>
           <div className="grid-only">
             <DataTable
-              model={grid.model}
+              // Only the first grid carries it: IMPORT and EXPORT are two
+              // tables of one selection, and a second copy of the filter would
+              // be two controls fighting over one value.
+              model={grid.layout === grids[0].layout
+                ? { ...grid.model, controls: periodControls }
+                : grid.model}
               // Both pagers, always. The grid reads whichever source is live —
               // the API's answer while the register is still arriving, the
               // register itself once it is here — and telling only one of them
