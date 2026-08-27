@@ -55,7 +55,17 @@ button { cursor: pointer; }
 .hdr-btn:hover { background: #16406E !important; color: #fff !important; }
 .ghost-btn:hover { background: #F1F5F9 !important; }
 .dark-btn:hover { background: #123A66 !important; border-color: #123A66 !important; }
-.row-hover:hover { background: #F4F8FC !important; }
+.row-hover:hover { background: #EAF2FB !important; }
+
+/*
+ * Banding, now that the rows are close together.
+ *
+ * At forty-one pixels the white space between them did this job; at thirty it
+ * does not, and a twenty-five column grid is read across as much as down. Kept
+ * faint enough that the amber and red a cell can carry still read as warnings
+ * rather than as another stripe.
+ */
+.row-hover:nth-child(even) { background: #FAFCFE; }
 .card-hover:hover { border-color: #2E7DD1 !important; }
 .pick-hover:hover { background: #F8FAFC !important; border-color: #C7D6E4 !important; }
 

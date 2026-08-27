@@ -786,8 +786,8 @@ export function Workspace(p: Props) {
         v: "",
         sp: "",
         value: ws.editVal,
-        td: "padding:4px 8px;white-space:nowrap;border-bottom:1px solid #EDF1F5;background:#FFF7DE;",
-        inpStyle: "height:26px;width:100%;min-width:118px;border:1px solid #2E7DD1;border-radius:3px;font-size:12px;padding:0 6px;outline:none;background:#fff",
+        td: "padding:3px 8px;white-space:nowrap;border-bottom:1px solid #EDF1F5;background:#FFF7DE;",
+        inpStyle: "height:23px;width:100%;min-width:118px;border:1px solid #2E7DD1;border-radius:3px;font-size:12px;padding:0 6px;outline:none;background:#fff",
         onChange: (e) => p.set({ editVal: e.target.value }),
         onBlur: () => p.onSaveCell(j, field),
         onKey: (e) => {
@@ -835,7 +835,7 @@ export function Workspace(p: Props) {
       value: current,
       options: options.indexOf(current) >= 0 ? options : [current].concat(options),
       td: "padding:5px 9px;white-space:nowrap;border-bottom:1px solid #EDF1F5;",
-      selStyle: "height:27px;border:1px solid #BBD5EE;border-radius:4px;background:#F4F8FC;font-size:11.5px;color:#0A2240;font-weight:600;padding:0 5px;cursor:pointer",
+      selStyle: "height:23px;border:1px solid #BBD5EE;border-radius:3px;background:#F4F8FC;font-size:11px;color:#0A2240;font-weight:600;padding:0 4px;cursor:pointer",
       onChange: (e) => {
         e.stopPropagation();
         p.onSetField(j, field, e.target.value);
@@ -860,7 +860,7 @@ export function Workspace(p: Props) {
       value: j.status,
       options,
       td: "padding:5px 9px;white-space:nowrap;border-bottom:1px solid #EDF1F5;",
-      selStyle: "height:27px;max-width:158px;border:1px solid #BBD5EE;border-radius:4px;background:#F4F8FC;font-size:11.5px;color:#0A2240;font-weight:600;padding:0 5px;cursor:pointer",
+      selStyle: "height:23px;max-width:158px;border:1px solid #BBD5EE;border-radius:3px;background:#F4F8FC;font-size:11px;color:#0A2240;font-weight:600;padding:0 4px;cursor:pointer",
       onChange: (e) => { e.stopPropagation(); p.onStatusChange(j, e.target.value); },
       go: (e) => e.stopPropagation(),
     };
@@ -1208,7 +1208,7 @@ export function Workspace(p: Props) {
     kind: "check",
     v: "",
     sp: "",
-    td: "padding:8px 6px 8px 12px;border-bottom:1px solid #EDF1F5;vertical-align:middle;width:34px;",
+    td: "padding:5px 6px 5px 12px;border-bottom:1px solid #EDF1F5;vertical-align:middle;width:34px;",
     checked: picked.has(j.key),
     disabled: !canEditJob(j),
     title: canEditJob(j) ? "เลือกงานนี้" : "งานของ " + j.op + " — เลือกไม่ได้",
@@ -1262,7 +1262,7 @@ export function Workspace(p: Props) {
               the name is already in the corner of every screen, and it cost a
               full-width band above the work.
             */}
-            <div style={css("display:flex;align-items:center;gap:10px;padding:7px 0;flex-wrap:wrap")}>
+            <div style={css("display:flex;align-items:center;gap:9px;padding:5px 0;flex-wrap:wrap")}>
               {/*
                 The tabs, on the bar rather than on a white strip of their own.
   
@@ -1273,11 +1273,11 @@ export function Workspace(p: Props) {
               <div style={css("display:flex;align-items:center;gap:4px")}>
                 {p.tabs.map((t) => (
                   <button key={t.label} onClick={t.go}
-                    style={css("height:28px;padding:0 13px;border:1px solid "
+                    style={css("height:25px;padding:0 11px;border:1px solid "
                       + (t.active ? "#4E9BE8" : "transparent") + ";background:"
                       + (t.active ? "#16406E" : "transparent")
                       + ";color:" + (t.active ? "#fff" : "#9FD0FF")
-                      + ";border-radius:4px;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
+                      + ";border-radius:4px;font-size:11.5px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
                       + (t.active ? "600" : "400"))}>
                     {t.label}
                   </button>
@@ -1292,7 +1292,7 @@ export function Workspace(p: Props) {
                     key={c}
                     onClick={() => p.set({ cat: c, page: 1 })}
                     style={css(
-                      "display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border:1px solid " +
+                      "display:flex;align-items:center;gap:6px;height:25px;padding:0 10px;border:1px solid " +
                       (ws.cat === c ? "#4E9BE8" : "#24476E") + ";background:" + (ws.cat === c ? "#16406E" : "transparent") +
                       ";color:#fff;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:.05em",
                     )}
@@ -1322,7 +1322,7 @@ export function Workspace(p: Props) {
                   key={label + value}
                   onClick={clear}
                   title={"เอา " + label + " ออก"}
-                  style={css("height:23px;padding:0 8px;border:1px solid #24476E;background:#0E2B4F;color:#DCEBFB;border-radius:12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px")}
+                  style={css("height:21px;padding:0 8px;border:1px solid #24476E;background:#0E2B4F;color:#DCEBFB;border-radius:11px;font-size:10.5px;cursor:pointer;display:flex;align-items:center;gap:6px")}
                 >
                   <span style={css("color:#7FA5CC")}>{label}:</span>
                   <span style={css("font-weight:600")}>{value}</span>
@@ -1378,7 +1378,7 @@ export function Workspace(p: Props) {
                 </span>
               )}
             </div>
-            <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:7px 0;border-top:1px solid #1B3B60")}>
+            <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:5px 0;border-top:1px solid #1B3B60")}>
               <FilterPick label="ASSIGNED" value={ws.assignee}
                 options={["All Team", "My Work"].concat(M.operators)}
                 onPick={(v) => p.set({ assignee: v, page: 1 })} />
@@ -1418,7 +1418,7 @@ export function Workspace(p: Props) {
 
   // ปี → เดือน → วัน, the same period model the dashboard reports on.
   const periodControls = (
-      <div style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;padding:7px 0;border-top:1px solid #1B3B60")}>
+      <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;width:100%;padding:5px 0;border-top:1px solid #1B3B60")}>
       <span style={css("font-size:11px;font-weight:700;color:#7FA5CC;letter-spacing:.06em")}>ช่วงเวลา</span>
 
       {([
@@ -1526,7 +1526,7 @@ export function Workspace(p: Props) {
     const editableOnPage = pg.slice.filter(canEditJob);
     const allPagePicked = editableOnPage.length > 0 && editableOnPage.every((j) => picked.has(j.key));
 
-    const rows: TableRow[] = pg.slice.map((j) => ({
+    const rows: TableRow[] = pg.slice.map((j, rowIndex) => ({
       key: j.key,
       go: () => p.onDrawer(j.key),
       title: pinnedKeys.has(j.key) ? "แถวใหม่ — กรอกข้อมูลแล้วกด “เสร็จแล้ว” เพื่อให้เรียงเข้าที่"
@@ -1542,7 +1542,13 @@ export function Workspace(p: Props) {
           : picked.has(j.key) ? "#FFF7DE"
           : isCancelled(j) ? "#F4F6F8"
             : wasMoved(j) ? "#FFFCF4"
-              : mineJ(j) ? "#F4F8FC" : "#fff") +
+              : mineJ(j) ? "#F4F8FC"
+                // Banding, now that the rows are close together. At forty-one
+                // pixels the space between them did this job; at thirty it does
+                // not, and a twenty-five column grid is read across as much as
+                // down. Faint enough that the colours above — which mean
+                // something — still read as meaning something.
+                : rowIndex % 2 ? "#FAFCFE" : "#fff") +
         ";border-left:3px solid " +
         (pinnedKeys.has(j.key) ? "#16794C"
           : picked.has(j.key) ? "#D89614"

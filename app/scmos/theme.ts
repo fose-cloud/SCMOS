@@ -63,7 +63,7 @@ const TONES: Record<Tone, [string, string]> = {
 export function badge(_text: string, tone?: Tone | null): string {
   const c = TONES[(tone ?? "gray") as Tone] || TONES.gray;
   return (
-    "display:inline-block;padding:3px 9px;border-radius:3px;font-size:11px;" +
+    "display:inline-block;padding:1px 7px;border-radius:3px;font-size:10.5px;" +
     "font-weight:600;letter-spacing:.02em;background:" + c[1] + ";color:" + c[0]
   );
 }

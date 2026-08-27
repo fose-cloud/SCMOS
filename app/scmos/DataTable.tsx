@@ -186,8 +186,8 @@ export function DataTable({ model, onPage, onTool }: Props) {
         borders to say one thing. Filling the screen it is all the one navy and
         the rows inside it are just rows.
       */}
-      <div style={css("padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;"
-        + (model.fill ? "background:#0A2240" : "border-bottom:1px solid #E9EFF5"))}>
+      <div style={css("display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;"
+        + (model.fill ? "padding:7px 16px;background:#0A2240" : "padding:12px 16px;border-bottom:1px solid #E9EFF5"))}>
         <div style={css("display:flex;align-items:baseline;gap:10px")}>
           <span style={css("font-size:13.5px;font-weight:600;color:" + (model.fill ? "#fff" : "#0A2240"))}>{model.title}</span>
           <span style={css("font-size:11.5px;color:" + (model.fill ? "#7FA5CC" : "#94A3B8"))}>{model.meta}</span>

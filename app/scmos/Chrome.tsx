@@ -481,19 +481,41 @@ export function Chrome(p: Props) {
 
         <main style={css("flex:1;min-width:0;background:#EEF2F6;"
           + (p.lockScroll ? "overflow:hidden;display:flex;flex-direction:column" : "overflow-y:auto"))}>
-          <div style={css("background:#fff;border-bottom:1px solid #D8E0E8;padding:16px 24px 0;position:sticky;top:0;z-index:30")}>
+          {/*
+            The heading, compact where the screen cannot scroll.
+
+            On a locked page every pixel above the grid is permanent, and this
+            block was a hundred and twenty of them: a breadcrumb on its own
+            line, a title, and a sentence explaining the screen that anybody
+            working in it read months ago. Compact, the breadcrumb sits on the
+            title's line and the sentence goes. Nothing anybody clicks is
+            removed, and every other screen keeps the full heading.
+          */}
+          <div style={css("background:#fff;border-bottom:1px solid #D8E0E8;position:sticky;top:0;z-index:30;"
+            + (p.lockScroll ? "padding:9px 20px 0" : "padding:16px 24px 0"))}>
             <div className="page-head" style={css("display:flex;align-items:flex-start;gap:20px")}>
               <div style={css("flex:1;min-width:0")}>
-                <div style={css("font-size:11px;color:#8496A8;letter-spacing:.06em;margin-bottom:5px;font-family:'IBM Plex Mono',monospace")}>
-                  {p.crumb}
-                </div>
+                {!p.lockScroll && (
+                  <div style={css("font-size:11px;color:#8496A8;letter-spacing:.06em;margin-bottom:5px;font-family:'IBM Plex Mono',monospace")}>
+                    {p.crumb}
+                  </div>
+                )}
                 <div style={css("display:flex;align-items:baseline;gap:12px;flex-wrap:wrap")}>
-                  <h1 style={css("margin:0;font-size:22px;font-weight:600;color:#0A2240;letter-spacing:-.01em")}>{p.title}</h1>
-                  <span style={css("font-size:14px;color:#64748B;font-weight:400")}>{p.titleTh}</span>
+                  <h1 style={css("margin:0;font-weight:600;color:#0A2240;letter-spacing:-.01em;font-size:"
+                    + (p.lockScroll ? "17px" : "22px"))}>{p.title}</h1>
+                  <span style={css("color:#64748B;font-weight:400;font-size:" + (p.lockScroll ? "12.5px" : "14px"))}>{p.titleTh}</span>
+                  {p.lockScroll && (
+                    <span style={css("font-size:10.5px;color:#A6B4C2;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace")}>
+                      {p.crumb}
+                    </span>
+                  )}
                 </div>
-                <p style={css("margin:6px 0 0;font-size:12.5px;color:#64748B;max-width:900px;text-wrap:pretty")}>{p.blurb}</p>
+                {!p.lockScroll && (
+                  <p style={css("margin:6px 0 0;font-size:12.5px;color:#64748B;max-width:900px;text-wrap:pretty")}>{p.blurb}</p>
+                )}
               </div>
-              <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:10px")}>
+              <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:"
+                + (p.lockScroll ? "0" : "10px"))}>
                 {p.actions.map((a) => (
                   <button key={a.label} onClick={a.go} style={css(a.style)}>{a.label}</button>
                 ))}
@@ -505,7 +527,8 @@ export function Chrome(p: Props) {
                 it, and you arrive at the tab having lost the heading that says
                 what you are looking at. */}
             {!p.hideTabs && (
-            <div style={css("display:flex;gap:2px;margin-top:14px;overflow-x:auto;scrollbar-width:thin;" +
+            <div style={css("display:flex;gap:2px;overflow-x:auto;scrollbar-width:thin;" +
+              (p.lockScroll ? "margin-top:8px;" : "margin-top:14px;") +
               "-webkit-overflow-scrolling:touch;padding-bottom:2px")}>
               {p.tabs.map((t) => (
                 <button
