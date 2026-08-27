@@ -338,10 +338,13 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
             // the reader is owed the difference.
             engine.issuesInPeriod === 0
               ? "ไม่มีรายการใน Operational Issues ในช่วงเวลานี้ — ทุกเกณฑ์จึงเป็น 100% เพราะไม่มีเหตุให้หัก ไม่ใช่เพราะระบบนับไม่เจอ"
-              : `คิดจาก ${engine.issuesInPeriod} รายการใน Operational Issues ในช่วงนี้`
+              : `จำนวนงานนับจากทะเบียนงานเดียวกับ My Job · เหตุการณ์คิดจาก ${engine.issuesInPeriod} รายการใน Operational Issues ในช่วงนี้`
                 + (engine.unattributedIssues
                   ? ` · ${engine.unattributedIssues} รายการเลขงานจับคู่ไม่ได้ จึงไม่เข้าคะแนนของใคร`
                   : " · ผูกกับงานได้ทั้งหมด")
+                + (engine.scorecard.some((row) => row.ungradedAccidents > 0)
+                  ? " · มีอุบัติเหตุที่ยังไม่ระบุชนิด คะแนนของเจ้านั้นจึงยังไม่สรุป"
+                  : "")
           }
         >
           <div style={css("overflow-x:auto")}>
@@ -365,9 +368,10 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
                         {row.carrier} →
                       </button>
                       {row.ungradedAccidents > 0 && (
-                        <div style={css("font-size:11px;color:#B45309;margin-top:2px")}>
-                          อุบัติเหตุยังไม่ระบุชนิด {row.ungradedAccidents} เคส
-                        </div>
+                        <button onClick={() => onDrill("issues")}
+                          style={css("display:block;margin-top:2px;border:none;background:none;padding:0;font-family:inherit;font-size:11px;color:#B45309;text-align:left;cursor:pointer;text-decoration:underline")}>
+                          อุบัติเหตุยังไม่ระบุชนิด {row.ungradedAccidents} เคส — ระบุใน Operational Issues →
+                        </button>
                       )}
                     </td>
                     <td style={NUM_S}>{row.shipments.toLocaleString()}</td>
@@ -390,9 +394,26 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
                       );
                     })}
 
+                    {/*
+                      A carrier with an accident nobody has graded is not
+                      finished being scored, and must not be drawn as though it
+                      were.
+
+                      The number itself is honest — it is the mark of the part
+                      that can be judged — but the two accident criteria are
+                      half the contract's weight between them, and a confident
+                      green 100.0 beside an accident on file reads as a clean
+                      month. So it is drawn amber and labelled, and the label
+                      says what would finish it.
+                    */}
                     <td style={css("padding:8px 12px;text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;color:"
-                      + (row.weighted == null ? "#B4C0CC" : row.weighted >= 95 ? "#16794C" : row.weighted >= 85 ? "#B45309" : "#B42318"))}>
+                      + (row.weighted == null ? "#B4C0CC"
+                        : row.ungradedAccidents > 0 ? "#B45309"
+                        : row.weighted >= 95 ? "#16794C" : row.weighted >= 85 ? "#B45309" : "#B42318"))}>
                       {row.weighted == null ? "—" : row.weighted.toFixed(1)}
+                      {row.ungradedAccidents > 0 && (
+                        <div style={css("font-size:10.5px;color:#B45309;font-weight:600")}>ยังไม่สรุป</div>
+                      )}
                       {row.weightAvailable < 100 && (
                         <div style={css("font-size:10.5px;color:#94A3B8;font-weight:400")}>
                           จากน้ำหนัก {row.weightAvailable}%
@@ -420,40 +441,16 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
         </Panel>
       ) : null}
 
-      {engine && engine.suppliers.some((s) => s.score !== null) && (
-        <Panel
-          title="คะแนนผู้ขนส่ง"
-          note={`ให้คะแนนได้ ${engine.suppliers.filter((s) => s.score !== null).length} เจ้า · อีก ${engine.suppliers.filter((s) => s.score === null).length} เจ้ายังมีข้อมูลไม่พอ · คลิกชื่อเพื่อดูงานของเจ้านั้น`}
-        >
-          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-            <thead><tr>{["ผู้ขนส่ง", "งาน", "ตรงเวลา", "ตอบยืนยัน", "ไม่มีความล่าช้า", "คะแนน"].map((h, i) => (
-              <th key={h} style={css("padding:8px 14px;text-align:" + (i === 0 ? "left" : "right") +
-                ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
-            ))}</tr></thead>
-            <tbody>
-              {engine.suppliers.filter((s) => s.score !== null).map((s) => (
-                <tr key={s.carrier} style={css("border-bottom:1px solid #F1F5F9")}>
-                  <td style={css("padding:8px 14px")}>
-                    <button onClick={() => onOpenJobs({ trucker: s.carrier })}
-                      style={css("border:none;background:none;padding:0;font-family:inherit;font-size:12.5px;font-weight:600;color:#0A5FA8;cursor:pointer")}>
-                      {s.carrier} →
-                    </button>
-                  </td>
-                  <td style={NUM_S}>{s.jobs.toLocaleString()}</td>
-                  {/* Each component shows its own base. A carrier scored on
-                      forty measured jobs and one scored on five are not the same
-                      claim, and the score alone hides which is which. */}
-                  <Component value={s.onTime} base={s.onTimeBase} />
-                  <Component value={s.confirmation} base={s.confirmationBase} />
-                  <Component value={s.delayFree} base={s.delayCount} baseLabel="ล่าช้า" />
-                  <td style={css("padding:8px 14px;text-align:right;font-family:ui-monospace,monospace;font-weight:600;color:" +
-                    (s.score! >= 85 ? "#16794C" : s.score! >= 70 ? "#B45309" : "#B42318"))}>{s.score}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-      )}
+      {/*
+        The per-carrier table that stood here is gone.
+
+        It answered the same question the On Time Delivery row above already
+        answers, one haulier at a time, and answered it with its own
+        arithmetic — a page with a headline figure and a table underneath that
+        recomputes it is a page with two answers to one question, and sooner
+        or later they disagree. The hauliers now hang off that row, worst
+        first, so the number and the names behind it come from one reckoning.
+      */}
 
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-left:3px solid #1D5FA8;border-radius:5px;padding:12px 16px;font-size:12.5px;color:#465A6E")}>
         ทุกตัวเลขคำนวณฝั่ง .NET จากทะเบียนงานใน Azure SQL ด้วยกฎชุดเดียวกับหน้า Workspace ·
@@ -624,20 +621,6 @@ function Tile({ label, value, note, colour, onClick }: {
 
 const NUM = "padding:8px 14px;text-align:right;font-family:ui-monospace,monospace;color:#16232F";
 const NUM_S = css(NUM);
-
-/** One component of a carrier's score, with the base it was measured over. */
-function Component({ value, base, baseLabel }: { value: number | null; base: number; baseLabel?: string }) {
-  return (
-    <td style={css(NUM)}>
-      {value === null
-        ? <span style={css("color:#B45309;font-family:inherit;font-size:11.5px")}>ยังวัดไม่ได้</span>
-        : <>
-            <div>{value}%</div>
-            <div style={css("font-size:10.5px;color:#94A3B8")}>{baseLabel ? `${baseLabel} ${base}` : base}</div>
-          </>}
-    </td>
-  );
-}
 
 function Panel({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
   return (

@@ -33,6 +33,8 @@ public static class ScorecardCheck
             // THAIKOT: two, both on time.
             Job("J5", "THAIKOT", "05/08/2026", "08:00", "05/08/2026", "07:50"),
             Job("J6", "THAIKOT", "06/08/2026", "08:00", "06/08/2026", "08:00"),
+            // JTC: one shipment, and an accident nobody has graded.
+            Job("J7", "JTC", "07/08/2026", "08:00", "07/08/2026", "08:00"),
         };
 
         var issues = new List<OperationalIssue>
@@ -61,6 +63,13 @@ public static class ScorecardCheck
             Issue("J4", "รถเข้ารับ/ส่งล่าช้า", "CS", "04/08/2026", "07:30",
                 new DateTimeOffset(2026, 8, 4, 7, 40, 0, TimeSpan.FromHours(7)), ""),
 
+            // Logged as an accident and never graded. It must not read as a
+            // clean month: half the contract's weight rides on the two accident
+            // criteria, and scoring them full marks while this sits here says
+            // nothing happened.
+            Issue("J7", "ความปลอดภัย/อุบัติเหตุ", "Subcontractor", "07/08/2026", "09:00",
+                new DateTimeOffset(2026, 8, 7, 9, 3, 0, TimeSpan.FromHours(7)), ""),
+
             // An issue whose reference never matched a job. Nobody's score.
             Issue("", "ความปลอดภัย/อุบัติเหตุ", "Customer", "05/08/2026", "09:00",
                 new DateTimeOffset(2026, 8, 5, 9, 2, 0, TimeSpan.FromHours(7)), "Transport (Major)"),
@@ -77,6 +86,7 @@ public static class ScorecardCheck
         var scores = CarrierScorecard.Build(jobs, issues, []);
         var ssl = scores.First(score => score.Carrier == "SSL");
         var kot = scores.First(score => score.Carrier == "THAIKOT");
+        var jtc = scores.First(score => score.Carrier == "JTC");
 
         var checks = new (string What, object? Got, object? Want)[]
         {
@@ -112,6 +122,23 @@ public static class ScorecardCheck
             ("THAIKOT complaints (the chosen column wins)", kot.Tally.Complaints, 0),
             ("THAIKOT loading accident (chosen, not derived)", kot.Tally.LoadingAccident, 1),
             ("THAIKOT major", kot.Tally.TransportAccidentMajor, 0),
+
+            // The row that started this: an accident on file, no kind given.
+            ("JTC ungraded accidents", jtc.UngradedAccidents, 1),
+            ("JTC minor cannot be scored", Line(jtc, "accident-minor").Percent, null),
+            ("JTC major cannot be scored", Line(jtc, "accident-major").Percent, null),
+            // Fifty points of accident weight and ten of readiness are out, so
+            // forty of the hundred is what is left to score on.
+            ("JTC weight available", jtc.WeightAvailable, 40.0),
+            // A hundred is the honest score of the forty per cent that can be
+            // judged — inventing a lower one would be no better than the
+            // hundred-out-of-a-hundred it replaced. What must not happen is the
+            // card presenting it as a finished mark, and that is the screen's
+            // job: the row is drawn as provisional whenever this count is above
+            // nought.
+            ("JTC scores the measurable part", jtc.Weighted, 100.0),
+            ("JTC has an accident on file to say so", jtc.Tally.TransportAccidentMajor
+                + jtc.Tally.TransportAccidentMinor + jtc.Tally.LoadingAccident, 0),
             // Ninety, not seventy: the chosen column made this an accident, so a
             // report became due and the reporting criterion can now be measured.
             // Only vehicle readiness is left unmeasured, and its ten per cent is
@@ -123,7 +150,7 @@ public static class ScorecardCheck
 
         var failed = 0;
         Console.WriteLine();
-        Console.WriteLine("  scorecard check — six shipments, two hauliers, eight logged issues");
+        Console.WriteLine("  scorecard check — seven shipments, three hauliers, nine logged issues");
         Console.WriteLine();
         foreach (var (what, got, want) in checks)
         {
@@ -137,7 +164,7 @@ public static class ScorecardCheck
         var attributed = issues.Count(issue =>
             issue.JobKey.Length > 0 && jobs.Any(job => job.Key == issue.JobKey));
         Console.WriteLine();
-        Console.WriteLine($"    {(attributed == 7 ? "ok  " : "FAIL")}  {"issues that reached a job",-46} got {attributed,-8} want 7");
+        Console.WriteLine($"    {(attributed == 8 ? "ok  " : "FAIL")}  {"issues that reached a job",-46} got {attributed,-8} want 8");
         Console.WriteLine($"    {"",-52}  and 1 that did not, counted for the month only");
         Console.WriteLine();
         Console.WriteLine(failed == 0

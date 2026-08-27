@@ -125,11 +125,19 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         var rows = snapshot.Rows;
 
         var jobs = new List<(string Key, string Carrier, JobRecord Record)>();
+        var scorecardJobs = new List<(string Key, string Carrier, JobRecord Record)>();
         foreach (var row in rows)
         {
             var record = row.Record;
             if (record is null || !InPeriod(record, period)) continue;
-            jobs.Add((row.Key, directory.Company(row.Trucker), record));
+            var entry = (row.Key, directory.Company(row.Trucker), record);
+            jobs.Add(entry);
+
+            // The scorecard counts what My Job counts. The measures above keep
+            // the whole register — they are this operation's own figures and
+            // Domestic work is part of it — but "Total individual shipment" is
+            // read against the workspace, so it has to be the same shipments.
+            if (WorkspaceTabs.CountedInWorkspace(record.Cat)) scorecardJobs.Add(entry);
         }
 
         var keys = jobs.Select(job => job.Key).ToHashSet();
@@ -144,7 +152,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         // reach a job are somebody's score, and the ones that do not are still
         // worth counting so the total on screen is the whole month.
         var periodIssues = issues.Where(issue => InPeriod(issue.FoundOn, period)).ToList();
-        var scorecard = CarrierScorecard.Build(jobs, periodIssues, preRuns);
+        var scorecard = CarrierScorecard.Build(scorecardJobs, periodIssues, preRuns);
         var unattributed = periodIssues.Count(issue =>
             issue.JobKey.Length == 0 || !keys.Contains(issue.JobKey));
 
@@ -246,14 +254,42 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
 
     /* ------------------------------------------------------------ measures */
 
+    /// <summary>
+    /// On-time delivery for the month, and the hauliers behind it.
+    ///
+    /// The per-carrier figures used to be a table of their own further down the
+    /// page. They are the same question this row already answers, asked one
+    /// haulier at a time, so they belong under it — a page with a headline
+    /// number and a separate table that recomputes it is a page with two
+    /// answers to one question.
+    ///
+    /// Worst first, and only hauliers that were actually late: the row exists
+    /// to say who to ring, and a list led by the carriers at a hundred per cent
+    /// buries that.
+    /// </summary>
     private static Measure OnTimeDelivery(List<(string Key, string Carrier, JobRecord Record)> jobs)
     {
         var measurable = jobs.Where(job => JobRules.IsMeasurable(job.Record)).ToList();
         var met = measurable.Count(job => JobRules.IsOnTime(job.Record));
+
+        var byCarrier = measurable
+            .Where(job => job.Carrier.Length > 0)
+            .GroupBy(job => job.Carrier, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var late = group.Count(job => !JobRules.IsOnTime(job.Record));
+                var rate = Math.Round(100.0 * (group.Count() - late) / group.Count(), 1);
+                return new Counted($"{group.Key} ตรงเวลา {rate}% · สาย", late);
+            })
+            .Where(entry => entry.Value > 0)
+            .OrderByDescending(entry => entry.Value)
+            .ToList();
+
         return Rate(MeasureId.OnTimeDelivery, met, measurable.Count,
             measurable.Count == 0
                 ? "ไม่มีงานที่มีทั้งเวลาแผนและเวลาถึงที่อ่านได้"
-                : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง");
+                : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง",
+            byCarrier);
     }
 
     private static Measure Delay(List<DelayRecord> delays,

@@ -38,6 +38,19 @@ public static class WorkspaceTabs
     public const string AnyFocus = "ALL";
 
     /// <summary>
+    /// The work My Job counts.
+    ///
+    /// Import and export. Domestic is worked under The Chemours and its grid is
+    /// there, so counting it here would be a figure whose rows nobody can open.
+    /// Written here because the carrier scorecard has to count the same
+    /// shipments the workspace does — a contract figure that disagrees with the
+    /// screen the operators work from is a figure somebody has to reconcile by
+    /// hand every month.
+    /// </summary>
+    public static bool CountedInWorkspace(string category) =>
+        !string.Equals((category ?? "").Trim(), "DELIVERY", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The narrowings offered inside a tab.
     ///
     /// The workspace used to carry eight tabs across the top, and five of them

@@ -150,13 +150,23 @@ public static class CarrierScorecard
 
             var lines = new List<ScoreLine>
             {
+                // An accident nobody has graded takes both of these out of the
+                // score rather than leaving them at a hundred.
+                //
+                // A carrier with an accident on file was reading 100.0 — the
+                // two accident criteria are half the contract's weight between
+                // them, and scoring them full marks while an accident sits
+                // unclassified says "clean month" about a month that was not.
+                // Unmeasurable is the honest answer: something happened and
+                // nobody has yet said what it costs. Say which kind it was in
+                // Operational Issues and both criteria come back, scored.
                 Rate("accident-minor", "Transport Accident (Minor)", "อุบัติเหตุระหว่างขนส่ง (เล็กน้อย)",
-                    15, minor, shipments, 100,
-                    ungraded > 0 ? $"ยังไม่ระบุระดับ {ungraded} เคส — ไม่ถูกนับในคะแนน" : ""),
+                    15, minor, ungraded > 0 ? 0 : shipments, 100,
+                    ungraded > 0 ? $"มีอุบัติเหตุ {ungraded} เคสที่ยังไม่ระบุชนิด — เกณฑ์นี้ยังคิดคะแนนไม่ได้" : ""),
 
                 Rate("accident-major", "Transport Accident (Major)", "อุบัติเหตุระหว่างขนส่ง (ใหญ่)",
-                    35, major, shipments, 100,
-                    ungraded > 0 ? $"ยังไม่ระบุระดับ {ungraded} เคส — ไม่ถูกนับในคะแนน" : ""),
+                    35, major, ungraded > 0 ? 0 : shipments, 100,
+                    ungraded > 0 ? $"มีอุบัติเหตุ {ungraded} เคสที่ยังไม่ระบุชนิด — เกณฑ์นี้ยังคิดคะแนนไม่ได้" : ""),
 
                 // Already a score rather than a failure rate: reports made
                 // inside the deadline, over reports that were due.
@@ -212,9 +222,13 @@ public static class CarrierScorecard
     private static ScoreLine Rate(string id, string english, string thai, double weight,
         int count, int shipments, double target, string note)
     {
+        // A base of nought means this cannot be measured, which the caller uses
+        // for two different reasons: no shipments at all, or something recorded
+        // that nobody has yet said the cost of. The note the caller passes says
+        // which, so it wins over the default here.
         double? percent = shipments == 0 ? null : Round(Math.Max(0, 100 - (count * 100.0 / shipments)));
         return new ScoreLine(id, english, thai, weight, percent, count, shipments, target,
-            shipments == 0 ? "ไม่มี shipment ในเดือนนี้" : note);
+            shipments == 0 && note.Length == 0 ? "ไม่มี shipment ในเดือนนี้" : note);
     }
 
     private static bool IsDamage(OperationalIssue issue) =>
