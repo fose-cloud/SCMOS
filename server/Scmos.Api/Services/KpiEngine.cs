@@ -255,41 +255,23 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     /* ------------------------------------------------------------ measures */
 
     /// <summary>
-    /// On-time delivery for the month, and the hauliers behind it.
+    /// On-time delivery for the month.
     ///
-    /// The per-carrier figures used to be a table of their own further down the
-    /// page. They are the same question this row already answers, asked one
-    /// haulier at a time, so they belong under it — a page with a headline
-    /// number and a separate table that recomputes it is a page with two
-    /// answers to one question.
-    ///
-    /// Worst first, and only hauliers that were actually late: the row exists
-    /// to say who to ring, and a list led by the carriers at a hundred per cent
-    /// buries that.
+    /// The headline only. The per-carrier figures are a column of the carrier
+    /// scorecard below, computed there from the same reading of on time — a
+    /// page with a headline number and a second list underneath working the
+    /// same thing out again is a page with two answers to one question.
     /// </summary>
     private static Measure OnTimeDelivery(List<(string Key, string Carrier, JobRecord Record)> jobs)
     {
         var measurable = jobs.Where(job => JobRules.IsMeasurable(job.Record)).ToList();
         var met = measurable.Count(job => JobRules.IsOnTime(job.Record));
 
-        var byCarrier = measurable
-            .Where(job => job.Carrier.Length > 0)
-            .GroupBy(job => job.Carrier, StringComparer.OrdinalIgnoreCase)
-            .Select(group =>
-            {
-                var late = group.Count(job => !JobRules.IsOnTime(job.Record));
-                var rate = Math.Round(100.0 * (group.Count() - late) / group.Count(), 1);
-                return new Counted($"{group.Key} ตรงเวลา {rate}% · สาย", late);
-            })
-            .Where(entry => entry.Value > 0)
-            .OrderByDescending(entry => entry.Value)
-            .ToList();
-
         return Rate(MeasureId.OnTimeDelivery, met, measurable.Count,
             measurable.Count == 0
                 ? "ไม่มีงานที่มีทั้งเวลาแผนและเวลาถึงที่อ่านได้"
-                : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง",
-            byCarrier);
+                : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง"
+                  + " · ดูรายเจ้าได้ที่คอลัม On Time Delivery ในคะแนนตามสัญญา");
     }
 
     private static Measure Delay(List<DelayRecord> delays,

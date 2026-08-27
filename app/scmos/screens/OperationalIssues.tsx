@@ -33,7 +33,16 @@ const SEVERITY_TONE: Record<string, string> = {
   "ต่ำ": "#5C7285",
 };
 
-export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, onToast }: {
+export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefillTaken, onEscalate, onToast }: {
+  /**
+   * A haulier to open the log on, handed over from the carrier scorecard.
+   *
+   * The scorecard links here to have an accident's kind said, and a link that
+   * lands on four hundred rows has not really taken anybody anywhere. Seeds the
+   * search box, so it is visible and can be cleared like anything typed.
+   */
+  focus?: string | null;
+  onFocusTaken?: () => void;
   /** The register, so a new issue can name a job the person is looking at. */
   jobs: Job[];
   /**
@@ -96,6 +105,23 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
   const [status, setStatus] = useState("OUTSTANDING");
   const [severity, setSeverity] = useState("ALL");
   const [query, setQuery] = useState("");
+
+  /**
+   * Arriving from the carrier scorecard with a haulier to look at.
+   *
+   * Adjusted during render rather than from an effect — the pattern React
+   * documents for state that has to follow a prop, and the one the rest of this
+   * codebase uses. Taken once and only once, so going back to this screen later
+   * does not silently re-apply a filter the person has since cleared.
+   */
+  const [tookFocus, setTookFocus] = useState<string | null>(null);
+  if (focus && focus !== tookFocus) {
+    setTookFocus(focus);
+    setQuery(focus);
+  }
+  useEffect(() => {
+    if (focus && focus === tookFocus) onFocusTaken?.();
+  }, [focus, tookFocus, onFocusTaken]);
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<NewIssue>({ detail: "" });
@@ -157,6 +183,21 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
       issue.category, issue.jobCustomer, issue.jobTrucker,
     ].some((field) => (field ?? "").toLowerCase().includes(wanted)));
   }, [issues, query]);
+
+  /**
+   * Says which column of the carrier scorecard this issue counts under.
+   *
+   * Here rather than only in the form for a new issue, because the entries that
+   * need it are the ones already logged: an accident recorded before anybody
+   * asked which kind it was leaves half a haulier's contract weight unscorable
+   * until somebody says. This is where they say it.
+   */
+  async function changeColumn(issue: Issue, next: string) {
+    const result = await updateIssue(issue.id, { scorecardColumn: next });
+    if (!result.ok) { onToast("ระบุหัวข้อการประเมินไม่สำเร็จ — " + result.message); return; }
+    onToast(`${issue.code} → ${next}`);
+    void load();
+  }
 
   async function changeStatus(issue: Issue, next: string) {
     const result = await updateIssue(issue.id, { status: next });
@@ -312,11 +353,33 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
                         has always been decided; it has never been shown, so a
                         number on the scorecard could not be traced back to the
                         rows behind it. */}
+                    {/*
+                      Set here, not only in the form.
+
+                      An accident logged before anybody asked which kind it was
+                      reads as nought in every scorecard column and leaves half
+                      that haulier's contract weight unscorable. The scorecard
+                      links here to have it said; there has to be something to
+                      say it with.
+                    */}
                     <td style={css(TD + ";white-space:nowrap")}>
-                      <span style={css("font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;"
-                        + (SCORE_TONE[issue.scorecardColumn] ?? "background:#F1F5F9;color:#7B8CA0"))}>
-                        {issue.scorecardColumn || "ยังไม่ระบุระดับ"}
-                      </span>
+                      <select value={issue.scorecardColumn} disabled={busy}
+                        onChange={(e) => void changeColumn(issue, e.target.value)}
+                        title="ช่องที่รายการนี้ถูกนับใน Carrier Scorecard"
+                        style={css("height:26px;max-width:230px;border:1px solid "
+                          + (needsColumn(issue) ? "#E0A33A" : "#D3DBE3")
+                          + ";border-radius:4px;font-size:11.5px;font-family:inherit;padding:0 6px;"
+                          + (SCORE_TONE[issue.scorecardColumn] ?? "background:#fff;color:#31465C"))}>
+                        {issue.scorecardColumn === "" && <option value="">ยังไม่ระบุชนิด</option>}
+                        {(form?.scorecardColumns ?? []).map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                      {needsColumn(issue) && (
+                        <div style={css("font-size:10.5px;color:#B45309;margin-top:2px")}>
+                          เลือกชนิดเพื่อให้คิดคะแนนได้
+                        </div>
+                      )}
                     </td>
                     <td style={css(TD + ";white-space:nowrap")}>
                       <span style={css(`color:${SEVERITY_TONE[issue.severity] ?? "#5C7285"};font-weight:600`)}>
@@ -592,6 +655,18 @@ const LABEL = css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercas
  * is the quietest. The list itself comes from the API — this only says how to
  * draw what arrives, so a heading nobody has coloured still shows, in grey.
  */
+/**
+ * An entry the scorecard cannot use yet.
+ *
+ * Only an accident. Everything else the API always answers — a complaint or a
+ * breakdown is decided by the category and the source — so an empty column
+ * means an accident nobody has graded, which is the one case that costs a
+ * haulier half its contract weight until it is said.
+ */
+function needsColumn(issue: Issue): boolean {
+  return issue.scorecardColumn.trim().length === 0;
+}
+
 const SCORE_TONE: Record<string, string> = {
   "Transport Accident (Major)": "background:#FDF0EF;color:#B42318",
   "Transport Accident (Minor)": "background:#FFF8E8;color:#B45309",

@@ -78,6 +78,13 @@ type CarrierScore = {
   carrier: string; shipments: number; lines: ScoreLine[];
   weighted: number | null; weightAvailable: number; ungradedAccidents: number;
   /**
+   * On-time delivery for this haulier. Optional for the same reason the tally
+   * is: the web and the API deploy separately, and a screen that throws
+   * because the other side has not started sending a field yet is worse than
+   * one missing a column.
+   */
+  onTime?: { met: number; base: number; percent: number | null };
+  /**
    * Optional on purpose.
    *
    * The web and the API deploy separately, and the web has been live against an
@@ -127,7 +134,7 @@ function kpiKey(period: Period): string {
   return `kpi.${period.year ?? ""}.${period.month ?? ""}.${period.day ?? ""}`;
 }
 
-export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
+export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJobs }: {
   period: Period;
   /**
    * The picker on this screen, and the same one the dashboard carries.
@@ -140,6 +147,8 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
   /** The register, so the picker can only offer months that have work in them. */
   allJobs: Job[];
   onDrill: (screen: string) => void;
+  /** Opens the issue log on one haulier, to have an accident's kind said. */
+  onFixAccident?: (carrier: string) => void;
   /** Opens the workspace on the jobs behind a figure. */
   onOpenJobs: (filter: { kpi?: string; trucker?: string; status?: string }) => void;
 }) {
@@ -353,6 +362,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
                 <tr>
                   {[["TRUCK", "left"], ["Total individual shipment", "right"],
                     ...TALLY_COLUMNS.map(([head]) => [head, "right"] as [string, string]),
+                    ["On Time Delivery", "right"],
                     ["คะแนนรวม", "right"]].map(([head, align]) => (
                     <th key={head} style={css("padding:8px 12px;text-align:" + align
                       + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;vertical-align:bottom;max-width:130px")}>{head}</th>
@@ -368,7 +378,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
                         {row.carrier} →
                       </button>
                       {row.ungradedAccidents > 0 && (
-                        <button onClick={() => onDrill("issues")}
+                        <button onClick={() => (onFixAccident ?? (() => onDrill("issues")))(row.carrier)}
                           style={css("display:block;margin-top:2px;border:none;background:none;padding:0;font-family:inherit;font-size:11px;color:#B45309;text-align:left;cursor:pointer;text-decoration:underline")}>
                           อุบัติเหตุยังไม่ระบุชนิด {row.ungradedAccidents} เคส — ระบุใน Operational Issues →
                         </button>
@@ -406,6 +416,33 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
                       month. So it is drawn amber and labelled, and the label
                       says what would finish it.
                     */}
+                    {/*
+                      On-time delivery, with the base it was measured over.
+
+                      The base matters and is shown: a haulier at a hundred per
+                      cent of four readable shipments and one at a hundred of
+                      four hundred are not the same claim, and the percentage
+                      alone hides which is which. A haulier whose jobs carry no
+                      arrival times cannot be scored on this at all, and says so
+                      rather than showing a nought that reads like failure.
+                    */}
+                    <td style={css("padding:8px 12px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
+                      {!row.onTime || row.onTime.percent === null ? (
+                        <span style={css("font-family:inherit;font-size:11px;color:#B45309")}>ยังวัดไม่ได้</span>
+                      ) : (
+                        <>
+                          <div style={css("font-weight:700;color:"
+                            + (row.onTime.percent >= 95 ? "#16794C"
+                              : row.onTime.percent >= 85 ? "#B45309" : "#B42318"))}>
+                            {row.onTime.percent.toFixed(1)}%
+                          </div>
+                          <div style={css("font-size:10.5px;color:#94A3B8;font-weight:400")}>
+                            {row.onTime.met.toLocaleString()} / {row.onTime.base.toLocaleString()}
+                          </div>
+                        </>
+                      )}
+                    </td>
+
                     <td style={css("padding:8px 12px;text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;color:"
                       + (row.weighted == null ? "#B4C0CC"
                         : row.ungradedAccidents > 0 ? "#B45309"
@@ -433,6 +470,14 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onOpenJobs }: {
             อุบัติเหตุสามช่องแยกตามชนิดที่ระบุไว้ในรายการปัญหา (Transport Major / Transport Minor / Loading) ·
             ข้อร้องเรียนนับทั้งจากลูกค้า และจากภายใน (CS · Shipping · Billing · คลัง) ·
             รถเสียนับเฉพาะครั้งที่<b>ไม่มี</b>ข้อร้องเรียนจากลูกค้าในงานเดียวกัน จะได้ไม่ถูกนับซ้ำสองช่อง
+            <div style={css("margin-top:5px")}>
+              <b>On Time Delivery</b> = (งานที่ถึงตรงเวลา ÷ งานที่อ่านเวลาได้) × 100 ·
+              ตัวเลขเล็กใต้เปอร์เซ็นต์คือ <b>ตรงเวลา / ที่วัดได้</b> ·
+              งานที่ไม่มีเวลาแผนหรือเวลาถึงจะไม่ถูกนับทั้งเศษและส่วน เพราะเรียกว่าตรงเวลาหรือสายก็ไม่ได้ ·
+              คิดแบบเดียวกับแถว <b>ส่งมอบตรงเวลา</b> ในตารางบน คือถึงช้ากว่าแผนถือว่าไม่ตรงเวลา ·
+              ต่างจากเกณฑ์ตรงเวลาใน<b>คะแนนรวม</b> ซึ่งตามสัญญาหักเฉพาะครั้งที่สายเกิน 30 นาที
+              <b>และมีข้อร้องเรียน</b> — คนละคำถามกับตัวเลขในคอลัมนี้ ตัวเลขจึงไม่เท่ากันได้
+            </div>
             <div style={css("margin-top:5px")}>
               คะแนนรวมคิดตามน้ำหนักในสัญญา โดยเกณฑ์ที่ยังวัดไม่ได้จะไม่ถูกให้ 0
               แต่ถูกตัดออกจากน้ำหนักแล้วปรับฐานคะแนนตามน้ำหนักที่เหลือ ซึ่งแสดงกำกับไว้ใต้คะแนน

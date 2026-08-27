@@ -191,6 +191,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // what a screen remembers is scoped to whoever is signed in, so a shared
   // machine cannot draw one person the screen the last person was on.
   rememberOperator(auth?.user ?? "");
+  /** A haulier the carrier scorecard sent us to look at in the issue log. */
+  const [issueFocus, setIssueFocus] = useState<string | null>(null);
   const [loginU, setLoginU] = useState("watsana");
   const [loginP, setLoginP] = useState("password");
   const [loginErr, setLoginErr] = useState("");
@@ -2240,6 +2242,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 onPeriod={setPeriod}
                 allJobs={ops?.jobs ?? []}
                 onDrill={(next) => setScreen(next as Screen)}
+                // The scorecard cannot score an accident nobody has graded, and
+                // the link that says so has to land on that haulier's rows
+                // rather than on four hundred of them.
+                onFixAccident={(carrier) => { setIssueFocus(carrier); go("issues"); }}
                 // Every figure on the KPI screen is a way into the jobs behind
                 // it. A rate you cannot open is a rate you cannot act on.
                 onOpenJobs={(filter) => {
@@ -2294,6 +2300,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               <OperationalIssues
                 jobs={ops?.jobs ?? []}
                 prefill={issueDraft}
+                focus={issueFocus}
+                onFocusTaken={() => setIssueFocus(null)}
                 onPrefillTaken={() => setIssueDraft(null)}
                 // The one way a CAR/PAR gets opened. The issue carries what
                 // went wrong and which job it happened on, which is exactly

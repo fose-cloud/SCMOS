@@ -35,12 +35,29 @@ public record CarrierTally(
     int Complaints,
     int BreakdownNoComplaint);
 
+/// <summary>
+/// On-time delivery for one haulier, as the customer's report states it.
+///
+/// <c>(shipments that arrived on time / shipments whose time could be read)
+/// × 100</c>. The base is not the shipment count: a job with no plan time or no
+/// arrival time cannot be called on time or late, and counting it either way
+/// would be inventing an answer. Both numbers are carried so the percentage can
+/// be checked rather than taken on trust.
+///
+/// This is not the same figure as the on-time <i>criterion</i> in the weighted
+/// score. The agreement marks a haulier down for lateness the customer
+/// complained about; this column is every late arrival, complained of or not.
+/// One is what the contract costs, the other is how the month actually went.
+/// </summary>
+public record OnTime(int Met, int Base, double? Percent);
+
 public record CarrierScore(
     string Carrier, int Shipments,
     IReadOnlyList<ScoreLine> Lines,
     double? Weighted, double WeightAvailable,
     int UngradedAccidents,
-    CarrierTally Tally);
+    CarrierTally Tally,
+    OnTime OnTime);
 
 /// <summary>
 /// The carrier scorecard the customer's contract is judged on.
@@ -144,6 +161,14 @@ public static class CarrierScorecard
                 ScorecardColumn.IsAccident(issue) || IsDamage(issue)).ToList();
             var onTimeReports = reports.Count(ReportedInTime);
 
+            // Every shipment whose plan and arrival can both be read, and how
+            // many of those made it. The register's own reading of on time, not
+            // a second one written here.
+            var timed = group.Where(job => JobRules.IsMeasurable(job.Record)).ToList();
+            var onTimeMet = timed.Count(job => JobRules.IsOnTime(job.Record));
+            var onTime = new OnTime(onTimeMet, timed.Count,
+                timed.Count == 0 ? null : Round(onTimeMet * 100.0 / timed.Count));
+
             var lateWithComplaint = group.Count(job =>
                 LateBeyond(job.Record, LateMinutes)
                 && mine.Any(issue => issue.JobKey == job.Key && IsComplaint(issue)));
@@ -204,7 +229,7 @@ public static class CarrierScorecard
                 : Round(measured.Sum(line => line.Percent!.Value * line.Weight) / available);
 
             scores.Add(new CarrierScore(group.Key, shipments, lines, weighted, available, ungraded,
-                new CarrierTally(major, minor, loading, complaints, breakdownNoComplaint)));
+                new CarrierTally(major, minor, loading, complaints, breakdownNoComplaint), onTime));
         }
 
         return scores;

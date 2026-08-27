@@ -55,7 +55,7 @@ public record IssueResult(bool Ok, string Message, long? Id = null, string? Code
 /// written out there as well, so a severity the form offers is a severity this
 /// accepts — the alternative is two lists that agree until somebody edits one.
 /// </summary>
-public class OperationalIssueService(ScmosDbContext db)
+public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carriers)
 {
     private static readonly string[] SourceList =
         ["CS", "Shipping", "CS/Shipping", "Billing", "Subcontractor", "Warehouse",
@@ -145,6 +145,11 @@ public class OperationalIssueService(ScmosDbContext db)
                 .Select(job => new { job.Key, job.Customer, job.Trucker, job.WorkDate })
                 .ToDictionaryAsync(job => job.Key, token);
 
+        // The company the job's spelling means, so the log and the carrier
+        // scorecard name the same firm — and a link from one to the other
+        // actually finds the rows.
+        var directory = await carriers.ReadAsync(token);
+
         var now = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7));
         return rows.Select(issue =>
         {
@@ -157,7 +162,7 @@ public class OperationalIssueService(ScmosDbContext db)
                 issue.Status, issue.RootCause,
                 issue.Driver, issue.ContainerNo, issue.Licence, issue.AccidentGrade,
                 Rules.ScorecardColumn.Of(issue),
-                job?.Customer ?? "", job?.Trucker ?? "", job?.WorkDate ?? "",
+                job?.Customer ?? "", directory.Company(job?.Trucker ?? ""), job?.WorkDate ?? "",
                 hours, IsOverdue(issue, hours, now));
         }).ToList();
     }
