@@ -378,6 +378,35 @@ function planDate(offsetDays: number): string {
  * workbooks do carry: the container number, and the seal on an export. A truck
  * load that never has a container is not missing one.
  */
+/**
+ * One labelled dropdown on the dark bar.
+ *
+ * A select rather than a row of chips: four filters cost one line instead of
+ * four, and the list is complete — the chips showed the busiest eleven or
+ * twelve and there was no way to reach anything past them from this screen.
+ */
+function FilterPick({ label, value, options, onPick }: {
+  label: string; value: string; options: string[]; onPick: (v: string) => void;
+}) {
+  const set = value !== "ALL" && value !== "All Team";
+  return (
+    <label style={css("display:flex;align-items:center;gap:6px")}>
+      <span style={css("font-size:10px;font-weight:700;color:#7FA5CC;letter-spacing:.06em")}>{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onPick(e.target.value)}
+        title={label + ": " + value}
+        style={css("height:27px;max-width:190px;border:1px solid " + (set ? "#4E9BE8" : "#24476E")
+          + ";background:" + (set ? "#16406E" : "#0A2240")
+          + ";color:#fff;border-radius:4px;font-size:11.5px;font-family:inherit;padding:0 6px;cursor:pointer"
+          + (set ? ";font-weight:600" : ""))}
+      >
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function documentMissing(job: Job): boolean {
   if (RE.done.test(job.status)) return false;
   const blank = (value: string | undefined) => !(value ?? "").trim();
@@ -587,11 +616,6 @@ export function Workspace(p: Props) {
         .map((s) => ({ status: s, th: "นอกลำดับสถานะ", n: statusCount[s], step: "!", off: true })),
     );
 
-  const topOf = (key: "customer" | "trucker" | "type", n: number) => {
-    const m: Record<string, number> = {};
-    base.forEach((j) => { const v = j[key]; if (v) m[v] = (m[v] || 0) + 1; });
-    return Object.keys(m).sort((a, b) => m[b] - m[a]).slice(0, n);
-  };
 
   /**
    * The hauliers to offer as chips, named as the register names them.
@@ -604,6 +628,18 @@ export function Workspace(p: Props) {
    * under whatever the job says: it is real work, and hiding it until the
    * paperwork catches up would be the wrong way round.
    */
+  /**
+   * Every distinct value in a column, busiest first then alphabetical.
+   *
+   * The chip rows offered the top eleven; a dropdown has room for all of them,
+   * and a customer outside that eleven could not be filtered on at all.
+   */
+  const allOf = (key: "customer" | "type") => {
+    const m: Record<string, number> = {};
+    base.forEach((j) => { const v = j[key]; if (v) m[v] = (m[v] || 0) + 1; });
+    return Object.keys(m).sort((a, b) => m[b] - m[a] || a.localeCompare(b));
+  };
+
   const carrierChips = (n: number) => {
     const m: Record<string, number> = {};
     base.forEach((j) => {
@@ -1468,10 +1504,6 @@ export function Workspace(p: Props) {
     };
   });
 
-  const chipStyle = (active: boolean, activeBorder: string, activeBg: string) =>
-    "height:26px;padding:0 11px;border:1px solid " + (active ? activeBorder : "#E2E8F0") +
-    ";background:" + (active ? activeBg : "#fff") + ";color:" + (active ? "#0A2240" : "#64748B") +
-    ";border-radius:3px;font-size:11px;cursor:pointer;font-weight:" + (active ? "600" : "400");
 
   /**
    * What the period controls are set to, written on the button that opens them.
@@ -1627,55 +1659,40 @@ export function Workspace(p: Props) {
               </span>
             )}
           </div>
-          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;flex-direction:column;gap:9px")}>
-            <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>ASSIGNED</span>
-              {["All Team", "My Work"].concat(M.operators).map((a) => (
-                <button
-                  key={a}
-                  onClick={() => p.set({ assignee: a, page: 1 })}
-                  style={css(
-                    "height:28px;padding:0 13px;border:1px solid " + (ws.assignee === a ? "#0A2240" : "#D8E0E8") +
-                    ";background:" + (ws.assignee === a ? "#0A2240" : "#fff") + ";color:" + (ws.assignee === a ? "#fff" : "#475569") +
-                    ";border-radius:14px;font-size:11.5px;cursor:pointer;font-weight:" + (ws.assignee === a ? "600" : "400"),
-                  )}
-                >
-                  {a}
-                </button>
-              ))}
-              <span style={css("margin-left:auto;display:flex;align-items:center;gap:12px")}>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
-                  MY JOB — editable
-                </span>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
-                  TEAM JOB — view only
-                </span>
+          <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 13px;background:#0E2B4F;border:1px solid #24476E;border-radius:5px")}>
+            <FilterPick label="ASSIGNED" value={ws.assignee}
+              options={["All Team", "My Work"].concat(M.operators)}
+              onPick={(v) => p.set({ assignee: v, page: 1 })} />
+            {/*
+              Every value, not the busiest eleven.
+
+              These were rows of chips capped at eleven or twelve, which meant a
+              customer or a haulier outside the top of the list could not be
+              chosen from this screen at all — you had to know to type it in the
+              search box. A dropdown carries the lot and costs one line instead
+              of four.
+            */}
+            <FilterPick label="CUSTOMER" value={ws.cust}
+              options={["ALL"].concat(allOf("customer"))}
+              onPick={(v) => p.set({ cust: v, page: 1 })} />
+            <FilterPick label="TRUCKER" value={ws.trucker}
+              options={["ALL"].concat(carrierChips(999))}
+              onPick={(v) => p.set({ trucker: v, page: 1 })} />
+            <FilterPick label="TYPE" value={ws.type}
+              options={["ALL"].concat(allOf("type"))}
+              onPick={(v) => p.set({ type: v, page: 1 })} />
+
+            <span style={css("flex:1;min-width:6px")} />
+            <span style={css("display:flex;align-items:center;gap:12px")}>
+              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#9FD0FF")}>
+                <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
+                MY JOB — editable
               </span>
-            </div>
-          
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>CUSTOMER</span>
-              {["ALL"].concat(topOf("customer", 11)).map((c) => (
-                <button key={c} onClick={() => p.set({ cust: c, page: 1 })} style={css(chipStyle(ws.cust === c, "#2E7DD1", "#E7F0FA"))}>{c}</button>
-              ))}
-            </div>
-          
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TRUCKER</span>
-              {["ALL"].concat(carrierChips(12)).map((c) => (
-                <button key={c} onClick={() => p.set({ trucker: c, page: 1 })} style={css(chipStyle(ws.trucker === c, "#16794C", "#E3F4EB"))}>{c}</button>
-              ))}
-            </div>
-          
-            {/* Truck / container type — the monitor's TRUCK TYPE filter, on real values. */}
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TYPE</span>
-              {["ALL"].concat(topOf("type", 12)).map((c) => (
-                <button key={c} onClick={() => p.set({ type: c, page: 1 })} style={css(chipStyle(ws.type === c, "#B45309", "#FDF2DF"))}>{c}</button>
-              ))}
-            </div>
+              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#7FA5CC")}>
+                <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
+                TEAM JOB — view only
+              </span>
+            </span>
           </div>
         </>, slot) : (<>
           {/*
@@ -1781,55 +1798,40 @@ export function Workspace(p: Props) {
               </span>
             )}
           </div>
-          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;flex-direction:column;gap:9px")}>
-            <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>ASSIGNED</span>
-              {["All Team", "My Work"].concat(M.operators).map((a) => (
-                <button
-                  key={a}
-                  onClick={() => p.set({ assignee: a, page: 1 })}
-                  style={css(
-                    "height:28px;padding:0 13px;border:1px solid " + (ws.assignee === a ? "#0A2240" : "#D8E0E8") +
-                    ";background:" + (ws.assignee === a ? "#0A2240" : "#fff") + ";color:" + (ws.assignee === a ? "#fff" : "#475569") +
-                    ";border-radius:14px;font-size:11.5px;cursor:pointer;font-weight:" + (ws.assignee === a ? "600" : "400"),
-                  )}
-                >
-                  {a}
-                </button>
-              ))}
-              <span style={css("margin-left:auto;display:flex;align-items:center;gap:12px")}>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
-                  MY JOB — editable
-                </span>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
-                  TEAM JOB — view only
-                </span>
+          <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 13px;background:#0E2B4F;border:1px solid #24476E;border-radius:5px")}>
+            <FilterPick label="ASSIGNED" value={ws.assignee}
+              options={["All Team", "My Work"].concat(M.operators)}
+              onPick={(v) => p.set({ assignee: v, page: 1 })} />
+            {/*
+              Every value, not the busiest eleven.
+
+              These were rows of chips capped at eleven or twelve, which meant a
+              customer or a haulier outside the top of the list could not be
+              chosen from this screen at all — you had to know to type it in the
+              search box. A dropdown carries the lot and costs one line instead
+              of four.
+            */}
+            <FilterPick label="CUSTOMER" value={ws.cust}
+              options={["ALL"].concat(allOf("customer"))}
+              onPick={(v) => p.set({ cust: v, page: 1 })} />
+            <FilterPick label="TRUCKER" value={ws.trucker}
+              options={["ALL"].concat(carrierChips(999))}
+              onPick={(v) => p.set({ trucker: v, page: 1 })} />
+            <FilterPick label="TYPE" value={ws.type}
+              options={["ALL"].concat(allOf("type"))}
+              onPick={(v) => p.set({ type: v, page: 1 })} />
+
+            <span style={css("flex:1;min-width:6px")} />
+            <span style={css("display:flex;align-items:center;gap:12px")}>
+              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#9FD0FF")}>
+                <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
+                MY JOB — editable
               </span>
-            </div>
-          
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>CUSTOMER</span>
-              {["ALL"].concat(topOf("customer", 11)).map((c) => (
-                <button key={c} onClick={() => p.set({ cust: c, page: 1 })} style={css(chipStyle(ws.cust === c, "#2E7DD1", "#E7F0FA"))}>{c}</button>
-              ))}
-            </div>
-          
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TRUCKER</span>
-              {["ALL"].concat(carrierChips(12)).map((c) => (
-                <button key={c} onClick={() => p.set({ trucker: c, page: 1 })} style={css(chipStyle(ws.trucker === c, "#16794C", "#E3F4EB"))}>{c}</button>
-              ))}
-            </div>
-          
-            {/* Truck / container type — the monitor's TRUCK TYPE filter, on real values. */}
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TYPE</span>
-              {["ALL"].concat(topOf("type", 12)).map((c) => (
-                <button key={c} onClick={() => p.set({ type: c, page: 1 })} style={css(chipStyle(ws.type === c, "#B45309", "#FDF2DF"))}>{c}</button>
-              ))}
-            </div>
+              <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#7FA5CC")}>
+                <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
+                TEAM JOB — view only
+              </span>
+            </span>
           </div>
       </>)}
 
