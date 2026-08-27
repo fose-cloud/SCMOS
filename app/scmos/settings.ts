@@ -23,7 +23,7 @@ export type PanelPrefs = {
 };
 
 export const DEFAULT_PANELS: PanelPrefs =
-  { kpi: false, process: false, team: false, filters: false, dates: false };
+  { kpi: true, process: false, team: false, filters: true, dates: false };
 
 export type Prefs = {
   /** Screen to open after sign-in. */

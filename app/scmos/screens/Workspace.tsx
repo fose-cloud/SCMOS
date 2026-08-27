@@ -1608,7 +1608,7 @@ export function Workspace(p: Props) {
             {complete && (
               <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
                 {([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
-                   ["team", "ภาระทีม"], ["filters", "ตัวกรอง"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
+                   ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
                   <button key={key} onClick={panel(key)}
                     style={css("height:26px;padding:0 10px;border:1px solid "
                       + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
@@ -1619,6 +1619,56 @@ export function Workspace(p: Props) {
                 ))}
               </span>
             )}
+          </div>
+          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;flex-direction:column;gap:9px")}>
+            <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>ASSIGNED</span>
+              {["All Team", "My Work"].concat(M.operators).map((a) => (
+                <button
+                  key={a}
+                  onClick={() => p.set({ assignee: a, page: 1 })}
+                  style={css(
+                    "height:28px;padding:0 13px;border:1px solid " + (ws.assignee === a ? "#0A2240" : "#D8E0E8") +
+                    ";background:" + (ws.assignee === a ? "#0A2240" : "#fff") + ";color:" + (ws.assignee === a ? "#fff" : "#475569") +
+                    ";border-radius:14px;font-size:11.5px;cursor:pointer;font-weight:" + (ws.assignee === a ? "600" : "400"),
+                  )}
+                >
+                  {a}
+                </button>
+              ))}
+              <span style={css("margin-left:auto;display:flex;align-items:center;gap:12px")}>
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
+                  MY JOB — editable
+                </span>
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
+                  TEAM JOB — view only
+                </span>
+              </span>
+            </div>
+          
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>CUSTOMER</span>
+              {["ALL"].concat(topOf("customer", 11)).map((c) => (
+                <button key={c} onClick={() => p.set({ cust: c, page: 1 })} style={css(chipStyle(ws.cust === c, "#2E7DD1", "#E7F0FA"))}>{c}</button>
+              ))}
+            </div>
+          
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TRUCKER</span>
+              {["ALL"].concat(carrierChips(12)).map((c) => (
+                <button key={c} onClick={() => p.set({ trucker: c, page: 1 })} style={css(chipStyle(ws.trucker === c, "#16794C", "#E3F4EB"))}>{c}</button>
+              ))}
+            </div>
+          
+            {/* Truck / container type — the monitor's TRUCK TYPE filter, on real values. */}
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TYPE</span>
+              {["ALL"].concat(topOf("type", 12)).map((c) => (
+                <button key={c} onClick={() => p.set({ type: c, page: 1 })} style={css(chipStyle(ws.type === c, "#B45309", "#FDF2DF"))}>{c}</button>
+              ))}
+            </div>
           </div>
         </>, slot) : (<>
           {/*
@@ -1709,7 +1759,7 @@ export function Workspace(p: Props) {
             {complete && (
               <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
                 {([["dates", periodLabel], ["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
-                   ["team", "ภาระทีม"], ["filters", "ตัวกรอง"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
+                   ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][]).map(([key, label]) => (
                   <button key={key} onClick={panel(key)}
                     style={css("height:26px;padding:0 10px;border:1px solid "
                       + (p.panels[key] ? "#4E9BE8" : "#24476E") + ";background:"
@@ -1720,6 +1770,56 @@ export function Workspace(p: Props) {
                 ))}
               </span>
             )}
+          </div>
+          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;flex-direction:column;gap:9px")}>
+            <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>ASSIGNED</span>
+              {["All Team", "My Work"].concat(M.operators).map((a) => (
+                <button
+                  key={a}
+                  onClick={() => p.set({ assignee: a, page: 1 })}
+                  style={css(
+                    "height:28px;padding:0 13px;border:1px solid " + (ws.assignee === a ? "#0A2240" : "#D8E0E8") +
+                    ";background:" + (ws.assignee === a ? "#0A2240" : "#fff") + ";color:" + (ws.assignee === a ? "#fff" : "#475569") +
+                    ";border-radius:14px;font-size:11.5px;cursor:pointer;font-weight:" + (ws.assignee === a ? "600" : "400"),
+                  )}
+                >
+                  {a}
+                </button>
+              ))}
+              <span style={css("margin-left:auto;display:flex;align-items:center;gap:12px")}>
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
+                  MY JOB — editable
+                </span>
+                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
+                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
+                  TEAM JOB — view only
+                </span>
+              </span>
+            </div>
+          
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>CUSTOMER</span>
+              {["ALL"].concat(topOf("customer", 11)).map((c) => (
+                <button key={c} onClick={() => p.set({ cust: c, page: 1 })} style={css(chipStyle(ws.cust === c, "#2E7DD1", "#E7F0FA"))}>{c}</button>
+              ))}
+            </div>
+          
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TRUCKER</span>
+              {["ALL"].concat(carrierChips(12)).map((c) => (
+                <button key={c} onClick={() => p.set({ trucker: c, page: 1 })} style={css(chipStyle(ws.trucker === c, "#16794C", "#E3F4EB"))}>{c}</button>
+              ))}
+            </div>
+          
+            {/* Truck / container type — the monitor's TRUCK TYPE filter, on real values. */}
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TYPE</span>
+              {["ALL"].concat(topOf("type", 12)).map((c) => (
+                <button key={c} onClick={() => p.set({ type: c, page: 1 })} style={css(chipStyle(ws.type === c, "#B45309", "#FDF2DF"))}>{c}</button>
+              ))}
+            </div>
           </div>
       </>)}
 
@@ -1974,58 +2074,6 @@ export function Workspace(p: Props) {
           </div>
           )}
 
-          {p.panels.filters && (
-          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;flex-direction:column;gap:9px")}>
-            <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>ASSIGNED</span>
-              {["All Team", "My Work"].concat(M.operators).map((a) => (
-                <button
-                  key={a}
-                  onClick={() => p.set({ assignee: a, page: 1 })}
-                  style={css(
-                    "height:28px;padding:0 13px;border:1px solid " + (ws.assignee === a ? "#0A2240" : "#D8E0E8") +
-                    ";background:" + (ws.assignee === a ? "#0A2240" : "#fff") + ";color:" + (ws.assignee === a ? "#fff" : "#475569") +
-                    ";border-radius:14px;font-size:11.5px;cursor:pointer;font-weight:" + (ws.assignee === a ? "600" : "400"),
-                  )}
-                >
-                  {a}
-                </button>
-              ))}
-              <span style={css("margin-left:auto;display:flex;align-items:center;gap:12px")}>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#F4F8FC;border:1px solid #2E7DD1")} />
-                  MY JOB — editable
-                </span>
-                <span style={css("display:flex;align-items:center;gap:6px;font-size:11px;color:#475569")}>
-                  <span style={css("width:11px;height:11px;border-radius:2px;background:#fff;border:1px solid #D8E0E8")} />
-                  TEAM JOB — view only
-                </span>
-              </span>
-            </div>
-
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>CUSTOMER</span>
-              {["ALL"].concat(topOf("customer", 11)).map((c) => (
-                <button key={c} onClick={() => p.set({ cust: c, page: 1 })} style={css(chipStyle(ws.cust === c, "#2E7DD1", "#E7F0FA"))}>{c}</button>
-              ))}
-            </div>
-
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TRUCKER</span>
-              {["ALL"].concat(carrierChips(12)).map((c) => (
-                <button key={c} onClick={() => p.set({ trucker: c, page: 1 })} style={css(chipStyle(ws.trucker === c, "#16794C", "#E3F4EB"))}>{c}</button>
-              ))}
-            </div>
-
-            {/* Truck / container type — the monitor's TRUCK TYPE filter, on real values. */}
-            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
-              <span style={css("font-size:10px;font-weight:700;color:#0A2240;letter-spacing:.06em;width:78px")}>TYPE</span>
-              {["ALL"].concat(topOf("type", 12)).map((c) => (
-                <button key={c} onClick={() => p.set({ type: c, page: 1 })} style={css(chipStyle(ws.type === c, "#B45309", "#FDF2DF"))}>{c}</button>
-              ))}
-            </div>
-          </div>
-          )}
         </div>
       )}
 

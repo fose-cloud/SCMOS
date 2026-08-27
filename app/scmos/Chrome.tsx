@@ -506,21 +506,26 @@ export function Chrome(p: Props) {
               ))}
             </div>
 
+          </div>
+
+          <div style={css("padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px")}>
             {/*
-              Where a screen's own controls go.
+              Where a screen's own controls go — first thing under the tabs.
 
               Filled by whichever screen is open, through a portal, so the
-              controls can stay next to the state they read while their DOM
-              sits up here with the title and the tabs. The workspace's bar was
-              the first thing in the body, which meant it scrolled away from the
-              grid it filters and took a band of room off the top of it.
+              controls stay next to the state they read while their DOM sits up
+              here above everything else the screen draws.
+
+              Deliberately not inside the sticky header. The workspace's filters
+              run to four rows, and pinned they left sixty pixels of grid on a
+              laptop — a header is only worth sticking while it leaves room for
+              the work underneath it. Here they are the first thing you see and
+              they get out of the way once you are reading rows.
 
               Empty when nothing fills it, and an empty div costs nothing.
             */}
             <div id={TOOLBAR_SLOT} />
-          </div>
 
-          <div style={css("padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px")}>
             {p.filters && (
               <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap")}>
                 <span style={css("font-size:11px;font-weight:600;color:#0A2240;letter-spacing:.06em;padding-right:4px")}>FILTERS</span>

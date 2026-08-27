@@ -208,5 +208,7 @@ button { cursor: pointer; }
  * still reserved a band would put a gap under the tabs of every screen that
  * has no controls of its own.
  */
-#scmos-screen-toolbar { padding: 12px 0 14px; }
+#scmos-screen-toolbar {
+  padding: 12px 0 14px;
+}
 #scmos-screen-toolbar:empty { display: none; }
