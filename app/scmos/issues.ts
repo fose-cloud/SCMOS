@@ -52,6 +52,15 @@ export type Issue = {
    * carrier's mark on a mapping nobody agreed to.
    */
   accidentGrade: string;
+  /**
+   * The column of the customer's carrier scorecard this counts under.
+   *
+   * Always answered by the API: what somebody chose in the form, or what the
+   * category and source imply when nobody has. It is the field that moves a
+   * haulier's mark, and until now the only place it appeared was as a number
+   * on a scorecard nobody could trace back to a row.
+   */
+  scorecardColumn: string;
   /** Read off the attached job, so the log shows what the issue is about. */
   jobCustomer: string;
   jobTrucker: string;
@@ -70,6 +79,9 @@ export type IssueForm = {
   rootCauses: string[];
   owners: string[];
   sla: Record<string, number>;
+  /** The customer's own scorecard headings, served so the form offers exactly
+   *  what the scorecard counts. */
+  scorecardColumns: string[];
   /** Statuses that mean the issue is finished with, decided by the API. */
   settled: string[];
 };

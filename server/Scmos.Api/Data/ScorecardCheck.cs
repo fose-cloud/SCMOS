@@ -64,6 +64,14 @@ public static class ScorecardCheck
             // An issue whose reference never matched a job. Nobody's score.
             Issue("", "ความปลอดภัย/อุบัติเหตุ", "Customer", "05/08/2026", "09:00",
                 new DateTimeOffset(2026, 8, 5, 9, 2, 0, TimeSpan.FromHours(7)), "Transport (Major)"),
+
+            // Somebody looked at THAIKOT's late collection and said it belongs
+            // in the loading-accident column, which is not where the category
+            // and source would have put it. What a person chose wins over what
+            // the register implies — that is the whole point of the field.
+            Chosen("J5", "รถเข้ารับ/ส่งล่าช้า", "Customer", "05/08/2026", "09:00",
+                new DateTimeOffset(2026, 8, 5, 9, 5, 0, TimeSpan.FromHours(7)),
+                Rules.ScorecardColumn.LoadingAccident),
         };
 
         var scores = CarrierScorecard.Build(jobs, issues, []);
@@ -99,14 +107,23 @@ public static class ScorecardCheck
             ("SSL vehicle readiness (nothing records it)", Line(ssl, "vehicle-readiness").Percent, null),
 
             ("THAIKOT shipments", kot.Shipments, 2),
-            ("THAIKOT complaints", kot.Tally.Complaints, 0),
+            // Would have been a complaint by category and source; counted where
+            // the person filling the form said to count it.
+            ("THAIKOT complaints (the chosen column wins)", kot.Tally.Complaints, 0),
+            ("THAIKOT loading accident (chosen, not derived)", kot.Tally.LoadingAccident, 1),
             ("THAIKOT major", kot.Tally.TransportAccidentMajor, 0),
-            ("THAIKOT weight available (readiness unmeasured)", kot.WeightAvailable, 70.0),
+            // Ninety, not seventy: the chosen column made this an accident, so a
+            // report became due and the reporting criterion can now be measured.
+            // Only vehicle readiness is left unmeasured, and its ten per cent is
+            // the only weight the total is scaled off.
+            ("THAIKOT weight available (readiness unmeasured)", kot.WeightAvailable, 90.0),
+            // Found 09:00, recorded 09:05, and an accident is allowed five.
+            ("THAIKOT reported inside the accident window", Line(kot, "damage-reporting").Percent, 100.0),
         };
 
         var failed = 0;
         Console.WriteLine();
-        Console.WriteLine("  scorecard check — six shipments, two hauliers, seven logged issues");
+        Console.WriteLine("  scorecard check — six shipments, two hauliers, eight logged issues");
         Console.WriteLine();
         foreach (var (what, got, want) in checks)
         {
@@ -120,7 +137,7 @@ public static class ScorecardCheck
         var attributed = issues.Count(issue =>
             issue.JobKey.Length > 0 && jobs.Any(job => job.Key == issue.JobKey));
         Console.WriteLine();
-        Console.WriteLine($"    {(attributed == 6 ? "ok  " : "FAIL")}  {"issues that reached a job",-46} got {attributed,-8} want 6");
+        Console.WriteLine($"    {(attributed == 7 ? "ok  " : "FAIL")}  {"issues that reached a job",-46} got {attributed,-8} want 7");
         Console.WriteLine($"    {"",-52}  and 1 that did not, counted for the month only");
         Console.WriteLine();
         Console.WriteLine(failed == 0
@@ -142,6 +159,15 @@ public static class ScorecardCheck
             Key = key, Trucker = carrier, Date = date, PlanTime = planTime,
             ArrDate = arrDate, ArrTime = arrTime,
         });
+
+    /// <summary>An issue whose scorecard column somebody set by hand.</summary>
+    private static OperationalIssue Chosen(string jobKey, string category, string source,
+        string foundOn, string foundAt, DateTimeOffset createdAt, string column)
+    {
+        var issue = Issue(jobKey, category, source, foundOn, foundAt, createdAt, "");
+        issue.ScorecardColumn = column;
+        return issue;
+    }
 
     private static OperationalIssue Issue(string jobKey, string category, string source,
         string foundOn, string foundAt, DateTimeOffset createdAt, string grade) =>

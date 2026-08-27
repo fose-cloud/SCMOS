@@ -13,6 +13,14 @@ public record IssueView(
     string Driver, string ContainerNo, string Licence,
     /// <summary>Minor or Major on an accident; blank otherwise and blank when ungraded.</summary>
     string AccidentGrade,
+    /// <summary>
+    /// The column of the customer's carrier scorecard this counts under.
+    ///
+    /// Always answered: what somebody chose, or what the register implies when
+    /// nobody has. The screen shows it on every row, because this is the field
+    /// that moves a haulier's mark and it used to be invisible.
+    /// </summary>
+    string ScorecardColumn,
     /// <summary>The job it attached to, when it attached to one.</summary>
     string JobCustomer, string JobTrucker, string JobDate,
     /// <summary>Hours allowed for this severity, and whether it is past them.</summary>
@@ -24,6 +32,11 @@ public record IssueForm(
     IReadOnlyList<string> Severities, IReadOnlyList<string> Statuses,
     IReadOnlyList<string> Channels, IReadOnlyList<string> RootCauses,
     IReadOnlyList<string> Owners, IReadOnlyDictionary<string, int> Sla,
+    /// <summary>
+    /// The customer's own scorecard headings, served rather than written out in
+    /// the browser as well — the form offers exactly what the scorecard counts.
+    /// </summary>
+    IReadOnlyList<string> ScorecardColumns,
     /// <summary>Which statuses mean the issue is finished with. The screen
     /// draws those differently and must not keep its own copy of the list.</summary>
     IReadOnlyList<string> Settled);
@@ -90,7 +103,8 @@ public class OperationalIssueService(ScmosDbContext db)
             .ToListAsync(token);
 
         return new IssueForm(SourceList, CategoryList, SeverityList, StatusList,
-            ChannelList, RootCauseList, owners, SlaHours, [.. Settled]);
+            ChannelList, RootCauseList, owners, SlaHours,
+            Rules.ScorecardColumn.All, [.. Settled]);
     }
 
     public async Task<IReadOnlyList<IssueView>> ListAsync(string? status, string? severity,
@@ -142,6 +156,7 @@ public class OperationalIssueService(ScmosDbContext db)
                 issue.Impact, issue.Channel, issue.Owner, issue.OwnerId, issue.DueOn,
                 issue.Status, issue.RootCause,
                 issue.Driver, issue.ContainerNo, issue.Licence, issue.AccidentGrade,
+                Rules.ScorecardColumn.Of(issue),
                 job?.Customer ?? "", job?.Trucker ?? "", job?.WorkDate ?? "",
                 hours, IsOverdue(issue, hours, now));
         }).ToList();
@@ -326,6 +341,7 @@ public class OperationalIssueService(ScmosDbContext db)
                 case "containerno": issue.ContainerNo = value.Trim(); break;
                 case "licence": issue.Licence = value.Trim(); break;
                 case "accidentgrade": issue.AccidentGrade = value.Trim(); break;
+                case "scorecardcolumn": issue.ScorecardColumn = value.Trim(); break;
                 case "reporter": issue.Reporter = value.Trim(); break;
                 case "jobref":
                     issue.JobRef = value.Trim();

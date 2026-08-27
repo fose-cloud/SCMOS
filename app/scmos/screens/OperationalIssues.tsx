@@ -275,7 +275,7 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
               <thead>
                 <tr>
                   {["รหัส", "วันที่พบ", "แหล่ง", "งานที่เกี่ยวข้อง", "รายละเอียด",
-                    "หมวด", "ความรุนแรง", "ผู้รับผิดชอบ", "กำหนดเสร็จ", "สถานะ",
+                    "หมวด", "หัวข้อการประเมิน (KPI)", "ความรุนแรง", "ผู้รับผิดชอบ", "กำหนดเสร็จ", "สถานะ",
                     "ไฟล์แนบ", ...(onEscalate ? ["CAR / PAR"] : [])].map((head) => (
                     <th key={head} style={TH}>{head}</th>
                   ))}
@@ -308,6 +308,16 @@ export function OperationalIssues({ jobs, prefill, onPrefillTaken, onEscalate, o
                       )}
                     </td>
                     <td style={css(TD + ";white-space:nowrap")}>{issue.category || "—"}</td>
+                    {/* What this row is worth on the customer's scorecard. It
+                        has always been decided; it has never been shown, so a
+                        number on the scorecard could not be traced back to the
+                        rows behind it. */}
+                    <td style={css(TD + ";white-space:nowrap")}>
+                      <span style={css("font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;"
+                        + (SCORE_TONE[issue.scorecardColumn] ?? "background:#F1F5F9;color:#7B8CA0"))}>
+                        {issue.scorecardColumn || "ยังไม่ระบุระดับ"}
+                      </span>
+                    </td>
                     <td style={css(TD + ";white-space:nowrap")}>
                       <span style={css(`color:${SEVERITY_TONE[issue.severity] ?? "#5C7285"};font-weight:600`)}>
                         {issue.severity || "—"}
@@ -410,6 +420,30 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
    * offer — the field takes anything typed, so the cap narrows the suggestions
    * rather than what may be recorded.
    */
+  /**
+   * What the scorecard would count this entry under if nobody chooses.
+   *
+   * Asked of the API rather than worked out here. It is the rule that decides a
+   * haulier's mark, and a rule written twice in this codebase has drifted every
+   * single time — so the form shows the API's answer, not its own opinion of it.
+   */
+  const [derived, setDerived] = useState("");
+  const category = draft.category ?? "";
+  const source = draft.source ?? "";
+  const grade = draft.accidentGrade ?? "";
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const query = new URLSearchParams({ category, source, accidentGrade: grade });
+      const response = await apiFetch(`/api/issues/classify?${query}`,
+        { headers: { accept: "application/json" } });
+      if (!response.ok || cancelled) return;
+      const body = await response.json() as { column?: string };
+      if (!cancelled) setDerived(body.column ?? "");
+    })();
+    return () => { cancelled = true; };
+  }, [category, source, grade]);
+
   const refs = useMemo(() => {
     const seen = new Set<string>();
     jobs.forEach((job) => {
@@ -469,22 +503,39 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
             style={css(INPUT_RAW + ";font-family:'IBM Plex Mono',monospace")} />
         </Field>
 
-        {/*
-          Only on an accident, because it means nothing on anything else — and
-          asked for there because the carrier scorecard weights a major accident
-          at 35% against a minor one's 15%. An accident left ungraded is counted
-          and reported and kept out of the score: guessing which it was would put
-          a third of somebody's mark on a guess.
-        */}
-        {(draft.category ?? "") === ACCIDENT_CATEGORY && (
-          <Field label="ชนิดอุบัติเหตุ (KPI)" width="215px">
-            {/* The three the customer's report has a column for. One field
-                rather than two, because a loading accident graded Major is a
-                combination their form cannot show. */}
-            <Select value={draft.accidentGrade ?? ""} onChange={(v) => onField("accidentGrade", v)}
-              options={["Transport (Major)", "Transport (Minor)", "Loading"]} />
-          </Field>
-        )}
+      </div>
+
+      {/*
+        The heading this entry will be counted under on the customer's
+        scorecard.
+
+        It was always decided — by the category, the source and sometimes an
+        accident grade, in a rule inside the scorecard — and it was never shown.
+        So the person whose typing moves a haulier's mark could not see what
+        their entry would count as, and the headings on the two screens had
+        nothing in common. The list here is the customer's own, served by the
+        API rather than written out again on this side.
+      */}
+      <div style={css("display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;background:#F8FAFC;border:1px solid #E3E8EE;border-radius:5px;padding:11px 13px")}>
+        <Field label="หัวข้อการประเมิน (Carrier Scorecard)" width="330px">
+          <Select value={draft.scorecardColumn ?? ""} onChange={(v) => onField("scorecardColumn", v)}
+            options={form.scorecardColumns} />
+        </Field>
+        <div style={css("flex:1;min-width:250px;font-size:11px;color:#7B8CA0;line-height:1.8;padding-bottom:5px")}>
+          {(draft.scorecardColumn ?? "").trim().length === 0 ? (
+            <>
+              ยังไม่ได้เลือก — ระบบจะใช้ <b style={css("color:#0A2240")}>{derived || "ไม่นับในคะแนน"}</b>{" "}
+              ตามหมวดปัญหาและแหล่งที่เลือกไว้ · เลือกเองได้ถ้าไม่ตรง
+            </>
+          ) : (
+            <>นับเป็น <b style={css("color:#0A2240")}>{draft.scorecardColumn}</b> ในคะแนนผู้ขนส่ง</>
+          )}
+          {(draft.scorecardColumn || derived) === "Truck break down / No customer complaint" && (
+            <div style={css("color:#B45309;margin-top:2px")}>
+              ถ้ามีการร้องเรียนในงานเดียวกัน รายการนี้จะถูกนับเป็น Complaint แทน เพื่อไม่ให้หักคะแนนซ้ำ
+            </div>
+          )}
+        </div>
       </div>
 
       <Field label="รายละเอียดปัญหา" width="100%">
@@ -532,14 +583,23 @@ function AddIssue({ form, jobs, draft, onField, onSave, busy }: {
 const LABEL = css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600");
 // The declaration, kept as text so a field that wants one more rule can add
 // to it rather than restate the whole thing and drift from it.
+
 /**
- * The category an accident is logged under.
+ * The five scorecard headings, coloured by what they cost.
  *
- * Written here and in CarrierScorecard.cs, which is one copy too many —
- * but the list itself comes from the API, and hard-coding the whole list
- * on this side to avoid repeating one string would be the worse trade.
+ * A major accident is weighted at 35% and a minor one at 15%, so they do not
+ * get the same colour; a breakdown nobody complained about costs the least and
+ * is the quietest. The list itself comes from the API — this only says how to
+ * draw what arrives, so a heading nobody has coloured still shows, in grey.
  */
-const ACCIDENT_CATEGORY = "ความปลอดภัย/อุบัติเหตุ";
+const SCORE_TONE: Record<string, string> = {
+  "Transport Accident (Major)": "background:#FDF0EF;color:#B42318",
+  "Transport Accident (Minor)": "background:#FFF8E8;color:#B45309",
+  "Loading Accident": "background:#FFF8E8;color:#B45309",
+  "Complaint (Internal & External)": "background:#EEF3FB;color:#1D5FA8",
+  "Truck break down / No customer complaint": "background:#F1F5F9;color:#5C7285",
+  "ไม่นับในคะแนน": "background:#F8FAFC;color:#94A3B8",
+};
 
 const INPUT_RAW = "height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;font-family:inherit;width:100%";
 const INPUT = css(INPUT_RAW);

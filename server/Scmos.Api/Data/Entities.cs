@@ -531,6 +531,16 @@ public class OperationalIssue
     /// </summary>
     public string AccidentGrade { get; set; } = "";
 
+    /// <summary>
+    /// Which column of the customer's carrier scorecard this counts under.
+    ///
+    /// Chosen in the form under the customer's own headings. Blank means
+    /// nobody has said, and the rule the scorecard always applied silently
+    /// answers instead — so every row logged before this field existed keeps
+    /// exactly the meaning it had. See <c>ScorecardColumn</c>.
+    /// </summary>
+    public string ScorecardColumn { get; set; } = "";
+
     /// <summary>The SMT member holding it, and the id behind the name.</summary>
     public string Owner { get; set; } = "";
     public string OwnerId { get; set; } = "";

@@ -28,7 +28,8 @@ public static class OperationalIssueEndpoints
         string? Status, string? RootCause,
         // Optional so the Excel import, which has no such columns, still binds.
         string? Driver = null, string? ContainerNo = null, string? Licence = null,
-        string? AccidentGrade = null);
+        string? AccidentGrade = null,
+        string? ScorecardColumn = null);
 
     public record ImportBody(List<IssueBody>? Issues);
 
@@ -42,6 +43,25 @@ public static class OperationalIssueEndpoints
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             return Results.Json(await issues.FormAsync(token));
+        });
+
+        // What the scorecard would count this entry under, if nobody says.
+        //
+        // Answered here rather than worked out in the browser. It is the rule
+        // that decides a haulier's mark, and this project's own history is that
+        // a rule written twice ends up saying two things — a delay counted 2 in
+        // one place and 64 in another, an edit check disagreed in three files.
+        // One round trip when the category or the source changes is a cheap
+        // price for the form and the score agreeing.
+        group.MapGet("/classify", (string? category, string? source, string? accidentGrade,
+            HttpContext context, IUserAccessor users) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            return Results.Json(new
+            {
+                column = Rules.ScorecardColumn.Derive(category ?? "", source ?? "", accidentGrade ?? ""),
+            });
         });
 
         group.MapGet("", async (string? status, string? severity, string? jobKey, string? owner,
@@ -155,6 +175,7 @@ public static class OperationalIssueEndpoints
         ContainerNo = Clean(body.ContainerNo, 80),
         Licence = Clean(body.Licence, 60),
         AccidentGrade = Clean(body.AccidentGrade, 20),
+        ScorecardColumn = Clean(body.ScorecardColumn, 60),
     };
 
     private static string Clean(string? value, int max)

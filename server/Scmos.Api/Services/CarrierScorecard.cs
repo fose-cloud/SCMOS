@@ -119,23 +119,29 @@ public static class CarrierScorecard
             var keys = group.Select(job => job.Key).ToHashSet(StringComparer.Ordinal);
             var mine = attributed.Where(issue => keys.Contains(issue.JobKey)).ToList();
 
-            var accidents = mine.Where(IsAccident).ToList();
-            var minor = accidents.Count(issue => Graded(issue) == "Transport (Minor)");
-            var major = accidents.Count(issue => Graded(issue) == "Transport (Major)");
-            var loading = accidents.Count(issue => Graded(issue) == "Loading");
-            var ungraded = accidents.Count(issue => Graded(issue).Length == 0);
+            // Which of the customer's five columns each issue counts under —
+            // read from the issue rather than worked out here, so the heading
+            // somebody chose in the form is the heading it is counted under.
+            int Under(string column) => mine.Count(issue => ScorecardColumn.Of(issue) == column);
+
+            var minor = Under(ScorecardColumn.TransportMinor);
+            var major = Under(ScorecardColumn.TransportMajor);
+            var loading = Under(ScorecardColumn.LoadingAccident);
+            var ungraded = mine.Count(ScorecardColumn.IsUngradedAccident);
 
             // A lorry that would not run, where the customer never complained
-            // about it. The pairing is the point: a breakdown the customer felt
-            // is already counted as a complaint, and counting it twice would
-            // punish one event under two headings.
+            // about it. The pairing is the point and cannot live on the issue:
+            // one entry cannot know whether another exists on the same job. A
+            // breakdown the customer felt is already counted as a complaint,
+            // and counting it twice would punish one event under two headings.
             var breakdownNoComplaint = mine.Count(issue =>
-                IsBreakdown(issue)
+                ScorecardColumn.Of(issue) == ScorecardColumn.Breakdown
                 && !mine.Any(other => other.JobKey == issue.JobKey && IsComplaint(other)));
 
             var complaints = mine.Count(IsComplaint);
 
-            var reports = mine.Where(issue => IsAccident(issue) || IsDamage(issue)).ToList();
+            var reports = mine.Where(issue =>
+                ScorecardColumn.IsAccident(issue) || IsDamage(issue)).ToList();
             var onTimeReports = reports.Count(ReportedInTime);
 
             var lateWithComplaint = group.Count(job =>
@@ -211,14 +217,8 @@ public static class CarrierScorecard
             shipments == 0 ? "ไม่มี shipment ในเดือนนี้" : note);
     }
 
-    private static bool IsAccident(OperationalIssue issue) =>
-        issue.Category.Trim().Equals(AccidentCategory, StringComparison.Ordinal);
-
     private static bool IsDamage(OperationalIssue issue) =>
         issue.Category.Trim().Equals(DamageCategory, StringComparison.Ordinal);
-
-    private static bool IsBreakdown(OperationalIssue issue) =>
-        issue.Category.Trim().Equals(BreakdownCategory, StringComparison.Ordinal);
 
     /// <summary>
     /// An issue that is somebody complaining, rather than one that merely came
@@ -235,8 +235,7 @@ public static class CarrierScorecard
     /// shipping, billing or the warehouse is.
     /// </summary>
     private static bool IsComplaint(OperationalIssue issue) =>
-        !IsAccident(issue) && !IsBreakdown(issue)
-        && ComplaintSources.Contains(issue.Source.Trim());
+        ScorecardColumn.Of(issue) == ScorecardColumn.Complaint;
 
     /// <summary>
     /// Which of the three kinds of accident this was, or empty when nobody has
@@ -276,7 +275,7 @@ public static class CarrierScorecard
         var found = Formats.Moment(issue.FoundOn, issue.FoundAt);
         if (found is null || issue.CreatedAt == default) return false;
 
-        var allowed = IsAccident(issue) ? AccidentReportMinutes : ReportMinutes;
+        var allowed = ScorecardColumn.IsAccident(issue) ? AccidentReportMinutes : ReportMinutes;
         var minutes = (issue.CreatedAt - found.Value).TotalMinutes;
 
         // A report logged before it was found is a clock disagreement, not a
