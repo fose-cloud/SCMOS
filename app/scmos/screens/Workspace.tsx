@@ -168,8 +168,8 @@ const CATEGORIES = ["ALL", "IMPORT", "EXPORT"];
 
 const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
-  IMPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
-  EXPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Assigned To"]],
+  IMPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
+  EXPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["Product"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Remark"], ["Status"], ["Assigned To"]],
   // Headed as the account's own summary sheet heads them, in its order, so the
   // grid and the sheet it feeds can be read side by side without translating.
   //
@@ -183,10 +183,10 @@ const COL_DEFS: Record<string, [string][]> = {
   // Province is gone: it is not on their sheet and was not asked for. It is
   // still written by the import and still printed on the Delivery Details
   // report, so nothing is lost, but it cannot be edited from this grid.
-  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["Status"], ["Remark"], ["Assigned To"]],
+  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["Remark"], ["Status"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
-  ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
+  ALL: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
 };
 
 const KPI_DEFS: [string, string, string, string][] = [
@@ -1155,10 +1155,10 @@ export function Workspace(p: Props) {
         edPick(j, "type", { mono: true }),
         edPick(j, "cyYard"), ed(j, "weight", { mono: true, align: "right" }),
         ed(j, "container", { mono: true }), ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }),
-        ed(j, "contact", { mono: true }), stCell(j), ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
+        ed(j, "contact", { mono: true }), ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
         ed(j, "reason", { w: 180, color: j.reason ? "#B45309" : null }),
         ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
-        ed(j, "cs", { mono: true }),
+        ed(j, "cs", { mono: true }), stCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -1167,12 +1167,16 @@ export function Workspace(p: Props) {
         catCell, edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j), ed(j, "booking", { mono: true, w: 170 }),
         ed(j, "abs", { mono: true }), edPick(j, "plant", { w: 150 }),
         ed(j, "date", { mono: true }), ed(j, "planTime", { mono: true }), edPick(j, "type", { mono: true }),
+        // Export had nowhere to record what was in the box. Dangerous goods was
+        // being written into the type column instead, which is the only reason
+        // "1X20 DG" existed as a kind of container.
+        edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
         edPick(j, "cyYard"), edPick(j, "returnLoc", { w: 150 }), ed(j, "closingDate", { mono: true }),
         ed(j, "closingTime", { mono: true, bold: true }), riskCell(j),
         ed(j, "container", { mono: true }), ed(j, "seal", { mono: true }), ed(j, "tare", { mono: true, align: "right" }),
         ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }), ed(j, "contact", { mono: true }),
-        ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }), stCell(j),
-        ed(j, "remark", { w: 180, mute: true }),
+        ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
+        ed(j, "remark", { w: 180, mute: true }), stCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -1199,7 +1203,7 @@ export function Workspace(p: Props) {
         ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
         ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtl", { mono: true, align: "right" }),
         cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right", bold: true }),
-        stCell(j), ed(j, "remark", { w: 170, mute: true }),
+        ed(j, "remark", { w: 170, mute: true }), stCell(j),
       cell(j.op, { bold: mine, mute: !mine }),
       ]);
     }
@@ -1214,10 +1218,10 @@ export function Workspace(p: Props) {
       riskCell(j), ed(j, "weight", { mono: true, align: "right" }),
       ed(j, "container", { mono: true }), ed(j, "seal", { mono: true }), ed(j, "tare", { mono: true, align: "right" }),
       ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }), ed(j, "contact", { mono: true }),
-      stCell(j), ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
+      ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
       ed(j, "reason", { w: 170, color: j.reason ? "#B45309" : null }), ed(j, "remark", { w: 170, mute: true }),
       ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
-      ed(j, "cs", { mono: true }),
+      ed(j, "cs", { mono: true }), stCell(j),
       cell(j.op, { bold: mine, mute: !mine }),
     ]);
   };
