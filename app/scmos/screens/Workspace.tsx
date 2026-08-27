@@ -14,6 +14,7 @@ import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { spanEnd } from "../standard";
 import { useCarriers } from "../carriers";
+import { useVehicleTypes } from "../vehicleTypes";
 
 export type WsState = {
   tab: string;
@@ -481,6 +482,7 @@ export function Workspace(p: Props) {
   // The haulage companies a user may choose between, from the register rather
   // than from the spellings the jobs already contain.
   const carriers = useCarriers();
+  const vehicles = useVehicleTypes();
 
   /**
    * The header's slot for this screen's controls.
@@ -898,7 +900,10 @@ export function Workspace(p: Props) {
   };
 
   const PICK_FIELDS: (keyof Job)[] = [
-    "customer", "trucker", "product", "destination", "plant", "returnLoc", "cyYard", "type",
+    // "type" is not here any more: it is a fixed list from the Capacity screen,
+    // so a datalist of whatever the register happens to contain would offer the
+    // sixty-odd spellings this was meant to end.
+    "customer", "trucker", "product", "destination", "plant", "returnLoc", "cyYard",
     // Delivery's own master-ish columns, now that its grid is editable.
     "wh", "province",
   ];
@@ -932,6 +937,24 @@ export function Workspace(p: Props) {
     // nobody opens.
     cellOut.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
     cellOut.title = `"${current}" ไม่มีในทะเบียนผู้รับเหมาช่วง — เลือกบริษัทจากรายการเพื่อแก้`;
+    return cellOut;
+  };
+
+  /**
+   * The type column, bound to the list kept on the Capacity screen.
+   *
+   * A row already carrying something off the list is marked rather than
+   * quietly accepted: the register still holds spellings from before the list
+   * existed, and a cell that says so is how they get found and fixed. Nothing
+   * is marked until the list has actually loaded.
+   */
+  const edVehicle = (j: Job, opts: CellOpts = {}): Cell => {
+    const current = j.type || "";
+    const cellOut = edChoice(j, "type", vehicles.codes, opts);
+    if (!vehicles.ready || current.length === 0 || vehicles.knows(current)) return cellOut;
+
+    cellOut.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
+    cellOut.title = `"${current}" ไม่มีในรายการประเภทรถ — เลือกจากรายการเพื่อแก้ (จัดการรายการที่เมนู Capacity)`;
     return cellOut;
   };
 
@@ -1152,7 +1175,7 @@ export function Workspace(p: Props) {
         catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j),
         ed(j, "jobCode", { mono: true }), edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
         edPick(j, "destination", { w: 150 }), ed(j, "planTime", { mono: true }),
-        edPick(j, "type", { mono: true }),
+        edVehicle(j, { mono: true }),
         edPick(j, "cyYard"), ed(j, "weight", { mono: true, align: "right" }),
         ed(j, "container", { mono: true }), ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }),
         ed(j, "contact", { mono: true }), ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
@@ -1166,7 +1189,7 @@ export function Workspace(p: Props) {
       return head.concat([
         catCell, edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j), ed(j, "booking", { mono: true, w: 170 }),
         ed(j, "abs", { mono: true }), edPick(j, "plant", { w: 150 }),
-        ed(j, "date", { mono: true }), ed(j, "planTime", { mono: true }), edPick(j, "type", { mono: true }),
+        ed(j, "date", { mono: true }), ed(j, "planTime", { mono: true }), edVehicle(j, { mono: true }),
         // Export had nowhere to record what was in the box. Dangerous goods was
         // being written into the type column instead, which is the only reason
         // "1X20 DG" existed as a kind of container.
@@ -1213,7 +1236,7 @@ export function Workspace(p: Props) {
       edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
       edPick(j, "destination", { w: 150 }), ed(j, "planTime", { mono: true }),
       edPick(j, "plant", { w: 150 }),
-      edPick(j, "type", { mono: true }), edPick(j, "cyYard"),
+      edVehicle(j, { mono: true }), edPick(j, "cyYard"),
       edPick(j, "returnLoc", { w: 140 }), ed(j, "closingDate", { mono: true }), ed(j, "closingTime", { mono: true }),
       riskCell(j), ed(j, "weight", { mono: true, align: "right" }),
       ed(j, "container", { mono: true }), ed(j, "seal", { mono: true }), ed(j, "tare", { mono: true, align: "right" }),
@@ -1450,7 +1473,8 @@ export function Workspace(p: Props) {
                 options={["ALL"].concat(carrierChips(999))}
                 onPick={(v) => p.set({ trucker: v, page: 1 })} />
               <FilterPick label="TYPE" value={ws.type}
-                options={["ALL"].concat(allOf("type"))}
+                options={["ALL"].concat(vehicles.codes)
+                  .concat(allOf("type").filter((t) => !vehicles.knows(t)))}
                 onPick={(v) => p.set({ type: v, page: 1 })} />
               {/*
                 The colour legend is gone.

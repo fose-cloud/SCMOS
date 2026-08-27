@@ -44,6 +44,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<SupplierTruck> SupplierTrucks => Set<SupplierTruck>();
     public DbSet<SupplierDriver> SupplierDrivers => Set<SupplierDriver>();
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
+    public DbSet<VehicleTypeRow> VehicleTypes => Set<VehicleTypeRow>();
     public DbSet<SupplierEvaluation> SupplierEvaluations => Set<SupplierEvaluation>();
 
     public DbSet<FuelBand> FuelBands => Set<FuelBand>();
@@ -629,6 +630,18 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.TrainingExpiry).HasMaxLength(20).HasDefaultValue("");
             e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("active");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_driver_idx");
+        });
+
+        model.Entity<VehicleTypeRow>(e =>
+        {
+            e.ToTable("vehicle_types");
+            e.Property(x => x.Code).HasMaxLength(40);
+            e.Property(x => x.Label).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.UpdatedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Active).HasDefaultValue(true);
+            // One row per code. Two spellings of one lorry is the problem this
+            // table exists to end, so the database refuses to hold them.
+            e.HasIndex(x => x.Code).IsUnique().HasDatabaseName("vehicle_type_code_idx");
         });
 
         model.Entity<SupplierCapacity>(e =>

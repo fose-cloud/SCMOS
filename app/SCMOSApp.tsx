@@ -2470,7 +2470,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   กำลังโหลดแผนงาน…
                 </div>)}
             {screen === "capacity" && (
-              <CapacityBoard canEdit={able("EditOwnJobs")} onToast={setToast} />
+              <CapacityBoard canEdit={able("EditOwnJobs")} canAdmin={able("AdministerData")} onToast={setToast} />
             )}
             {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
             {screen === "admin" && <Administration jobs={ops?.jobs ?? []} me={me.name} onToast={setToast} />}

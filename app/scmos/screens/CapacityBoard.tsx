@@ -23,10 +23,15 @@ type Day = { date: string; available: number; committed: number; demand: number;
 type Board = { days: Day[]; cells: Cell[]; vehicleTypes: string[]; anyReported: boolean };
 type Supplier = { id: number; code: string; name: string; status: string };
 
-export function CapacityBoard({ canEdit, onToast }: { canEdit: boolean; onToast: (m: string) => void }) {
+type VType = { id: number; code: string; label: string; sort: number; active: boolean; inUse: number };
+
+export function CapacityBoard({ canEdit, canAdmin, onToast }:
+  { canEdit: boolean; canAdmin: boolean; onToast: (m: string) => void }) {
   const [board, setBoard] = useRemembered<Board>("capacity");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [busy, setBusy] = useState(false);
+  const [types, setTypes] = useState<VType[]>([]);
+  const [newType, setNewType] = useState({ code: "", label: "" });
   const [form, setForm] = useState({ supplierId: "", date: "", vehicleType: "20F", available: "", committed: "" });
 
   const load = useCallback(async () => {
@@ -38,10 +43,15 @@ export function CapacityBoard({ canEdit, onToast }: { canEdit: boolean; onToast:
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [boardResponse, supplierResponse] = await Promise.all([
+      const [boardResponse, supplierResponse, typeResponse] = await Promise.all([
         apiFetch("/api/capacity?days=7", { headers: { accept: "application/json" } }),
         apiFetch("/api/suppliers?status=approved", { headers: { accept: "application/json" } }),
+        apiFetch("/api/vehicle-types", { headers: { accept: "application/json" } }),
       ]);
+      if (typeResponse.ok) {
+        const list = await typeResponse.json() as VType[];
+        if (!cancelled) setTypes(list);
+      }
       const data = boardResponse.ok ? await boardResponse.json() as Board : null;
       const list = supplierResponse.ok ? await supplierResponse.json() as Supplier[] : [];
       if (cancelled) return;
@@ -85,6 +95,15 @@ export function CapacityBoard({ canEdit, onToast }: { canEdit: boolean; onToast:
           ระบบไม่เดาว่ารถพอหรือไม่พอ เพราะการบอกว่า “ไม่ขาด” ทั้งที่ไม่มีข้อมูล แย่กว่าการบอกว่ายังไม่รู้
         </div>
       )}
+
+      <VehicleTypePanel
+        types={types} canAdmin={canAdmin} busy={busy} newType={newType}
+        setNewType={setNewType} onToast={onToast}
+        onChanged={async () => {
+          const response = await apiFetch("/api/vehicle-types", { headers: { accept: "application/json" } });
+          if (response.ok) setTypes(await response.json() as VType[]);
+        }}
+        setBusy={setBusy} />
 
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;font-size:12.5px;font-weight:650;color:#0A2240")}>
@@ -171,6 +190,118 @@ export function CapacityBoard({ canEdit, onToast }: { canEdit: boolean; onToast:
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The kinds of lorry and box the team plans with.
+ *
+ * Lives here because this is the screen where fleet is planned, and because a
+ * list nobody can see is a list nobody maintains. Only an Admin may change it;
+ * everybody else reads it, which is worth showing rather than hiding — an
+ * operator who cannot find the right type needs to know where it comes from.
+ *
+ * Nothing is deleted. A type that has been used is written on real jobs and in
+ * their history, so removing it takes it out of the dropdowns and leaves those
+ * jobs reading exactly as they did. The count beside each row is how many jobs
+ * that would be, shown before the button is pressed rather than after.
+ */
+function VehicleTypePanel({ types, canAdmin, busy, setBusy, newType, setNewType, onChanged, onToast }: {
+  types: VType[]; canAdmin: boolean; busy: boolean; setBusy: (b: boolean) => void;
+  newType: { code: string; label: string };
+  setNewType: (v: { code: string; label: string }) => void;
+  onChanged: () => Promise<void>; onToast: (m: string) => void;
+}) {
+  const live = types.filter((t) => t.active);
+  const retired = types.filter((t) => !t.active);
+
+  const send = async (run: () => Promise<Response>) => {
+    setBusy(true);
+    try {
+      const response = await run();
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? (response.ok ? "บันทึกแล้ว" : "ทำรายการไม่สำเร็จ"));
+      if (response.ok) await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
+      <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap")}>
+        <span style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>ประเภทรถและตู้</span>
+        <span style={css("font-size:11.5px;color:#7B8CA0")}>
+          {live.length} รายการที่ใช้งาน · คอลัมน์ TYPE ในเมนู My Job เลือกได้จากรายการนี้เท่านั้น
+        </span>
+      </div>
+
+      <div style={css("display:flex;flex-wrap:wrap;gap:7px;padding:12px 16px")}>
+        {live.map((type) => (
+          <span key={type.id}
+            style={css("display:inline-flex;align-items:center;gap:7px;border:1px solid #C9D6E2;"
+              + "border-radius:4px;padding:4px 6px 4px 10px;background:#F7FAFD")}>
+            <span style={css("font-family:ui-monospace,monospace;font-size:12px;font-weight:600;color:#0A2240")}>
+              {type.code}
+            </span>
+            <span style={css("font-size:11px;color:#7B8CA0")}>
+              {type.inUse > 0 ? type.inUse + " งาน" : "ยังไม่มีงาน"}
+            </span>
+            {canAdmin && (
+              <button type="button" disabled={busy}
+                title={type.inUse > 0
+                  ? "นำออกจากตัวเลือก · " + type.inUse + " งานเดิมยังแสดงค่านี้ตามปกติ"
+                  : "นำออกจากตัวเลือก"}
+                onClick={() => send(() => apiFetch("/api/vehicle-types/" + type.id, { method: "DELETE" }))}
+                style={css("border:none;background:none;cursor:pointer;color:#94A3B8;font-size:14px;line-height:1;padding:0 2px")}>
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {live.length === 0 && (
+          <span style={css("font-size:12px;color:#94A3B8")}>ยังไม่มีรายการ</span>
+        )}
+      </div>
+
+      {retired.length > 0 && (
+        <div style={css("padding:0 16px 12px;font-size:11.5px;color:#94A3B8")}>
+          นำออกแล้ว: {retired.map((t) => t.code + (t.inUse > 0 ? " (" + t.inUse + " งาน)" : "")).join(" · ")}
+          {canAdmin && " — พิมพ์รหัสเดิมในช่องด้านล่างเพื่อนำกลับมาใช้"}
+        </div>
+      )}
+
+      {canAdmin && (
+        <div style={css("display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:12px 16px;border-top:1px solid #E9EFF5;background:#FAFCFE")}>
+          <Field label="รหัส เช่น 1X20'">
+            <input value={newType.code} disabled={busy}
+              onChange={(e) => setNewType({ ...newType, code: e.target.value })}
+              style={css(INPUT + ";width:150px;font-family:ui-monospace,monospace")} />
+          </Field>
+          <Field label="คำอธิบาย (ไม่ใส่ก็ได้)">
+            <input value={newType.label} disabled={busy}
+              onChange={(e) => setNewType({ ...newType, label: e.target.value })}
+              style={css(INPUT + ";width:230px")} />
+          </Field>
+          <button type="button" disabled={busy || newType.code.trim().length === 0}
+            onClick={async () => {
+              await send(() => apiFetch("/api/vehicle-types", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ code: newType.code, label: newType.label }),
+              }));
+              setNewType({ code: "", label: "" });
+            }}
+            style={css("height:30px;padding:0 14px;border-radius:4px;border:1px solid #0A2240;background:#0A2240;"
+              + "color:#fff;font-size:12.5px;font-weight:600;cursor:pointer")}>
+            เพิ่มประเภท
+          </button>
+          <span style={css("font-size:11px;color:#94A3B8;max-width:340px;line-height:1.5")}>
+            รหัสจะถูกจัดรูปแบบให้ตรงกับที่ทะเบียนใช้อยู่ — พิมพ์ 1x20 จะได้ 1X20&#39;
+          </span>
         </div>
       )}
     </div>
