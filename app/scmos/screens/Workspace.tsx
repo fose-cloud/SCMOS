@@ -538,12 +538,6 @@ export function Workspace(p: Props) {
   const dates = Object.keys(dateCount).sort((a, b) => dnum(a) - dnum(b));
   const busiest = dates.length ? dates.reduce((x, y) => (dateCount[y] > dateCount[x] ? y : x), dates[0]) : "";
   const anchor = ws.date !== "ALL" && dateCount[ws.date] !== undefined ? ws.date : busiest;
-  const anchorIndex = Math.max(0, dates.indexOf(anchor) - 3);
-  const step = (n: number) => {
-    const i = dates.indexOf(anchor);
-    const target = dates[Math.min(dates.length - 1, Math.max(0, i + n))];
-    if (target) p.set({ date: target, page: 1 });
-  };
 
   const scope = ws.date === "ALL" ? base : base.filter((j) => j.date === anchor);
 
@@ -1830,42 +1824,6 @@ export function Workspace(p: Props) {
       )}
 
       {complete && p.panels.dates && (<>
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap")}>
-        <button onClick={() => step(-1)} aria-label="Previous day" style={css("width:30px;height:31px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#475569;cursor:pointer;font-size:13px")}>‹</button>
-        {dates.slice(anchorIndex, anchorIndex + 7).map((d) => {
-          const active = ws.date !== "ALL" && d === anchor;
-          return (
-            <button
-              key={d}
-              type="button"
-              onClick={() => p.set({ date: d, page: 1 })}
-              style={css(
-                "font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:74px;padding:6px 10px;border:1px solid " +
-                (active ? "#2E7DD1" : "#E2E8F0") + ";background:" + (active ? "#0A2240" : "#fff") +
-                ";color:" + (active ? "#fff" : "#334155") + ";border-radius:4px;cursor:pointer",
-              )}
-            >
-              <span style={css("font-size:9.5px;letter-spacing:.06em;opacity:.75")}>{dowOf(d)}</span>
-              <span style={css("font-size:12.5px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>{d.slice(0, 5)}</span>
-              <span style={css("font-size:9.5px;opacity:.75")}>{dateCount[d]} jobs</span>
-            </button>
-          );
-        })}
-        <button onClick={() => step(1)} aria-label="Next day" style={css("width:30px;height:31px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;color:#475569;cursor:pointer;font-size:13px")}>›</button>
-        <button
-          onClick={() => p.set({ date: "ALL", page: 1 })}
-          style={css(
-            "height:31px;padding:0 14px;border:1px solid " + (ws.date === "ALL" ? "#0A2240" : "#D8E0E8") +
-            ";background:" + (ws.date === "ALL" ? "#0A2240" : "#fff") + ";color:" + (ws.date === "ALL" ? "#fff" : "#475569") +
-            ";border-radius:4px;font-size:12px;cursor:pointer;font-weight:600",
-          )}
-        >
-          All dates
-        </button>
-        <span style={css("margin-left:auto;font-size:11.5px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>
-          {ws.date === "ALL" ? "All operation dates" : dowOf(anchor) + " " + anchor}
-        </span>
-      </div>
 
       {/* ปี → เดือน → วัน, the same period model the dashboard reports on. */}
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
