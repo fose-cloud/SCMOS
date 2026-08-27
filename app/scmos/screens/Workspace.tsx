@@ -166,8 +166,8 @@ const CATEGORIES = ["ALL", "IMPORT", "EXPORT"];
 
 const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
-  IMPORT: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
-  EXPORT: [["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Assigned To"]],
+  IMPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
+  EXPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Status"], ["Remark"], ["Assigned To"]],
   // Headed as the account's own summary sheet heads them, in its order, so the
   // grid and the sheet it feeds can be read side by side without translating.
   //
@@ -401,7 +401,7 @@ function FilterPick({ label, value, options, onPick }: {
   const set = value !== "ALL" && value !== "All Team";
   return (
     <label style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10px;font-weight:700;color:#7FA5CC;letter-spacing:.06em")}>{label}</span>
+      <span style={css("font-size:10px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>{label}</span>
       <select
         value={value}
         onChange={(e) => onPick(e.target.value)}
@@ -1290,7 +1290,7 @@ export function Workspace(p: Props) {
                     style={css("height:25px;padding:0 11px;border:1px solid "
                       + (t.active ? "#4E9BE8" : "transparent") + ";background:"
                       + (t.active ? "#16406E" : "transparent")
-                      + ";color:" + (t.active ? "#fff" : "#9FD0FF")
+                      + ";color:#fff"
                       + ";border-radius:4px;font-size:11.5px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
                       + (t.active ? "600" : "400"))}>
                     {t.label}
@@ -1327,7 +1327,7 @@ export function Workspace(p: Props) {
               <span style={css("font-size:12.5px;font-weight:600;color:#fff;font-family:'IBM Plex Mono',monospace")}>
                 {complete ? list.length : serverTotal}
               </span>
-              <span style={css("font-size:11.5px;color:#7FA5CC")}>
+              <span style={css("font-size:11.5px;color:#CFE2F7")}>
                 จาก {complete ? all.length : serverTotal} งาน
               </span>
   
@@ -1492,7 +1492,7 @@ export function Workspace(p: Props) {
   // ปี → เดือน → วัน, the same period model the dashboard reports on.
   const periodControls = (
       <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;width:100%;padding:5px 0;border-top:1px solid #1B3B60")}>
-      <span style={css("font-size:11px;font-weight:700;color:#7FA5CC;letter-spacing:.06em")}>ช่วงเวลา</span>
+      <span style={css("font-size:11px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>ช่วงเวลา</span>
 
       {([
       ["ปี", ws.year, ["ALL", ...years], (v: string) => v, (v: string) => p.set({ year: v, month: "ALL", date: "ALL", page: 1 })],
@@ -1500,7 +1500,7 @@ export function Workspace(p: Props) {
       ["วัน", ws.date, ["ALL", ...dates], (v: string) => (v === "ALL" ? v : v.slice(0, 2) + " · " + dateCount[v] + " งาน"), (v: string) => p.set({ date: v, page: 1 })],
       ] as [string, string, string[], (v: string) => string, (v: string) => void][]).map(([label, value, options, render, onPick]) => (
       <label key={label} style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10.5px;color:#7FA5CC;letter-spacing:.05em;font-weight:600")}>{label}</span>
+      <span style={css("font-size:10.5px;color:#CFE2F7;letter-spacing:.05em;font-weight:600")}>{label}</span>
       <select
       value={value}
       onChange={(e) => onPick(e.target.value)}
@@ -1525,7 +1525,7 @@ export function Workspace(p: Props) {
       same reader every other date on the job goes through.
       */}
       <label style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10.5px;color:#7FA5CC;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
+      <span style={css("font-size:10.5px;color:#CFE2F7;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
       <input
       value={ws.from}
       placeholder="25 หรือ 25/08/2026"
@@ -1533,7 +1533,7 @@ export function Workspace(p: Props) {
       onBlur={() => p.set({ date: "ALL", page: 1 })}
       style={css(SPAN_INPUT)}
       />
-      <span style={css("font-size:12px;color:#7FA5CC")}>–</span>
+      <span style={css("font-size:12px;color:#CFE2F7")}>–</span>
       <input
       value={ws.to}
       placeholder="31 หรือ 31/08/2026"
@@ -1566,7 +1566,7 @@ export function Workspace(p: Props) {
 
       <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px")}>
       <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#fff")}>{base.length}</span>
-      <span style={css("font-size:11.5px;color:#7FA5CC")}>จาก {catBase.length} งานในหมวดนี้</span>
+      <span style={css("font-size:11.5px;color:#CFE2F7")}>จาก {catBase.length} งานในหมวดนี้</span>
       {!!undated && (
       <span style={css("font-size:11px;color:#E0A33A")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปีหรือเดือน">
       · วันที่ใช้ไม่ได้ {undated}

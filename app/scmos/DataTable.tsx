@@ -80,7 +80,13 @@ const TOOL_BTN =
 
 /** The same button on the navy header. */
 const TOOL_BTN_DARK =
-  "height:30px;padding:0 14px;border:1px solid #24476E;background:transparent;color:#DCEBFB;border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit";
+  "height:28px;padding:0 12px;border:1px solid #4E7BA8;background:transparent;color:#fff;"
+  + "border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit";
+
+/** The one action the screen exists to do, still leading on the navy. */
+const ACTION_BTN_LEAD =
+  "height:28px;padding:0 13px;border:1px solid #4E9BE8;background:#16406E;color:#fff;"
+  + "border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit";
 
 export function DataTable(p: Props) {
   const { model, onPage, onTool } = p;
@@ -216,11 +222,25 @@ export function DataTable(p: Props) {
         + (model.fill ? "padding:7px 16px;background:#0A2240" : "padding:12px 16px;border-bottom:1px solid #E9EFF5"))}>
         <div style={css("display:flex;align-items:baseline;gap:10px")}>
           <span style={css("font-size:13.5px;font-weight:600;color:" + (model.fill ? "#fff" : "#0A2240"))}>{model.title}</span>
-          <span style={css("font-size:11.5px;color:" + (model.fill ? "#7FA5CC" : "#94A3B8"))}>{model.meta}</span>
+          <span style={css("font-size:11.5px;color:" + (model.fill ? "#CFE2F7" : "#94A3B8"))}>{model.meta}</span>
         </div>
         <div style={css("display:flex;gap:7px;align-items:center")}>
+          {/*
+            The screen's buttons, restyled for the navy they now sit on.
+
+            They were built for a white heading: white boxes with grey text,
+            which on navy read as blank tiles, and a primary button that is navy
+            on navy — "+ ADD JOB" was white lettering on nothing at all. On this
+            header they are outlined and white, and the primary one keeps its
+            fill so the action you came to do still leads.
+          */}
           {(model.actions ?? []).map((a) => (
-            <button key={a.label} onClick={a.go} style={css(a.style)}>{a.label}</button>
+            <button key={a.label} onClick={a.go}
+              style={css(model.fill
+                ? (a.style.includes("background:#0A2240") ? ACTION_BTN_LEAD : TOOL_BTN_DARK)
+                : a.style)}>
+              {a.label}
+            </button>
           ))}
           {(model.tools ?? ["Columns", "Sort", "Export Excel"]).map((label) => (
             <button key={label} className="ghost-btn" onClick={() => onTool(label)}
