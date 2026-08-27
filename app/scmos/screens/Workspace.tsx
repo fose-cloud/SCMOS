@@ -134,6 +134,13 @@ type Props = {
    * same thing is how that happens.
    */
   tabCounts: Record<string, number>;
+  /**
+   * The tabs, drawn on this screen's own bar rather than in the header.
+   *
+   * Built where every other screen's tabs are built, so the labels and the
+   * counts stay one thing; only where they are drawn changes.
+   */
+  tabs: { label: string; active: boolean; go: () => void }[];
   onPanel: (key: keyof PanelPrefs) => void;
   /** Bulk actions over the ticked rows; all three only touch jobs you may edit. */
   onBulkStatus: (keys: string[], status: string) => void;
@@ -1567,6 +1574,29 @@ export function Workspace(p: Props) {
             full-width band above the work.
           */}
           <div style={css("display:flex;align-items:center;gap:10px;padding:9px 13px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
+            {/*
+              The tabs, on the bar rather than on a white strip of their own.
+
+              Three of them and a metre of empty space beside them was a row
+              the job rows were not getting, and this is where they were asked
+              to be — with the category buttons and the filters, one block.
+            */}
+            <div style={css("display:flex;align-items:center;gap:4px")}>
+              {p.tabs.map((t) => (
+                <button key={t.label} onClick={t.go}
+                  style={css("height:28px;padding:0 13px;border:1px solid "
+                    + (t.active ? "#4E9BE8" : "transparent") + ";background:"
+                    + (t.active ? "#16406E" : "transparent")
+                    + ";color:" + (t.active ? "#fff" : "#9FD0FF")
+                    + ";border-radius:4px;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
+                    + (t.active ? "600" : "400"))}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <span style={css("width:1px;height:20px;background:#24476E")} />
+
             <div style={css("display:flex;align-items:center;gap:6px")}>
               {(p.lockedCat ? [] : CATEGORIES).map((c) => (
                 <button
@@ -1706,6 +1736,29 @@ export function Workspace(p: Props) {
             full-width band above the work.
           */}
           <div style={css("display:flex;align-items:center;gap:10px;padding:9px 13px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
+            {/*
+              The tabs, on the bar rather than on a white strip of their own.
+
+              Three of them and a metre of empty space beside them was a row
+              the job rows were not getting, and this is where they were asked
+              to be — with the category buttons and the filters, one block.
+            */}
+            <div style={css("display:flex;align-items:center;gap:4px")}>
+              {p.tabs.map((t) => (
+                <button key={t.label} onClick={t.go}
+                  style={css("height:28px;padding:0 13px;border:1px solid "
+                    + (t.active ? "#4E9BE8" : "transparent") + ";background:"
+                    + (t.active ? "#16406E" : "transparent")
+                    + ";color:" + (t.active ? "#fff" : "#9FD0FF")
+                    + ";border-radius:4px;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap;font-weight:"
+                    + (t.active ? "600" : "400"))}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <span style={css("width:1px;height:20px;background:#24476E")} />
+
             <div style={css("display:flex;align-items:center;gap:6px")}>
               {(p.lockedCat ? [] : CATEGORIES).map((c) => (
                 <button

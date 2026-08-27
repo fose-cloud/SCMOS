@@ -2087,6 +2087,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         blurb={meta[2]}
         actions={actions}
         tabs={tabs}
+        // Only while the workspace is actually drawing, because only then is
+        // anything drawing the tabs instead. On a cold start it is a loading
+        // card for as long as the database takes to wake, and hiding the strip
+        // through that would leave two minutes with no way to change tab.
+        hideTabs={isWorkspace && !!workspaceOps}
         filters={showFilters ? { defs: filterDefs, q, onQ: (v) => { setQ(v); setPage(1); }, onReset: () => { setF(EMPTY_FILTERS); setQ(""); setPage(1); setToast("Filters reset"); } } : null}
       >
         {isDetail && selectedShip && (
@@ -2183,6 +2188,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   me={me}
                   ws={wsState}
                   tabCounts={wsCounts}
+                  tabs={tabs}
                   set={(patch) => {
                     if (patch.tab !== undefined) setTab(patch.tab);
                     if (patch.q !== undefined) setQ(patch.q);

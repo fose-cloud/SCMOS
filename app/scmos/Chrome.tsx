@@ -91,6 +91,14 @@ type Props = {
   blurb: string;
   actions: HeaderAction[];
   tabs: TabItem[];
+  /**
+   * Whether the screen draws its own tabs.
+   *
+   * The workspace puts them on its control bar, beside the category buttons
+   * and the filters — three tabs and a metre of empty white beside them was a
+   * row the job rows were not getting.
+   */
+  hideTabs?: boolean;
   filters: { defs: FilterDef[]; q: string; onQ: (value: string) => void; onReset: () => void } | null;
   children: ReactNode;
 };
@@ -483,6 +491,7 @@ export function Chrome(p: Props) {
                 whole of `main` sideways takes the title and the breadcrumb with
                 it, and you arrive at the tab having lost the heading that says
                 what you are looking at. */}
+            {!p.hideTabs && (
             <div style={css("display:flex;gap:2px;margin-top:14px;overflow-x:auto;scrollbar-width:thin;" +
               "-webkit-overflow-scrolling:touch;padding-bottom:2px")}>
               {p.tabs.map((t) => (
@@ -505,7 +514,7 @@ export function Chrome(p: Props) {
                 </button>
               ))}
             </div>
-
+            )}
           </div>
 
           {/*
