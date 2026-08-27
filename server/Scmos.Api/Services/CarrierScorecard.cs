@@ -144,9 +144,9 @@ public static class CarrierScorecard
                 ScorecardColumn.IsAccident(issue) || IsDamage(issue)).ToList();
             var onTimeReports = reports.Count(ReportedInTime);
 
-            var lateWithComplaint = group.Count(job =>
-                LateBeyond(job.Record, LateMinutes)
-                && mine.Any(issue => issue.JobKey == job.Key && IsComplaint(issue)));
+            // Late, full stop — read off the job register, the same rows My Job
+            // shows. Whether anybody complained is not part of it.
+            var late = group.Count(job => LateBeyond(job.Record, LateMinutes));
 
             var lines = new List<ScoreLine>
             {
@@ -190,28 +190,38 @@ public static class CarrierScorecard
 
                 // On time delivery (Standard, normal & emergency orders).
                 //
-                // The agreement's own words: shipments that reached the
-                // customer more than thirty minutes after the time agreed in
-                // the delivery plan AND drew a complaint from the customer on
-                // that shipment, against every shipment that month. Target 95%,
-                // weight 10%.
+                // Every shipment that reached the customer more than thirty
+                // minutes after the time agreed in the delivery plan, against
+                // every shipment that month. Target 95%, weight 10%. Read from
+                // the job register — the rows My Job shows — and from nothing
+                // else.
                 //
-                // Written as "(late and complained of) / all shipments × 100"
-                // with a target of ≥95%, which read literally would ask a
-                // haulier to be late on ninety-five per cent of its work. The
-                // target is plainly perfection, so the score is a hundred less
-                // that rate — the same reading every other rate criterion here
-                // gets.
+                // <b>This departs from the agreement's wording on purpose.</b>
+                // The text reads "…เกิน 30 นาที และมีข้อร้องเรียนจากลูกค้าใน
+                // รายการนั้น", so the contract counts only lateness a customer
+                // complained about. LESCHACO asked for the complaint condition
+                // dropped: a late shipment is late whether or not anybody rang
+                // up, and tying the measure to complaints makes a quiet
+                // customer look like good service. Recorded here because it
+                // means this figure is not the contract's figure, and anybody
+                // reconciling the two against the agreement should know why
+                // before assuming a bug.
                 //
-                // The denominator is every shipment, not only the ones whose
-                // times can be read. That is the agreement's, and it is the
-                // stricter of the two: a shipment with no arrival time recorded
-                // cannot prove it was late, so it counts in the base and never
-                // against the haulier.
+                // The denominator stays every shipment rather than only the
+                // ones whose times can be read. That is the agreement's, and it
+                // is the more forgiving of the two: a shipment with no arrival
+                // time recorded cannot prove it was late, so it counts in the
+                // base and never against the haulier.
+                //
+                // Written as a rate of failures against a target of ≥95%, which
+                // read literally would ask a haulier to be late on ninety-five
+                // per cent of its work. The target is plainly perfection, so
+                // the score is a hundred less that rate — the same reading
+                // every other rate criterion here gets.
                 Rate("on-time", "On time delivery", "ส่งมอบตรงเวลา (มาตรฐานปกติและเหตุฉุกเฉิน)",
-                    10, lateWithComplaint, shipments, 95,
-                    $"สายเกิน {LateMinutes} นาทีจาก Delivery Plan และมีข้อร้องเรียนจากลูกค้าในรายการนั้น"
-                    + $" · {lateWithComplaint} จาก {shipments} shipment"),
+                    10, late, shipments, 95,
+                    $"สายเกิน {LateMinutes} นาทีจาก Delivery Plan · {late} จาก {shipments} shipment"
+                    + " · ไม่นับเงื่อนไขข้อร้องเรียน"),
 
                 Rate("satisfaction", "Complaint (Internal & external)", "ข้อร้องเรียน (ภายใน/ภายนอก)",
                     10, complaints, shipments, 95,

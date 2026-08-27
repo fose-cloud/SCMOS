@@ -439,7 +439,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                             {line.percent.toFixed(1)}%
                           </div>
                           <div style={css("font-size:10.5px;color:#94A3B8;font-weight:400")}>
-                            สาย+ร้องเรียน {line.count.toLocaleString()} / {line.base.toLocaleString()}
+                            สายเกิน 30 นาที {line.count.toLocaleString()} / {line.base.toLocaleString()}
                           </div>
                           {line.percent < target && (
                             <div style={css("font-size:10.5px;color:#B45309;font-weight:600")}>
@@ -480,12 +480,18 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
             <div style={css("margin-top:5px")}>
               <b>On Time Delivery (Standard, normal &amp; emergency orders)</b> —
               นับ Shipment ที่ถึงลูกค้าช้ากว่าเวลานัดตาม Delivery Plan <b>เกิน 30 นาที</b>
-              และ<b>มีข้อร้องเรียนจากลูกค้าในรายการนั้น</b> เทียบกับ Shipment ทั้งหมดในเดือน ·
+              เทียบกับ Shipment ทั้งหมดในเดือน ดึงจากทะเบียนงานเดียวกับ My Job ·
               เป้า <b>≥ 95%</b> · น้ำหนัก <b>10%</b> ในคะแนนรวม
+              <div style={css("margin-top:3px;color:#B45309")}>
+                <b>ต่างจากข้อความในสัญญาโดยตั้งใจ</b> — สัญญาเขียนว่า &ldquo;เกิน 30 นาที
+                <b>และมีข้อร้องเรียนจากลูกค้าในรายการนั้น</b>&rdquo; คือหักเฉพาะครั้งที่ลูกค้าโทรมา
+                LESCHACO ขอให้ตัดเงื่อนไขข้อร้องเรียนออก เพราะงานที่สายก็คือสายไม่ว่าจะมีคนโทรมาหรือไม่
+                และการผูกไว้กับข้อร้องเรียนทำให้ลูกค้าที่ไม่บ่นดูเหมือนบริการดี ·
+                ตัวเลขนี้จึงไม่ตรงกับสูตรในสัญญา
+              </div>
               <div style={css("margin-top:3px")}>
-                สูตรในสัญญาเขียนเป็น (Shipment ที่สายเกิน 30 นาที และมี Complaint) ÷ Shipment ทั้งหมด × 100
-                ซึ่งเป็น<b>อัตราที่ผิดพลาด</b> — เป้า 95% จึงหมายถึงคะแนน คือ 100 ลบอัตรานั้น
-                เกณฑ์อัตราอื่นในตารางนี้อ่านแบบเดียวกันทั้งหมด ·
+                สูตรเขียนเป็น<b>อัตราที่ผิดพลาด</b> แต่เป้าเป็น ≥95% — เป้าคือความสมบูรณ์แบบ
+                คะแนนจึงเป็น 100 ลบอัตรานั้น เกณฑ์อัตราอื่นในตารางนี้อ่านแบบเดียวกันทั้งหมด ·
                 ตัวหารคือ Shipment <b>ทั้งหมด</b> ไม่ใช่เฉพาะที่อ่านเวลาได้ ตามที่สัญญาระบุ —
                 งานที่ไม่มีเวลาถึงบันทึกไว้จึงพิสูจน์ไม่ได้ว่าสาย และไม่ถูกนับเป็นความผิดของผู้ขนส่ง
               </div>

@@ -30,6 +30,9 @@ public static class ScorecardCheck
             Job("J2", "SSL", "02/08/2026", "08:00", "02/08/2026", "09:00"),
             Job("J3", "SSL", "03/08/2026", "08:00", "03/08/2026", "07:55"),
             Job("J4", "SSL", "04/08/2026", "08:00", "04/08/2026", "08:05"),
+            // An hour late and nobody rang up about it. The whole point of the
+            // change: this counts against on-time now, and did not before.
+            Job("J8", "SSL", "08/08/2026", "08:00", "08/08/2026", "09:00"),
             // THAIKOT: two, both on time.
             Job("J5", "THAIKOT", "05/08/2026", "08:00", "05/08/2026", "07:50"),
             Job("J6", "THAIKOT", "06/08/2026", "08:00", "06/08/2026", "08:00"),
@@ -90,7 +93,7 @@ public static class ScorecardCheck
 
         var checks = new (string What, object? Got, object? Want)[]
         {
-            ("SSL shipments", ssl.Shipments, 4),
+            ("SSL shipments", ssl.Shipments, 5),
             ("SSL transport accident (major)", ssl.Tally.TransportAccidentMajor, 1),
             ("SSL transport accident (minor)", ssl.Tally.TransportAccidentMinor, 0),
             ("SSL loading accident", ssl.Tally.LoadingAccident, 1),
@@ -106,10 +109,14 @@ public static class ScorecardCheck
             ("SSL reports in time", Line(ssl, "damage-reporting").Count, 1),
             ("SSL reporting score", Line(ssl, "damage-reporting").Percent, 50.0),
 
-            // J2 was an hour late and the customer complained about it. One
-            // shipment of four.
-            ("SSL late-with-complaint", Line(ssl, "on-time").Count, 1),
-            ("SSL on-time score", Line(ssl, "on-time").Percent, 75.0),
+            // Two of the five were more than half an hour late: J2, which the
+            // customer complained about, and J8, which nobody mentioned. Both
+            // count. Under the agreement's own wording only J2 would, and the
+            // score would read 80 — the difference this fixture exists to hold
+            // on to, because without J8 the check cannot tell the two rules
+            // apart.
+            ("SSL late beyond 30 minutes, complaint or not", Line(ssl, "on-time").Count, 2),
+            ("SSL on-time score", Line(ssl, "on-time").Percent, 60.0),
 
             // The On Time Delivery column and the weighted criterion are one
             // figure now, read from one line — the agreement's: late by more
@@ -119,13 +126,12 @@ public static class ScorecardCheck
             // Of SSL's four, J1 was ten minutes late, J4 five and J2 an hour;
             // only J2 is beyond half an hour, and only J2 drew a complaint. One
             // of four, so the score is 75 against a target of 95.
-            ("SSL on-time base is every shipment", Line(ssl, "on-time").Base, 4),
-            ("SSL late-and-complained-of", Line(ssl, "on-time").Count, 1),
+            ("SSL on-time base is every shipment", Line(ssl, "on-time").Base, 5),
             ("SSL on-time target", Line(ssl, "on-time").Target, 95.0),
-            ("THAIKOT on-time, nothing late or complained of", Line(kot, "on-time").Percent, 100.0),
+            ("THAIKOT on-time, nothing late", Line(kot, "on-time").Percent, 100.0),
 
-            // A major accident on one of four shipments is a 25% rate, so 75.
-            ("SSL major score", Line(ssl, "accident-major").Percent, 75.0),
+            // A major accident on one of five shipments is a 20% rate, so 80.
+            ("SSL major score", Line(ssl, "accident-major").Percent, 80.0),
             ("SSL minor score", Line(ssl, "accident-minor").Percent, 100.0),
             ("SSL vehicle readiness (nothing records it)", Line(ssl, "vehicle-readiness").Percent, null),
 
@@ -163,7 +169,7 @@ public static class ScorecardCheck
 
         var failed = 0;
         Console.WriteLine();
-        Console.WriteLine("  scorecard check — seven shipments, three hauliers, nine logged issues");
+        Console.WriteLine("  scorecard check — eight shipments, three hauliers, nine logged issues");
         Console.WriteLine();
         foreach (var (what, got, want) in checks)
         {
