@@ -77,13 +77,7 @@ type CarrierTally = {
 type CarrierScore = {
   carrier: string; shipments: number; lines: ScoreLine[];
   weighted: number | null; weightAvailable: number; ungradedAccidents: number;
-  /**
-   * On-time delivery for this haulier. Optional for the same reason the tally
-   * is: the web and the API deploy separately, and a screen that throws
-   * because the other side has not started sending a field yet is worse than
-   * one missing a column.
-   */
-  onTime?: { met: number; base: number; percent: number | null };
+
   /**
    * Optional on purpose.
    *
@@ -417,31 +411,44 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                       says what would finish it.
                     */}
                     {/*
-                      On-time delivery, with the base it was measured over.
+                      On time delivery, read off the very line the weighted
+                      score is made of rather than worked out again here.
 
-                      The base matters and is shown: a haulier at a hundred per
-                      cent of four readable shipments and one at a hundred of
-                      four hundred are not the same claim, and the percentage
-                      alone hides which is which. A haulier whose jobs carry no
-                      arrival times cannot be scored on this at all, and says so
-                      rather than showing a nought that reads like failure.
+                      It is one of the five criteria, at ten per cent against a
+                      target of ninety-five, so a column showing a different
+                      number under the same heading would be this page
+                      disagreeing with its own total. Under the percentage is
+                      what it was made of: shipments late beyond half an hour
+                      that drew a complaint, over every shipment that month.
                     */}
-                    <td style={css("padding:8px 12px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
-                      {!row.onTime || row.onTime.percent === null ? (
-                        <span style={css("font-family:inherit;font-size:11px;color:#B45309")}>ยังวัดไม่ได้</span>
-                      ) : (
-                        <>
+                    {(() => {
+                      const line = row.lines.find((l) => l.id === "on-time");
+                      if (!line || line.percent === null) {
+                        return (
+                          <td key="on-time" style={css("padding:8px 12px;text-align:right")}>
+                            <span style={css("font-size:11px;color:#B45309")}>ยังวัดไม่ได้</span>
+                          </td>
+                        );
+                      }
+                      const target = line.target ?? 95;
+                      return (
+                        <td key="on-time" style={css("padding:8px 12px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
                           <div style={css("font-weight:700;color:"
-                            + (row.onTime.percent >= 95 ? "#16794C"
-                              : row.onTime.percent >= 85 ? "#B45309" : "#B42318"))}>
-                            {row.onTime.percent.toFixed(1)}%
+                            + (line.percent >= target ? "#16794C"
+                              : line.percent >= target - 10 ? "#B45309" : "#B42318"))}>
+                            {line.percent.toFixed(1)}%
                           </div>
                           <div style={css("font-size:10.5px;color:#94A3B8;font-weight:400")}>
-                            {row.onTime.met.toLocaleString()} / {row.onTime.base.toLocaleString()}
+                            สาย+ร้องเรียน {line.count.toLocaleString()} / {line.base.toLocaleString()}
                           </div>
-                        </>
-                      )}
-                    </td>
+                          {line.percent < target && (
+                            <div style={css("font-size:10.5px;color:#B45309;font-weight:600")}>
+                              ต่ำกว่าเป้า {target}%
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })()}
 
                     <td style={css("padding:8px 12px;text-align:right;font-weight:700;font-family:'IBM Plex Mono',monospace;color:"
                       + (row.weighted == null ? "#B4C0CC"
@@ -471,12 +478,17 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
             ข้อร้องเรียนนับทั้งจากลูกค้า และจากภายใน (CS · Shipping · Billing · คลัง) ·
             รถเสียนับเฉพาะครั้งที่<b>ไม่มี</b>ข้อร้องเรียนจากลูกค้าในงานเดียวกัน จะได้ไม่ถูกนับซ้ำสองช่อง
             <div style={css("margin-top:5px")}>
-              <b>On Time Delivery</b> = (งานที่ถึงตรงเวลา ÷ งานที่อ่านเวลาได้) × 100 ·
-              ตัวเลขเล็กใต้เปอร์เซ็นต์คือ <b>ตรงเวลา / ที่วัดได้</b> ·
-              งานที่ไม่มีเวลาแผนหรือเวลาถึงจะไม่ถูกนับทั้งเศษและส่วน เพราะเรียกว่าตรงเวลาหรือสายก็ไม่ได้ ·
-              คิดแบบเดียวกับแถว <b>ส่งมอบตรงเวลา</b> ในตารางบน คือถึงช้ากว่าแผนถือว่าไม่ตรงเวลา ·
-              ต่างจากเกณฑ์ตรงเวลาใน<b>คะแนนรวม</b> ซึ่งตามสัญญาหักเฉพาะครั้งที่สายเกิน 30 นาที
-              <b>และมีข้อร้องเรียน</b> — คนละคำถามกับตัวเลขในคอลัมนี้ ตัวเลขจึงไม่เท่ากันได้
+              <b>On Time Delivery (Standard, normal &amp; emergency orders)</b> —
+              นับ Shipment ที่ถึงลูกค้าช้ากว่าเวลานัดตาม Delivery Plan <b>เกิน 30 นาที</b>
+              และ<b>มีข้อร้องเรียนจากลูกค้าในรายการนั้น</b> เทียบกับ Shipment ทั้งหมดในเดือน ·
+              เป้า <b>≥ 95%</b> · น้ำหนัก <b>10%</b> ในคะแนนรวม
+              <div style={css("margin-top:3px")}>
+                สูตรในสัญญาเขียนเป็น (Shipment ที่สายเกิน 30 นาที และมี Complaint) ÷ Shipment ทั้งหมด × 100
+                ซึ่งเป็น<b>อัตราที่ผิดพลาด</b> — เป้า 95% จึงหมายถึงคะแนน คือ 100 ลบอัตรานั้น
+                เกณฑ์อัตราอื่นในตารางนี้อ่านแบบเดียวกันทั้งหมด ·
+                ตัวหารคือ Shipment <b>ทั้งหมด</b> ไม่ใช่เฉพาะที่อ่านเวลาได้ ตามที่สัญญาระบุ —
+                งานที่ไม่มีเวลาถึงบันทึกไว้จึงพิสูจน์ไม่ได้ว่าสาย และไม่ถูกนับเป็นความผิดของผู้ขนส่ง
+              </div>
             </div>
             <div style={css("margin-top:5px")}>
               คะแนนรวมคิดตามน้ำหนักในสัญญา โดยเกณฑ์ที่ยังวัดไม่ได้จะไม่ถูกให้ 0

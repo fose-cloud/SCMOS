@@ -111,20 +111,18 @@ public static class ScorecardCheck
             ("SSL late-with-complaint", Line(ssl, "on-time").Count, 1),
             ("SSL on-time score", Line(ssl, "on-time").Percent, 75.0),
 
-            // The On Time Delivery column asks a different question from the
-            // criterion above it, and the two answers differ on this fixture by
-            // design. Of SSL's four, only J3 arrived before its plan; J1 was ten
-            // minutes late, J4 five, J2 an hour. The column counts on time as on
-            // time, the way the headline row and the register do — one of four.
+            // The On Time Delivery column and the weighted criterion are one
+            // figure now, read from one line — the agreement's: late by more
+            // than thirty minutes against the delivery plan AND complained of,
+            // over every shipment that month.
             //
-            // The criterion reads 75 because the agreement marks a haulier down
-            // only for lateness beyond half an hour that drew a complaint, which
-            // is J2 alone. Same shipments, two questions, and the card says
-            // which is which under the table.
-            ("SSL on-time column, measured over", ssl.OnTime.Base, 4),
-            ("SSL on-time column, met (on time means on time)", ssl.OnTime.Met, 1),
-            ("SSL on-time column, percent", ssl.OnTime.Percent, 25.0),
-            ("THAIKOT on-time column, percent", kot.OnTime.Percent, 100.0),
+            // Of SSL's four, J1 was ten minutes late, J4 five and J2 an hour;
+            // only J2 is beyond half an hour, and only J2 drew a complaint. One
+            // of four, so the score is 75 against a target of 95.
+            ("SSL on-time base is every shipment", Line(ssl, "on-time").Base, 4),
+            ("SSL late-and-complained-of", Line(ssl, "on-time").Count, 1),
+            ("SSL on-time target", Line(ssl, "on-time").Target, 95.0),
+            ("THAIKOT on-time, nothing late or complained of", Line(kot, "on-time").Percent, 100.0),
 
             // A major accident on one of four shipments is a 25% rate, so 75.
             ("SSL major score", Line(ssl, "accident-major").Percent, 75.0),

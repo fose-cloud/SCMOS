@@ -35,29 +35,12 @@ public record CarrierTally(
     int Complaints,
     int BreakdownNoComplaint);
 
-/// <summary>
-/// On-time delivery for one haulier, as the customer's report states it.
-///
-/// <c>(shipments that arrived on time / shipments whose time could be read)
-/// × 100</c>. The base is not the shipment count: a job with no plan time or no
-/// arrival time cannot be called on time or late, and counting it either way
-/// would be inventing an answer. Both numbers are carried so the percentage can
-/// be checked rather than taken on trust.
-///
-/// This is not the same figure as the on-time <i>criterion</i> in the weighted
-/// score. The agreement marks a haulier down for lateness the customer
-/// complained about; this column is every late arrival, complained of or not.
-/// One is what the contract costs, the other is how the month actually went.
-/// </summary>
-public record OnTime(int Met, int Base, double? Percent);
-
 public record CarrierScore(
     string Carrier, int Shipments,
     IReadOnlyList<ScoreLine> Lines,
     double? Weighted, double WeightAvailable,
     int UngradedAccidents,
-    CarrierTally Tally,
-    OnTime OnTime);
+    CarrierTally Tally);
 
 /// <summary>
 /// The carrier scorecard the customer's contract is judged on.
@@ -161,14 +144,6 @@ public static class CarrierScorecard
                 ScorecardColumn.IsAccident(issue) || IsDamage(issue)).ToList();
             var onTimeReports = reports.Count(ReportedInTime);
 
-            // Every shipment whose plan and arrival can both be read, and how
-            // many of those made it. The register's own reading of on time, not
-            // a second one written here.
-            var timed = group.Where(job => JobRules.IsMeasurable(job.Record)).ToList();
-            var onTimeMet = timed.Count(job => JobRules.IsOnTime(job.Record));
-            var onTime = new OnTime(onTimeMet, timed.Count,
-                timed.Count == 0 ? null : Round(onTimeMet * 100.0 / timed.Count));
-
             var lateWithComplaint = group.Count(job =>
                 LateBeyond(job.Record, LateMinutes)
                 && mine.Any(issue => issue.JobKey == job.Key && IsComplaint(issue)));
@@ -213,9 +188,30 @@ public static class CarrierScorecard
                     null, 0, preRuns.Count(check => Same(check.Carrier, group.Key)), 100,
                     "ยังไม่มีบันทึกผลตรวจความพร้อมรถ (ผ่าน/ไม่ผ่าน) ในระบบ — เกณฑ์นี้ยังคิดคะแนนไม่ได้"),
 
-                Rate("on-time", "On time delivery", "ส่งมอบตรงเวลา",
+                // On time delivery (Standard, normal & emergency orders).
+                //
+                // The agreement's own words: shipments that reached the
+                // customer more than thirty minutes after the time agreed in
+                // the delivery plan AND drew a complaint from the customer on
+                // that shipment, against every shipment that month. Target 95%,
+                // weight 10%.
+                //
+                // Written as "(late and complained of) / all shipments × 100"
+                // with a target of ≥95%, which read literally would ask a
+                // haulier to be late on ninety-five per cent of its work. The
+                // target is plainly perfection, so the score is a hundred less
+                // that rate — the same reading every other rate criterion here
+                // gets.
+                //
+                // The denominator is every shipment, not only the ones whose
+                // times can be read. That is the agreement's, and it is the
+                // stricter of the two: a shipment with no arrival time recorded
+                // cannot prove it was late, so it counts in the base and never
+                // against the haulier.
+                Rate("on-time", "On time delivery", "ส่งมอบตรงเวลา (มาตรฐานปกติและเหตุฉุกเฉิน)",
                     10, lateWithComplaint, shipments, 95,
-                    $"ช้ากว่านัดเกิน {LateMinutes} นาที และมีข้อร้องเรียน"),
+                    $"สายเกิน {LateMinutes} นาทีจาก Delivery Plan และมีข้อร้องเรียนจากลูกค้าในรายการนั้น"
+                    + $" · {lateWithComplaint} จาก {shipments} shipment"),
 
                 Rate("satisfaction", "Complaint (Internal & external)", "ข้อร้องเรียน (ภายใน/ภายนอก)",
                     10, complaints, shipments, 95,
@@ -229,7 +225,7 @@ public static class CarrierScorecard
                 : Round(measured.Sum(line => line.Percent!.Value * line.Weight) / available);
 
             scores.Add(new CarrierScore(group.Key, shipments, lines, weighted, available, ungraded,
-                new CarrierTally(major, minor, loading, complaints, breakdownNoComplaint), onTime));
+                new CarrierTally(major, minor, loading, complaints, breakdownNoComplaint)));
         }
 
         return scores;
