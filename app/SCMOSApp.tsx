@@ -145,6 +145,18 @@ function screenNeedsRegister(screen: Screen, tab: string): boolean {
   return REGISTER_SCREENS.has(screen);
 }
 
+/** One job's fields as they stood before an edit, ready to be written back. */
+type UndoEdit = { key: string; before: Partial<Job> };
+
+/**
+ * One press of undo.
+ *
+ * Whatever a single action touched, however many jobs that was — a pasted
+ * block and a bulk status change each come back in one press, because that is
+ * how they went in.
+ */
+type UndoStep = { label: string; at: string; edits: UndoEdit[] };
+
 type Props = {
   /** Verified identity from App Service Web App Login; null in local dev. */
   initialUser: Account | null;
@@ -246,6 +258,22 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [addCat, setAddCat] = useState<string | null>(null);
   /** Rows inserted into the grid and still being filled in. See insertRow. */
   const [pinnedKeys, setPinnedKeys] = useState<string[]>([]);
+
+  /**
+   * What the last few edits overwrote, newest last.
+   *
+   * A step holds the values as they were *before* the edit, so undoing is a
+   * write of what used to be there rather than a replay of anything. Twenty
+   * deep: enough to walk back a bad paste, short enough that nobody undoes
+   * their way into last Tuesday.
+   *
+   * This lives in the browser and nowhere else. It is gone on refresh, and it
+   * is one person's own recent typing — not a general history of the register,
+   * which is what `hist` on each job is for. An undo is written into `hist`
+   * like any other edit, so the trail says the value went back and who put it
+   * back.
+   */
+  const [undos, setUndos] = useState<UndoStep[]>([]);
   const [addForm, setAddForm] = useState<Record<string, string>>({});
   const [aiFields, setAiFields] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
@@ -1154,6 +1182,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         { label: "Saved views", style: BTN_SECONDARY, go: () => { setViews(listViews()); setViewName(""); setViewsOpen(true); } },
         { label: "Import from Excel", style: BTN_SECONDARY, go: openImport },
         { label: "Export Excel", style: BTN_SECONDARY, go: handleExport },
+        // Only when there is something to take back. A permanently greyed
+        // button is the kind of dead control that gets asked about.
+        ...(undos.length > 0
+          ? [{ label: "↶ ย้อนกลับ", style: BTN_SECONDARY, go: undo }]
+          : []),
         { label: "+ แทรกแถว", style: BTN_SECONDARY, go: insertRow },
         { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => startAddJob("CHOOSE") },
       ];
@@ -1278,6 +1311,93 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const docTotals = ["PDF", "Image", "Excel", "Word", "File"]
     .map((k) => ({ k, n: docs.filter((d) => d.kind === k).length }))
     .filter((x) => x.n > 0);
+
+  // ---- undo ---------------------------------------------------------------
+
+  /**
+   * Files what an edit is about to overwrite.
+   *
+   * Called with the whole set a single action touched, so a pasted block or a
+   * bulk status change comes back in one press rather than twenty.
+   *
+   * Creating a row is deliberately not undoable. Undoing one would mean
+   * deleting it, there is no history table behind this register to restore
+   * from, and a delete that goes wrong cannot be walked back the way a value
+   * can. A row added by mistake gets cancelled, which is reversible.
+   */
+  function remember(label: string, edits: UndoEdit[]) {
+    if (!edits.length) return;
+    setUndos((prev) => prev.slice(-19).concat([{ label, at: nowHM(), edits }]));
+  }
+
+  /** Puts the last step's values back where they were. */
+  function undo() {
+    if (!ops) return;
+    if (undos.length === 0) { setToast("ไม่มีการแก้ไขให้ย้อนกลับ"); return; }
+
+    const step = undos[undos.length - 1];
+    const byKey = new Map(ops.jobs.map((j) => [j.key, j]));
+    const touched: Job[] = [];
+    let refused = 0;
+    let gone = 0;
+
+    for (const edit of step.edits) {
+      const job = byKey.get(edit.key);
+      // The row can have left the register, or changed hands, since the edit.
+      // Neither is an error worth stopping on — the rest of the step still
+      // goes back, and the count says what did not.
+      if (!job) { gone++; continue; }
+      if (!canEditJob(job)) { refused++; continue; }
+
+      let changed = false;
+      for (const [field, was] of Object.entries(edit.before)) {
+        const now = (job as unknown as Record<string, string>)[field] ?? "";
+        if (now === was) continue;
+        (job as unknown as Record<string, string>)[field] = was as string;
+        // Written into the job's own history too: a value that changes back on
+        // its own, with nothing saying why, is worse than the wrong value.
+        pushAct(job, String(field) + " (ย้อนกลับ)", now, was as string);
+        changed = true;
+      }
+      if (changed) { flagJob(job); touched.push(job); }
+    }
+
+    setUndos((prev) => prev.slice(0, -1));
+    if (touched.length > 0) persist(touched);
+    touch();
+
+    if (touched.length === 0) {
+      setToast("ย้อนกลับไม่ได้ — " + (refused ? "งานนี้เป็นของผู้อื่นแล้ว" : gone ? "ไม่พบงานนี้แล้ว" : "ค่าเดิมอยู่ครบแล้ว"));
+      return;
+    }
+    setToast(
+      "ย้อนกลับแล้ว ↶ " + step.label
+      + (refused ? " · ข้าม " + refused + " งานของผู้อื่น" : "")
+      + (gone ? " · ข้าม " + gone + " งานที่ไม่พบ" : ""),
+    );
+  }
+
+  /**
+   * Ctrl+Z anywhere that is not a text box.
+   *
+   * Inside the cell editor Ctrl+Z has to keep meaning "undo my typing" — the
+   * browser's own undo — or a half-typed container number could not be fixed
+   * without losing the last saved value too. So the handler stands aside for
+   * any field that takes input.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== "z") return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      e.preventDefault();
+      undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   // ---- workspace mutations ----------------------------------------------
   function pushAct(job: Job, field: string, oldV: string, newV: string) {
@@ -1407,14 +1527,19 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     let fixed = 0;
     let refused = 0;
 
+    const undoEdits: UndoEdit[] = [];
     for (const edit of edits) {
       if (!canEditJob(edit.job)) { refused++; continue; }
+      const was = (edit.job[edit.field] as string) || "";
       const fix = writeCell(edit.job, edit.field, edit.value);
       if (fix === false) continue;
       changed++;
       if (fix) fixed++;
+      undoEdits.push({ key: edit.job.key, before: { [edit.field]: was } as Partial<Job> });
       touched.set(edit.job.key, edit.job);
     }
+    // One press takes the whole paste back out, not one cell of it.
+    remember("วาง " + changed + " ช่อง", undoEdits);
 
     if (touched.size > 0) persist([...touched.values()]);
     touch();
@@ -1431,6 +1556,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     const old = (job[field] as string) || "";
     if (value === old) { touch(); return; }
 
+    remember(String(field) + ": " + (old || "—"), [{ key: job.key, before: { [field]: old } as Partial<Job> }]);
     const fix = writeCell(job, field, value) || null;
     const saved = (job[field] as string) || "";
 
@@ -1455,13 +1581,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     if (!ops) return;
     const chosen = ops.jobs.filter((j) => keys.indexOf(j.key) >= 0);
     const allowed = chosen.filter(canEditJob);
+    const undoEdits: UndoEdit[] = [];
     allowed.forEach((job) => {
       const old = job.status;
       if (old === value) return;
+      undoEdits.push({ key: job.key, before: { status: old } });
       job.status = value;
       flagJob(job);
       pushAct(job, "Status", old, value);
     });
+    remember("เปลี่ยนสถานะ " + undoEdits.length + " งาน", undoEdits);
     const skipped = chosen.length - allowed.length;
     persist(allowed);
     setWs((prev) => ({ ...prev, picked: [] }));
@@ -1479,13 +1608,18 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       return;
     }
     const chosen = ops.jobs.filter((j) => keys.indexOf(j.key) >= 0);
+    const undoEdits: UndoEdit[] = [];
     chosen.forEach((job) => {
       const old = job.op;
       if (old === owner) return;
+      // The name and the id go back together, or the row would come back
+      // showing one person and belonging to another.
+      undoEdits.push({ key: job.key, before: { op: old, opId: job.opId } });
       job.op = owner;
       job.opId = opIdForName(owner);
       pushAct(job, "Assigned To", old, owner);
     });
+    remember("มอบหมาย " + undoEdits.length + " งาน", undoEdits);
     persist(chosen);
     setWs((prev) => ({ ...prev, picked: [] }));
     setToast(`มอบหมาย ${chosen.length} งานให้ ${owner} แล้ว`);
@@ -1526,6 +1660,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   function changeJobStatus(job: Job, value: string) {
     if (value === "Delayed") { setOpsDelay(job.key); return; }
     const old = job.status;
+    if (old === value) return;
+    remember("status: " + (old || "—"), [{ key: job.key, before: { status: old } }]);
     job.status = value;
     flagJob(job);
     pushAct(job, "Status", old, value);
