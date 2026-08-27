@@ -85,6 +85,7 @@ export function DataTable({ model, onPage, onTool }: Props) {
                   <td
                     key={ci}
                     style={css(c.td + (c.sel ? ";background:#DCEBFB;box-shadow:inset 0 0 0 1px #2E7DD1" : ""))}
+                    title={c.title}
                     onClick={c.go}
                     onMouseDown={c.onDown}
                     onMouseEnter={c.onEnter}

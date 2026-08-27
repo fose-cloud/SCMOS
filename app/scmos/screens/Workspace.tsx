@@ -11,6 +11,7 @@ import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, dowOf, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { spanEnd } from "../standard";
+import { useCarriers } from "../carriers";
 
 export type WsState = {
   tab: string;
@@ -425,6 +426,10 @@ export function workspaceTabCounts(ops: Ops | null, opId: string, cat: string): 
 
 export function Workspace(p: Props) {
   const { ops, me, ws } = p;
+
+  // The haulage companies a user may choose between, from the register rather
+  // than from the spellings the jobs already contain.
+  const carriers = useCarriers();
   const all = ops.jobs;
   const M = ops.masters;
   const server = p.serverPages;
@@ -789,6 +794,37 @@ export function Workspace(p: Props) {
   ];
   const pickLists = PICK_FIELDS.map((field) => ({ id: "ws-list-" + field, options: suggestions(field) }));
 
+  /**
+   * The haulier column, answered from the subcontractor register.
+   *
+   * A fixed list, not a suggestion. The old cell offered whatever spellings the
+   * jobs already contained, which meant TATIYAPOL, TATIYAPON and TTP all sat in
+   * the same dropdown looking equally official — and every figure grouped by
+   * haulier counted them as three firms.
+   *
+   * What is already written is never dropped. A job whose carrier is not on the
+   * register keeps its value, shown at the top of the list and marked, so that
+   * editing some other column cannot quietly blank it and so the rows still
+   * needing a decision can be found. Until the register answers, the cell stays
+   * as it was: an empty list would otherwise refuse every carrier on every job
+   * for as long as the database takes to wake up.
+   */
+  const edCarrier = (j: Job, opts: CellOpts = {}): Cell => {
+    if (!carriers.ready) return edPick(j, "trucker", opts);
+
+    const current = j.trucker || "";
+    const known = current.length === 0 || carriers.companyOf(current) !== null;
+
+    const cellOut = edChoice(j, "trucker", carriers.names, opts);
+    if (known || current.length === 0) return cellOut;
+
+    // Off the register: say so on the cell rather than only in a report
+    // nobody opens.
+    cellOut.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
+    cellOut.title = `"${current}" ไม่มีในทะเบียนผู้รับเหมาช่วง — เลือกบริษัทจากรายการเพื่อแก้`;
+    return cellOut;
+  };
+
   /** An editable cell that offers what the register already contains. */
   const edPick = (j: Job, field: keyof Job, opts: CellOpts = {}): Cell => {
     const base = ed(j, field, opts);
@@ -993,7 +1029,7 @@ export function Workspace(p: Props) {
 
     if (layout === "IMPORT") {
       return head.concat([
-        catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edPick(j, "trucker"),
+        catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j),
         ed(j, "jobCode", { mono: true }), edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
         edPick(j, "destination", { w: 150 }), ed(j, "planTime", { mono: true }),
         edPick(j, "type", { mono: true }),
@@ -1008,7 +1044,7 @@ export function Workspace(p: Props) {
     }
     if (layout === "EXPORT") {
       return head.concat([
-        catCell, edPick(j, "customer", { bold: true, w: 150 }), edPick(j, "trucker"), ed(j, "booking", { mono: true, w: 170 }),
+        catCell, edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j), ed(j, "booking", { mono: true, w: 170 }),
         ed(j, "abs", { mono: true }), edPick(j, "plant", { w: 150 }),
         ed(j, "date", { mono: true }), ed(j, "planTime", { mono: true }), edPick(j, "type", { mono: true }),
         edPick(j, "cyYard"), edPick(j, "returnLoc", { w: 150 }), ed(j, "closingDate", { mono: true }),
@@ -1027,7 +1063,7 @@ export function Workspace(p: Props) {
       // rather than typed, and a hand-keyed cost that disagrees with the card is
       // the kind of number nobody can later explain.
       return head.concat([
-        edPick(j, "trucker"), edPick(j, "wh", { bold: true }),
+        edCarrier(j), edPick(j, "wh", { bold: true }),
         // Under SID NUMBER, the job number; under JOB NO., the D-code. Their
         // sheet's captions, their sheet's contents — see the note by COL_DEFS.
         ed(j, "jobCode", { mono: true }), ed(j, "dCode", { mono: true }),
@@ -1048,7 +1084,7 @@ export function Workspace(p: Props) {
       ]);
     }
     return head.concat([
-      catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edPick(j, "trucker"),
+      catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j),
       ed(j, "jobCode", { mono: true }), ed(j, "abs", { mono: true }), ed(j, "booking", { mono: true, w: 160 }),
       edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
       edPick(j, "destination", { w: 150 }), ed(j, "planTime", { mono: true }),
