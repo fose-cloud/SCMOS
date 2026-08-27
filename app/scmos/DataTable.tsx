@@ -56,7 +56,7 @@ export function DataTable({ model, onPage, onTool }: Props) {
    */
   const box = useRef<HTMLDivElement | null>(null);
   const shell = useRef<HTMLDivElement | null>(null);
-  const [full, setFull] = useState(false);
+  const [native, setNative] = useState(false);
   const [reach, setReach] = useState({ left: false, right: false });
 
   /** Whether there is anything further to go, either way. */
@@ -97,25 +97,49 @@ export function DataTable({ model, onPage, onTool }: Props) {
   useEffect(() => stopNudging, []);
 
   /**
-   * Full screen for the grid.
+   * Full screen: the grid and nothing else.
    *
-   * The browser's own, not a fixed overlay: it takes the tab chrome with it,
-   * which is the difference between "bigger" and "the whole screen" on a
-   * laptop. Escape leaves it, and the button follows whatever the browser
-   * actually did rather than what it was asked to do — the two part company
-   * when somebody presses Escape.
+   * The screen above this table is mostly not the table — a welcome banner, a
+   * week of dates, a period bar, four rows of filter chips — and reading a
+   * twenty-five column grid through the slot they leave is the whole
+   * complaint. So this covers the lot.
+   *
+   * Two ways, and it always ends up in one of them. The browser's own full
+   * screen is asked for first because it takes the tab chrome too, which on a
+   * laptop is the difference between bigger and the whole screen. A browser may
+   * refuse — it needs a real click, and some do not allow it at all — and then
+   * a fixed panel over the page gives the same thing minus the tab bar. What
+   * must not happen is a button that appears to do nothing.
    */
+  const [overlay, setOverlay] = useState(false);
+  const full = native || overlay;
+
   const toggleFull = () => {
     const el = shell.current;
     if (!el) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void el.requestFullscreen?.().catch(() => setFull(false));
+
+    if (document.fullscreenElement === el) { void document.exitFullscreen(); return; }
+    if (overlay) { setOverlay(false); return; }
+
+    const asked = el.requestFullscreen?.();
+    if (!asked) { setOverlay(true); return; }
+    asked.catch(() => setOverlay(true));
   };
+
   useEffect(() => {
-    const follow = () => setFull(document.fullscreenElement === shell.current);
+    const follow = () => setNative(document.fullscreenElement === shell.current);
     document.addEventListener("fullscreenchange", follow);
     return () => document.removeEventListener("fullscreenchange", follow);
   }, []);
+
+  // Escape closes the fallback the way it closes the real thing, so the two
+  // behave alike and nobody has to know which one they got.
+  useEffect(() => {
+    if (!overlay) return;
+    const leave = (e: KeyboardEvent) => { if (e.key === "Escape") setOverlay(false); };
+    window.addEventListener("keydown", leave);
+    return () => window.removeEventListener("keydown", leave);
+  }, [overlay]);
 
   const from = model.total === 0 ? 0 : (model.page - 1) * model.per + 1;
   const to = Math.min(model.page * model.per, model.total);
@@ -124,8 +148,13 @@ export function DataTable({ model, onPage, onTool }: Props) {
 
   return (
     <div ref={shell}
-      style={css("background:#fff;border:1px solid #D8E0E8;border-radius:" + (full ? "0" : "5px")
-        + ";display:flex;flex-direction:column;overflow:hidden" + (full ? ";height:100vh" : ""))}>
+      style={css("background:#fff;display:flex;flex-direction:column;overflow:hidden;"
+        + (full
+          ? "border:0;border-radius:0;height:100vh;"
+            // Over everything the page draws above the grid, which is what
+            // "only the table" means here.
+            + (overlay ? "position:fixed;inset:0;z-index:120;" : "")
+          : "border:1px solid #D8E0E8;border-radius:5px;"))}>
       <div style={css("padding:12px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap")}>
         <div style={css("display:flex;align-items:baseline;gap:10px")}>
           <span style={css("font-size:13.5px;font-weight:600;color:#0A2240")}>{model.title}</span>
@@ -138,8 +167,8 @@ export function DataTable({ model, onPage, onTool }: Props) {
             </button>
           ))}
           <button className="ghost-btn" onClick={toggleFull} style={css(TOOL_BTN)}
-            title={full ? "ออกจากเต็มจอ (Esc)" : "ดูตารางเต็มจอ"}>
-            {full ? "ย่อลง" : "เต็มจอ"}
+            title={full ? "ออกจากเต็มจอ (Esc)" : "เต็มจอ — เหลือแค่ตาราง ซ่อนแถบด้านบนทั้งหมด"}>
+            {full ? "ออกจากเต็มจอ (Esc)" : "เต็มจอ"}
           </button>
         </div>
       </div>

@@ -91,7 +91,6 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
 
 
 const EMPTY_WS = {
-  focus: "ALL",
   cat: "ALL", cust: "ALL", trucker: "ALL", date: "ALL", kpi: "All", assignee: "All Team",
   status: "ALL", type: "ALL", year: "ALL", month: "ALL", from: "", to: "",
   edit: null as { key: string; field: string } | null, editVal: "",
@@ -970,7 +969,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       const wanted = lockedCat ? [lockedCat]
         : ws.cat === "ALL" ? ["IMPORT", "EXPORT"] : [ws.cat];
       const queries = wanted.map((cat) => ({
-        tab: activeTab, focus: ws.focus, cat,
+        tab: activeTab, cat,
         year: ws.year, month: ws.month, day: ws.date,
         // Resolved by the same reader the grid filters with — "25" against
         // the chosen month — so the two cannot disagree about the span.
@@ -1037,7 +1036,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     return () => { cancelled = true; };
     // `me.opId` keys the saved pages, so a change of account must re-read them
     // rather than show this person the last one's rows.
-  }, [isWorkspace, lockedCat, activeTab, ws.focus, ws.cat, ws.year, ws.month, ws.date, ws.from, ws.to, ws.cust, ws.trucker,
+  }, [isWorkspace, lockedCat, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.from, ws.to, ws.cust, ws.trucker,
       ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q,
       sectionPages, prefs.perPage, revision, me.opId]);
 
@@ -1579,7 +1578,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
 
   // ---- Excel + saved views ----------------------------------------------
   const currentViewState = (): ViewState => ({
-    tab: activeTab, focus: ws.focus, cat: ws.cat, cust: ws.cust, trucker: ws.trucker,
+    tab: activeTab, cat: ws.cat, cust: ws.cust, trucker: ws.trucker,
     date: ws.date, kpi: ws.kpi, assignee: ws.assignee,
     status: ws.status, type: ws.type, year: ws.year, month: ws.month, q,
   });
@@ -2185,12 +2184,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   ws={wsState}
                   tabCounts={wsCounts}
                   set={(patch) => {
-                    // Leaving the tab drops the narrowing chosen inside it.
-                    // Carrying "today" into COMPLETED would cut that list by a
-                    // rule with nothing on screen to say it was applied.
-                    if (patch.tab !== undefined && patch.tab !== wsState.tab) {
-                      setWs((prev) => ({ ...prev, focus: "ALL" }));
-                    }
                     if (patch.tab !== undefined) setTab(patch.tab);
                     if (patch.q !== undefined) setQ(patch.q);
                     if (patch.page !== undefined) setPage(patch.page);

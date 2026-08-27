@@ -35,8 +35,6 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         /// <summary>A span of plan dates, dd/MM/yyyy, either end optional.</summary>
         string From, string To,
         string Search, string SortKey, string SortDir, int Page, int Per, string OpId,
-        /// <summary>The narrowing chosen inside the tab — today, late, missing paperwork.</summary>
-        string Focus,
         string Assignee, string Owner, string Customer, string Trucker, string Type,
         string Status, string Kpi);
 
@@ -83,21 +81,8 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
                 : inCategory.Count(job => WorkspaceTabs.Matches(tab, job, query.OpId, today));
         }
 
-        // Counts for the narrowings offered inside this tab, over the tab's own
-        // rows. A chip saying 79 that opens 31 rows is worse than no chip.
-        var inTab = inCategory
-            .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today)).ToList();
-        foreach (var focus in WorkspaceTabs.Focuses)
-        {
-            counts[query.Tab + "/" + focus] = focus == WorkspaceTabs.Calendar
-                ? inTab.Where(job => job.Date.Length > 0).Select(job => job.Date)
-                    .Distinct(StringComparer.Ordinal).Count()
-                : inTab.Count(job => WorkspaceTabs.Matches(focus, job, query.OpId, today));
-        }
-
         var matching = inCategory
             .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
-            .Where(job => WorkspaceTabs.MatchesFocus(query.Focus, job, today))
             .Where(job => MatchesAssignee(job, query))
             .Where(job => Is(job.Customer, query.Customer))
             // Through the register: choosing "Sangja Transport Co., Ltd."
