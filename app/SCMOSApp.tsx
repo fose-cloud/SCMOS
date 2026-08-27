@@ -1852,6 +1852,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * The history says where it came from, because a row that appeared out of
    * nowhere with somebody else's booking on it is the kind of thing that gets
    * queried a month later.
+   *
+   * Nothing is focused afterwards — see the note by the toast.
    */
   function duplicateRow(from: Job) {
     if (!ops) return;
@@ -1877,7 +1879,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     ops.jobs.unshift(job);
     persist([job]);
     setPinnedKeys((prev) => [...prev, key]);
-    setWs((prev) => ({ ...prev, edit: { key, field: "container" }, editVal: "" }));
+    // No editor is opened. Opening one on the container field scrolled the grid
+    // sideways to a column twelve across, so pressing + threw away the view you
+    // were working in. The row is at the top; whoever made it can go to
+    // whichever field they want next.
     setToast("เพิ่มงานจากแถวเดิมแล้ว — เลขตู้ ซีล ทะเบียน และคนขับเว้นไว้ให้กรอก");
     touch();
   }
