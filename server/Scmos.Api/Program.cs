@@ -155,6 +155,11 @@ if (args.Contains("--migrate-status"))
     return await StatusMigration.RunAsync(app, args);
 }
 
+if (args.Contains("--normalise-types"))
+{
+    return await TypeMigration.RunAsync(app, args);
+}
+
 if (args.Contains("--migrate"))
 {
     using var scope = app.Services.CreateScope();
