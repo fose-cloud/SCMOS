@@ -200,3 +200,13 @@ button { cursor: pointer; }
 }
 
 .print-only { display: none; }
+
+/*
+ * Where a screen puts its own controls, in the header beside the tabs.
+ *
+ * Padded when a screen fills it and gone when none does — an empty slot that
+ * still reserved a band would put a gap under the tabs of every screen that
+ * has no controls of its own.
+ */
+#scmos-screen-toolbar { padding: 12px 0 14px; }
+#scmos-screen-toolbar:empty { display: none; }

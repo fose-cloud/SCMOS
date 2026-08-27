@@ -6,6 +6,15 @@ import { onFetching } from "./api";
 import { HEADINGS, NAV, SUB_NAV, type Screen } from "./nav";
 import type { SearchGroup, SearchHit } from "./search";
 
+/**
+ * The element a screen's own controls are portalled into.
+ *
+ * A shared id rather than a passed ref: the screen that fills it is several
+ * levels below the header and does not otherwise know it exists, and threading
+ * a ref through would be plumbing for its own sake.
+ */
+export const TOOLBAR_SLOT = "scmos-screen-toolbar";
+
 export type HeaderAction = { label: string; style: string; go: () => void };
 export type TabItem = { label: string; active: boolean; go: () => void };
 export type FilterDef = {
@@ -496,6 +505,19 @@ export function Chrome(p: Props) {
                 </button>
               ))}
             </div>
+
+            {/*
+              Where a screen's own controls go.
+
+              Filled by whichever screen is open, through a portal, so the
+              controls can stay next to the state they read while their DOM
+              sits up here with the title and the tabs. The workspace's bar was
+              the first thing in the body, which meant it scrolled away from the
+              grid it filters and took a band of room off the top of it.
+
+              Empty when nothing fills it, and an empty div costs nothing.
+            */}
+            <div id={TOOLBAR_SLOT} />
           </div>
 
           <div style={css("padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px")}>
