@@ -135,15 +135,17 @@ export function DataTable({ model, onPage, onTool }: Props) {
   const full = native || overlay;
 
   const toggleFull = () => {
-    const el = shell.current;
-    if (!el) return;
-
-    if (document.fullscreenElement === el) { void document.exitFullscreen(); return; }
-    if (overlay) { setOverlay(false); return; }
-
-    const asked = el.requestFullscreen?.();
-    if (!asked) { setOverlay(true); return; }
-    asked.catch(() => setOverlay(true));
+    // Deliberately not the browser's own full screen.
+    //
+    // That one takes the whole display, and the whole display includes the
+    // Windows taskbar — LESCHACO wants the clock, the mail icon and the rest of
+    // it still there while they work. This fills the browser window instead,
+    // which is everything above the taskbar and nothing below it.
+    //
+    // What it costs is the browser's tab bar, which stays. That is the trade
+    // that was asked for.
+    if (document.fullscreenElement === shell.current) { void document.exitFullscreen(); return; }
+    setOverlay((on) => !on);
   };
 
   useEffect(() => {
@@ -170,10 +172,10 @@ export function DataTable({ model, onPage, onTool }: Props) {
     <div ref={shell}
       style={css("background:#fff;display:flex;flex-direction:column;overflow:hidden;"
         + (full
-          ? "border:0;border-radius:0;height:100vh;"
-            // Over everything the page draws above the grid, which is what
-            // "only the table" means here.
-            + (overlay ? "position:fixed;inset:0;z-index:120;" : "")
+          ? "border:0;border-radius:0;"
+            // Over everything the page draws above the grid, and no further:
+            // inset:0 is the browser window, which stops above the taskbar.
+            + (overlay ? "position:fixed;inset:0;z-index:120;" : "height:100vh;")
           : model.fill
             // No border and no radius: it meets the edges of the screen.
             ? "border:0;border-radius:0;flex:1;min-height:0;"

@@ -1416,6 +1416,65 @@ export function Workspace(p: Props) {
   </>
   );
 
+  // One bar for the whole selection, however many grids it spans.
+  //
+  // Handed to the grid rather than drawn after it: full screen shows the
+  // grid and nothing else, so a bar outside it vanished at exactly the
+  // moment fifty rows had been ticked — the selection still there and no
+  // way left to act on it.
+  const bulkBar = pickedJobs.length ? (
+            <div style={css("padding:10px 14px;background:#FFF7DE;border:1px solid #EADFC8;border-radius:5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
+              <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>
+                เลือกไว้ {pickedJobs.length} งาน
+              </span>
+              <span style={css("font-size:11px;color:#64748B")}>เปลี่ยนพร้อมกันได้ทั้งชุด · แก้ได้เฉพาะงานของคุณ</span>
+
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  p.onBulkStatus(pickedJobs.map((j) => j.key), e.target.value);
+                  e.target.value = "";
+                }}
+                style={css("height:30px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;cursor:pointer")}
+              >
+                <option value="">เปลี่ยนสถานะเป็น…</option>
+                {/* Delayed is deliberately absent: it needs a reason, which the delay form collects one job at a time. */}
+                {(STATUS_LADDER[pickedJobs[0]?.cat ?? "IMPORT"] ?? STATUS_LADDER.IMPORT)
+                  .filter((s) => !/delay/i.test(s))
+                  .map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              {canAssign && (
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (!e.target.value) return;
+                    p.onBulkAssign(pickedJobs.map((j) => j.key), e.target.value);
+                    e.target.value = "";
+                  }}
+                  style={css("height:30px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;cursor:pointer")}
+                >
+                  <option value="">มอบหมายให้…</option>
+                  {M.operators.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              )}
+
+              <button
+                onClick={() => p.onBulkDelete(pickedJobs.map((j) => j.key))}
+                style={css("margin-left:auto;height:30px;padding:0 12px;border:1px solid #F3C3BE;background:#FDF6F5;border-radius:4px;font-size:12px;color:#B42318;font-weight:600;cursor:pointer")}
+              >
+                ลบงานที่เลือก
+              </button>
+              <button
+                onClick={() => p.set({ picked: [] })}
+                style={css("height:30px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:12px;color:#475569;cursor:pointer")}
+              >
+                ล้างการเลือก
+              </button>
+            </div>
+  ) : null;
+
   // ปี → เดือน → วัน, the same period model the dashboard reports on.
   const periodControls = (
       <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;width:100%;padding:5px 0;border-top:1px solid #1B3B60")}>
@@ -1947,59 +2006,6 @@ export function Workspace(p: Props) {
         </div>
       )}
 
-      {/* One bar for the whole selection, however many grids it spans. */}
-      {!!pickedJobs.length && (
-            <div style={css("padding:10px 14px;background:#FFF7DE;border:1px solid #EADFC8;border-radius:5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
-              <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>
-                เลือกไว้ {pickedJobs.length} งาน
-              </span>
-              <span style={css("font-size:11px;color:#64748B")}>เปลี่ยนพร้อมกันได้ทั้งชุด · แก้ได้เฉพาะงานของคุณ</span>
-
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  p.onBulkStatus(pickedJobs.map((j) => j.key), e.target.value);
-                  e.target.value = "";
-                }}
-                style={css("height:30px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;cursor:pointer")}
-              >
-                <option value="">เปลี่ยนสถานะเป็น…</option>
-                {/* Delayed is deliberately absent: it needs a reason, which the delay form collects one job at a time. */}
-                {(STATUS_LADDER[pickedJobs[0]?.cat ?? "IMPORT"] ?? STATUS_LADDER.IMPORT)
-                  .filter((s) => !/delay/i.test(s))
-                  .map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-
-              {canAssign && (
-                <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (!e.target.value) return;
-                    p.onBulkAssign(pickedJobs.map((j) => j.key), e.target.value);
-                    e.target.value = "";
-                  }}
-                  style={css("height:30px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;cursor:pointer")}
-                >
-                  <option value="">มอบหมายให้…</option>
-                  {M.operators.map((o) => <option key={o} value={o}>{o}</option>)}
-                </select>
-              )}
-
-              <button
-                onClick={() => p.onBulkDelete(pickedJobs.map((j) => j.key))}
-                style={css("margin-left:auto;height:30px;padding:0 12px;border:1px solid #F3C3BE;background:#FDF6F5;border-radius:4px;font-size:12px;color:#B42318;font-weight:600;cursor:pointer")}
-              >
-                ลบงานที่เลือก
-              </button>
-              <button
-                onClick={() => p.set({ picked: [] })}
-                style={css("height:30px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:12px;color:#475569;cursor:pointer")}
-              >
-                ล้างการเลือก
-              </button>
-            </div>
-      )}
 
       {/*
         No grid means no header to put the bar in, and the tabs are on that bar
@@ -2019,7 +2025,8 @@ export function Workspace(p: Props) {
               // tables of one selection, and a second copy of the filter would
               // be two controls fighting over one value.
               model={grid.layout === grids[0].layout
-                ? { ...grid.model, fill: true, controls: <>{controlBar}{periodControls}</> }
+                ? { ...grid.model, fill: true, banner: bulkBar,
+                    controls: <>{controlBar}{periodControls}</> }
                 : { ...grid.model, fill: true }}
               // Both pagers, always. The grid reads whichever source is live —
               // the API's answer while the register is still arriving, the
