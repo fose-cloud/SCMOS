@@ -35,6 +35,14 @@ export type TableModel = {
    * to itself for six controls.
    */
   controls?: ReactNode;
+  /**
+   * Fill the space given rather than sitting in it as a card.
+   *
+   * The workspace locks its page, so the grid is what has to grow to the
+   * bottom of the screen and scroll inside itself. Off elsewhere: a table in
+   * the middle of a report is still a card.
+   */
+  fill?: boolean;
 };
 
 type Props = {
@@ -52,6 +60,10 @@ const ARROW =
 
 const TOOL_BTN =
   "height:30px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer";
+
+/** The same button on the navy header. */
+const TOOL_BTN_DARK =
+  "height:30px;padding:0 14px;border:1px solid #24476E;background:transparent;color:#DCEBFB;border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit";
 
 export function DataTable({ model, onPage, onTool }: Props) {
   /**
@@ -162,19 +174,32 @@ export function DataTable({ model, onPage, onTool }: Props) {
             // Over everything the page draws above the grid, which is what
             // "only the table" means here.
             + (overlay ? "position:fixed;inset:0;z-index:120;" : "")
-          : "border:1px solid #D8E0E8;border-radius:5px;"))}>
-      <div style={css("padding:12px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap")}>
+          : model.fill
+            // No border and no radius: it meets the edges of the screen.
+            ? "border:0;border-radius:0;flex:1;min-height:0;"
+            : "border:1px solid #D8E0E8;border-radius:5px;"))}>
+      {/*
+        One header, one colour.
+
+        This was a white title row above a navy bar above a second navy bar in
+        a different navy above a pale period row — four backgrounds and three
+        borders to say one thing. Filling the screen it is all the one navy and
+        the rows inside it are just rows.
+      */}
+      <div style={css("padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;"
+        + (model.fill ? "background:#0A2240" : "border-bottom:1px solid #E9EFF5"))}>
         <div style={css("display:flex;align-items:baseline;gap:10px")}>
-          <span style={css("font-size:13.5px;font-weight:600;color:#0A2240")}>{model.title}</span>
-          <span style={css("font-size:11.5px;color:#94A3B8")}>{model.meta}</span>
+          <span style={css("font-size:13.5px;font-weight:600;color:" + (model.fill ? "#fff" : "#0A2240"))}>{model.title}</span>
+          <span style={css("font-size:11.5px;color:" + (model.fill ? "#7FA5CC" : "#94A3B8"))}>{model.meta}</span>
         </div>
         <div style={css("display:flex;gap:7px;align-items:center")}>
           {(model.tools ?? ["Columns", "Sort", "Export Excel"]).map((label) => (
-            <button key={label} className="ghost-btn" onClick={() => onTool(label)} style={css(TOOL_BTN)}>
+            <button key={label} className="ghost-btn" onClick={() => onTool(label)}
+              style={css(model.fill ? TOOL_BTN_DARK : TOOL_BTN)}>
               {label}
             </button>
           ))}
-          <button className="ghost-btn" onClick={toggleFull} style={css(TOOL_BTN)}
+          <button className="ghost-btn" onClick={toggleFull} style={css(model.fill ? TOOL_BTN_DARK : TOOL_BTN)}
             title={full ? "ออกจากเต็มจอ (Esc)" : "เต็มจอ — เหลือแค่ตาราง ซ่อนแถบด้านบนทั้งหมด"}>
             {full ? "ออกจากเต็มจอ (Esc)" : "เต็มจอ"}
           </button>
@@ -182,7 +207,8 @@ export function DataTable({ model, onPage, onTool }: Props) {
       </div>
 
       {model.controls && (
-        <div style={css("padding:9px 16px 11px;border-bottom:1px solid #E9EFF5;background:#FBFCFD")}>
+        <div style={css("padding:0 16px 11px;"
+          + (model.fill ? "background:#0A2240" : "border-bottom:1px solid #E9EFF5;background:#FBFCFD"))}>
           {model.controls}
         </div>
       )}
@@ -197,7 +223,8 @@ export function DataTable({ model, onPage, onTool }: Props) {
       ))}
 
       <div ref={box} onScroll={measure}
-        style={css("overflow:auto;" + (full ? "flex:1;min-height:0" : "max-height:calc(100vh - 340px)"))}>
+        style={css("overflow:auto;"
+          + (full || model.fill ? "flex:1;min-height:0" : "max-height:calc(100vh - 340px)"))}>
         <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%")}>
           <thead>
             <tr>

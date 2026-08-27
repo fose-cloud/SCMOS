@@ -99,6 +99,18 @@ type Props = {
    * row the job rows were not getting.
    */
   hideTabs?: boolean;
+  /**
+   * Whether the screen keeps still and scrolls inside itself.
+   *
+   * The workspace does. Scrolling the page took the tabs, the filters and the
+   * period bar off the top along with the rows they steer, which is the one
+   * thing that must not move while you read down a grid. With this the shell
+   * is fixed and the only thing that scrolls is the job rows.
+   *
+   * It also goes full bleed: a card inset from a grey page spends a band on
+   * every edge, and here the grid <em>is</em> the page.
+   */
+  lockScroll?: boolean;
   filters: { defs: FilterDef[]; q: string; onQ: (value: string) => void; onReset: () => void } | null;
   children: ReactNode;
 };
@@ -467,7 +479,8 @@ export function Chrome(p: Props) {
           )}
         </nav>
 
-        <main style={css("flex:1;min-width:0;overflow-y:auto;background:#EEF2F6")}>
+        <main style={css("flex:1;min-width:0;background:#EEF2F6;"
+          + (p.lockScroll ? "overflow:hidden;display:flex;flex-direction:column" : "overflow-y:auto"))}>
           <div style={css("background:#fff;border-bottom:1px solid #D8E0E8;padding:16px 24px 0;position:sticky;top:0;z-index:30")}>
             <div className="page-head" style={css("display:flex;align-items:flex-start;gap:20px")}>
               <div style={css("flex:1;min-width:0")}>
@@ -535,7 +548,9 @@ export function Chrome(p: Props) {
           */}
           <div id={TOOLBAR_SLOT} />
 
-          <div style={css("padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px")}>
+          <div style={css(p.lockScroll
+            ? "flex:1;min-height:0;display:flex;flex-direction:column"
+            : "padding:20px 24px 40px;display:flex;flex-direction:column;gap:16px")}>
             {p.filters && (
               <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:12px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap")}>
                 <span style={css("font-size:11px;font-weight:600;color:#0A2240;letter-spacing:.06em;padding-right:4px")}>FILTERS</span>

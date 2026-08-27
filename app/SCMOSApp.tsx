@@ -2092,6 +2092,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         // card for as long as the database takes to wake, and hiding the strip
         // through that would leave two minutes with no way to change tab.
         hideTabs={isWorkspace && !!workspaceOps}
+        lockScroll={isWorkspace && !!workspaceOps}
         filters={showFilters ? { defs: filterDefs, q, onQ: (v) => { setQ(v); setPage(1); }, onReset: () => { setF(EMPTY_FILTERS); setQ(""); setPage(1); setToast("Filters reset"); } } : null}
       >
         {isDetail && selectedShip && (

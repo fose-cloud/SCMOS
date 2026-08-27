@@ -208,8 +208,9 @@ const hasFormatError = (j: Job) => j.issues.some((i) => i.severity === "error");
  * header used to raise a toast and change nothing; these are the columns the
  * grid actually shows, so every one of them now sorts.
  */
-const SPAN_INPUT = "height:31px;width:104px;border:1px solid #D8E0E8;border-radius:4px;"
-  + "background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;"
+/** The two typed date boxes, on the navy header the period row now sits in. */
+const SPAN_INPUT = "height:27px;width:104px;border:1px solid #24476E;border-radius:4px;"
+  + "background:#0A2240;font-size:11.5px;color:#fff;padding:0 7px;outline:none;"
   + "font-family:'IBM Plex Mono',monospace";
 
 
@@ -1261,7 +1262,7 @@ export function Workspace(p: Props) {
               the name is already in the corner of every screen, and it cost a
               full-width band above the work.
             */}
-            <div style={css("display:flex;align-items:center;gap:10px;padding:9px 13px;background:#0A2240;border-radius:5px;flex-wrap:wrap")}>
+            <div style={css("display:flex;align-items:center;gap:10px;padding:7px 0;flex-wrap:wrap")}>
               {/*
                 The tabs, on the bar rather than on a white strip of their own.
   
@@ -1377,7 +1378,7 @@ export function Workspace(p: Props) {
                 </span>
               )}
             </div>
-            <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 13px;background:#0E2B4F;border:1px solid #24476E;border-radius:5px")}>
+            <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:7px 0;border-top:1px solid #1B3B60")}>
               <FilterPick label="ASSIGNED" value={ws.assignee}
                 options={["All Team", "My Work"].concat(M.operators)}
                 onPick={(v) => p.set({ assignee: v, page: 1 })} />
@@ -1417,8 +1418,8 @@ export function Workspace(p: Props) {
 
   // ปี → เดือน → วัน, the same period model the dashboard reports on.
   const periodControls = (
-      <div style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%")}>
-      <span style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em")}>ช่วงเวลา</span>
+      <div style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;padding:7px 0;border-top:1px solid #1B3B60")}>
+      <span style={css("font-size:11px;font-weight:700;color:#7FA5CC;letter-spacing:.06em")}>ช่วงเวลา</span>
 
       {([
       ["ปี", ws.year, ["ALL", ...years], (v: string) => v, (v: string) => p.set({ year: v, month: "ALL", date: "ALL", page: 1 })],
@@ -1426,11 +1427,13 @@ export function Workspace(p: Props) {
       ["วัน", ws.date, ["ALL", ...dates], (v: string) => (v === "ALL" ? v : v.slice(0, 2) + " · " + dateCount[v] + " งาน"), (v: string) => p.set({ date: v, page: 1 })],
       ] as [string, string, string[], (v: string) => string, (v: string) => void][]).map(([label, value, options, render, onPick]) => (
       <label key={label} style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>{label}</span>
+      <span style={css("font-size:10.5px;color:#7FA5CC;letter-spacing:.05em;font-weight:600")}>{label}</span>
       <select
       value={value}
       onChange={(e) => onPick(e.target.value)}
-      style={css("height:31px;min-width:96px;border:1px solid #D8E0E8;border-radius:4px;background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;cursor:pointer")}
+      style={css("height:27px;min-width:96px;border:1px solid " + (value !== "ALL" ? "#4E9BE8" : "#24476E")
+      + ";border-radius:4px;background:" + (value !== "ALL" ? "#16406E" : "#0A2240")
+      + ";font-size:11.5px;color:#fff;padding:0 6px;outline:none;cursor:pointer;font-family:inherit")}
       >
       {options.map((o) => <option key={o} value={o}>{o === "ALL" ? "ทั้งหมด" : render(o)}</option>)}
       </select>
@@ -1449,7 +1452,7 @@ export function Workspace(p: Props) {
       same reader every other date on the job goes through.
       */}
       <label style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
+      <span style={css("font-size:10.5px;color:#7FA5CC;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
       <input
       value={ws.from}
       placeholder="25 หรือ 25/08/2026"
@@ -1457,7 +1460,7 @@ export function Workspace(p: Props) {
       onBlur={() => p.set({ date: "ALL", page: 1 })}
       style={css(SPAN_INPUT)}
       />
-      <span style={css("font-size:12px;color:#8496A8")}>–</span>
+      <span style={css("font-size:12px;color:#7FA5CC")}>–</span>
       <input
       value={ws.to}
       placeholder="31 หรือ 31/08/2026"
@@ -1482,17 +1485,17 @@ export function Workspace(p: Props) {
       onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", from: "", to: "", page: 1 })}
       style={css("height:29px;padding:0 12px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
       + (periodNarrowed
-      ? "border:1px solid #BBD5EE;background:#F4F8FC;color:#0A2240;cursor:pointer"
-      : "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"))}
+      ? "border:1px solid #4E9BE8;background:#16406E;color:#fff;cursor:pointer"
+      : "border:1px solid #24476E;background:transparent;color:#4F7096;cursor:default"))}
       >
       ล้างช่วงเวลา
       </button>
 
       <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px")}>
-      <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{base.length}</span>
-      <span style={css("font-size:11.5px;color:#64748B")}>จาก {catBase.length} งานในหมวดนี้</span>
+      <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#fff")}>{base.length}</span>
+      <span style={css("font-size:11.5px;color:#7FA5CC")}>จาก {catBase.length} งานในหมวดนี้</span>
       {!!undated && (
-      <span style={css("font-size:11px;color:#B45309")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปีหรือเดือน">
+      <span style={css("font-size:11px;color:#E0A33A")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปีหรือเดือน">
       · วันที่ใช้ไม่ได้ {undated}
       </span>
       )}
@@ -1785,7 +1788,8 @@ export function Workspace(p: Props) {
 
 
   return (
-    <div style={css("display:flex;flex-direction:column;gap:13px")}>
+    // The page does not scroll; this fills it and the grid scrolls inside.
+    <div style={css("display:flex;flex-direction:column;gap:0;flex:1;min-height:0")}>
 
       {p.pinned.length > 0 && (
         <div style={css("border:1px solid #CFE3D6;background:#F5FBF8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
@@ -2002,15 +2006,15 @@ export function Workspace(p: Props) {
           a phone and `.cards-only` on everything else, so neither has to ask how
           wide the screen is — see the note in JobCards. */}
       {grids.map((grid) => (
-        <div key={grid.layout}>
-          <div className="grid-only">
+        <div key={grid.layout} style={css("flex:1;min-height:0;display:flex;flex-direction:column")}>
+          <div className="grid-only" style={css("flex:1;min-height:0;display:flex;flex-direction:column")}>
             <DataTable
               // Only the first grid carries it: IMPORT and EXPORT are two
               // tables of one selection, and a second copy of the filter would
               // be two controls fighting over one value.
               model={grid.layout === grids[0].layout
-                ? { ...grid.model, controls: <>{controlBar}{periodControls}</> }
-                : grid.model}
+                ? { ...grid.model, fill: true, controls: <>{controlBar}{periodControls}</> }
+                : { ...grid.model, fill: true }}
               // Both pagers, always. The grid reads whichever source is live —
               // the API's answer while the register is still arriving, the
               // register itself once it is here — and telling only one of them
