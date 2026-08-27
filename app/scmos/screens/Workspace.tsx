@@ -109,6 +109,8 @@ type Props = {
    */
   pinned: Job[];
   onDonePinning: (key: string) => void;
+  /** Another job on the same booking as this row. */
+  onDuplicate: (job: Job) => void;
   /** Summary panels and editing become authoritative once this is true. */
   fullRegisterLoaded: boolean;
   /**
@@ -181,7 +183,7 @@ const COL_DEFS: Record<string, [string][]> = {
   // Province is gone: it is not on their sheet and was not asked for. It is
   // still written by the import and still printed on the Delivery Details
   // report, so nothing is lost, but it cannot be edited from this grid.
-  DELIVERY: [["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["Status"], ["Remark"], ["Assigned To"]],
+  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["Status"], ["Remark"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
   ALL: [["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Status"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Assigned To"]],
@@ -1132,6 +1134,9 @@ export function Workspace(p: Props) {
     // Offering them as fields would let somebody change a value that reverts the
     // moment the page reloads, which is worse than not offering it at all.
     const head = [
+      // Another job on the same booking. First in the row because it is about
+      // the row rather than about any one field of it.
+      plusCell(j),
       cell(j.prio, { tone: j.prio === "HIGH" ? "red" : j.prio === "MEDIUM" ? "amber" : "gray" }),
       cell(mine ? "MY JOB" : "VIEW ONLY", { tone: mine ? "blue" : "gray" }),
     ];
@@ -1228,6 +1233,35 @@ export function Workspace(p: Props) {
     title: canEditJob(j) ? "เลือกงานนี้" : "งานของ " + j.op + " — เลือกไม่ได้",
     onCheck: () => togglePick(j.key),
   });
+
+  /**
+   * The + that copies a row into another job on the same booking.
+   *
+   * A plain cell rather than a control, because the whole cell is the target
+   * and a three-pixel button in a thirty-pixel row is a thing people miss. The
+   * click is stopped here: the row itself opens the drawer, and copying a job
+   * is not opening it.
+   */
+  const plusCell = (j: Job): Cell => {
+    const c = cell("+", {});
+    c.td = "padding:5px 2px;border-bottom:1px solid #EDF1F5;vertical-align:middle;width:22px;text-align:center;";
+    c.sp = "display:inline-block;width:17px;height:17px;line-height:15px;border:1px solid #C9D6E2;"
+      + "border-radius:3px;color:#5A6B7D;font-size:13px;font-weight:600;text-align:center;";
+    if (!canEditJob(j)) {
+      // Dimmed and inert, like the tick on the same row — and it swallows the
+      // click rather than letting it fall through and open the job, because a
+      // + that opens a drawer reads as having half worked.
+      c.sp += "opacity:.35;";
+      c.td += "cursor:not-allowed;";
+      c.title = "งานของ " + j.op + " — เพิ่มจากแถวนี้ไม่ได้";
+      c.go = (e) => e.stopPropagation();
+      return c;
+    }
+    c.title = "เพิ่มงานอีกใบบน booking เดียวกัน — เลขตู้ ซีล ทะเบียน คนขับ เว้นไว้ให้กรอก";
+    c.td += "cursor:copy;";
+    c.go = (e) => { e.stopPropagation(); p.onDuplicate(j); };
+    return c;
+  };
 
   const listTitle =
     ws.tab === "MY JOBS" ? "My Jobs — " + me.name

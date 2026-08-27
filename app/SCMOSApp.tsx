@@ -1841,6 +1841,47 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     touch();
   }
 
+  /**
+   * Another job on the same booking as this one.
+   *
+   * Copies everything that describes the shipment and clears everything that
+   * describes the box: the container, the seal, the tare, the plate and the
+   * driver are what differ between two lorries under one booking, and carrying
+   * them over would put the same container number on two jobs.
+   *
+   * The history says where it came from, because a row that appeared out of
+   * nowhere with somebody else's booking on it is the kind of thing that gets
+   * queried a month later.
+   */
+  function duplicateRow(from: Job) {
+    if (!ops) return;
+    if (!able("EditOwnJobs")) {
+      setToast("บัญชีนี้ไม่มีสิทธิ์เพิ่มงาน");
+      return;
+    }
+    const key = "N" + Date.now();
+    const job: Job = {
+      ...from,
+      key, id: key,
+      // Whoever pressed + owns it, not whoever owned the row it came from.
+      op: me.name, opId: me.opId,
+      container: "", seal: "", tare: "", licence: "", driver: "", contact: "",
+      arrDate: "", arrTime: "", reason: "", incident: "",
+      origDate: "", moveReason: "", moveBy: "", cancelReason: "",
+      status: DEFAULT_STATUS,
+      hist: [{ ts: nowHM(), user: me.name, field: "เพิ่มจากงานเดิม",
+               old: from.jobCode || from.key, neu: from.booking || "—" }],
+      flags: [], action: true, issues: [], fixes: [],
+    };
+    flagJob(job);
+    ops.jobs.unshift(job);
+    persist([job]);
+    setPinnedKeys((prev) => [...prev, key]);
+    setWs((prev) => ({ ...prev, edit: { key, field: "container" }, editVal: "" }));
+    setToast("เพิ่มงานจากแถวเดิมแล้ว — เลขตู้ ซีล ทะเบียน และคนขับเว้นไว้ให้กรอก");
+    touch();
+  }
+
   /** Lets a filled row go to wherever the date and carrier put it. */
   function donePinning(key: string) {
     setPinnedKeys((prev) => prev.filter((k) => k !== key));
@@ -2230,6 +2271,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onBulkDelete={(keys) => { void removeJobs(keys); }}
                   pinned={pinnedJobs}
                   onDonePinning={donePinning}
+                  onDuplicate={duplicateRow}
                   onView={(v) => { workspaceView.current = v; }}
                 />
               : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:" +
