@@ -128,6 +128,8 @@ export type Cell = {
   field?: string;
   /** Inside the dragged rectangle, so it is drawn as selected. */
   sel?: boolean;
+  /** The moving end of the selection; keyboard navigation keeps this visible. */
+  active?: boolean;
   /** Starts a drag-selection, and extends one already running. */
   onDown?: (e: MouseEvent<HTMLTableCellElement>) => void;
   onEnter?: (e: MouseEvent<HTMLTableCellElement>) => void;

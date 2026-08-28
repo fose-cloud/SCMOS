@@ -45,6 +45,7 @@ const IMPORT_COLUMNS: Column[] = [
   { header: "Arr. Date", pick: (j) => j.arrDate },
   { header: "Arr. Time", pick: (j) => j.arrTime },
   { header: "Reason / Delay", pick: (j) => j.reason },
+  { header: "Remark", pick: (j) => j.remark },
   { header: "OT", pick: (j) => j.ot },
   { header: "CS", pick: (j) => j.cs },
 ];
@@ -118,7 +119,6 @@ const ALL_COLUMNS: Column[] = [
   { header: "Closing Time", pick: (j) => j.closingTime },
   { header: "Seal", pick: (j) => j.seal },
   { header: "Tare", pick: (j) => j.tare },
-  { header: "Remark", pick: (j) => j.remark },
   // What happened to the plan. Only on the mixed layout, which is the one that
   // has to carry every field or a round trip drops data; the three operator
   // layouts stay the shape their own sheets have always been.

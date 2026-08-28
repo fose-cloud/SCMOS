@@ -10,6 +10,42 @@ export type GridEditIntent =
   | { mode: "keep" }
   | { mode: "replace"; value: string };
 
+export type GridPoint = { row: number; column: number };
+
+/**
+ * Finds the next selectable grid cell for an arrow key.
+ *
+ * "fields" mirrors the columns on screen. Undefined entries are controls such
+ * as the row tick box, so left and right skip over them. At an outer edge the
+ * point stays put instead of wrapping into another row.
+ */
+export function gridArrowTarget(
+  key: GridEditKey,
+  current: GridPoint,
+  rowCount: number,
+  fields: (string | undefined)[],
+): GridPoint | null {
+  if (key.ctrlKey || key.metaKey || key.altKey || rowCount < 1) return null;
+
+  if (key.key === "ArrowUp" || key.key === "ArrowDown") {
+    const step = key.key === "ArrowUp" ? -1 : 1;
+    return {
+      row: Math.min(Math.max(current.row + step, 0), rowCount - 1),
+      column: current.column,
+    };
+  }
+
+  if (key.key === "ArrowLeft" || key.key === "ArrowRight") {
+    const step = key.key === "ArrowLeft" ? -1 : 1;
+    let column = current.column + step;
+    while (column >= 0 && column < fields.length && !fields[column]) column += step;
+    if (column < 0 || column >= fields.length) column = current.column;
+    return { row: current.row, column };
+  }
+
+  return null;
+}
+
 /**
  * Turns a key pressed over a selected grid cell into the way editing starts.
  *

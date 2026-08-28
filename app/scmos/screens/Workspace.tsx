@@ -15,7 +15,7 @@ import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from 
 import { spanEnd } from "../standard";
 import { useCarriers } from "../carriers";
 import { useVehicleTypes } from "../vehicleTypes";
-import { gridEditIntent } from "../gridEditKey";
+import { gridArrowTarget, gridEditIntent } from "../gridEditKey";
 
 export type WsState = {
   tab: string;
@@ -179,7 +179,7 @@ const CATEGORIES = ["ALL", "IMPORT", "EXPORT"];
 
 const COL_DEFS: Record<string, [string][]> = {
   // The operators' own column order, from their plan sheets.
-  IMPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
+  IMPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Type"], ["CY Yard"], ["Total Weight"], ["No Container"], ["Licence"], ["Driver"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
   EXPORT: [["+"], ["Priority"], ["Own"], ["Category"], ["Customer"], ["Truck"], ["Booking"], ["ABS No."], ["Plant Loading"], ["Plan Loading Date"], ["Plan Loading Time"], ["Type"], ["Product"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Remark"], ["Status"], ["Assigned To"]],
   // Headed as the account's own summary sheet heads them, in its order, so the
   // grid and the sheet it feeds can be read side by side without translating.
@@ -979,7 +979,7 @@ export function Workspace(p: Props) {
       // text box under the pointer every time somebody touched a cell to read
       // it, and fought the drag: the anchor turned into an input mid-gesture.
       c.go = (e) => e.stopPropagation();
-      c.title = c.title || "คลิกเลือกแล้วพิมพ์เพื่อแทนค่า · ดับเบิลคลิกเพื่อแก้ไขค่าเดิม";
+      c.title = c.title || "คลิกเลือก · ใช้ลูกศรเพื่อย้าย · พิมพ์เพื่อแทนค่า · ดับเบิลคลิกเพื่อแก้ไขค่าเดิม";
       c.onDouble = (e) => {
         e.stopPropagation();
         p.set({ edit: { key: j.key, field: String(field) }, editVal: (j[field] as string) || "" });
@@ -1334,6 +1334,7 @@ export function Workspace(p: Props) {
         ed(j, "container", { mono: true }), ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }),
         ed(j, "contact", { mono: true }), ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
         ed(j, "reason", { w: 180, color: j.reason ? "#B45309" : null }),
+        ed(j, "remark", { w: 180, mute: true }),
         ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
         ed(j, "cs", { mono: true }), stCell(j),
         cell(j.op, { bold: mine, mute: !mine }),
@@ -1850,6 +1851,7 @@ export function Workspace(p: Props) {
       cells: row.cells.map((c, ci) => (!c.field ? c : {
         ...c,
         sel: inRange(section.layout, r, ci),
+        active: range?.layout === section.layout && range.r2 === r && range.c2 === ci,
         onDown: (e: ReactMouseEvent<HTMLTableCellElement>) => {
           // Shift extends the rectangle from where it started rather than
           // beginning a new one, the way a spreadsheet does it.
@@ -1947,13 +1949,38 @@ export function Workspace(p: Props) {
   const editAnchor = selection[0]?.[0];
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const intent = gridEditIntent(e);
-      if (!intent) return;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON"
           || tag === "A" || el?.isContentEditable) return;
-      if (!editAnchor || ws.edit || !canEditJob(editAnchor.job)) return;
+
+      // Outside an editor, arrows move the active end of the rectangle. A
+      // plain arrow collapses it to one cell; Shift+Arrow extends it, matching
+      // the same selection model the mouse drag already uses.
+      if (range && !ws.edit) {
+        const next = gridArrowTarget(
+          e,
+          { row: range.r2, column: range.c2 },
+          (rowsByLayout[range.layout] ?? []).length,
+          fieldsByLayout[range.layout] ?? [],
+        );
+        if (next) {
+          e.preventDefault();
+          setRange(e.shiftKey
+            ? { ...range, r2: next.row, c2: next.column }
+            : {
+                layout: range.layout,
+                r1: next.row,
+                c1: next.column,
+                r2: next.row,
+                c2: next.column,
+              });
+          return;
+        }
+      }
+
+      const intent = gridEditIntent(e);
+      if (!intent || !editAnchor || ws.edit || !canEditJob(editAnchor.job)) return;
       e.preventDefault();
       p.set({ edit: { key: editAnchor.job.key, field: String(editAnchor.field) },
               editVal: intent.mode === "replace"

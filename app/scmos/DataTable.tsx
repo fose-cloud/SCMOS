@@ -110,6 +110,9 @@ export function DataTable(p: Props) {
   const shell = useRef<HTMLDivElement | null>(null);
   const [native, setNative] = useState(false);
   const [reach, setReach] = useState({ left: false, right: false });
+  const activeCell = model.rows
+    .flatMap((row) => row.cells.map((cell, column) => cell.active ? row.key + ":" + column : ""))
+    .find(Boolean) ?? "";
 
   /** Whether there is anything further to go, either way. */
   const measure = useCallback(() => {
@@ -129,6 +132,17 @@ export function DataTable(p: Props) {
     watch.observe(el);
     return () => watch.disconnect();
   }, [measure, model.rows.length, model.cols.length]);
+
+  // Arrow navigation can move beyond the part of a wide grid that is visible.
+  // Keep its active cell in view just as a spreadsheet does; the surrounding
+  // page stays put because "nearest" scrolls only as far as that cell needs.
+  useEffect(() => {
+    if (!activeCell) return;
+    const cell = box.current?.querySelector<HTMLElement>('td[data-grid-active="true"]');
+    if (!cell) return;
+    cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+    measure();
+  }, [activeCell, measure]);
 
   /**
    * One nudge sideways, the size Excel's own arrows move: about a column.
@@ -308,6 +322,7 @@ export function DataTable(p: Props) {
                     key={ci}
                     style={css(c.td + (c.sel ? ";background:#DCEBFB;box-shadow:inset 0 0 0 1px #2E7DD1" : ""))}
                     title={c.title}
+                    data-grid-active={c.active ? "true" : undefined}
                     onClick={c.go}
                     onDoubleClick={c.onDouble}
                     onMouseDown={c.onDown}
