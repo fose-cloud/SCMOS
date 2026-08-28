@@ -1378,20 +1378,41 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   }
 
   /**
-   * Ctrl+Z anywhere that is not a text box.
+   * Ctrl+Z, except where there is typing to undo instead.
    *
-   * Inside the cell editor Ctrl+Z has to keep meaning "undo my typing" — the
+   * Inside a cell editor Ctrl+Z has to keep meaning "undo my typing" — the
    * browser's own undo — or a half-typed container number could not be fixed
-   * without losing the last saved value too. So the handler stands aside for
-   * any field that takes input.
+   * without losing the last saved value with it.
+   *
+   * But standing aside for any focused input was too wide a rule. Saving with
+   * Enter moves down and opens the next cell's editor, so the common way to
+   * work leaves a cursor sitting in a box nobody has touched; Ctrl+Z there did
+   * nothing at all, which is what was reported. An untouched editor has no
+   * typing to undo, so the key means what it means everywhere else — the
+   * editor closes and the last edit goes back.
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
       if (e.key.toLowerCase() !== "z") return;
+
       const el = document.activeElement as HTMLElement | null;
       const tag = el?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      if (tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+
+      if (tag === "INPUT") {
+        // Only a grid cell editor is treated this way. A search or filter box
+        // is an ordinary text field and keeps its own undo.
+        const inCell = !!el?.closest?.("td");
+        if (!inCell || !ws.edit) return;
+
+        const job = ops?.jobs.find((entry) => entry.key === ws.edit!.key);
+        const stored = job ? ((job[ws.edit.field as keyof Job] as string) || "") : "";
+        // Typed in: theirs. Untouched: ours.
+        if (ws.editVal !== stored) return;
+        setWs((prev) => ({ ...prev, edit: null }));
+      }
+
       e.preventDefault();
       undo();
     };
