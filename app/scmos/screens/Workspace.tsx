@@ -1051,10 +1051,13 @@ export function Workspace(p: Props) {
   const [range, setRange] = useState<
     { layout: string; r1: number; c1: number; r2: number; c2: number } | null>(null);
   const dragging = useRef(false);
+  // The same fact as `dragging`, in a form the grid can be told about. The ref
+  // is read inside handlers; this is what re-renders the table.
+  const [dragSelecting, setDragSelecting] = useState(false);
 
   // A drag ends wherever the mouse is let go, including outside the table.
   useEffect(() => {
-    const stop = () => { dragging.current = false; };
+    const stop = () => { dragging.current = false; setDragSelecting(false); };
     window.addEventListener("mouseup", stop);
     return () => window.removeEventListener("mouseup", stop);
   }, []);
@@ -1747,6 +1750,7 @@ export function Workspace(p: Props) {
     const model: TableModel = {
       title: splitMixed ? SECTION_TITLE[section.layout] ?? section.layout : listTitle,
       meta: pg.total + " jobs · " + section.layout + " layout · คลิกหัวคอลัมน์เพื่อเรียง · ติ๊กเพื่อจัดการหลายงานพร้อมกัน",
+      noSelect: dragSelecting,
       cols: cols(headerDefs, (label) => {
         if (label.startsWith("☑") || label.startsWith("☐")) { togglePageOf(editableOnPage, allPagePicked); return; }
         sortBy(label.replace(/\s+[↑↓]$/, ""));

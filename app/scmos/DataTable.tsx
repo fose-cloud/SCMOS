@@ -44,6 +44,14 @@ export type TableModel = {
    */
   fill?: boolean;
   /**
+   * Suppress the browser's own text selection, for the length of a drag.
+   *
+   * Only while dragging: a grid that can never be selected is a grid whose
+   * Ctrl+C depends on the browser firing a copy event over nothing, which is
+   * not a thing to rely on.
+   */
+  noSelect?: boolean;
+  /**
    * The screen's own buttons — import, export, add — on this header.
    *
    * They belong wherever the grid is, and the grid can be full screen.
@@ -275,19 +283,16 @@ export function DataTable(p: Props) {
         style={css("overflow:auto;"
           + (full || model.fill ? "flex:1;min-height:0" : "max-height:calc(100vh - 340px)"))}>
         {/*
-          The browser's own text selection is turned off across the grid.
+          While a rectangle is being dragged, the browser's own text selection
+          is off. Dragging used to drag both at once, so the whole row lit up
+          blue on top of the rectangle and neither could be read.
 
-          Dragging a rectangle used to drag a text selection at the same time,
-          so the whole row lit up blue on top of the rectangle and neither could
-          be read. Nothing is lost: copying here goes through the selected
-          range, which knows which column each value came from — something a
-          smear of text across twenty-seven columns never did.
-
-          The editor puts it back for itself, where selecting a few characters
-          of a container number is the whole point.
+          It comes straight back when the mouse does, because Ctrl+C on this
+          grid is the browser's copy event, and a page with nothing selectable
+          is a poor place to depend on one.
         */}
-        <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%;"
-          + "user-select:none;-webkit-user-select:none")}>
+        <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%"
+          + (model.noSelect ? ";user-select:none;-webkit-user-select:none" : ""))}>
           <thead>
             <tr>
               {model.cols.map((c, i) => (
