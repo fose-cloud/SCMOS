@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { css } from "./theme";
 import type { Cell, Col } from "./util";
 
@@ -76,13 +76,6 @@ type Props = {
   onFull?: () => void;
 };
 
-/** One nudge sideways — about a column, the distance Excel's arrows move. */
-const STEP = 160;
-
-const ARROW =
-  "width:30px;height:24px;border:1px solid #D8E0E8;background:#fff;border-radius:3px;"
-  + "font-size:11px;line-height:1;font-family:inherit;display:inline-flex;align-items:center;justify-content:center;";
-
 const TOOL_BTN =
   "height:30px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer";
 
@@ -98,40 +91,31 @@ const ACTION_BTN_LEAD =
 
 export function DataTable(p: Props) {
   const { model, onPage, onTool } = p;
-  /**
-   * The scrolling box, so the sideways controls can drive it.
-   *
-   * A grid twenty-five columns wide is read by moving across it, and the only
-   * way to do that was the browser's own bar — which on a laptop trackpad means
-   * a diagonal gesture that fights the vertical scroll, and with a mouse means
-   * dragging a bar most people never notice at the bottom of the page.
-   */
   const box = useRef<HTMLDivElement | null>(null);
   const shell = useRef<HTMLDivElement | null>(null);
   const [native, setNative] = useState(false);
-  const [reach, setReach] = useState({ left: false, right: false });
+  const [zoom, setZoom] = useState(100);
   const activeCell = model.rows
     .flatMap((row) => row.cells.map((cell, column) => cell.active ? row.key + ":" + column : ""))
     .find(Boolean) ?? "";
 
-  /** Whether there is anything further to go, either way. */
-  const measure = useCallback(() => {
-    const el = box.current;
-    if (!el) return;
-    setReach({
-      left: el.scrollLeft > 1,
-      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
-    });
+  // Keep the Excel-like zoom level when a filter swaps one category grid for
+  // another. sessionStorage deliberately forgets it when the browser tab ends.
+  useEffect(() => {
+    const read = window.setTimeout(() => {
+      try {
+        const remembered = Number(window.sessionStorage.getItem("scmos.table.zoom"));
+        if (remembered >= 50 && remembered <= 150) setZoom(remembered);
+      } catch { /* Storage may be blocked; zoom still works for this grid. */ }
+    }, 0);
+    return () => window.clearTimeout(read);
   }, []);
 
-  useEffect(() => {
-    measure();
-    const el = box.current;
-    if (!el) return;
-    const watch = new ResizeObserver(measure);
-    watch.observe(el);
-    return () => watch.disconnect();
-  }, [measure, model.rows.length, model.cols.length]);
+  const changeZoom = (next: number) => {
+    const value = Math.max(50, Math.min(150, Math.round(next / 5) * 5));
+    setZoom(value);
+    try { window.sessionStorage.setItem("scmos.table.zoom", String(value)); } catch { /* optional */ }
+  };
 
   // Arrow navigation can move beyond the part of a wide grid that is visible.
   // Keep its active cell in view just as a spreadsheet does; the surrounding
@@ -141,26 +125,7 @@ export function DataTable(p: Props) {
     const cell = box.current?.querySelector<HTMLElement>('td[data-grid-active="true"]');
     if (!cell) return;
     cell.scrollIntoView({ block: "nearest", inline: "nearest" });
-    measure();
-  }, [activeCell, measure]);
-
-  /**
-   * One nudge sideways, the size Excel's own arrows move: about a column.
-   *
-   * Held down it repeats, which is what those arrows do and what anybody who
-   * has used a spreadsheet expects when they hold one.
-   */
-  const nudge = (by: number) => box.current?.scrollBy({ left: by, behavior: "smooth" });
-  const held = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startNudging = (by: number) => {
-    nudge(by);
-    stopNudging();
-    held.current = setInterval(() => box.current?.scrollBy({ left: by }), 90);
-  };
-  const stopNudging = () => {
-    if (held.current) { clearInterval(held.current); held.current = null; }
-  };
-  useEffect(() => stopNudging, []);
+  }, [activeCell]);
 
   /**
    * Full screen: the grid and nothing else.
@@ -293,7 +258,7 @@ export function DataTable(p: Props) {
         </datalist>
       ))}
 
-      <div ref={box} onScroll={measure}
+      <div ref={box}
         style={css("overflow:auto;"
           + (full || model.fill ? "flex:1;min-height:0" : "max-height:calc(100vh - 340px)"))}>
         {/*
@@ -305,7 +270,7 @@ export function DataTable(p: Props) {
           grid is the browser's copy event, and a page with nothing selectable
           is a poor place to depend on one.
         */}
-        <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%"
+        <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%;zoom:" + (zoom / 100)
           + (model.noSelect ? ";user-select:none;-webkit-user-select:none" : ""))}>
           <thead>
             <tr>
@@ -386,44 +351,6 @@ export function DataTable(p: Props) {
         </table>
       </div>
 
-      {/*
-        Excel's own sideways controls, under the grid where its scrollbar is.
-
-        A step per click and a run while held, the way those arrows behave in a
-        spreadsheet. They are drawn only when the grid is actually wider than
-        its box, and each greys at the end it cannot go past — so the bar
-        answers "is there more over there?", which the browser's thin scrollbar
-        never did.
-      */}
-      {(reach.left || reach.right) && (
-        <div style={css("padding:5px 16px;border-top:1px solid #E9EFF5;background:#F6F8FB;display:flex;align-items:center;gap:7px")}>
-          <button aria-label="เลื่อนไปทางซ้าย" title="เลื่อนไปทางซ้าย (กดค้างเพื่อเลื่อนต่อเนื่อง)"
-            disabled={!reach.left}
-            onClick={() => nudge(-STEP)}
-            onMouseDown={() => startNudging(-STEP)} onMouseUp={stopNudging} onMouseLeave={stopNudging}
-            style={css(ARROW + (reach.left ? "color:#31465C;cursor:pointer" : "color:#C3CFDB;cursor:default"))}>
-            ◀
-          </button>
-          <button aria-label="เลื่อนไปทางขวา" title="เลื่อนไปทางขวา (กดค้างเพื่อเลื่อนต่อเนื่อง)"
-            disabled={!reach.right}
-            onClick={() => nudge(STEP)}
-            onMouseDown={() => startNudging(STEP)} onMouseUp={stopNudging} onMouseLeave={stopNudging}
-            style={css(ARROW + (reach.right ? "color:#31465C;cursor:pointer" : "color:#C3CFDB;cursor:default"))}>
-            ▶
-          </button>
-          <span style={css("font-size:11px;color:#94A3B8")}>
-            เลื่อนดูคอลัมทางขวา · หรือกด Shift ค้างแล้วหมุนเมาส์
-          </span>
-          <span style={css("flex:1")} />
-          <button onClick={() => box.current?.scrollTo({ left: 0, behavior: "smooth" })}
-            disabled={!reach.left}
-            style={css("height:24px;padding:0 10px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:11px;font-family:inherit;"
-              + (reach.left ? "color:#31465C;cursor:pointer" : "color:#C3CFDB;cursor:default"))}>
-            กลับคอลัมแรก
-          </button>
-        </div>
-      )}
-
       <div style={css("padding:11px 16px;border-top:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;background:#FBFCFD")}>
         <span style={css("font-size:12px;color:#64748B")}>
           Showing {from}–{to} of {model.total} records
@@ -449,6 +376,22 @@ export function DataTable(p: Props) {
           <button className="ghost-btn" onClick={() => onPage(Math.min(model.pageCount, model.page + 1))} style={css("height:29px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:12px;color:#475569;cursor:pointer")}>
             Next ›
           </button>
+          <span style={css("width:1px;height:22px;background:#D8E0E8;margin:0 5px")} />
+          <button type="button" aria-label="ย่อตาราง" title="ย่อตาราง"
+            disabled={zoom <= 50} onClick={() => changeZoom(zoom - 5)}
+            style={css("width:24px;height:24px;border:0;background:transparent;color:" + (zoom <= 50 ? "#CBD5E1" : "#64748B") + ";font-size:17px;cursor:" + (zoom <= 50 ? "default" : "pointer"))}>
+            −
+          </button>
+          <input type="range" min="50" max="150" step="5" value={zoom}
+            onChange={(e) => changeZoom(Number(e.target.value))}
+            aria-label="ขนาดตาราง" title={`ขนาดตาราง ${zoom}%`}
+            style={css("width:105px;height:4px;accent-color:#2E7DD1;cursor:pointer")} />
+          <button type="button" aria-label="ขยายตาราง" title="ขยายตาราง"
+            disabled={zoom >= 150} onClick={() => changeZoom(zoom + 5)}
+            style={css("width:24px;height:24px;border:0;background:transparent;color:" + (zoom >= 150 ? "#CBD5E1" : "#64748B") + ";font-size:17px;cursor:" + (zoom >= 150 ? "default" : "pointer"))}>
+            +
+          </button>
+          <span style={css("width:38px;text-align:right;font-size:11.5px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>{zoom}%</span>
         </div>
       </div>
     </div>

@@ -32,8 +32,6 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     /// </param>
     public record Query(
         string Tab, string Cat, string Year, string Month, string Day,
-        /// <summary>A span of plan dates, dd/MM/yyyy, either end optional.</summary>
-        string From, string To,
         string Search, string SortKey, string SortDir, int Page, int Per, string OpId,
         string Assignee, string Owner, string Customer, string Trucker, string Type,
         string Status, string Kpi);
@@ -55,7 +53,12 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         /// second name somebody is trying to add.
         /// </summary>
         IReadOnlyList<string> Customers,
-        IReadOnlyList<string> Truckers);
+        IReadOnlyList<string> Truckers,
+        IReadOnlyList<string> Assignees,
+        IReadOnlyList<string> Years,
+        IReadOnlyList<string> Months,
+        IReadOnlyList<string> PeriodDates,
+        IReadOnlyDictionary<string, int> PeriodDateCounts);
 
     public async Task<Page> ReadAsync(Query query, CancellationToken token)
     {
@@ -71,15 +74,15 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         // The category narrows everything, including the tab counts — the strip
         // shows what is on that tab *within* the category you are looking at,
         // which is what the browser did.
-        var inCategory = new List<WorkspaceTabs.JobView>();
+        var categoryJobs = new List<WorkspaceTabs.JobView>();
         foreach (var row in snapshot.Rows)
         {
             var job = WorkspaceTabs.JobView.From(row.Raw);
             if (job.Key.Length == 0) continue;
             if (!MatchesCategory(job, query.Cat)) continue;
-            if (!MatchesPeriod(job, query)) continue;
-            inCategory.Add(job);
+            categoryJobs.Add(job);
         }
+        var inCategory = categoryJobs.Where(job => MatchesPeriod(job, query)).ToList();
 
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var tab in WorkspaceTabs.All)
@@ -105,13 +108,16 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
             .Where(job => MatchesSearch(job, query.Search))
             .ToList();
 
+        var wantedTruckers = Wanted(query.Trucker);
+        bool MatchesTrucker(WorkspaceTabs.JobView job) => wantedTruckers.Length == 0
+            || wantedTruckers.Any(one => directory.Same(job.Trucker, one));
+
         var matching = beforeNames
             .Where(job => IsAny(job.Customer, query.Customer))
             // Through the register: choosing "Sangja Transport Co., Ltd."
             // finds the jobs written SJ and SANGJA as well, which is the whole
             // reason the spellings were reconciled.
-            .Where(job => Wanted(query.Trucker).Length == 0
-                || Wanted(query.Trucker).Any(one => directory.Same(job.Trucker, one)))
+            .Where(MatchesTrucker)
             .ToList();
 
         // Commonest first: the dropdown is read from the top, and a list of a
@@ -127,6 +133,44 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
             .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => group.First()).ToList();
+
+        // Each multi-picker gets its choices from the same selection with only
+        // that picker omitted. The first tick therefore cannot erase the second
+        // value the user is about to tick while the browser holds only one page.
+        var beforeAssignees = inCategory
+            .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
+            .Where(job => Is(job.Type, query.Type))
+            .Where(job => Is(job.Status, query.Status))
+            .Where(job => MatchesKpi(job, query))
+            .Where(job => MatchesSearch(job, query.Search))
+            .Where(job => IsAny(job.Customer, query.Customer))
+            .Where(MatchesTrucker)
+            .ToList();
+        var assignees = beforeAssignees
+            .Select(job => job.Owner.Trim()).Where(name => name.Length > 0)
+            .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => group.First()).ToList();
+
+        var beforePeriod = categoryJobs
+            .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
+            .Where(job => MatchesAssignee(job, query))
+            .Where(job => Is(job.Type, query.Type))
+            .Where(job => Is(job.Status, query.Status))
+            .Where(job => MatchesKpi(job, query))
+            .Where(job => MatchesSearch(job, query.Search))
+            .Where(job => IsAny(job.Customer, query.Customer))
+            .Where(MatchesTrucker)
+            .ToList();
+        var periodDateCounts = beforePeriod
+            .Select(job => job.Date).Where(date => Formats.DateNumber(date) > 0)
+            .GroupBy(date => date, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var periodDates = periodDateCounts.Keys.OrderBy(Formats.DateNumber).ToList();
+        var years = periodDates.Select(date => date.Split('/')[2])
+            .Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToList();
+        var months = periodDates.Select(date => date.Split('/')[1])
+            .Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToList();
 
         var sorted = Sort(matching, query.SortKey, query.SortDir);
 
@@ -150,7 +194,7 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
             .OrderBy(Formats.DateNumber).ToList();
 
         return new Page(rows, sorted.Count, pageCount, page, counts, dates, updatedAt,
-            customers, truckers);
+            customers, truckers, assignees, years, months, periodDates, periodDateCounts);
     }
 
     /// <summary>
@@ -200,11 +244,12 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     private static bool MatchesAssignee(WorkspaceTabs.JobView job, Query query)
     {
         if (query.Tab == WorkspaceTabs.MyJobs) return true;
-        if (NotSet(query.Assignee)) return true;
+        var wanted = Wanted(query.Assignee);
+        if (wanted.Length == 0) return true;
 
-        return query.Assignee == "My Work"
+        return wanted.Any(one => one.Equals("My Work", StringComparison.OrdinalIgnoreCase)
             ? query.OpId.Length > 0 && string.Equals(job.OwnerId, query.OpId, StringComparison.OrdinalIgnoreCase)
-            : string.Equals(job.Owner, query.Assignee, StringComparison.OrdinalIgnoreCase);
+            : string.Equals(job.Owner, one, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool MatchesKpi(WorkspaceTabs.JobView job, Query query) => query.Kpi switch
@@ -237,33 +282,17 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     /// </summary>
     private static bool MatchesPeriod(WorkspaceTabs.JobView job, Query query)
     {
-        // The span first: it is the only one of these that can be half-open,
-        // and it is set from a box somebody typed a date into rather than from
-        // a picker, so it answers "the first week of August" — a question none
-        // of the three below can be asked.
-        var from = Formats.DateNumber(query.From);
-        var to = Formats.DateNumber(query.To);
-        if (from > 0 || to > 0)
-        {
-            var day = Formats.DateNumber(job.Date);
-            if (day == 0) return false;
-            if (from > 0 && day < from) return false;
-            if (to > 0 && day > to) return false;
-        }
-
-        var wantsPeriod = Chosen(query.Year) || Chosen(query.Month) || Chosen(query.Day);
-        // Past the span and nothing else chosen: the job is in.
+        var wantsPeriod = Wanted(query.Year).Length > 0
+            || Wanted(query.Month).Length > 0
+            || Wanted(query.Day).Length > 0;
         if (!wantsPeriod) return true;
 
         var parts = job.Date.Split('/');
         if (parts.Length != 3) return false;
 
-        if (Chosen(query.Day)) return job.Date == query.Day;
-        if (Chosen(query.Month) && parts[1] != query.Month) return false;
-        if (Chosen(query.Year) && parts[2] != query.Year) return false;
-        return true;
-
-        static bool Chosen(string value) => value.Length > 0 && value != "ALL";
+        return IsAny(parts[2], query.Year)
+            && IsAny(parts[1], query.Month)
+            && IsAny(job.Date, query.Day);
     }
 
     private static bool MatchesSearch(WorkspaceTabs.JobView job, string search)

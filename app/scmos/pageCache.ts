@@ -53,7 +53,6 @@ export function pageCacheKey(opId: string, query: PageQuery): string {
   return [
     opId,
     query.tab, query.cat ?? "", query.year ?? "", query.month ?? "", query.day ?? "",
-    query.from ?? "", query.to ?? "",
     query.q ?? "", query.sort ?? "", query.dir ?? "",
     query.page ?? 1, query.per ?? 25,
     query.customer ?? "", query.trucker ?? "", query.type ?? "",

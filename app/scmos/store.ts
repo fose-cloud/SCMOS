@@ -65,14 +65,17 @@ export type JobPage = {
    */
   customers?: string[];
   truckers?: string[];
+  assignees?: string[];
+  years?: string[];
+  months?: string[];
+  periodDates?: string[];
+  periodDateCounts?: Record<string, number>;
   updatedAt: string;
 };
 
 export type PageQuery = {
   tab: string;
   cat?: string; year?: string; month?: string; day?: string;
-  /** A span of plan dates, dd/MM/yyyy, either end optional. */
-  from?: string; to?: string;
   q?: string; sort?: string; dir?: string; page?: number; per?: number;
   /** The rest of the workspace's filter bar, answered by the same endpoint. */
   customer?: string; trucker?: string; type?: string; status?: string;
@@ -97,8 +100,6 @@ export async function loadJobsPage(query: PageQuery): Promise<JobPage | null> {
   if (query.year) params.set("year", query.year);
   if (query.month) params.set("month", query.month);
   if (query.day) params.set("day", query.day);
-  if (query.from) params.set("from", query.from);
-  if (query.to) params.set("to", query.to);
   if (query.q) params.set("q", query.q);
   if (query.sort) params.set("sort", query.sort);
   if (query.dir) params.set("dir", query.dir);

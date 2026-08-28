@@ -10,7 +10,7 @@ import { buildDb, type Ship } from "./scmos/demo";
 import { ACCOUNTS, CARRIER_SCREENS, HEADINGS, META, opIdForName, SCREENS_WITH_FILTERS, SUB_NAV, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { bookingStats } from "./scmos/booking";
-import { DEFAULT_STATUS, normaliseField, spanEnd, type Fix } from "./scmos/standard";
+import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
 import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
@@ -92,7 +92,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
 
 const EMPTY_WS = {
   cat: "ALL", cust: "ALL", trucker: "ALL", date: "ALL", kpi: "All", assignee: "All Team",
-  status: "ALL", type: "ALL", year: "ALL", month: "ALL", from: "", to: "",
+  status: "ALL", type: "ALL", year: "ALL", month: "ALL",
   edit: null as { key: string; field: string } | null, editVal: "",
   sort: null as { key: string; dir: "asc" | "desc" } | null,
   picked: [] as string[],
@@ -999,10 +999,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       const queries = wanted.map((cat) => ({
         tab: activeTab, cat,
         year: ws.year, month: ws.month, day: ws.date,
-        // Resolved by the same reader the grid filters with — "25" against
-        // the chosen month — so the two cannot disagree about the span.
-        from: spanEnd(ws.from, ws.year, ws.month),
-        to: spanEnd(ws.to, ws.year, ws.month),
         q, sort: ws.sort?.key, dir: ws.sort?.dir,
         page: sectionPages[cat] ?? 1, per: prefs.perPage,
         customer: ws.cust, trucker: ws.trucker, type: ws.type,
@@ -1027,6 +1023,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           pageCount: saved.pageCount,
           counts: saved.counts,
           dates: saved.dates,
+          customers: saved.customers,
+          truckers: saved.truckers,
+          assignees: saved.assignees,
+          years: saved.years,
+          months: saved.months,
+          periodDates: saved.periodDates,
+          periodDateCounts: saved.periodDateCounts,
         };
       });
       if (!cancelled && Object.keys(cached).length === wanted.length) {
@@ -1058,6 +1061,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           dates: answer.dates,
           customers: answer.customers,
           truckers: answer.truckers,
+          assignees: answer.assignees,
+          years: answer.years,
+          months: answer.months,
+          periodDates: answer.periodDates,
+          periodDateCounts: answer.periodDateCounts,
         };
       });
       setServerPages(next);
@@ -1066,7 +1074,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     return () => { cancelled = true; };
     // `me.opId` keys the saved pages, so a change of account must re-read them
     // rather than show this person the last one's rows.
-  }, [isWorkspace, lockedCat, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.from, ws.to, ws.cust, ws.trucker,
+  }, [isWorkspace, lockedCat, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
       ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q,
       sectionPages, prefs.perPage, revision, me.opId]);
 
@@ -1880,7 +1888,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       closeImport();
 
       setTab("PENDING");
-      setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL", from: "", to: "" }));
+      setWs((prev) => ({ ...prev, cat: "ALL", date: "ALL", kpi: "All", assignee: "All Team", status: "ALL", type: "ALL", year: "ALL", month: "ALL" }));
       setPage(1);
       setToast(
         `นำเข้า ${fresh.length} งานใหม่` +

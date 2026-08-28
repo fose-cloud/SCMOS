@@ -12,10 +12,10 @@ import { JobCards } from "../JobCards";
 import { monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
-import { spanEnd } from "../standard";
 import { useCarriers } from "../carriers";
 import { useVehicleTypes } from "../vehicleTypes";
 import { gridArrowTarget, gridEditIntent } from "../gridEditKey";
+import { PICK_SEP, chosenIn, matchesChosen, pickLabel } from "../filterChoices";
 
 export type WsState = {
   tab: string;
@@ -33,16 +33,6 @@ export type WsState = {
   year: string;
   /** Month of that year as MM, e.g. "07". */
   month: string;
-  /**
-   * A span of plan dates, dd/MM/yyyy, either end optional.
-   *
-   * Separate from the single-day picker beside it and from year/month, because
-   * they answer different questions — "that day", "that month", "the first week
-   * of August". Whichever is set narrows the list; a span and a single day
-   * together would be a contradiction, so choosing one clears the other.
-   */
-  from: string;
-  to: string;
   q: string;
   page: number;
   edit: { key: string; field: string } | null;
@@ -171,6 +161,12 @@ export type WorkspaceServerPage = {
    */
   customers?: string[];
   truckers?: string[];
+  /** Complete choices for the new any-of filters while only one API page is loaded. */
+  assignees?: string[];
+  years?: string[];
+  months?: string[];
+  periodDates?: string[];
+  periodDateCounts?: Record<string, number>;
 };
 
 // Domestic is worked under The Chemours now — every one of those jobs is that
@@ -223,12 +219,6 @@ const hasFormatError = (j: Job) => j.issues.some((i) => i.severity === "error");
  * header used to raise a toast and change nothing; these are the columns the
  * grid actually shows, so every one of them now sorts.
  */
-/** The two typed date boxes, on the navy header the period row now sits in. */
-const SPAN_INPUT = "height:27px;width:104px;border:1px solid #24476E;border-radius:4px;"
-  + "background:#0A2240;font-size:11.5px;color:#fff;padding:0 7px;outline:none;"
-  + "font-family:'IBM Plex Mono',monospace";
-
-
 /** Tab and newline, as a spreadsheet writes them. */
 const TAB = "\t";
 const NEWLINE = "\n";
@@ -431,24 +421,6 @@ function FilterPick({ label, value, options, onPick }: {
 }
 
 /**
- * How a multiple choice is carried: one string, pipe-separated.
- *
- * "ALL" and "" both mean no filter. A pipe rather than a comma because a
- * company name may well contain a comma — "LOTUS ASIA, LTD" — and none of them
- * contain a pipe.
- */
-const PICK_SEP = "|";
-
-const chosenIn = (value: string): string[] =>
-  !value || value === "ALL" ? [] : value.split(PICK_SEP).filter(Boolean);
-
-const pickLabel = (value: string): string => {
-  const list = chosenIn(value);
-  if (!list.length) return "ALL";
-  return list.length === 1 ? list[0] : list[0] + " +" + (list.length - 1);
-};
-
-/**
  * A filter that takes several values at once.
  *
  * A list of checkboxes rather than a native multiple-select, which needs
@@ -457,8 +429,13 @@ const pickLabel = (value: string): string => {
  * the panel stays open while several are ticked, because ticking three
  * customers is the whole point.
  */
-function FilterPickMany({ label, value, options, onPick }: {
-  label: string; value: string; options: string[]; onPick: (v: string) => void;
+function FilterPickMany({ label, value, options, onPick, render = (option) => option, emptyValue = "ALL" }: {
+  label: string;
+  value: string;
+  options: string[];
+  onPick: (v: string) => void;
+  render?: (option: string) => string;
+  emptyValue?: string;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
@@ -479,20 +456,20 @@ function FilterPickMany({ label, value, options, onPick }: {
     const next = chosen.includes(option)
       ? chosen.filter((one) => one !== option)
       : chosen.concat([option]);
-    onPick(next.length ? next.join(PICK_SEP) : "ALL");
+    onPick(next.length ? next.join(PICK_SEP) : emptyValue);
   };
 
   return (
     <div ref={box} style={css("position:relative;display:flex;align-items:center;gap:6px")}>
       <span style={css("font-size:10px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>{label}</span>
       <button type="button" onClick={() => setOpen((was) => !was)}
-        title={set ? label + ": " + chosen.join(", ") : label + ": ทั้งหมด"}
+        title={set ? label + ": " + chosen.map(render).join(", ") : label + ": ทั้งหมด"}
         style={css("height:27px;max-width:190px;border:1px solid " + (set ? "#4E9BE8" : "#24476E")
           + ";background:" + (set ? "#16406E" : "#0A2240")
           + ";color:#fff;border-radius:4px;font-size:11.5px;font-family:inherit;padding:0 8px;cursor:pointer;"
           + "display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden"
           + (set ? ";font-weight:600" : ""))}>
-        <span style={css("overflow:hidden;text-overflow:ellipsis")}>{pickLabel(value)}</span>
+        <span style={css("overflow:hidden;text-overflow:ellipsis")}>{pickLabel(value, render)}</span>
         <span style={css("opacity:.7;font-size:9px")}>▼</span>
       </button>
 
@@ -500,7 +477,7 @@ function FilterPickMany({ label, value, options, onPick }: {
         <div style={css("position:absolute;top:30px;left:0;z-index:60;min-width:230px;max-height:320px;"
           + "overflow:auto;background:#0A2240;border:1px solid #4E7BA8;border-radius:5px;"
           + "box-shadow:0 10px 28px rgba(0,0,0,.4);padding:5px")}>
-          <button type="button" onClick={() => { onPick("ALL"); }}
+          <button type="button" onClick={() => { onPick(emptyValue); }}
             style={css("display:block;width:100%;text-align:left;padding:6px 9px;border:none;border-radius:3px;"
               + "background:" + (set ? "transparent" : "#16406E") + ";color:#fff;font-size:11.5px;cursor:pointer")}>
             ทั้งหมด{set ? " (ล้างที่เลือก " + chosen.length + " รายการ)" : ""}
@@ -514,7 +491,7 @@ function FilterPickMany({ label, value, options, onPick }: {
                   + "font-size:11.5px;color:#fff;background:" + (on ? "#16406E" : "transparent"))}>
                 <input type="checkbox" checked={on} onChange={() => toggle(option)}
                   style={css("width:14px;height:14px;accent-color:#4E9BE8;cursor:pointer")} />
-                <span style={css("overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{option}</span>
+                <span style={css("overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{render(option)}</span>
               </label>
             );
           })}
@@ -649,60 +626,70 @@ export function Workspace(p: Props) {
 
   const inCat = (c: string) => (c === "ALL" ? all : all.filter((j) => j.cat === c));
   const catBase = inCat(ws.cat);
-  // The span, when one is set. Either end on its own is a half-open range —
-  // "from the first of August" is a question people ask.
-  const fromDate = spanEnd(ws.from, ws.year, ws.month);
-  const toDate = spanEnd(ws.to, ws.year, ws.month);
-  const spanFrom = dnum(fromDate);
-  const spanTo = dnum(toDate);
-  /** Something was typed that could not be read as a date in this context. */
-  const spanUnread = (!!ws.from.trim() && !spanFrom) || (!!ws.to.trim() && !spanTo);
-  /** Whether anything in the period bar is narrowing the screen at all. */
-  const periodNarrowed = ws.year !== "ALL" || ws.month !== "ALL" || ws.date !== "ALL"
-    || !!ws.from || !!ws.to;
 
-  // Year, month and the span narrow everything downstream — the day strip, the
-  // process board, the KPI tiles and the grid all describe the same slice.
-  //
-  // The span used to narrow the grid alone, from further down. That left the
-  // count in this very bar reading 2,644 of 2,644 while the rows beneath it
-  // showed one week, and the tiles describing a month the grid was not showing.
-  // A header that contradicts the table under it is the same bug this screen
-  // has already had once, so the span is filtered where the other two are
-  // rather than somewhere of its own.
+  /** Pool one complete option list across the independently paged grids. */
+  const valuesFromServer = (
+    key: "customers" | "truckers" | "assignees" | "years" | "months" | "periodDates",
+  ): string[] | null => {
+    const pages = p.serverPages;
+    if (!pages) return null;
+    const seen: string[] = [];
+    const known = new Set<string>();
+    for (const page of Object.values(pages)) {
+      for (const name of page[key] ?? []) {
+        if (known.has(name)) continue;
+        known.add(name);
+        seen.push(name);
+      }
+    }
+    return seen.length ? seen : null;
+  };
+
+  const countsFromServer = (): Record<string, number> | null => {
+    const pages = p.serverPages;
+    if (!pages) return null;
+    const totals: Record<string, number> = {};
+    for (const page of Object.values(pages)) {
+      for (const [date, count] of Object.entries(page.periodDateCounts ?? {})) {
+        totals[date] = (totals[date] ?? 0) + count;
+      }
+    }
+    return Object.keys(totals).length ? totals : null;
+  };
+
+  const yearWanted = chosenIn(ws.year);
+  const monthWanted = chosenIn(ws.month);
+  const dayWanted = chosenIn(ws.date);
+  const periodNarrowed = yearWanted.length > 0 || monthWanted.length > 0 || dayWanted.length > 0;
+
+  // Each period control is an any-of filter, and the controls combine with one
+  // another. This is the same rule CUSTOMER and TRUCKER already use.
   const base = catBase.filter((j) => {
     const parts = partsOf(j.date);
-    if (ws.year !== "ALL" && (!parts || parts.y !== ws.year)) return false;
-    if (ws.month !== "ALL" && (!parts || parts.m !== ws.month)) return false;
-    if (spanFrom || spanTo) {
-      const day = dnum(j.date);
-      if (!day) return false;
-      if (spanFrom && day < spanFrom) return false;
-      if (spanTo && day > spanTo) return false;
-    }
-    return true;
+    if (!parts) return !yearWanted.length && !monthWanted.length;
+    return matchesChosen(parts.y, ws.year) && matchesChosen(parts.m, ws.month);
   });
 
-  // Every option offered exists in the data, and each level narrows the next.
-  const years = [...new Set(catBase.map((j) => partsOf(j.date)?.y).filter(Boolean) as string[])].sort();
-  const months = [...new Set(catBase
-    .filter((j) => ws.year === "ALL" || partsOf(j.date)?.y === ws.year)
-    .map((j) => partsOf(j.date)?.m)
-    .filter(Boolean) as string[])].sort();
+  // Keep every choice available after the first tick. Reading these lists from
+  // a filtered page would make the second value disappear before it can be
+  // selected; the API supplies the complete lists until the register arrives.
+  const years = (valuesFromServer("years")
+    ?? [...new Set(catBase.map((j) => partsOf(j.date)?.y).filter(Boolean) as string[])]).sort();
+  const months = (valuesFromServer("months")
+    ?? [...new Set(catBase.map((j) => partsOf(j.date)?.m).filter(Boolean) as string[])]).sort();
   const undated = catBase.filter((j) => !partsOf(j.date)).length;
 
-  // ---- date strip -------------------------------------------------------
-  const dateCount: Record<string, number> = {};
-  base.forEach((j) => { if (j.date) dateCount[j.date] = (dateCount[j.date] || 0) + 1; });
-  const dates = Object.keys(dateCount).sort((a, b) => dnum(a) - dnum(b));
-  const busiest = dates.length ? dates.reduce((x, y) => (dateCount[y] > dateCount[x] ? y : x), dates[0]) : "";
-  const anchor = ws.date !== "ALL" && dateCount[ws.date] !== undefined ? ws.date : busiest;
+  const localDateCount: Record<string, number> = {};
+  catBase.forEach((j) => { if (j.date) localDateCount[j.date] = (localDateCount[j.date] || 0) + 1; });
+  const dateCount = countsFromServer() ?? localDateCount;
+  const dates = (valuesFromServer("periodDates") ?? Object.keys(dateCount))
+    .sort((a, b) => dnum(a) - dnum(b));
 
-  const scope = ws.date === "ALL" ? base : base.filter((j) => j.date === anchor);
+  const scope = base.filter((j) => matchesChosen(j.date, ws.date));
 
   // ---- workload ---------------------------------------------------------
   const workload = M.operators.map((name) => {
-    const set = base.filter((j) => j.op === name);
+    const set = scope.filter((j) => j.op === name);
     return {
       name,
       init: name.slice(0, 2).toUpperCase(),
@@ -764,28 +751,6 @@ export function Workspace(p: Props) {
    * The chip rows offered the top eleven; a dropdown has room for all of them,
    * and a customer outside that eleven could not be filtered on at all.
    */
-  /**
-   * The names the API says are in this tab, pooled across its grids.
-   *
-   * Null when the API is not paging — then every row is in the browser and the
-   * lists below are read straight off them, which is both cheaper and exactly
-   * as complete.
-   */
-  const namesFromServer = (key: "customers" | "truckers"): string[] | null => {
-    const pages = p.serverPages;
-    if (!pages) return null;
-    const seen: string[] = [];
-    const known = new Set<string>();
-    for (const page of Object.values(pages)) {
-      for (const name of page[key] ?? []) {
-        if (known.has(name)) continue;
-        known.add(name);
-        seen.push(name);
-      }
-    }
-    return seen.length ? seen : null;
-  };
-
   const allOf = (key: "customer" | "type") => {
     const m: Record<string, number> = {};
     base.forEach((j) => { const v = j[key]; if (v) m[v] = (m[v] || 0) + 1; });
@@ -804,13 +769,16 @@ export function Workspace(p: Props) {
   };
 
   // ---- row filtering ----------------------------------------------------
-  let list = base.slice();
+  let list = scope.slice();
   const tabRule = WORKSPACE_TABS[ws.tab];
   if (tabRule) list = list.filter((job) => tabRule(job, me.opId));
 
   if (ws.tab !== "MY JOBS") {
-    if (ws.assignee === "My Work") list = list.filter(mineJ);
-    else if (M.operators.indexOf(ws.assignee) >= 0) list = list.filter((j) => j.op === ws.assignee);
+    const assigneeWanted = chosenIn(ws.assignee);
+    if (assigneeWanted.length) {
+      list = list.filter((job) =>
+        (assigneeWanted.includes("My Work") && mineJ(job)) || assigneeWanted.includes(job.op));
+    }
   }
   const custWanted = chosenIn(ws.cust);
   if (custWanted.length) list = list.filter((j) => custWanted.includes(j.customer));
@@ -827,7 +795,6 @@ export function Workspace(p: Props) {
   }
   if (ws.type !== "ALL") list = list.filter((j) => j.type === ws.type);
   if (ws.status !== "ALL") list = list.filter((j) => j.status === ws.status);
-  if (ws.date !== "ALL" && anchor) list = list.filter((j) => j.date === anchor);
 
   const K = ws.kpi;
   if (K === "Mine") list = list.filter(mineJ);
@@ -1231,21 +1198,14 @@ export function Workspace(p: Props) {
     activeFilters.push(["มุมมอง", ws.tab, () => p.set({ tab: "PENDING", page: 1 })]);
   }
   if (ws.cat !== "ALL") activeFilters.push(["ประเภท", ws.cat, () => p.set({ cat: "ALL", page: 1 })]);
-  if (ws.year !== "ALL") activeFilters.push(["ปี", ws.year, () => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })]);
-  if (ws.month !== "ALL") activeFilters.push(["เดือน", monthLabel(ws.month), () => p.set({ month: "ALL", date: "ALL", page: 1 })]);
-  if (ws.date !== "ALL") activeFilters.push(["วันที่", anchor, () => p.set({ date: "ALL", page: 1 })]);
-  if (ws.from || ws.to) {
-    activeFilters.push([
-      "ช่วงวันที่",
-      // The dates it resolved to, not what was typed — a chip that repeats an
-      // unreadable "25" back looks like a filter that is running.
-      spanUnread
-        ? "อ่านไม่ออก — เลือกปีและเดือน หรือพิมพ์วันที่เต็ม"
-        : (fromDate || "ตั้งแต่ต้น") + " – " + (toDate || "ล่าสุด"),
-      () => p.set({ from: "", to: "", page: 1 }),
-    ]);
+  if (yearWanted.length) activeFilters.push(["ปี", pickLabel(ws.year), () => p.set({ year: "ALL", page: 1 })]);
+  if (monthWanted.length) {
+    activeFilters.push(["เดือน", pickLabel(ws.month, (month) => monthLabel(month)), () => p.set({ month: "ALL", page: 1 })]);
   }
-  if (ws.assignee !== "All Team") activeFilters.push(["ผู้รับผิดชอบ", ws.assignee, () => p.set({ assignee: "All Team", page: 1 })]);
+  if (dayWanted.length) activeFilters.push(["วันที่", pickLabel(ws.date), () => p.set({ date: "ALL", page: 1 })]);
+  if (chosenIn(ws.assignee).length) {
+    activeFilters.push(["ผู้รับผิดชอบ", pickLabel(ws.assignee), () => p.set({ assignee: "All Team", page: 1 })]);
+  }
   if (chosenIn(ws.cust).length) {
     activeFilters.push(["ลูกค้า", pickLabel(ws.cust), () => p.set({ cust: "ALL", page: 1 })]);
   }
@@ -1285,7 +1245,7 @@ export function Workspace(p: Props) {
   // page one without an effect that re-renders after the fact.
   const filterSignature = [
     ws.tab, ws.cat, ws.cust, ws.trucker, ws.type, ws.status, ws.kpi, ws.assignee,
-    ws.year, ws.month, ws.date, ws.from, ws.to, ws.q, ws.sort?.key, ws.sort?.dir, p.per,
+    ws.year, ws.month, ws.date, ws.q, ws.sort?.key, ws.sort?.dir, p.per,
   ].join("|");
   const [paging, setPaging] = useState<{ sig: string; pages: Record<string, number> }>({ sig: filterSignature, pages: {} });
   const pages = paging.sig === filterSignature ? paging.pages : {};
@@ -1609,8 +1569,9 @@ export function Workspace(p: Props) {
               )}
             </div>
             <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:5px 0;border-top:1px solid #1B3B60")}>
-              <FilterPick label="ASSIGNED" value={ws.assignee}
-                options={["All Team", "My Work"].concat(M.operators)}
+              <FilterPickMany label="ASSIGNED" value={ws.assignee}
+                options={["My Work"].concat(valuesFromServer("assignees") ?? M.operators)}
+                emptyValue="All Team"
                 onPick={(v) => p.set({ assignee: v, page: 1 })} />
               {/*
                 Every value, not the busiest eleven.
@@ -1622,10 +1583,10 @@ export function Workspace(p: Props) {
                 of four.
               */}
               <FilterPickMany label="CUSTOMER" value={ws.cust}
-                options={namesFromServer("customers") ?? allOf("customer")}
+                options={valuesFromServer("customers") ?? allOf("customer")}
                 onPick={(v) => p.set({ cust: v, page: 1 })} />
               <FilterPickMany label="TRUCKER" value={ws.trucker}
-                options={namesFromServer("truckers") ?? carrierChips(999)}
+                options={valuesFromServer("truckers") ?? carrierChips(999)}
                 onPick={(v) => p.set({ trucker: v, page: 1 })} />
               <FilterPick label="TYPE" value={ws.type}
                 options={["ALL"].concat(vehicles.codes)
@@ -1701,91 +1662,40 @@ export function Workspace(p: Props) {
             </div>
   ) : null;
 
-  // ปี → เดือน → วัน, the same period model the dashboard reports on.
+  // The same checkbox picker as CUSTOMER/TRUCKER: any number may be selected.
   const periodControls = (
-      <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;width:100%;padding:5px 0;border-top:1px solid #1B3B60")}>
+    <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;width:100%;padding:5px 0;border-top:1px solid #1B3B60")}>
       <span style={css("font-size:11px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>ช่วงเวลา</span>
+      <FilterPickMany label="ปี" value={ws.year} options={years}
+        onPick={(value) => p.set({ year: value, page: 1 })} />
+      <FilterPickMany label="เดือน" value={ws.month} options={months}
+        render={(month) => monthLabel(month) + " (" + month + ")"}
+        onPick={(value) => p.set({ month: value, page: 1 })} />
+      <FilterPickMany label="วัน" value={ws.date} options={dates}
+        render={(date) => date + " · " + (dateCount[date] ?? 0) + " งาน"}
+        onPick={(value) => p.set({ date: value, page: 1 })} />
 
-      {([
-      ["ปี", ws.year, ["ALL", ...years], (v: string) => v, (v: string) => p.set({ year: v, month: "ALL", date: "ALL", page: 1 })],
-      ["เดือน", ws.month, ["ALL", ...months], (v: string) => (v === "ALL" ? v : monthLabel(v) + " (" + v + ")"), (v: string) => p.set({ month: v, date: "ALL", page: 1 })],
-      ["วัน", ws.date, ["ALL", ...dates], (v: string) => (v === "ALL" ? v : v.slice(0, 2) + " · " + dateCount[v] + " งาน"), (v: string) => p.set({ date: v, page: 1 })],
-      ] as [string, string, string[], (v: string) => string, (v: string) => void][]).map(([label, value, options, render, onPick]) => (
-      <label key={label} style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10.5px;color:#CFE2F7;letter-spacing:.05em;font-weight:600")}>{label}</span>
-      <select
-      value={value}
-      onChange={(e) => onPick(e.target.value)}
-      style={css("height:27px;min-width:96px;border:1px solid " + (value !== "ALL" ? "#4E9BE8" : "#24476E")
-      + ";border-radius:4px;background:" + (value !== "ALL" ? "#16406E" : "#0A2240")
-      + ";font-size:11.5px;color:#fff;padding:0 6px;outline:none;cursor:pointer;font-family:inherit")}
-      >
-      {options.map((o) => <option key={o} value={o}>{o === "ALL" ? "ทั้งหมด" : render(o)}</option>)}
-      </select>
-      </label>
-      ))}
-
-      {/*
-      A span of days, which the pickers beside it cannot express: "the first
-      week of August" is a real question and neither a month nor a single
-      day answers it.
-
-      Typed rather than picked, because a date picker that only offers days
-      the register happens to hold is a picker that hides the empty ones —
-      and "nothing was planned that week" is an answer worth being able to
-      get. Buddhist years are accepted: 01/08/2569 is read as 2026 by the
-      same reader every other date on the job goes through.
-      */}
-      <label style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10.5px;color:#CFE2F7;letter-spacing:.05em;font-weight:600")}>ช่วงวันที่</span>
-      <input
-      value={ws.from}
-      placeholder="25 หรือ 25/08/2026"
-      onChange={(e) => p.set({ from: e.target.value })}
-      onBlur={() => p.set({ date: "ALL", page: 1 })}
-      style={css(SPAN_INPUT)}
-      />
-      <span style={css("font-size:12px;color:#CFE2F7")}>–</span>
-      <input
-      value={ws.to}
-      placeholder="31 หรือ 31/08/2026"
-      onChange={(e) => p.set({ to: e.target.value })}
-      onBlur={() => p.set({ date: "ALL", page: 1 })}
-      style={css(SPAN_INPUT)}
-      />
-      </label>
-
-      {/*
-      Always in the bar, greyed when there is nothing to clear.
-
-      It used to be rendered only while a filter was set, which was fine
-      while it did not work and confusing the moment it did: pressing it
-      cleared the filters and took the button away with them, so it read as
-      the button vanishing rather than as the filters going. It also clears
-      the two typed boxes now — it appears above them and offers to clear
-      the period, and leaving them behind is what made it look broken.
-      */}
       <button
-      disabled={!periodNarrowed}
-      onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", from: "", to: "", page: 1 })}
-      style={css("height:29px;padding:0 12px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
-      + (periodNarrowed
-      ? "border:1px solid #4E9BE8;background:#16406E;color:#fff;cursor:pointer"
-      : "border:1px solid #24476E;background:transparent;color:#4F7096;cursor:default"))}
+        disabled={!periodNarrowed}
+        onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })}
+        style={css("height:29px;padding:0 12px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
+          + (periodNarrowed
+            ? "border:1px solid #4E9BE8;background:#16406E;color:#fff;cursor:pointer"
+            : "border:1px solid #24476E;background:transparent;color:#4F7096;cursor:default"))}
       >
-      ล้างช่วงเวลา
+        ล้างช่วงเวลา
       </button>
 
       <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px")}>
-      <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#fff")}>{base.length}</span>
-      <span style={css("font-size:11.5px;color:#CFE2F7")}>จาก {catBase.length} งานในหมวดนี้</span>
-      {!!undated && (
-      <span style={css("font-size:11px;color:#E0A33A")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปีหรือเดือน">
-      · วันที่ใช้ไม่ได้ {undated}
+        <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#fff")}>{scope.length}</span>
+        <span style={css("font-size:11.5px;color:#CFE2F7")}>จาก {catBase.length} งานในหมวดนี้</span>
+        {!!undated && (
+          <span style={css("font-size:11px;color:#E0A33A")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปี เดือน หรือวัน">
+            · วันที่ใช้ไม่ได้ {undated}
+          </span>
+        )}
       </span>
-      )}
-      </span>
-      </div>
+    </div>
   );
 
   const grids = sections.map((section) => {
@@ -1945,7 +1855,6 @@ export function Workspace(p: Props) {
    * It stands aside for anything that takes typing, so it cannot fire while a
    * cell is already being edited — there Enter means "save and move down".
    */
-  // Not `anchor` — that name is already the busiest date on this screen.
   const editAnchor = selection[0]?.[0];
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

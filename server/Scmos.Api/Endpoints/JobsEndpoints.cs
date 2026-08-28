@@ -67,8 +67,7 @@ public static class JobsEndpoints
         // One page of the register, filtered and counted here. See
         // WorkspaceService for why this exists alongside the full read.
         group.MapGet("/page", async (string? tab, string? cat, string? year, string? month,
-            string? day, string? from, string? to,
-            string? q, string? sort, string? dir, int? page, int? per,
+            string? day, string? q, string? sort, string? dir, int? page, int? per,
             string? assignee, string? customer, string? trucker, string? type, string? status,
             string? kpi,
             HttpContext context, IUserAccessor users, WorkspaceService workspace,
@@ -86,8 +85,6 @@ public static class JobsEndpoints
                 Year: year ?? "ALL",
                 Month: month ?? "ALL",
                 Day: day ?? "ALL",
-                From: from ?? "",
-                To: to ?? "",
                 Search: q ?? "",
                 SortKey: sort ?? "",
                 SortDir: dir ?? "asc",
@@ -118,6 +115,11 @@ public static class JobsEndpoints
                 // the others from the list.
                 customers = result.Customers,
                 truckers = result.Truckers,
+                assignees = result.Assignees,
+                years = result.Years,
+                months = result.Months,
+                periodDates = result.PeriodDates,
+                periodDateCounts = result.PeriodDateCounts,
                 updatedAt = result.UpdatedAt,
             });
         });
