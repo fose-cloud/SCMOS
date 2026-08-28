@@ -15,6 +15,7 @@ import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from 
 import { spanEnd } from "../standard";
 import { useCarriers } from "../carriers";
 import { useVehicleTypes } from "../vehicleTypes";
+import { gridEditIntent } from "../gridEditKey";
 
 export type WsState = {
   tab: string;
@@ -978,7 +979,7 @@ export function Workspace(p: Props) {
       // text box under the pointer every time somebody touched a cell to read
       // it, and fought the drag: the anchor turned into an input mid-gesture.
       c.go = (e) => e.stopPropagation();
-      c.title = c.title || "ดับเบิลคลิกเพื่อแก้ไข";
+      c.title = c.title || "คลิกเลือกแล้วพิมพ์เพื่อแทนค่า · ดับเบิลคลิกเพื่อแก้ไขค่าเดิม";
       c.onDouble = (e) => {
         e.stopPropagation();
         p.set({ edit: { key: j.key, field: String(field) }, editVal: (j[field] as string) || "" });
@@ -1932,12 +1933,12 @@ export function Workspace(p: Props) {
   const selection = selected.grid;
 
   /**
-   * F2, or Enter, opens the selected cell — the spreadsheet keys.
+   * Starts editing the selected cell with spreadsheet gestures.
    *
-   * Without them a selection is a dead end: visible, but with no way into it
-   * except reaching for the mouse again, now that one click no longer edits.
-   * The top-left of the rectangle is the cell that opens, which is the one the
-   * drag started from.
+   * F2 or Enter opens the old value. A printable key opens the editor with that
+   * key as its first (and so far only) value, replacing what was in the cell.
+   * The top-left of a dragged rectangle is its edit anchor; the rectangle stays
+   * intact until one of those gestures deliberately opens that one cell.
    *
    * It stands aside for anything that takes typing, so it cannot fire while a
    * cell is already being edited — there Enter means "save and move down".
@@ -1946,15 +1947,18 @@ export function Workspace(p: Props) {
   const editAnchor = selection[0]?.[0];
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "F2" && e.key !== "Enter") return;
-      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
-      const el = document.activeElement as HTMLElement | null;
+      const intent = gridEditIntent(e);
+      if (!intent) return;
+      const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
-      if (!editAnchor || ws.edit) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON"
+          || tag === "A" || el?.isContentEditable) return;
+      if (!editAnchor || ws.edit || !canEditJob(editAnchor.job)) return;
       e.preventDefault();
       p.set({ edit: { key: editAnchor.job.key, field: String(editAnchor.field) },
-              editVal: (editAnchor.job[editAnchor.field] as string) || "" });
+              editVal: intent.mode === "replace"
+                ? intent.value
+                : (editAnchor.job[editAnchor.field] as string) || "" });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
