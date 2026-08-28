@@ -66,6 +66,7 @@ export type JobPage = {
   customers?: string[];
   truckers?: string[];
   assignees?: string[];
+  types?: string[];
   years?: string[];
   months?: string[];
   periodDates?: string[];

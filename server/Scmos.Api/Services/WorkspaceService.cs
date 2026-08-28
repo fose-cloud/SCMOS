@@ -55,6 +55,7 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         IReadOnlyList<string> Customers,
         IReadOnlyList<string> Truckers,
         IReadOnlyList<string> Assignees,
+        IReadOnlyList<string> Types,
         IReadOnlyList<string> Years,
         IReadOnlyList<string> Months,
         IReadOnlyList<string> PeriodDates,
@@ -102,7 +103,7 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         var beforeNames = inCategory
             .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
             .Where(job => MatchesAssignee(job, query))
-            .Where(job => Is(job.Type, query.Type))
+            .Where(job => IsAny(job.Type, query.Type))
             .Where(job => Is(job.Status, query.Status))
             .Where(job => MatchesKpi(job, query))
             .Where(job => MatchesSearch(job, query.Search))
@@ -139,7 +140,7 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         // value the user is about to tick while the browser holds only one page.
         var beforeAssignees = inCategory
             .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
-            .Where(job => Is(job.Type, query.Type))
+            .Where(job => IsAny(job.Type, query.Type))
             .Where(job => Is(job.Status, query.Status))
             .Where(job => MatchesKpi(job, query))
             .Where(job => MatchesSearch(job, query.Search))
@@ -152,10 +153,25 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
             .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => group.First()).ToList();
 
+        var beforeTypes = inCategory
+            .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
+            .Where(job => MatchesAssignee(job, query))
+            .Where(job => Is(job.Status, query.Status))
+            .Where(job => MatchesKpi(job, query))
+            .Where(job => MatchesSearch(job, query.Search))
+            .Where(job => IsAny(job.Customer, query.Customer))
+            .Where(MatchesTrucker)
+            .ToList();
+        var types = beforeTypes
+            .Select(job => job.Type.Trim()).Where(value => value.Length > 0)
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => group.First()).ToList();
+
         var beforePeriod = categoryJobs
             .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
             .Where(job => MatchesAssignee(job, query))
-            .Where(job => Is(job.Type, query.Type))
+            .Where(job => IsAny(job.Type, query.Type))
             .Where(job => Is(job.Status, query.Status))
             .Where(job => MatchesKpi(job, query))
             .Where(job => MatchesSearch(job, query.Search))
@@ -194,7 +210,7 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
             .OrderBy(Formats.DateNumber).ToList();
 
         return new Page(rows, sorted.Count, pageCount, page, counts, dates, updatedAt,
-            customers, truckers, assignees, years, months, periodDates, periodDateCounts);
+            customers, truckers, assignees, types, years, months, periodDates, periodDateCounts);
     }
 
     /// <summary>

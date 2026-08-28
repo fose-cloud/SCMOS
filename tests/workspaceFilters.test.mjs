@@ -20,8 +20,8 @@ test("closed multi-picker labels show the first formatted value and remaining co
   assert.equal(pickLabel("ALL"), "ALL");
 });
 
-test("workspace uses checkbox pickers for assignee and the three period filters", () => {
-  for (const label of ["ASSIGNED", "ปี", "เดือน", "วัน"]) {
+test("workspace uses checkbox pickers for assignee, type and the three period filters", () => {
+  for (const label of ["ASSIGNED", "TYPE", "ปี", "เดือน", "วัน"]) {
     assert.match(workspace, new RegExp(`<FilterPickMany label="${label}"`));
   }
   assert.doesNotMatch(workspace, />ช่วงวันที่</);
@@ -32,4 +32,13 @@ test("table removes the horizontal helper bar and provides Excel-like zoom", () 
   assert.doesNotMatch(table, /กลับคอลัมแรก|เลื่อนดูคอลัมทางขวา/);
   assert.match(table, /type="range" min="50" max="150"/);
   assert.match(table, /scmos\.table\.zoom/);
+});
+
+test("fullscreen table covers app chrome without hiding global overlays", () => {
+  const match = table.match(/position:fixed;inset:0;z-index:(\d+);/);
+  assert.ok(match, "fullscreen layer should be declared");
+
+  const layer = Number(match[1]);
+  assert.ok(layer > 45, "fullscreen table must cover the app header and mobile rail");
+  assert.ok(layer < 50, "global drawers, pickers and modals must stay above fullscreen");
 });

@@ -116,6 +116,7 @@ public static class JobsEndpoints
                 customers = result.Customers,
                 truckers = result.Truckers,
                 assignees = result.Assignees,
+                types = result.Types,
                 years = result.Years,
                 months = result.Months,
                 periodDates = result.PeriodDates,

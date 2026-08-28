@@ -190,9 +190,11 @@ export function DataTable(p: Props) {
       style={css("background:#fff;display:flex;flex-direction:column;overflow:hidden;"
         + (full
           ? "border:0;border-radius:0;"
-            // Over everything the page draws above the grid, and no further:
-            // inset:0 is the browser window, which stops above the taskbar.
-            + (overlay ? "position:fixed;inset:0;z-index:120;" : "height:100vh;")
+            // Cover the app chrome (which tops out at 45), but stay below the
+            // global drawers, pickers and modals (which start at 50). Those
+            // overlays live outside this subtree and must remain usable while
+            // the table is full-screen.
+            + (overlay ? "position:fixed;inset:0;z-index:46;" : "height:100vh;")
           : model.fill
             // No border and no radius: it meets the edges of the screen.
             ? "border:0;border-radius:0;flex:1;min-height:0;"

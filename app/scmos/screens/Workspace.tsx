@@ -163,6 +163,7 @@ export type WorkspaceServerPage = {
   truckers?: string[];
   /** Complete choices for the new any-of filters while only one API page is loaded. */
   assignees?: string[];
+  types?: string[];
   years?: string[];
   months?: string[];
   periodDates?: string[];
@@ -392,35 +393,6 @@ function planDate(offsetDays: number): string {
  * load that never has a container is not missing one.
  */
 /**
- * One labelled dropdown on the dark bar.
- *
- * A select rather than a row of chips: four filters cost one line instead of
- * four, and the list is complete — the chips showed the busiest eleven or
- * twelve and there was no way to reach anything past them from this screen.
- */
-function FilterPick({ label, value, options, onPick }: {
-  label: string; value: string; options: string[]; onPick: (v: string) => void;
-}) {
-  const set = value !== "ALL" && value !== "All Team";
-  return (
-    <label style={css("display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onPick(e.target.value)}
-        title={label + ": " + value}
-        style={css("height:27px;max-width:190px;border:1px solid " + (set ? "#4E9BE8" : "#24476E")
-          + ";background:" + (set ? "#16406E" : "#0A2240")
-          + ";color:#fff;border-radius:4px;font-size:11.5px;font-family:inherit;padding:0 6px;cursor:pointer"
-          + (set ? ";font-weight:600" : ""))}
-      >
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </label>
-  );
-}
-
-/**
  * A filter that takes several values at once.
  *
  * A list of checkboxes rather than a native multiple-select, which needs
@@ -629,7 +601,7 @@ export function Workspace(p: Props) {
 
   /** Pool one complete option list across the independently paged grids. */
   const valuesFromServer = (
-    key: "customers" | "truckers" | "assignees" | "years" | "months" | "periodDates",
+    key: "customers" | "truckers" | "assignees" | "types" | "years" | "months" | "periodDates",
   ): string[] | null => {
     const pages = p.serverPages;
     if (!pages) return null;
@@ -793,7 +765,8 @@ export function Workspace(p: Props) {
       return wanted.has(mine);
     });
   }
-  if (ws.type !== "ALL") list = list.filter((j) => j.type === ws.type);
+  const typeWanted = chosenIn(ws.type);
+  if (typeWanted.length) list = list.filter((j) => typeWanted.includes(j.type));
   if (ws.status !== "ALL") list = list.filter((j) => j.status === ws.status);
 
   const K = ws.kpi;
@@ -1212,7 +1185,9 @@ export function Workspace(p: Props) {
   if (chosenIn(ws.trucker).length) {
     activeFilters.push(["ผู้ขนส่ง", pickLabel(ws.trucker), () => p.set({ trucker: "ALL", page: 1 })]);
   }
-  if (ws.type !== "ALL") activeFilters.push(["ประเภทรถ/ตู้", ws.type, () => p.set({ type: "ALL", page: 1 })]);
+  if (chosenIn(ws.type).length) {
+    activeFilters.push(["ประเภทรถ/ตู้", pickLabel(ws.type), () => p.set({ type: "ALL", page: 1 })]);
+  }
   if (ws.status !== "ALL") activeFilters.push(["สถานะ", ws.status, () => p.set({ status: "ALL", page: 1 })]);
   if (ws.kpi !== "All") activeFilters.push(["KPI", ws.kpi, () => p.set({ kpi: "All", page: 1 })]);
   if (ws.q) activeFilters.push(["ค้นหา", ws.q, () => p.set({ q: "", page: 1 })]);
@@ -1588,9 +1563,9 @@ export function Workspace(p: Props) {
               <FilterPickMany label="TRUCKER" value={ws.trucker}
                 options={valuesFromServer("truckers") ?? carrierChips(999)}
                 onPick={(v) => p.set({ trucker: v, page: 1 })} />
-              <FilterPick label="TYPE" value={ws.type}
-                options={["ALL"].concat(vehicles.codes)
-                  .concat(allOf("type").filter((t) => !vehicles.knows(t)))}
+              <FilterPickMany label="TYPE" value={ws.type}
+                options={[...new Set(vehicles.codes
+                  .concat(valuesFromServer("types") ?? allOf("type")))]}
                 onPick={(v) => p.set({ type: v, page: 1 })} />
               {/*
                 The colour legend is gone.
