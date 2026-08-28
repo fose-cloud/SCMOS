@@ -1567,6 +1567,38 @@ export function Workspace(p: Props) {
                 options={[...new Set(vehicles.codes
                   .concat(valuesFromServer("types") ?? allOf("type")))]}
                 onPick={(v) => p.set({ type: v, page: 1 })} />
+
+              <span style={css("width:1px;height:20px;background:#24476E;flex:none")} />
+              <span style={css("font-size:11px;font-weight:700;color:#CFE2F7;letter-spacing:.06em;white-space:nowrap")}>ช่วงเวลา</span>
+              <FilterPickMany label="ปี" value={ws.year} options={years}
+                onPick={(value) => p.set({ year: value, page: 1 })} />
+              <FilterPickMany label="เดือน" value={ws.month} options={months}
+                render={(month) => monthLabel(month) + " (" + month + ")"}
+                onPick={(value) => p.set({ month: value, page: 1 })} />
+              <FilterPickMany label="วัน" value={ws.date} options={dates}
+                render={(date) => date + " · " + (dateCount[date] ?? 0) + " งาน"}
+                onPick={(value) => p.set({ date: value, page: 1 })} />
+
+              <button
+                disabled={!periodNarrowed}
+                onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })}
+                style={css("height:29px;padding:0 10px;border-radius:4px;font-size:11px;font-weight:600;font-family:inherit;white-space:nowrap;"
+                  + (periodNarrowed
+                    ? "border:1px solid #4E9BE8;background:#16406E;color:#fff;cursor:pointer"
+                    : "border:1px solid #24476E;background:transparent;color:#4F7096;cursor:default"))}
+              >
+                ล้างช่วงเวลา
+              </button>
+
+              <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px;white-space:nowrap")}>
+                <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#fff")}>{scope.length}</span>
+                <span style={css("font-size:11.5px;color:#CFE2F7")}>จาก {catBase.length} งานในหมวดนี้</span>
+                {!!undated && (
+                  <span style={css("font-size:11px;color:#E0A33A")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปี เดือน หรือวัน">
+                    · วันที่ใช้ไม่ได้ {undated}
+                  </span>
+                )}
+              </span>
               {/*
                 The colour legend is gone.
 
@@ -1636,42 +1668,6 @@ export function Workspace(p: Props) {
               </button>
             </div>
   ) : null;
-
-  // The same checkbox picker as CUSTOMER/TRUCKER: any number may be selected.
-  const periodControls = (
-    <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap;width:100%;padding:5px 0;border-top:1px solid #1B3B60")}>
-      <span style={css("font-size:11px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>ช่วงเวลา</span>
-      <FilterPickMany label="ปี" value={ws.year} options={years}
-        onPick={(value) => p.set({ year: value, page: 1 })} />
-      <FilterPickMany label="เดือน" value={ws.month} options={months}
-        render={(month) => monthLabel(month) + " (" + month + ")"}
-        onPick={(value) => p.set({ month: value, page: 1 })} />
-      <FilterPickMany label="วัน" value={ws.date} options={dates}
-        render={(date) => date + " · " + (dateCount[date] ?? 0) + " งาน"}
-        onPick={(value) => p.set({ date: value, page: 1 })} />
-
-      <button
-        disabled={!periodNarrowed}
-        onClick={() => p.set({ year: "ALL", month: "ALL", date: "ALL", page: 1 })}
-        style={css("height:29px;padding:0 12px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
-          + (periodNarrowed
-            ? "border:1px solid #4E9BE8;background:#16406E;color:#fff;cursor:pointer"
-            : "border:1px solid #24476E;background:transparent;color:#4F7096;cursor:default"))}
-      >
-        ล้างช่วงเวลา
-      </button>
-
-      <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px")}>
-        <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#fff")}>{scope.length}</span>
-        <span style={css("font-size:11.5px;color:#CFE2F7")}>จาก {catBase.length} งานในหมวดนี้</span>
-        {!!undated && (
-          <span style={css("font-size:11px;color:#E0A33A")} title="งานที่วันที่ยังไม่ถูกต้อง จะไม่ถูกนับเมื่อเลือกปี เดือน หรือวัน">
-            · วันที่ใช้ไม่ได้ {undated}
-          </span>
-        )}
-      </span>
-    </div>
-  );
 
   const grids = sections.map((section) => {
     // The server already chose this page; paginating it again here would slice
@@ -2201,7 +2197,7 @@ export function Workspace(p: Props) {
               model={grid.layout === grids[0].layout
                 ? { ...grid.model, fill: true, banner: bulkBar,
                     actions: p.actions,
-                    controls: <>{controlBar}{periodControls}</> }
+                    controls: controlBar }
                 : { ...grid.model, fill: true }}
               // The first grid is the one that fills the screen: it is the one
               // carrying the controls, and two full-screen grids is not a thing.

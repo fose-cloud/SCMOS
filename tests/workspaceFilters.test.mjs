@@ -28,6 +28,13 @@ test("workspace uses checkbox pickers for assignee, type and the three period fi
   assert.doesNotMatch(workspace, /ws\.(from|to)/);
 });
 
+test("period filters and their totals share the main filter bar", () => {
+  assert.doesNotMatch(workspace, /const periodControls/);
+  assert.match(workspace, /controls: controlBar/);
+  assert.match(workspace, /จาก \{catBase\.length\} งานในหมวดนี้/);
+  assert.match(workspace, /วันที่ใช้ไม่ได้ \{undated\}/);
+});
+
 test("table removes the horizontal helper bar and provides Excel-like zoom", () => {
   assert.doesNotMatch(table, /กลับคอลัมแรก|เลื่อนดูคอลัมทางขวา/);
   assert.match(table, /type="range" min="50" max="150"/);
