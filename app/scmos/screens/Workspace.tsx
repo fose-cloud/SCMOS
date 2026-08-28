@@ -805,7 +805,7 @@ export function Workspace(p: Props) {
         sp: "",
         value: ws.editVal,
         td: "padding:3px 8px;white-space:nowrap;border-bottom:1px solid #EDF1F5;background:#FFF7DE;",
-        inpStyle: "height:23px;width:100%;min-width:118px;border:1px solid #2E7DD1;border-radius:3px;font-size:12px;padding:0 6px;outline:none;background:#fff",
+        inpStyle: "height:23px;width:100%;min-width:118px;border:1px solid #2E7DD1;border-radius:3px;font-size:12px;padding:0 6px;outline:none;background:#fff;user-select:text;-webkit-user-select:text",
         onChange: (e) => p.set({ editVal: e.target.value }),
         onBlur: () => p.onSaveCell(j, field),
         onKey: (e) => {

@@ -274,7 +274,20 @@ export function DataTable(p: Props) {
       <div ref={box} onScroll={measure}
         style={css("overflow:auto;"
           + (full || model.fill ? "flex:1;min-height:0" : "max-height:calc(100vh - 340px)"))}>
-        <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%")}>
+        {/*
+          The browser's own text selection is turned off across the grid.
+
+          Dragging a rectangle used to drag a text selection at the same time,
+          so the whole row lit up blue on top of the rectangle and neither could
+          be read. Nothing is lost: copying here goes through the selected
+          range, which knows which column each value came from — something a
+          smear of text across twenty-seven columns never did.
+
+          The editor puts it back for itself, where selecting a few characters
+          of a container number is the whole point.
+        */}
+        <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%;"
+          + "user-select:none;-webkit-user-select:none")}>
           <thead>
             <tr>
               {model.cols.map((c, i) => (
