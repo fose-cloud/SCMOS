@@ -113,6 +113,11 @@ public static class JobsEndpoints
                 page = result.CurrentPage,
                 counts = result.Counts,
                 dates = result.Dates,
+                // What the customer and haulier pickers offer. Worked out before
+                // those two filters run, so choosing one name does not remove
+                // the others from the list.
+                customers = result.Customers,
+                truckers = result.Truckers,
                 updatedAt = result.UpdatedAt,
             });
         });

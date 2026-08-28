@@ -161,6 +161,15 @@ export type WorkspaceServerPage = {
   pageCount: number;
   counts: Record<string, number>;
   dates: string[];
+  /**
+   * Who is in this tab before the customer and haulier filters run.
+   *
+   * From the API, because with the API paging the browser holds one filtered
+   * page — and a list of options read off that page cannot offer the second
+   * name somebody is trying to add to the filter.
+   */
+  customers?: string[];
+  truckers?: string[];
 };
 
 // Domestic is worked under The Chemours now — every one of those jobs is that
@@ -420,6 +429,100 @@ function FilterPick({ label, value, options, onPick }: {
   );
 }
 
+/**
+ * How a multiple choice is carried: one string, pipe-separated.
+ *
+ * "ALL" and "" both mean no filter. A pipe rather than a comma because a
+ * company name may well contain a comma — "LOTUS ASIA, LTD" — and none of them
+ * contain a pipe.
+ */
+const PICK_SEP = "|";
+
+const chosenIn = (value: string): string[] =>
+  !value || value === "ALL" ? [] : value.split(PICK_SEP).filter(Boolean);
+
+const pickLabel = (value: string): string => {
+  const list = chosenIn(value);
+  if (!list.length) return "ALL";
+  return list.length === 1 ? list[0] : list[0] + " +" + (list.length - 1);
+};
+
+/**
+ * A filter that takes several values at once.
+ *
+ * A list of checkboxes rather than a native multiple-select, which needs
+ * ctrl-click to add a second value and loses the lot on a stray click — a
+ * control people avoid rather than learn. The button says what is chosen and
+ * the panel stays open while several are ticked, because ticking three
+ * customers is the whole point.
+ */
+function FilterPickMany({ label, value, options, onPick }: {
+  label: string; value: string; options: string[]; onPick: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement | null>(null);
+  const chosen = chosenIn(value);
+  const set = chosen.length > 0;
+
+  // Clicking anywhere else closes it, the way every other menu behaves.
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", away);
+    return () => window.removeEventListener("mousedown", away);
+  }, [open]);
+
+  const toggle = (option: string) => {
+    const next = chosen.includes(option)
+      ? chosen.filter((one) => one !== option)
+      : chosen.concat([option]);
+    onPick(next.length ? next.join(PICK_SEP) : "ALL");
+  };
+
+  return (
+    <div ref={box} style={css("position:relative;display:flex;align-items:center;gap:6px")}>
+      <span style={css("font-size:10px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>{label}</span>
+      <button type="button" onClick={() => setOpen((was) => !was)}
+        title={set ? label + ": " + chosen.join(", ") : label + ": ทั้งหมด"}
+        style={css("height:27px;max-width:190px;border:1px solid " + (set ? "#4E9BE8" : "#24476E")
+          + ";background:" + (set ? "#16406E" : "#0A2240")
+          + ";color:#fff;border-radius:4px;font-size:11.5px;font-family:inherit;padding:0 8px;cursor:pointer;"
+          + "display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden"
+          + (set ? ";font-weight:600" : ""))}>
+        <span style={css("overflow:hidden;text-overflow:ellipsis")}>{pickLabel(value)}</span>
+        <span style={css("opacity:.7;font-size:9px")}>▼</span>
+      </button>
+
+      {open && (
+        <div style={css("position:absolute;top:30px;left:0;z-index:60;min-width:230px;max-height:320px;"
+          + "overflow:auto;background:#0A2240;border:1px solid #4E7BA8;border-radius:5px;"
+          + "box-shadow:0 10px 28px rgba(0,0,0,.4);padding:5px")}>
+          <button type="button" onClick={() => { onPick("ALL"); }}
+            style={css("display:block;width:100%;text-align:left;padding:6px 9px;border:none;border-radius:3px;"
+              + "background:" + (set ? "transparent" : "#16406E") + ";color:#fff;font-size:11.5px;cursor:pointer")}>
+            ทั้งหมด{set ? " (ล้างที่เลือก " + chosen.length + " รายการ)" : ""}
+          </button>
+          <div style={css("height:1px;background:#1B3B60;margin:4px 2px")} />
+          {options.map((option) => {
+            const on = chosen.includes(option);
+            return (
+              <label key={option}
+                style={css("display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:3px;cursor:pointer;"
+                  + "font-size:11.5px;color:#fff;background:" + (on ? "#16406E" : "transparent"))}>
+                <input type="checkbox" checked={on} onChange={() => toggle(option)}
+                  style={css("width:14px;height:14px;accent-color:#4E9BE8;cursor:pointer")} />
+                <span style={css("overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{option}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function documentMissing(job: Job): boolean {
   if (RE.done.test(job.status)) return false;
   const blank = (value: string | undefined) => !(value ?? "").trim();
@@ -660,6 +763,28 @@ export function Workspace(p: Props) {
    * The chip rows offered the top eleven; a dropdown has room for all of them,
    * and a customer outside that eleven could not be filtered on at all.
    */
+  /**
+   * The names the API says are in this tab, pooled across its grids.
+   *
+   * Null when the API is not paging — then every row is in the browser and the
+   * lists below are read straight off them, which is both cheaper and exactly
+   * as complete.
+   */
+  const namesFromServer = (key: "customers" | "truckers"): string[] | null => {
+    const pages = p.serverPages;
+    if (!pages) return null;
+    const seen: string[] = [];
+    const known = new Set<string>();
+    for (const page of Object.values(pages)) {
+      for (const name of page[key] ?? []) {
+        if (known.has(name)) continue;
+        known.add(name);
+        seen.push(name);
+      }
+    }
+    return seen.length ? seen : null;
+  };
+
   const allOf = (key: "customer" | "type") => {
     const m: Record<string, number> = {};
     base.forEach((j) => { const v = j[key]; if (v) m[v] = (m[v] || 0) + 1; });
@@ -686,14 +811,17 @@ export function Workspace(p: Props) {
     if (ws.assignee === "My Work") list = list.filter(mineJ);
     else if (M.operators.indexOf(ws.assignee) >= 0) list = list.filter((j) => j.op === ws.assignee);
   }
-  if (ws.cust !== "ALL") list = list.filter((j) => j.customer === ws.cust);
-  if (ws.trucker !== "ALL") {
+  const custWanted = chosenIn(ws.cust);
+  if (custWanted.length) list = list.filter((j) => custWanted.includes(j.customer));
+  const truckWanted = chosenIn(ws.trucker);
+  if (truckWanted.length) {
     // Both sides through the register, so picking a company finds every
     // spelling of it — the same reckoning the API uses for the same filter.
-    const wanted = carriers.ready ? (carriers.companyOf(ws.trucker) ?? ws.trucker) : ws.trucker;
+    const wanted = new Set(truckWanted.map((one) =>
+      carriers.ready ? (carriers.companyOf(one) ?? one) : one));
     list = list.filter((j) => {
       const mine = carriers.ready ? (carriers.companyOf(j.trucker) ?? j.trucker) : j.trucker;
-      return mine === wanted;
+      return wanted.has(mine);
     });
   }
   if (ws.type !== "ALL") list = list.filter((j) => j.type === ws.type);
@@ -1117,8 +1245,12 @@ export function Workspace(p: Props) {
     ]);
   }
   if (ws.assignee !== "All Team") activeFilters.push(["ผู้รับผิดชอบ", ws.assignee, () => p.set({ assignee: "All Team", page: 1 })]);
-  if (ws.cust !== "ALL") activeFilters.push(["ลูกค้า", ws.cust, () => p.set({ cust: "ALL", page: 1 })]);
-  if (ws.trucker !== "ALL") activeFilters.push(["ผู้ขนส่ง", ws.trucker, () => p.set({ trucker: "ALL", page: 1 })]);
+  if (chosenIn(ws.cust).length) {
+    activeFilters.push(["ลูกค้า", pickLabel(ws.cust), () => p.set({ cust: "ALL", page: 1 })]);
+  }
+  if (chosenIn(ws.trucker).length) {
+    activeFilters.push(["ผู้ขนส่ง", pickLabel(ws.trucker), () => p.set({ trucker: "ALL", page: 1 })]);
+  }
   if (ws.type !== "ALL") activeFilters.push(["ประเภทรถ/ตู้", ws.type, () => p.set({ type: "ALL", page: 1 })]);
   if (ws.status !== "ALL") activeFilters.push(["สถานะ", ws.status, () => p.set({ status: "ALL", page: 1 })]);
   if (ws.kpi !== "All") activeFilters.push(["KPI", ws.kpi, () => p.set({ kpi: "All", page: 1 })]);
@@ -1487,11 +1619,11 @@ export function Workspace(p: Props) {
                 search box. A dropdown carries the lot and costs one line instead
                 of four.
               */}
-              <FilterPick label="CUSTOMER" value={ws.cust}
-                options={["ALL"].concat(allOf("customer"))}
+              <FilterPickMany label="CUSTOMER" value={ws.cust}
+                options={namesFromServer("customers") ?? allOf("customer")}
                 onPick={(v) => p.set({ cust: v, page: 1 })} />
-              <FilterPick label="TRUCKER" value={ws.trucker}
-                options={["ALL"].concat(carrierChips(999))}
+              <FilterPickMany label="TRUCKER" value={ws.trucker}
+                options={namesFromServer("truckers") ?? carrierChips(999)}
                 onPick={(v) => p.set({ trucker: v, page: 1 })} />
               <FilterPick label="TYPE" value={ws.type}
                 options={["ALL"].concat(vehicles.codes)

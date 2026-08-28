@@ -45,7 +45,17 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         int CurrentPage,
         IReadOnlyDictionary<string, int> Counts,
         IReadOnlyList<string> Dates,
-        DateTimeOffset UpdatedAt);
+        DateTimeOffset UpdatedAt,
+        /// <summary>
+        /// Who appears in this tab before the customer and haulier filters are
+        /// applied — what those two dropdowns offer.
+        ///
+        /// Sent from here because the browser holds one page when the API is
+        /// paging, and a list built from one filtered page cannot offer the
+        /// second name somebody is trying to add.
+        /// </summary>
+        IReadOnlyList<string> Customers,
+        IReadOnlyList<string> Truckers);
 
     public async Task<Page> ReadAsync(Query query, CancellationToken token)
     {
@@ -81,19 +91,42 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
                 : inCategory.Count(job => WorkspaceTabs.Matches(tab, job, query.OpId, today));
         }
 
-        var matching = inCategory
+        // Everything except the two filters that may name several values.
+        // The lists those two choose from are taken from here, so picking one
+        // customer cannot remove the rest from the dropdown — which is what
+        // happened while the options were read off the rows in the browser and
+        // the API was doing the paging.
+        var beforeNames = inCategory
             .Where(job => WorkspaceTabs.Matches(query.Tab, job, query.OpId, today))
             .Where(job => MatchesAssignee(job, query))
-            .Where(job => Is(job.Customer, query.Customer))
-            // Through the register: choosing "Sangja Transport Co., Ltd."
-            // finds the jobs written SJ and SANGJA as well, which is the whole
-            // reason the spellings were reconciled.
-            .Where(job => NotSet(query.Trucker) || directory.Same(job.Trucker, query.Trucker))
             .Where(job => Is(job.Type, query.Type))
             .Where(job => Is(job.Status, query.Status))
             .Where(job => MatchesKpi(job, query))
             .Where(job => MatchesSearch(job, query.Search))
             .ToList();
+
+        var matching = beforeNames
+            .Where(job => IsAny(job.Customer, query.Customer))
+            // Through the register: choosing "Sangja Transport Co., Ltd."
+            // finds the jobs written SJ and SANGJA as well, which is the whole
+            // reason the spellings were reconciled.
+            .Where(job => Wanted(query.Trucker).Length == 0
+                || Wanted(query.Trucker).Any(one => directory.Same(job.Trucker, one)))
+            .ToList();
+
+        // Commonest first: the dropdown is read from the top, and a list of a
+        // hundred customers alphabetically buries the five anybody wants.
+        var customers = beforeNames
+            .Select(job => job.Customer.Trim()).Where(name => name.Length > 0)
+            .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => group.First()).ToList();
+
+        var truckers = beforeNames
+            .Select(job => directory.Company(job.Trucker)).Where(name => name.Length > 0)
+            .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => group.First()).ToList();
 
         var sorted = Sort(matching, query.SortKey, query.SortDir);
 
@@ -116,7 +149,8 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
             .Distinct(StringComparer.Ordinal)
             .OrderBy(Formats.DateNumber).ToList();
 
-        return new Page(rows, sorted.Count, pageCount, page, counts, dates, updatedAt);
+        return new Page(rows, sorted.Count, pageCount, page, counts, dates, updatedAt,
+            customers, truckers);
     }
 
     /// <summary>
@@ -136,6 +170,27 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     /// <summary>An exact-value filter, where an unset value means no filter.</summary>
     private static bool Is(string value, string wanted) =>
         NotSet(wanted) || string.Equals(value, wanted, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The values a filter is asking for, when it may ask for several.
+    ///
+    /// The screen sends them pipe-separated in the same parameter it always
+    /// used, so nothing about the request shape changes and an older caller
+    /// sending one name still works. A pipe rather than a comma because a
+    /// company name may contain a comma and none of them contain a pipe.
+    /// </summary>
+    private static string[] Wanted(string value) =>
+        NotSet(value)
+            ? []
+            : value.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>An any-of filter, where an unset value means no filter.</summary>
+    private static bool IsAny(string value, string wanted)
+    {
+        var list = Wanted(wanted);
+        return list.Length == 0
+            || list.Any(one => string.Equals(value, one, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// Whose work to show. MY JOBS is already one person's, so the picker does

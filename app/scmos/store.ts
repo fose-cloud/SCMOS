@@ -56,6 +56,15 @@ export type JobPage = {
   counts: Record<string, number>;
   /** Every date in the current selection, for the calendar strip. */
   dates: string[];
+  /**
+   * Who is in this tab before the customer and haulier filters run — what
+   * those two pickers offer.
+   *
+   * Optional so a page saved by an older build still reads; the screen falls
+   * back to the names on the rows it has.
+   */
+  customers?: string[];
+  truckers?: string[];
   updatedAt: string;
 };
 

@@ -1056,6 +1056,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           pageCount: answer.pageCount,
           counts: answer.counts,
           dates: answer.dates,
+          customers: answer.customers,
+          truckers: answer.truckers,
         };
       });
       setServerPages(next);
