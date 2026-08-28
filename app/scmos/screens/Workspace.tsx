@@ -744,6 +744,16 @@ export function Workspace(p: Props) {
    */
   const fieldsByLayout: Record<string, (string | undefined)[]> = {};
   /**
+   * Every row the browser holds for a grid, and how many there really are.
+   *
+   * Not the same as `rowsByLayout`, which is the page being drawn: copying the
+   * table should not stop at the fiftieth row somebody happens to be looking
+   * at. When the server is doing the paging only its page is here, and `total`
+   * says so, so the toast can admit what was left behind rather than implying
+   * the whole list came.
+   */
+  const allRowsByLayout: Record<string, { jobs: Job[]; total: number }> = {};
+  /**
    * The label over each drawn column, per layout, aligned to `fieldsByLayout`.
    *
    * Taken off the same `headerDefs` array the header row itself is built from,
@@ -1661,6 +1671,7 @@ export function Workspace(p: Props) {
     // Navigation stops at the page edge rather than paging — a cursor that
     // jumps to a row nobody can see is a cursor that types into the dark.
     rowsByLayout[section.layout] = pg.slice;
+    allRowsByLayout[section.layout] = { jobs: section.jobs, total: pg.total };
     const editableOnPage = pg.slice.filter(canEditJob);
     const allPagePicked = editableOnPage.length > 0 && editableOnPage.every((j) => picked.has(j.key));
 
@@ -1712,6 +1723,7 @@ export function Workspace(p: Props) {
             return;
           }
           dragging.current = true;
+          setDragSelecting(true);
           setRange({ layout: section.layout, r1: r, c1: ci, r2: r, c2: ci });
         },
         onEnter: () => {
@@ -1846,24 +1858,24 @@ export function Workspace(p: Props) {
     selection.map((line) => line.map(({ job, field }) => (job[field] as string) || ""));
 
   /**
-   * Copy with the column headings, for pasting into a mail.
+   * Copy the table with its column headings, for pasting into a mail.
    *
-   * With a rectangle selected it copies that rectangle. With nothing selected
-   * it copies the page on screen, which is the other half of the same request —
-   * "here is this week's import list" is a whole page, not a dragged corner of
-   * one, and making somebody drag over fifty rows first would be silly.
+   * The whole table, never the selected rectangle. It used to prefer a
+   * selection when there was one, which was reasonable while a click opened an
+   * editor and a selection only existed if somebody had dragged for it. A click
+   * leaves a one-cell selection now, so that rule had quietly turned the button
+   * into "copy this cell" — which is what it was doing when it was reported.
+   *
+   * The rectangle still has Ctrl+C. This button has a name, and the name says
+   * table.
    */
   async function copyWithHeads(layout: string) {
     const fields = fieldsByLayout[layout] ?? [];
-    const useSelection = !!range && range.layout === layout && selection.length > 0;
-    const heads = useSelection
-      ? selected.heads
-      : (headsByLayout[layout] ?? []).filter((_, i) => fields[i]);
-    const lines = useSelection
-      ? selectionValues()
-      : (rowsByLayout[layout] ?? []).map((job) => fields
-        .filter((field): field is string => !!field)
-        .map((field) => (job[field as keyof Job] as string) || ""));
+    const held = allRowsByLayout[layout] ?? { jobs: rowsByLayout[layout] ?? [], total: 0 };
+    const heads = (headsByLayout[layout] ?? []).filter((_, i) => fields[i]);
+    const lines = held.jobs.map((job) => fields
+      .filter((field): field is string => !!field)
+      .map((field) => (job[field as keyof Job] as string) || ""));
 
     if (!lines.length) { p.onToast("ไม่มีงานให้คัดลอก"); return; }
 
@@ -1880,8 +1892,11 @@ export function Workspace(p: Props) {
       } else {
         await navigator.clipboard.writeText(text);
       }
+      // When the server is paging, only its page is in the browser. Saying
+      // "50 rows" while the list says 823 would read as the whole thing.
+      const missing = held.total > lines.length ? held.total - lines.length : 0;
       p.onToast(`คัดลอกพร้อมหัวตารางแล้ว ${lines.length} แถว · ${heads.length} คอลัมน์`
-        + (useSelection ? "" : " · ทั้งหน้า"));
+        + (missing ? ` · ยังเหลืออีก ${missing} แถวที่ยังไม่ได้โหลด — ใช้ Export Excel เพื่อเอาครบ` : ""));
     } catch {
       p.onToast("เบราว์เซอร์ไม่อนุญาตให้คัดลอก — ลองกดที่ตารางก่อนแล้วกดปุ่มอีกครั้ง");
     }
