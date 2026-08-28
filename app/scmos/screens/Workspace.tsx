@@ -834,7 +834,14 @@ export function Workspace(p: Props) {
     markIssue(c, j, String(field));
     if (canEditJob(j)) {
       c.td += "cursor:cell;";
-      c.go = (e) => {
+      // One click selects — the range machinery below does that on mousedown —
+      // and only swallows the click so the row's drawer does not open under it.
+      // Two clicks edit. A single click used to open the editor, which put a
+      // text box under the pointer every time somebody touched a cell to read
+      // it, and fought the drag: the anchor turned into an input mid-gesture.
+      c.go = (e) => e.stopPropagation();
+      c.title = c.title || "ดับเบิลคลิกเพื่อแก้ไข";
+      c.onDouble = (e) => {
         e.stopPropagation();
         p.set({ edit: { key: j.key, field: String(field) }, editVal: (j[field] as string) || "" });
       };
@@ -1041,6 +1048,7 @@ export function Workspace(p: Props) {
     window.addEventListener("mouseup", stop);
     return () => window.removeEventListener("mouseup", stop);
   }, []);
+
 
 
   const inRange = (layout: string, r: number, c: number) =>
@@ -1774,6 +1782,35 @@ export function Workspace(p: Props) {
     return { grid, heads };
   })();
   const selection = selected.grid;
+
+  /**
+   * F2, or Enter, opens the selected cell — the spreadsheet keys.
+   *
+   * Without them a selection is a dead end: visible, but with no way into it
+   * except reaching for the mouse again, now that one click no longer edits.
+   * The top-left of the rectangle is the cell that opens, which is the one the
+   * drag started from.
+   *
+   * It stands aside for anything that takes typing, so it cannot fire while a
+   * cell is already being edited — there Enter means "save and move down".
+   */
+  // Not `anchor` — that name is already the busiest date on this screen.
+  const editAnchor = selection[0]?.[0];
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "F2" && e.key !== "Enter") return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      if (!editAnchor || ws.edit) return;
+      e.preventDefault();
+      p.set({ edit: { key: editAnchor.job.key, field: String(editAnchor.field) },
+              editVal: (editAnchor.job[editAnchor.field] as string) || "" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   /**
    * A block of values as text, and as a table an email will actually render.

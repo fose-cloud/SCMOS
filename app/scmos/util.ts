@@ -149,6 +149,13 @@ export type Cell = {
   onBlur?: () => void;
   onKey?: (e: KeyboardEvent<HTMLInputElement>) => void;
   go?: (e: MouseEvent<HTMLTableCellElement>) => void;
+  /**
+   * Two clicks, for the gesture that changes something.
+   *
+   * Kept apart from `go` because one click and two clicks now mean different
+   * things on the same cell: the first selects, the second edits.
+   */
+  onDouble?: (e: MouseEvent<HTMLTableCellElement>) => void;
 };
 
 export function cell(value: unknown, o: CellOpts = {}): Cell {
