@@ -189,6 +189,18 @@ public static class ScorecardCheck
         Console.WriteLine();
         Console.WriteLine($"    {(attributed == 8 ? "ok  " : "FAIL")}  {"issues that reached a job",-46} got {attributed,-8} want 8");
         Console.WriteLine($"    {"",-52}  and 1 that did not, counted for the month only");
+        // The clock the plan is kept on, asserted rather than assumed. Nine in
+        // the morning at the yard is two in the morning UTC, on any machine
+        // this runs on — and the reporting window compares a plan time with a
+        // stored timestamp, so getting this wrong scores late reports as
+        // punctual. It did, on UTC, until the zone was written down.
+        Console.WriteLine();
+        var nine = Formats.MomentAt("01/08/2026", "09:00");
+        var zoneOk = nine is not null && nine.Value.UtcDateTime == new DateTime(2026, 8, 1, 2, 0, 0);
+        if (!zoneOk) failed++;
+        Console.WriteLine($"    {(zoneOk ? "ok  " : "FAIL")}  the yard's 09:00 is 02:00 UTC"
+            + $"{"",-20} got {nine?.UtcDateTime.ToString("HH:mm") ?? "null"}      want 02:00");
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "  the scorecard counts what it says it counts."

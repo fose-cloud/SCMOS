@@ -21,7 +21,15 @@ public class DelegationService(ScmosDbContext db)
 
     public record Result(bool Ok, string Message, long Id = 0);
 
-    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
+    /// <summary>
+    /// Today at the yard, not at the server.
+    ///
+    /// A grant runs between two dates somebody typed in Thailand. Read off a
+    /// UTC clock, every one of them would start and end seven hours late —
+    /// which for the first seven hours of a working day means the cover a
+    /// colleague arranged is not yet in force.
+    /// </summary>
+    private static DateOnly Today => DateOnly.FromDateTime(Formats.Now.DateTime);
 
     /// <summary>
     /// Live now: not revoked, and today falls inside the dates.

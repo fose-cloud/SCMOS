@@ -112,6 +112,30 @@ public static partial class Formats
     /// cannot subtract them — 01/03 minus 28/02 is 73 in that arithmetic — so
     /// anything asking "how long between these two" needs this instead.
     /// </summary>
+    /// <summary>
+    /// The clock the register is kept on: Thailand, +07:00, no daylight saving.
+    ///
+    /// Every date and time in the plan is a wall clock reading at the yard, and
+    /// until this was written down nothing said so — the runtime supplied the
+    /// server's own timezone instead, which is right on a laptop in Bangkok and
+    /// seven hours out on Azure.
+    /// </summary>
+    public static readonly TimeSpan Zone = TimeSpan.FromHours(7);
+
+    /// <summary>Now, on the register's clock rather than the server's.</summary>
+    public static DateTimeOffset Now => DateTimeOffset.UtcNow.ToOffset(Zone);
+
+    /// <summary>
+    /// A plan date and time as an absolute moment, so it can be compared with a
+    /// stored timestamp without the server's timezone deciding the answer.
+    ///
+    /// <see cref="Moment"/> stays as it is: its other callers subtract two wall
+    /// clock readings from each other, where the zone cancels out and naming it
+    /// would add nothing.
+    /// </summary>
+    public static DateTimeOffset? MomentAt(string? date, string? time) =>
+        Moment(date, time) is DateTime local ? new DateTimeOffset(local, Zone) : null;
+
     public static DateTime? Moment(string? date, string? time)
     {
         var text = Clean(date);

@@ -317,7 +317,12 @@ public static class CarrierScorecard
     /// </summary>
     private static bool ReportedInTime(OperationalIssue issue)
     {
-        var found = Formats.Moment(issue.FoundOn, issue.FoundAt);
+        // MomentAt, not Moment: this is compared with a stored timestamp, and
+        // subtracting a zoneless wall clock from one of those lets the server's
+        // own timezone decide the answer. On UTC it made a report filed four
+        // minutes after the accident look like one filed seven hours before it,
+        // and scored a late report as punctual.
+        var found = Formats.MomentAt(issue.FoundOn, issue.FoundAt);
         if (found is null || issue.CreatedAt == default) return false;
 
         var allowed = ScorecardColumn.IsAccident(issue) ? AccidentReportMinutes : ReportMinutes;
