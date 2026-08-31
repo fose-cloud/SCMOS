@@ -698,7 +698,10 @@ function Delegations({ me, onToast }: { me: Account; onToast: (message: string) 
       const body = await staff.json() as { id: string; name: string }[];
       setPeople(body);
     }
-  }, [me.opId]);
+    // Nothing from this component is read any more: the API decides whose name
+    // may appear, including leaving out the caller. It used to filter by
+    // me.opId here, and the dependency outlived the code that needed it.
+  }, []);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
   // in a microtask rather than while this body does — the rule cannot see
