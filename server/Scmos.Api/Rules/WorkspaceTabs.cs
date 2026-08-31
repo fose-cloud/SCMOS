@@ -143,6 +143,13 @@ public static class WorkspaceTabs
         string Owner,
         string Abs, string Booking, string Licence, string Driver,
         string Destination, string Sid,
+        /// <summary>
+        /// When the lorry actually turned up. Appended rather than placed
+        /// beside Date: this is a positional record, and an argument inserted
+        /// in the middle shifts every one after it into the wrong field — a
+        /// mistake that compiles, because they are all strings.
+        /// </summary>
+        string ArrDate, string ArrTime,
         JsonElement Raw)
     {
         public static JobView From(JsonElement row)
@@ -167,6 +174,7 @@ public static class WorkspaceTabs
                 Text(row, "trucker"), Text(row, "jobCode"),
                 Text(row, "op"), Text(row, "abs"), Text(row, "booking"), Text(row, "licence"),
                 Text(row, "driver"), Text(row, "destination"), Text(row, "sid"),
+                Text(row, "arrDate"), Text(row, "arrTime"),
                 row);
         }
     }

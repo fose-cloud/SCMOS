@@ -57,7 +57,7 @@ jobs:
       # haulier is scored on. None of those should reach production unchecked.
       - name: Rule checks
         run: |
-          for check in delegation types duplicates scorecard; do
+          for check in monitor delegation types duplicates scorecard; do
             echo "::group::--check-$check"
             dotnet run --project ${{ env.PROJECT }} --configuration Release --no-build               --no-launch-profile -- "--check-$check"
             echo "::endgroup::"

@@ -144,6 +144,7 @@ if (ScorecardCheck.Run(args) is int scorecardExit) return scorecardExit;
 if (DuplicateCheck.Run(args) is int duplicateExit) return duplicateExit;
 if (TypeCheck.Run(args) is int typeExit) return typeExit;
 if (DelegationCheck.Run(args) is int delegationExit) return delegationExit;
+if (MonitorCheck.Run(args) is int monitorExit) return monitorExit;
 
 if (args.Contains("--seed"))
 {
