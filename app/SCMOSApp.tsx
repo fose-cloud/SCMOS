@@ -2497,7 +2497,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             )}
 
             {screen === "monitoring" && (ops
-              ? <Monitoring jobs={periodJobs} canEdit={canEditJob} onToast={setToast} />
+              ? <Monitoring jobs={periodJobs} canEdit={canEditJob} onToast={setToast}
+                  isSupervisor={me.role !== "Operation User" && able("AssignJobs")}
+                  onOpenJob={setDrawer} />
               : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
                   กำลังโหลดแผนงาน…
                 </div>)}

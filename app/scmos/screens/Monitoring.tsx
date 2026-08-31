@@ -9,6 +9,7 @@ import { stamp } from "./WorkflowPanel";
 import { byLoadingDate, filled } from "../booking";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { MonitorBoard } from "./MonitorBoard";
 
 /**
  * Shipment monitoring.
@@ -24,6 +25,10 @@ type Props = {
   jobs: Job[];
   canEdit: (job: Job) => boolean;
   onToast: (message: string) => void;
+  /** Whether the supervisor's three views are offered at all. */
+  isSupervisor: boolean;
+  /** Opens a job from a row on the board. */
+  onOpenJob: (key: string) => void;
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -33,7 +38,42 @@ const STATUS_THAI: Record<string, string> = {
   pending: "ยังไม่บันทึก", done: "เสร็จ", delayed: "ล่าช้า", skipped: "ข้าม",
 };
 
-export function Monitoring({ jobs, canEdit, onToast }: Props) {
+export function Monitoring({ jobs, canEdit, onToast, isSupervisor, onOpenJob }: Props) {
+  // The team's view or one journey's. An operator has no team view to switch
+  // to, so they are not shown a switch — a control that only ever refuses is
+  // worse than no control.
+  const [view, setView] = useState<"board" | "journey">(isSupervisor ? "board" : "journey");
+
+  if (isSupervisor && view === "board") {
+    return (
+      <div style={css("display:flex;flex-direction:column;gap:12px")}>
+        <ViewSwitch view={view} onView={setView} />
+        <MonitorBoard onOpenJob={onOpenJob} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={css("display:flex;flex-direction:column;gap:12px")}>
+      {isSupervisor && <ViewSwitch view={view} onView={setView} />}
+      <Journey jobs={jobs} canEdit={canEdit} onToast={onToast} />
+    </div>
+  );
+}
+
+function ViewSwitch({ view, onView }: { view: string; onView: (v: "board" | "journey") => void }) {
+  const pill = (on: boolean) =>
+    "height:30px;padding:0 14px;border-radius:4px;font-size:12px;font-weight:600;font-family:inherit;"
+    + "cursor:pointer;border:1px solid " + (on ? "#0A2240;background:#0A2240;color:#fff" : "#C9D6E2;background:#fff;color:#0A2240");
+  return (
+    <div style={css("display:flex;gap:8px;align-items:center")}>
+      <button onClick={() => onView("board")} style={css(pill(view === "board"))}>ภาพรวมทีม</button>
+      <button onClick={() => onView("journey")} style={css(pill(view === "journey"))}>ติดตามรายเที่ยว</button>
+    </div>
+  );
+}
+
+function Journey({ jobs, canEdit, onToast }: { jobs: Job[]; canEdit: (job: Job) => boolean; onToast: (m: string) => void }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const [track, setTrack] = useState<ShipmentTrack | null>(null);
