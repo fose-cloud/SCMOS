@@ -71,12 +71,19 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["incident", "Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
   ],
 
-  // Still in the order the work happens — a booking is taken, the run is
-  // watched, the truck is checked the night before. They sit under Workspace
-  // because that is the screen they are all about, and the top-level list is
-  // shorter for it. The icons come with them: collapsed to a 64px rail there
-  // is no label to read, and a sub-menu that vanishes when the rail narrows is
-  // three screens nobody can reach.
+  // In the order the work happens. They sit under Workspace because that is
+  // the screen they are all about, and the top-level list is shorter for it.
+  // The icons come with them: collapsed to a 64px rail there is no label to
+  // read, and a sub-menu that vanishes when the rail narrows is three screens
+  // nobody can reach.
+  //
+  // Booking, Pre-Run and Document Verification were taken out of this list on
+  // 2026-08-31: the team does not use them. Only the menu entries went. Pre-Run
+  // records feed the carrier scorecard's vehicle-readiness measure and the KPI
+  // engine, so removing the service would quietly change a carrier's score —
+  // a hidden screen costs nothing, a missing measurement costs somebody marks.
+  // Five alert kinds still point at these screens; an alert that opens one is
+  // the only way in now.
   workspace: [
     ["myjob", "My Job", "งานของฉัน", [[2, 2, 12, 4], [2, 8, 5, 6], [9, 8, 5, 2], [9, 12, 5, 2]]],
     // Next to My Job because it is the same jobs, and separate from it because
@@ -86,10 +93,7 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     // Next to My Job because it answers the question My Job cannot: the grid
     // says whose a job is, this says whose it ought to be.
     ["rotation", "Job Rotation", "ความรับผิดชอบลูกค้า", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
-    ["booking", "Booking", "จองรถบรรทุก", [[2, 3, 10, 7], [12, 6, 2, 4], [3, 12, 3, 2], [10, 12, 3, 2]]],
     ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
-    ["prerun", "Pre-Run", "ตรวจก่อนออกงาน", [[2, 3, 12, 2], [2, 7, 8, 2], [2, 11, 5, 2], [11, 9, 3, 5]]],
-    ["docverify", "Document Verification", "ตรวจสอบเอกสาร", [[3, 2, 10, 12], [5, 6, 6, 1.5], [5, 9, 4, 1.5]]],
     ["loreal", "L'OREAL", "รายงานตู้ลูกค้า", [[2, 2, 12, 3], [2, 7, 12, 1.5], [2, 11, 8, 1.5]]],
     ["chemours", "The Chemours", "รายงานงานกระจายสินค้า", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
   ],
