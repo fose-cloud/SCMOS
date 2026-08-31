@@ -58,6 +58,21 @@ public record RotationMutationResult(bool Ok, string Message, long Id = 0);
 /// </summary>
 public class RotationService(ScmosDbContext db, JobRegisterCache register)
 {
+    /// <summary>
+    /// The customer master used by the My Job grid.
+    ///
+    /// This deliberately reads only the rotation table. Loading the full
+    /// rotation also reconciles every row with the job register, staff and
+    /// suppliers; a dropdown needs none of that work and is opened all day.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> CustomersAsync(CancellationToken token) =>
+        await db.RotationAssignments.AsNoTracking()
+            .Where(row => row.Customer != "")
+            .Select(row => row.Customer)
+            .Distinct()
+            .OrderBy(customer => customer)
+            .ToListAsync(token);
+
     public async Task<IReadOnlyList<RotationView>> ListAsync(string? ownerId, string? customer,
         CancellationToken token)
     {

@@ -14,6 +14,7 @@ import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { useCarriers } from "../carriers";
 import { useVehicleTypes } from "../vehicleTypes";
+import { useRotationCustomers } from "../rotationCustomers";
 import { gridArrowTarget, gridEditIntent } from "../gridEditKey";
 import { PICK_SEP, chosenIn, matchesChosen, pickLabel } from "../filterChoices";
 
@@ -536,6 +537,7 @@ export function Workspace(p: Props) {
   // than from the spellings the jobs already contain.
   const carriers = useCarriers();
   const vehicles = useVehicleTypes();
+  const customers = useRotationCustomers();
 
   /**
    * The header's slot for this screen's controls.
@@ -971,10 +973,9 @@ export function Workspace(p: Props) {
   };
 
   /**
-   * Suggestion lists for the master-ish columns, built from the jobs already in
-   * the register — most used first, so the names the team actually works with
-   * are at the top. Typing a value that is not on the list is still allowed: a
-   * new customer has to be able to arrive without an admin step.
+   * Suggestion lists for fields that do not have a dedicated master, built
+   * from the jobs already in the register — most used first, so the names the
+   * team actually works with are at the top.
    */
   const suggestions = (field: keyof Job, limit = 400) => {
     const counts: Record<string, number> = {};
@@ -989,7 +990,7 @@ export function Workspace(p: Props) {
     // "type" is not here any more: it is a fixed list from the Capacity screen,
     // so a datalist of whatever the register happens to contain would offer the
     // sixty-odd spellings this was meant to end.
-    "customer", "trucker", "product", "destination", "plant", "returnLoc", "cyYard",
+    "trucker", "product", "destination", "plant", "returnLoc", "cyYard",
     // Delivery's own master-ish columns, now that its grid is editable.
     "wh", "province",
   ];
@@ -1023,6 +1024,21 @@ export function Workspace(p: Props) {
     // nobody opens.
     cellOut.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
     cellOut.title = `"${current}" ไม่มีในทะเบียนผู้รับเหมาช่วง — เลือกบริษัทจากรายการเพื่อแก้`;
+    return cellOut;
+  };
+
+  /**
+   * Customer is chosen from Job Rotation, the team's customer ownership
+   * master. Existing off-master values remain visible at the top of the list
+   * and are marked for correction instead of being discarded.
+   */
+  const edCustomer = (j: Job, opts: CellOpts = {}): Cell => {
+    const current = j.customer || "";
+    const cellOut = edChoice(j, "customer", ["", ...customers.names], opts);
+    if (!customers.ready || current.length === 0 || customers.knows(current)) return cellOut;
+
+    cellOut.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
+    cellOut.title = `"${current}" ไม่มีใน Job Rotation — เลือกชื่อลูกค้าจากรายการเพื่อแก้`;
     return cellOut;
   };
 
@@ -1261,7 +1277,7 @@ export function Workspace(p: Props) {
 
     if (layout === "IMPORT") {
       return head.concat([
-        catCell, ed(j, "date", { mono: true }), edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j),
+        catCell, ed(j, "date", { mono: true }), edCustomer(j, { bold: true, w: 150 }), edCarrier(j),
         ed(j, "jobCode", { mono: true }), edPick(j, "product", { tone: /^\s*DG/i.test(j.product) ? "amber" : "gray" }),
         edPick(j, "destination", { w: 150 }), ed(j, "planTime", { mono: true }),
         edVehicle(j, { mono: true }),
@@ -1277,7 +1293,7 @@ export function Workspace(p: Props) {
     }
     if (layout === "EXPORT") {
       return head.concat([
-        catCell, edPick(j, "customer", { bold: true, w: 150 }), edCarrier(j), ed(j, "booking", { mono: true, w: 170 }),
+        catCell, edCustomer(j, { bold: true, w: 150 }), edCarrier(j), ed(j, "booking", { mono: true, w: 170 }),
         ed(j, "abs", { mono: true }), edPick(j, "plant", { w: 150 }),
         ed(j, "date", { mono: true }), ed(j, "planTime", { mono: true }), edVehicle(j, { mono: true }),
         // Export had nowhere to record what was in the box. Dangerous goods was

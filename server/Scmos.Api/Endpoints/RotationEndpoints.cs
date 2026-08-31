@@ -58,6 +58,18 @@ public static class RotationEndpoints
             return Results.Json(new { owners = await rotation.OwnersAsync(token) });
         });
 
+        group.MapGet("/customers", async (HttpContext context, IUserAccessor users,
+            RotationService rotation, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewTeam))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูรายชื่อลูกค้าใน Job Rotation",
+                    StatusCodes.Status403Forbidden);
+
+            return Results.Json(new { customers = await rotation.CustomersAsync(token) });
+        });
+
         group.MapGet("/options", async (HttpContext context, IUserAccessor users,
             RotationService rotation, CancellationToken token) =>
         {
