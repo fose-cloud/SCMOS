@@ -25,6 +25,12 @@ public static class RotationEndpoints
         string? SubFcl, string? SubLcl, string? CsLcb);
 
     public record ReplaceBody(List<RotationRow>? Rows);
+    public record EditBody(
+        string? Customer,
+        bool? Import, bool? Export, bool? Fcl, bool? Lcl, bool? Domestic,
+        string? PrimaryId, string? BackupId, string? Backup2Id,
+        List<int>? SubFclSupplierIds, List<int>? SubLclSupplierIds,
+        string? CsLcb);
 
     public static void MapRotation(this IEndpointRouteBuilder routes)
     {
@@ -52,13 +58,76 @@ public static class RotationEndpoints
             return Results.Json(new { owners = await rotation.OwnersAsync(token) });
         });
 
+        group.MapGet("/options", async (HttpContext context, IUserAccessor users,
+            RotationService rotation, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewTeam))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูตัวเลือก Job Rotation",
+                    StatusCodes.Status403Forbidden);
+
+            return Results.Json(await rotation.OptionsAsync(token));
+        });
+
+        group.MapPost("", async ([FromBody] EditBody body, HttpContext context,
+            IUserAccessor users, RotationService rotation, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!CanManage(user))
+                return ApiResults.Error("เฉพาะ Supervisor ขึ้นไปเท่านั้นที่เพิ่ม Job Rotation ได้",
+                    StatusCodes.Status403Forbidden);
+
+            var result = await rotation.CreateAsync(ToEdit(body), user.Signature, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Register, "rotation", result.Id.ToString(),
+                body.Customer ?? "", "รายการ", "", result.Message, "", token);
+            return Results.Json(new { ok = true, result.Id, result.Message });
+        });
+
+        group.MapPut("/{id:long}", async (long id, [FromBody] EditBody body, HttpContext context,
+            IUserAccessor users, RotationService rotation, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!CanManage(user))
+                return ApiResults.Error("เฉพาะ Supervisor ขึ้นไปเท่านั้นที่แก้ไข Job Rotation ได้",
+                    StatusCodes.Status403Forbidden);
+
+            var result = await rotation.UpdateAsync(id, ToEdit(body), user.Signature, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Update, "rotation", id.ToString(),
+                body.Customer ?? "", "รายการ", "", result.Message, "", token);
+            return Results.Json(new { ok = true, result.Id, result.Message });
+        });
+
+        group.MapDelete("/{id:long}", async (long id, HttpContext context,
+            IUserAccessor users, RotationService rotation, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!CanManage(user))
+                return ApiResults.Error("เฉพาะ Supervisor ขึ้นไปเท่านั้นที่ลบ Job Rotation ได้",
+                    StatusCodes.Status403Forbidden);
+
+            var result = await rotation.DeleteAsync(id, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status404NotFound);
+
+            await audit.RecordAsync(user, AuditActions.Update, "rotation", id.ToString(),
+                "Job Rotation", "รายการ", result.Message, "ลบแล้ว", "", token);
+            return Results.Json(new { ok = true, result.Message });
+        });
+
         group.MapPost("/replace", async ([FromBody] ReplaceBody? body, HttpContext context,
             IUserAccessor users, RotationService rotation, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!user.Can(Capability.AssignJobs) && !user.Can(Capability.AdministerData))
-                return ApiResults.Error("ต้องมีสิทธิ์มอบหมายงานจึงจะเปลี่ยนตารางความรับผิดชอบได้",
+            if (!CanManage(user))
+                return ApiResults.Error("เฉพาะ Supervisor ขึ้นไปเท่านั้นที่นำเข้าตารางความรับผิดชอบได้",
                     StatusCodes.Status403Forbidden);
 
             var incoming = body?.Rows ?? [];
@@ -98,6 +167,16 @@ public static class RotationEndpoints
         SubLcl = Clean(row.SubLcl, 300),
         CsLcb = Clean(row.CsLcb, 400),
     };
+
+    private static RotationEdit ToEdit(EditBody body) => new(
+        Clean(body.Customer, 200),
+        body.Import ?? false, body.Export ?? false,
+        body.Fcl ?? false, body.Lcl ?? false, body.Domestic ?? false,
+        Clean(body.PrimaryId, 20), Clean(body.BackupId, 20), Clean(body.Backup2Id, 20),
+        body.SubFclSupplierIds ?? [], body.SubLclSupplierIds ?? [],
+        Clean(body.CsLcb, 400));
+
+    private static bool CanManage(AppUser user) => user.Can(Capability.AssignJobs);
 
     private static string Clean(string? value, int max)
     {

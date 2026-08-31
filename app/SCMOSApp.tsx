@@ -2538,7 +2538,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 onToast={setToast}
               />
             )}
-            {screen === "rotation" && <JobRotation me={me.id} onToast={setToast} />}
+            {screen === "rotation" && (
+              <JobRotation
+                me={me.opId || me.id}
+                canManage={able("AssignJobs")}
+                onToast={setToast}
+              />
+            )}
             {screen === "chemours" && !domesticGrid && (
               <Chemours
                 jobs={ops?.jobs ?? []}
