@@ -360,7 +360,8 @@ public class DelegationService(ScmosDbContext db)
             .Where(grant => grant.OwnerId == owner)
             .ToListAsync(token);
 
-        var refused = WhyRefused(start.Value, end.Value, Today, delegateId, mine);
+        var today = Today;
+        var refused = WhyRefused(start.Value, end.Value, today, delegateId, mine);
         if (refused is not null) return new Result(false, refused);
 
         var person = await db.Staff.AsNoTracking()
@@ -391,9 +392,13 @@ public class DelegationService(ScmosDbContext db)
         db.JobDelegations.Add(grant);
         await db.SaveChangesAsync(token);
 
+        var message = start.Value > today
+            ? $"บันทึกการมอบสิทธิ์ล่วงหน้าให้ {person.Name} แล้ว · "
+              + $"สิทธิ์จะเริ่มอัตโนมัติวันที่ {grant.FromDate} และสิ้นสุดวันที่ {grant.ToDate}"
+            : $"มอบสิทธิ์แก้ไขงานให้ {person.Name} ตั้งแต่ {grant.FromDate} ถึง {grant.ToDate} แล้ว";
+
         return new Result(true,
-            (forSomeoneElse ? "มอบสิทธิ์แทนเจ้าของงานแล้ว · " : "")
-            + $"มอบสิทธิ์แก้ไขงานให้ {person.Name} ตั้งแต่ {grant.FromDate} ถึง {grant.ToDate} แล้ว",
+            (forSomeoneElse ? "มอบสิทธิ์แทนเจ้าของงานแล้ว · " : "") + message,
             grant.Id);
     }
 

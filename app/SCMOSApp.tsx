@@ -531,6 +531,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const [identityState, setIdentityState] = useState<"loading" | "ready" | "failed">("loading");
   const [identityAttempt, setIdentityAttempt] = useState(0);
+  const [identityRefresh, setIdentityRefresh] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -580,7 +581,30 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     })();
 
     return () => { cancelled = true; if (retry) clearTimeout(retry); };
-  }, [signedInAs, identityAttempt]);
+  }, [signedInAs, identityAttempt, identityRefresh]);
+
+  /**
+   * A delegation can be scheduled days ahead, and becomes live from the
+   * Thailand date without a database job. The API checks that date on every
+   * write; the grid also needs a fresh actingFor list so it exposes the same
+   * cells. Refresh while the app is in use and immediately when somebody comes
+   * back to the tab — no sign-out/reload ceremony on the first morning of
+   * cover.
+   */
+  useEffect(() => {
+    const refresh = () => setIdentityRefresh((revision) => revision + 1);
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const timer = window.setInterval(refreshVisible, 60_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [signedInAs]);
 
   const base = auth ?? ACCOUNTS[0];
   // The API's answer wins over whatever the page render guessed. In development

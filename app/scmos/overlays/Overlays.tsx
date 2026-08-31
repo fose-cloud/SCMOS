@@ -371,7 +371,8 @@ export function SettingsModal(p: {
               <div>
                 <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>มอบสิทธิ์แก้ไขงานของฉัน</div>
                 <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
-                  สำหรับช่วงลา — คนที่รับมอบจะแก้งานของคุณได้เฉพาะในช่วงวันที่กำหนด
+                  กำหนดล่วงหน้าได้ — สถานะจะเป็น “รอถึงกำหนด” และระบบเปิดสิทธิ์ให้อัตโนมัติ
+                  ตั้งแต่วันเริ่ม โดยไม่ต้องออกจากระบบ
                 </div>
                 <Delegations me={p.me} onToast={p.onToast} />
               </div>
