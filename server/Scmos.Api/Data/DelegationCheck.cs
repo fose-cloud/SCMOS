@@ -1,3 +1,4 @@
+using Scmos.Api.Auth;
 using Scmos.Api.Services;
 
 namespace Scmos.Api.Data;
@@ -124,6 +125,31 @@ public static class DelegationCheck
         ("nobody covers for themselves", Person("OP-01", "Operation User"), "OP-01", false),
     ];
 
+    private static AppUser Actor(string role) =>
+        new("u", "u@example.com", role, role, "OP-09", "webapp", Recognised: true);
+
+    /// <summary>
+    /// Who may arrange cover for somebody other than themselves.
+    ///
+    /// The dangerous direction is permissiveness: an operator who could arrange
+    /// cover over a colleague's work would be granting write access to jobs
+    /// that are not theirs, which is the one thing the owner-only rule existed
+    /// to prevent. Every role is named so a new one cannot drift into it.
+    /// </summary>
+    private static readonly (string Why, string Role, bool Expect)[] Arrangers =
+    [
+        ("a supervisor arranges cover when somebody is taken ill", "Operation Supervisor", true),
+        ("so does an assistant manager", "Assistant Manager", true),
+        ("and a manager", "Manager", true),
+        ("and an administrator", "Administrator", true),
+
+        ("an operator arranges their own leave and nobody else's", "Operation User", false),
+        ("CS has no register work to hand over, its own or anybody's", "CS", false),
+        ("nor does a viewer", "Viewer", false),
+        ("a carrier least of all", "Subcontractor", false),
+        ("a role nobody has decided about cannot arrange for others", "Some Future Role", false),
+    ];
+
     private static DateOnly Day(int day, int month = 9, int year = 2026) => new(year, month, day);
 
     /// <summary>
@@ -203,6 +229,16 @@ public static class DelegationCheck
         }
 
         Console.WriteLine();
+        foreach (var (why, role, expect) in Arrangers)
+        {
+            var got = DelegationService.MayArrangeForOthers(Actor(role));
+            var ok = got == expect;
+            if (!ok) failed++;
+            Console.WriteLine($"{(ok ? "ok  " : "FAIL")}  {role,-22} -> "
+                + $"{(got ? "may arrange" : "own only"),-12} " + (ok ? "" : "wrong  ") + $"({why})");
+        }
+
+        Console.WriteLine();
         foreach (var (why, from, to, existing, allowed) in Limits)
         {
             var refused = DelegationService.WhyRefused(from, to, Today, "OP-02", existing);
@@ -215,7 +251,8 @@ public static class DelegationCheck
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? $"{Cases.Length} permission cases, {Receivers.Length} candidate rules, "
-              + $"{Limits.Length} grant limits and {Descriptions.Length} statuses, all as expected."
+              + $"{Arrangers.Length} arranger rules, {Limits.Length} grant limits "
+              + $"and {Descriptions.Length} statuses, all as expected."
             : $"{failed} failed.");
         return failed == 0 ? 0 : 1;
     }

@@ -26,6 +26,7 @@ public enum AlertKind
     CapacityShortage,
     KpiBelowTarget,
     ActingForColleague,
+    CoverArrangedForYou,
 }
 
 /// <summary>Critical needs somebody now; Warning needs somebody today; Information is context.</summary>
@@ -115,6 +116,12 @@ public static class Notifications
         // untrue and would train them to ignore the level.
         new(AlertKind.ActingForColleague, "Covering for a colleague", "คุณกำลังถืองานของเพื่อนร่วมงาน",
             AlertLevel.Information, "งานของเขาจะแก้ได้จนถึงวันสิ้นสุด และยังบันทึกชื่อคุณเป็นผู้แก้", "workspace"),
+
+        // Somebody arranged cover over your work without you doing it. Told,
+        // not discovered: you should hear it from the system before you hear it
+        // from the edit history.
+        new(AlertKind.CoverArrangedForYou, "Cover arranged for your jobs", "มีคนมอบสิทธิ์งานของคุณให้ผู้อื่น",
+            AlertLevel.Information, "ถ้าไม่ถูกต้อง ยกเลิกได้ที่หน้ามอบสิทธิ์", "workspace"),
     ];
 
     public static AlertDefinition Of(AlertKind kind) => All.First(alert => alert.Kind == kind);

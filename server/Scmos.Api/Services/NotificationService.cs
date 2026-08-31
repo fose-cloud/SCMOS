@@ -56,6 +56,14 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
                     $"ตั้งแต่ {grant.FromDate} ถึง {grant.ToDate} · {grant.Reason}",
                     grant.OwnerId, "operator");
             }
+
+            foreach (var grant in await delegations.ArrangedForYouAsync(ownerId, token))
+            {
+                Add(alerts, AlertKind.CoverArrangedForYou, 1,
+                    $"{grant.CreatedBy} มอบสิทธิ์งานของคุณให้ {grant.DelegateName}",
+                    $"ตั้งแต่ {grant.FromDate} ถึง {grant.ToDate} · {grant.Reason}",
+                    grant.DelegateId, "operator");
+            }
         }
 
         /* ---- 1. supplier not confirmed ---- */

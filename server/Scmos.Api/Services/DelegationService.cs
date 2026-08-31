@@ -86,6 +86,22 @@ public class DelegationService(ScmosDbContext db)
     /// Administrator and Management have the rights but not the work; CS and
     /// Viewer have neither. None of them covers an operator's leave.
     /// </summary>
+    /// <summary>
+    /// Whether somebody may arrange cover for a colleague rather than for
+    /// themselves.
+    ///
+    /// Tied to AssignJobs — handing one job to another operator and handing a
+    /// week of them are the same authority at different sizes, so this does not
+    /// invent a second answer to who may do it.
+    ///
+    /// It is not an escalation. Every role that can assign work can already
+    /// edit anybody's job, so a supervisor arranging cover for themselves gains
+    /// nothing they did not have; what it gains is a record saying why they
+    /// were in somebody else's shipments that week, which is the point of the
+    /// feature rather than a hole in it.
+    /// </summary>
+    public static bool MayArrangeForOthers(AppUser actor) => actor.Can(Capability.AssignJobs);
+
     public static readonly string[] MayCover =
         [Roles.Operation, Roles.Supervisor, Roles.AssistantManager, Roles.Manager];
 
@@ -199,6 +215,16 @@ public class DelegationService(ScmosDbContext db)
     }
 
     /// <summary>
+    /// Whose work this person may arrange cover for — the same operations line
+    /// that may receive it, minus themselves.
+    ///
+    /// One list, so the two ends of the form cannot disagree about who counts
+    /// as a colleague.
+    /// </summary>
+    public async Task<IReadOnlyList<Candidate>> OwnersAsync(string actorId, CancellationToken token) =>
+        await CandidatesAsync(actorId, token);
+
+    /// <summary>
     /// The live grants under which this person is holding somebody else's work.
     ///
     /// What the alert feed reads. `ActingFor` answers which owner ids, which is
@@ -228,6 +254,45 @@ public class DelegationService(ScmosDbContext db)
             Describe(grant, today), grant.CreatedBy)).ToList();
     }
 
+    /// <summary>
+    /// The live grants over this person's own work that somebody else arranged.
+    ///
+    /// Cover arranged on your behalf is a thing you are told about, not a thing
+    /// you discover. Only grants somebody else created: your own arrangements
+    /// are not news to you.
+    /// </summary>
+    public async Task<IReadOnlyList<Grant>> ArrangedForYouAsync(string ownerId, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(ownerId)) return [];
+
+        var grants = await db.JobDelegations.AsNoTracking()
+            .Where(grant => grant.OwnerId == ownerId && !grant.Revoked)
+            .ToListAsync(token);
+
+        var today = Today;
+        var live = grants.Where(grant => IsLive(grant, today)).ToList();
+        if (live.Count == 0) return [];
+
+        var people = await db.Staff.AsNoTracking()
+            .ToDictionaryAsync(person => person.Id, person => person.Name, token);
+
+        // Arranged by somebody else, by id. A grant from before this was
+        // recorded has an empty id and is read as the owner's own, which every
+        // one of them was — nobody else could make one at the time.
+        return live
+            .Where(grant => grant.CreatedById.Length > 0
+                && !string.Equals(grant.CreatedById, ownerId, StringComparison.OrdinalIgnoreCase))
+            .Select(grant => new Grant(
+                grant.Id, grant.OwnerId, people.GetValueOrDefault(grant.OwnerId, grant.OwnerId),
+                grant.DelegateId, people.GetValueOrDefault(grant.DelegateId, grant.DelegateId),
+                grant.FromDate, grant.ToDate, grant.Reason,
+                Describe(grant, today),
+                // The name, not the email the signature holds: this is read by
+                // the person whose work it is, in an alert.
+                people.GetValueOrDefault(grant.CreatedById, grant.CreatedBy)))
+            .ToList();
+    }
+
     /// <summary>Every grant this person made, or was given, most recent first.</summary>
     public async Task<IReadOnlyList<Grant>> ForPersonAsync(string staffId, bool all, CancellationToken token)
     {
@@ -253,14 +318,36 @@ public class DelegationService(ScmosDbContext db)
     /// a body that named an owner would let anybody grant themselves access to
     /// anybody's work.
     /// </summary>
-    public async Task<Result> GrantAsync(AppUser owner, string delegateId, string from, string to,
-        string reason, CancellationToken token)
+    /// <param name="actor">Who is signed in, and whose name goes on the record.</param>
+    /// <param name="ownerId">
+    /// Whose jobs are being handed over. Empty means the actor's own. Naming
+    /// somebody else needs <see cref="MayArrangeForOthers"/>, and the request
+    /// is refused rather than quietly treated as the actor's own — a grant
+    /// silently made against the wrong person is worse than one refused.
+    /// </param>
+    public async Task<Result> GrantAsync(AppUser actor, string ownerId, string delegateId,
+        string from, string to, string reason, CancellationToken token)
     {
-        if (owner.OperatorId.Length == 0)
+        var forSomeoneElse = ownerId.Trim().Length > 0
+            && !string.Equals(ownerId, actor.OperatorId, StringComparison.OrdinalIgnoreCase);
+
+        if (forSomeoneElse && !MayArrangeForOthers(actor))
+            return new Result(false, "มอบสิทธิ์แทนคนอื่นได้เฉพาะระดับหัวหน้างานขึ้นไป");
+
+        var owner = forSomeoneElse ? ownerId.Trim() : actor.OperatorId;
+
+        if (owner.Length == 0)
             return new Result(false, "บัญชีนี้ยังไม่มีรหัสพนักงาน จึงยังไม่มีงานให้มอบหมาย");
         if (delegateId.Trim().Length == 0) return new Result(false, "ต้องเลือกผู้รับมอบหมาย");
-        if (string.Equals(delegateId, owner.OperatorId, StringComparison.OrdinalIgnoreCase))
-            return new Result(false, "มอบหมายให้ตัวเองไม่ได้");
+        if (string.Equals(delegateId, owner, StringComparison.OrdinalIgnoreCase))
+            return new Result(false, "มอบหมายให้เจ้าของงานเองไม่ได้");
+
+        if (forSomeoneElse)
+        {
+            var them = await db.Staff.AsNoTracking()
+                .FirstOrDefaultAsync(person => person.Id == owner && person.Active, token);
+            if (them is null) return new Result(false, "ไม่พบเจ้าของงาน หรือบัญชีถูกปิดอยู่");
+        }
         if (reason.Trim().Length < 4)
             return new Result(false, "ต้องระบุเหตุผล เช่น ลาพักร้อน 5–12 ส.ค.");
 
@@ -270,7 +357,7 @@ public class DelegationService(ScmosDbContext db)
             return new Result(false, "ต้องระบุวันเริ่มและวันสิ้นสุด (วว/ดด/ปปปป)");
 
         var mine = await db.JobDelegations.AsNoTracking()
-            .Where(grant => grant.OwnerId == owner.OperatorId)
+            .Where(grant => grant.OwnerId == owner)
             .ToListAsync(token);
 
         var refused = WhyRefused(start.Value, end.Value, Today, delegateId, mine);
@@ -282,7 +369,7 @@ public class DelegationService(ScmosDbContext db)
 
         // The same reading the list of names is built from, so a name that was
         // offered cannot be refused here.
-        if (!CanReceive(person, owner.OperatorId))
+        if (!CanReceive(person, owner))
         {
             return new Result(false, !person.Active
                 ? "บัญชีผู้รับมอบหมายถูกปิดอยู่"
@@ -291,19 +378,22 @@ public class DelegationService(ScmosDbContext db)
 
         var grant = new JobDelegation
         {
-            OwnerId = owner.OperatorId,
+            OwnerId = owner,
             DelegateId = delegateId,
             FromDate = TrainingRules.Write(start.Value),
             ToDate = TrainingRules.Write(end.Value),
             Reason = reason.Trim(),
-            CreatedBy = owner.Signature,
+            // Whoever arranged it, which is not always whose work it is.
+            CreatedBy = actor.Signature,
+            CreatedById = actor.OperatorId,
             CreatedAt = DateTimeOffset.UtcNow,
         };
         db.JobDelegations.Add(grant);
         await db.SaveChangesAsync(token);
 
         return new Result(true,
-            $"มอบสิทธิ์แก้ไขงานให้ {person.Name} ตั้งแต่ {grant.FromDate} ถึง {grant.ToDate} แล้ว",
+            (forSomeoneElse ? "มอบสิทธิ์แทนเจ้าของงานแล้ว · " : "")
+            + $"มอบสิทธิ์แก้ไขงานให้ {person.Name} ตั้งแต่ {grant.FromDate} ถึง {grant.ToDate} แล้ว",
             grant.Id);
     }
 

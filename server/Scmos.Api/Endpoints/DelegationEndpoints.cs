@@ -15,7 +15,13 @@ namespace Scmos.Api.Endpoints;
 /// </summary>
 public static class DelegationEndpoints
 {
-    public record GrantBody(string? DelegateId, string? FromDate, string? ToDate, string? Reason);
+    /// <param name="OwnerId">
+    /// Whose jobs to hand over. Omitted means the caller's own; naming somebody
+    /// else needs the authority to assign work, and the service refuses rather
+    /// than falling back to the caller.
+    /// </param>
+    public record GrantBody(string? DelegateId, string? FromDate, string? ToDate, string? Reason,
+        string? OwnerId);
 
     public static void MapDelegations(this IEndpointRouteBuilder routes)
     {
@@ -53,6 +59,18 @@ public static class DelegationEndpoints
             return Results.Json(await delegations.CandidatesAsync(user.OperatorId, token));
         });
 
+        // Whose work this person may arrange cover for, themselves aside.
+        // Empty for everybody without the authority to assign work, which is
+        // what the form uses to decide whether to offer the choice at all.
+        group.MapGet("/owners", async (HttpContext context, IUserAccessor users,
+            DelegationService delegations, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!DelegationService.MayArrangeForOthers(user)) return Results.Json(Array.Empty<object>());
+            return Results.Json(await delegations.OwnersAsync(user.OperatorId, token));
+        });
+
         group.MapPost("", async ([FromBody] GrantBody body, HttpContext context, IUserAccessor users,
             DelegationService delegations, AuditService audit, CancellationToken token) =>
         {
@@ -66,13 +84,17 @@ public static class DelegationEndpoints
                 return ApiResults.Error("บัญชีนี้ไม่มีงานของตัวเองให้มอบหมาย",
                     StatusCodes.Status403Forbidden);
 
-            var result = await delegations.GrantAsync(user, body.DelegateId ?? "",
+            var result = await delegations.GrantAsync(user, body.OwnerId ?? "", body.DelegateId ?? "",
                 body.FromDate ?? "", body.ToDate ?? "", body.Reason ?? "", token);
             if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
 
+            // The owner is recorded even when it is the caller: the line that
+            // answers "who could have edited this" should not need the reader
+            // to know whether the field was blank that day.
             await audit.RecordAsync(user, AuditActions.Register, "delegation",
                 result.Id.ToString(), user.DisplayName, "delegate", "",
-                $"{body.DelegateId} · {body.FromDate}–{body.ToDate}", body.Reason ?? "", token);
+                $"{body.OwnerId ?? user.OperatorId} → {body.DelegateId} · {body.FromDate}–{body.ToDate}",
+                body.Reason ?? "", token);
 
             return Results.Json(new { message = result.Message, id = result.Id });
         });

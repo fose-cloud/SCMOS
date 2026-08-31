@@ -53,5 +53,17 @@ public class JobDelegation
     public DateTimeOffset? RevokedAt { get; set; }
 
     public string CreatedBy { get; set; } = "";
+
+    /// <summary>
+    /// The staff id of whoever arranged it, which is not always the owner —
+    /// a supervisor may arrange cover for somebody who could not.
+    ///
+    /// Stored rather than worked out from <see cref="CreatedBy"/>, which holds
+    /// an email: asking whether a signature contains somebody's name answers a
+    /// question about spelling, not about who did it. Empty on grants written
+    /// before this existed, and read as "the owner", which is what they all
+    /// were — nobody else could make one.
+    /// </summary>
+    public string CreatedById { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
 }

@@ -677,7 +677,10 @@ type Grant = {
 function Delegations({ me, onToast }: { me: Account; onToast: (message: string) => void }) {
   const [grants, setGrants] = useState<Grant[]>([]);
   const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
-  const [form, setForm] = useState({ delegateId: "", fromDate: "", toDate: "", reason: "" });
+  const [form, setForm] = useState({ delegateId: "", fromDate: "", toDate: "", reason: "", ownerId: "" });
+  // Whose work this person may arrange cover for. Empty for everybody without
+  // the authority to assign work, so the field simply does not appear for them.
+  const [owners, setOwners] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -687,6 +690,9 @@ function Delegations({ me, onToast }: { me: Account; onToast: (message: string) 
     // have, so this list was empty for exactly the people who go on leave. The
     // API answers who may be handed work using the same rule it validates the
     // grant with, so nothing offered here can be refused on the way in.
+    const mayArrange = await apiFetch("/api/delegations/owners", { headers: { accept: "application/json" } });
+    if (mayArrange.ok) setOwners(await mayArrange.json() as { id: string; name: string }[]);
+
     const staff = await apiFetch("/api/delegations/candidates", { headers: { accept: "application/json" } });
     if (staff.ok) {
       const body = await staff.json() as { id: string; name: string }[];
@@ -710,7 +716,7 @@ function Delegations({ me, onToast }: { me: Account; onToast: (message: string) 
       });
       const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
       onToast(reply.message ?? reply.error ?? "มอบสิทธิ์ไม่สำเร็จ");
-      if (response.ok) { setForm({ delegateId: "", fromDate: "", toDate: "", reason: "" }); await load(); }
+      if (response.ok) { setForm({ delegateId: "", fromDate: "", toDate: "", reason: "", ownerId: "" }); await load(); }
     } finally { setBusy(false); }
   }
 
@@ -730,6 +736,16 @@ function Delegations({ me, onToast }: { me: Account; onToast: (message: string) 
   return (
     <div>
       <div style={css("display:flex;gap:7px;flex-wrap:wrap;align-items:center")}>
+        {owners.length > 0 && (
+          <select value={form.ownerId} onChange={(e) => setForm({ ...form, ownerId: e.target.value })}
+            title="เว้นไว้ = มอบงานของตัวเอง"
+            style={css(box + ";min-width:150px")}>
+            <option value="">— งานของฉัน —</option>
+            {owners.map((person) => (
+              <option key={person.id} value={person.id}>แทน {person.name}</option>
+            ))}
+          </select>
+        )}
         <select value={form.delegateId} onChange={(e) => setForm({ ...form, delegateId: e.target.value })}
           style={css(box + ";min-width:150px")}>
           <option value="">— เลือกผู้รับมอบ —</option>
