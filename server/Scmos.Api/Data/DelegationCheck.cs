@@ -109,9 +109,22 @@ public static class DelegationCheck
     [
         ("a colleague on the operations team can cover", Person("OP-03", "Operation User"), "OP-01", true),
         ("so can a supervisor", Person("OP-05", "Operation Supervisor"), "OP-01", true),
-        ("a closed account cannot be given work", Person("OP-03", "Operation User", active: false), "OP-01", false),
+        ("and an assistant manager", Person("AM-01", "Assistant Manager"), "OP-01", true),
+        ("and a manager", Person("MG-02", "Manager"), "OP-01", true),
+
+        // Named, not excluded: these are refused because they are not on the
+        // list, which is also what happens to any role added later.
+        ("an administrator has the rights but not the work",
+            Person("AD-01", "Administrator"), "OP-01", false),
+        ("management has the rights but not the work", Person("MG-01", "Management"), "OP-01", false),
+        ("customer service does not run the register", Person("CS-01", "CS"), "OP-01", false),
+        ("a viewer least of all", Person("VW-01", "Viewer"), "OP-01", false),
         ("a carrier's account works its own jobs, not the register's",
             Person("SUB-01", "Subcontractor"), "OP-01", false),
+        ("a role nobody has decided about yet is refused, not allowed",
+            Person("NEW-01", "Some Future Role"), "OP-01", false),
+
+        ("a closed account cannot be given work", Person("OP-03", "Operation User", active: false), "OP-01", false),
         ("nobody covers for themselves", Person("OP-01", "Operation User"), "OP-01", false),
     ];
 

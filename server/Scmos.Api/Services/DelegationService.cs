@@ -73,6 +73,23 @@ public class DelegationService(ScmosDbContext db)
     }
 
     /// <summary>
+    /// The roles that may be handed somebody else's register work: the
+    /// operations line, and the two above it who cover for it.
+    ///
+    /// Named rather than excluded. Listing who may not — the carrier's account,
+    /// the CS account, the administrator — leaves every role added afterwards
+    /// allowed by default, and nobody notices until a Viewer appears in the
+    /// dropdown. This way a new role is refused until somebody decides it
+    /// belongs here.
+    ///
+    /// Administrator, Management, CS and Viewer are deliberately absent.
+    /// Administrator and Management have the rights but not the work; CS and
+    /// Viewer have neither. None of them covers an operator's leave.
+    /// </summary>
+    public static readonly string[] MayCover =
+        [Roles.Operation, Roles.Supervisor, Roles.AssistantManager, Roles.Manager];
+
+    /// <summary>
     /// Whether this person may be handed somebody else's register work.
     ///
     /// One reading, used by the form that offers the names and by the grant
@@ -80,14 +97,12 @@ public class DelegationService(ScmosDbContext db)
     /// validates it offers names that are refused on the way in, which reads as
     /// the feature being broken.
     ///
-    /// A closed account cannot be given work. A carrier's account works its own
-    /// company's jobs through the portal and has no place holding an operator's
-    /// register. And nobody covers for themselves.
+    /// A closed account cannot be given work, and nobody covers for themselves.
     /// </summary>
     public static bool CanReceive(StaffMember person, string ownerId) =>
         person.Active
         && person.Id.Length > 0
-        && !string.Equals(person.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase)
+        && MayCover.Contains(person.Role, StringComparer.OrdinalIgnoreCase)
         && !string.Equals(person.Id, ownerId, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
@@ -271,7 +286,7 @@ public class DelegationService(ScmosDbContext db)
         {
             return new Result(false, !person.Active
                 ? "บัญชีผู้รับมอบหมายถูกปิดอยู่"
-                : "มอบหมายให้บัญชีผู้รับเหมาไม่ได้");
+                : $"มอบหมายให้บทบาท {person.Role} ไม่ได้ — มอบได้เฉพาะ {string.Join(", ", MayCover)}");
         }
 
         var grant = new JobDelegation
