@@ -71,9 +71,13 @@ public static class MonitorRules
         if (planned is null) return null;
 
         var days = planned.Value.DayNumber - today.DayNumber;
-        var arrived = job.ArrDate.Trim().Length > 0 || job.ArrTime.Trim().Length > 0;
 
-        if (days < 0 && !arrived) return new Flag(job.Key, Risk.Overdue, days);
+        // The lorry turned up. Whatever is still blank on the row is a gap in
+        // the record rather than a risk to the day — and this list is only
+        // worth reading if everything on it is something to do now.
+        if (job.ArrDate.Trim().Length > 0 || job.ArrTime.Trim().Length > 0) return null;
+
+        if (days < 0) return new Flag(job.Key, Risk.Overdue, days);
         if (job.Owner.Trim().Length == 0) return new Flag(job.Key, Risk.Unassigned, days);
 
         // Only once it is close. A job three weeks out with no carrier is a job
@@ -106,6 +110,41 @@ public static class MonitorRules
     /// </param>
     public readonly record struct Load(string OwnerId, string Owner, int Carrying, int Flagged,
         int OldestDaysWaiting);
+
+    /// <param name="Party">Subcontractor · Operation · CustomerService · Customer · Port · None.</param>
+    /// <param name="Cases">How many delays were put down to them.</param>
+    /// <param name="Minutes">Minutes lost across the cases that recorded any.</param>
+    /// <param name="Unmeasured">
+    /// Cases with no impact recorded.
+    ///
+    /// Reported rather than folded in as zero. A month with forty delays and
+    /// thirty of them unmeasured is not a month that lost the minutes of ten —
+    /// and a total that quietly assumes it would send somebody into a carrier
+    /// meeting with a number they cannot defend.
+    /// </param>
+    public readonly record struct Blame(string Party, int Cases, int Minutes, int Unmeasured);
+
+    /// <summary>
+    /// Who the month's delays were put down to, worst first.
+    ///
+    /// The records already carry the category and the responsible party — an
+    /// operator chose them, or the classifier proposed and an operator kept
+    /// them. Nothing is re-derived here: this counts what people wrote down.
+    /// </summary>
+    public static IReadOnlyList<Blame> Blames(IEnumerable<(string Responsible, int? ImpactMinutes)> delays) =>
+        delays
+            .Select(delay => (
+                Party: string.IsNullOrWhiteSpace(delay.Responsible) ? "None" : delay.Responsible.Trim(),
+                delay.ImpactMinutes))
+            .GroupBy(delay => delay.Party, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new Blame(
+                group.Key,
+                group.Count(),
+                group.Where(one => one.ImpactMinutes is > 0).Sum(one => one.ImpactMinutes!.Value),
+                group.Count(one => one.ImpactMinutes is null or <= 0)))
+            .OrderByDescending(blame => blame.Minutes)
+            .ThenByDescending(blame => blame.Cases)
+            .ToList();
 
     /// <summary>
     /// What each person is carrying.

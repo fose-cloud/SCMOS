@@ -61,6 +61,7 @@ builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<RiskService>();
 builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<VehicleTypeService>();
+builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();

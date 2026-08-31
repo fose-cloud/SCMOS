@@ -60,6 +60,14 @@ public static class MonitorCheck
             Job("K", "soon"), null),
         ("a lorry with a plate but no driver named is still crewed enough",
             Job("L", "12/09/2026", driver: ""), null),
+        // Measured on the real register: 958 of 1,081 rows were this — journeys
+        // that ran and arrived, listed for a plate nobody had typed in.
+        ("a job that arrived last month is not chased for a missing plate",
+            Job("L2", "01/08/2026", licence: "", driver: "", arrDate: "01/08/2026", arrTime: "10:00"), null),
+        ("nor for a missing carrier",
+            Job("L3", "01/08/2026", trucker: "", arrDate: "01/08/2026", arrTime: "10:00"), null),
+        ("nor is an arrived job with no owner",
+            Job("L4", "01/08/2026", owner: "", ownerId: "", arrDate: "01/08/2026"), null),
 
         /* ---- one reason each, not one per fault ---- */
         ("overdue outranks everything: it has already happened",
@@ -123,9 +131,40 @@ public static class MonitorCheck
         failed += Say("nothing late means nothing waiting", uthai.OldestDaysWaiting, 0);
         failed += Say("the person with trouble is listed first", loads[0].OwnerId == "OP-01" ? 1 : 0, 1);
 
+        /* ---- where the month went ---- */
+        var delays = new (string Responsible, int? ImpactMinutes)[]
+        {
+            ("Subcontractor", 90), ("Subcontractor", 30), ("Subcontractor", null),
+            ("Customer", 200),
+            ("Operation", 15), ("Operation", 0),
+            ("", null),
+        };
+        var blame = MonitorRules.Blames(delays);
+
+        Console.WriteLine();
+        failed += Say("the carrier's three cases are counted",
+            blame.First(b => b.Party == "Subcontractor").Cases, 3);
+        failed += Say("only the two that recorded minutes are added up",
+            blame.First(b => b.Party == "Subcontractor").Minutes, 120);
+        failed += Say("the one that did not is reported, not folded in as zero",
+            blame.First(b => b.Party == "Subcontractor").Unmeasured, 1);
+        failed += Say("a zero impact counts as unmeasured, not as measured zero",
+            blame.First(b => b.Party == "Operation").Unmeasured, 1);
+        failed += Say("a blank party is not lost, it becomes None",
+            blame.First(b => b.Party == "None").Cases, 1);
+        failed += Say("the biggest loss of time is first",
+            blame[0].Party == "Customer" ? 1 : 0, 1);
+
+        // Equal minutes, unequal cases: the one that went wrong more often is
+        // the one to talk about first. Stated here because the fixture above
+        // used to tie by accident and quietly test this instead.
+        var tied = MonitorRules.Blames([("Port", 60), ("Customer", 30), ("Customer", 30)]);
+        failed += Say("on equal minutes, more cases comes first",
+            tied[0].Party == "Customer" ? 1 : 0, 1);
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
-            ? $"{Cases.Length} risk cases and the load board, all as expected."
+            ? $"{Cases.Length} risk cases, the load board and the delay summary, all as expected."
             : $"{failed} failed.");
         return failed == 0 ? 0 : 1;
     }

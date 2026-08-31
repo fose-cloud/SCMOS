@@ -32,6 +32,24 @@ public static class DashboardEndpoints
             return Results.Json(new { figures = await dashboard.RatesAsync(token) });
         });
 
+        // The supervisor's shipment monitor: what is about to go wrong, who is
+        // carrying it, and where the month went.
+        //
+        // Behind IsSupervisor rather than a read capability, because this is a
+        // view of the team rather than of one person's work — an operator
+        // reading their colleagues' backlogs is a different screen from the one
+        // that was asked for.
+        routes.MapGet("/api/monitor", async (HttpContext context, IUserAccessor users,
+            MonitorService monitor, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.IsSupervisor)
+                return ApiResults.Error("หน้านี้สำหรับระดับหัวหน้างานขึ้นไป", StatusCodes.Status403Forbidden);
+
+            return Results.Json(await monitor.ReadAsync(token));
+        }).WithTags("Monitor");
+
         var alerts = routes.MapGroup("/api/notifications").WithTags("Notifications");
 
         alerts.MapGet("", async (bool? mine, HttpContext context, IUserAccessor users,
