@@ -122,6 +122,12 @@ public static partial class Formats
     /// </summary>
     public static readonly TimeSpan Zone = TimeSpan.FromHours(7);
 
+    /// <summary>A stored dd/MM/yyyy as a date, or null when it will not read.</summary>
+    public static DateOnly? ParseDay(string? value) =>
+        DateOnly.TryParseExact(Clean(value), "dd/MM/yyyy",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var day) ? day : null;
+
     /// <summary>Now, on the register's clock rather than the server's.</summary>
     public static DateTimeOffset Now => DateTimeOffset.UtcNow.ToOffset(Zone);
 

@@ -115,6 +115,42 @@ public static class DelegationCheck
         ("nobody covers for themselves", Person("OP-01", "Operation User"), "OP-01", false),
     ];
 
+    private static DateOnly Day(int day, int month = 9, int year = 2026) => new(year, month, day);
+
+    /// <summary>
+    /// The three limits that keep a grant a holiday arrangement rather than a
+    /// quiet permanent change of who owns the work. Today is 10/09/2026.
+    /// </summary>
+    private static readonly (string Why, DateOnly From, DateOnly To, JobDelegation[] Existing, bool Allowed)[] Limits =
+    [
+        ("an ordinary week off is fine", Day(14), Day(18), [], true),
+        ("starting today is fine — that is the day somebody arranges cover",
+            Day(10), Day(12), [], true),
+
+        ("starting yesterday is not — a backdated grant reads as an alibi",
+            Day(9), Day(12), [], false),
+        ("nor is a start last month", Day(1, 8), Day(30, 9), [], false),
+
+        ("ninety days exactly is allowed", Day(10), Day(8, 12), [], true),
+        ("ninety-one is not — that is a change of owner, not a leave",
+            Day(10), Day(9, 12), [], false),
+        ("and neither is a grant running to 2099",
+            Day(10), Day(31, 12, 2099), [], false),
+
+        ("the end cannot precede the start", Day(18), Day(14), [], false),
+
+        ("a second grant to the same person over the same days is one entered twice",
+            Day(14), Day(18), [Grant("OP-01", "OP-02", "12/09/2026", "16/09/2026")], false),
+        ("touching at one end still overlaps",
+            Day(14), Day(18), [Grant("OP-01", "OP-02", "10/09/2026", "14/09/2026")], false),
+        ("a day apart does not overlap",
+            Day(16), Day(18), [Grant("OP-01", "OP-02", "10/09/2026", "14/09/2026")], true),
+        ("a revoked grant is not in the way",
+            Day(14), Day(18), [Grant("OP-01", "OP-02", "12/09/2026", "16/09/2026", revoked: true)], true),
+        ("somebody else covering the same days is a real arrangement, not a clash",
+            Day(14), Day(18), [Grant("OP-01", "OP-03", "12/09/2026", "16/09/2026")], true),
+    ];
+
     public static int? Run(string[] args)
     {
         if (!args.Contains("--check-delegation")) return null;
@@ -154,9 +190,19 @@ public static class DelegationCheck
         }
 
         Console.WriteLine();
+        foreach (var (why, from, to, existing, allowed) in Limits)
+        {
+            var refused = DelegationService.WhyRefused(from, to, Today, "OP-02", existing);
+            var ok = (refused is null) == allowed;
+            if (!ok) failed++;
+            Console.WriteLine($"{(ok ? "ok  " : "FAIL")}  {from:dd/MM}–{to:dd/MM/yyyy} -> "
+                + $"{(refused is null ? "allowed" : "refused"),-8} " + (ok ? "" : "wrong  ") + $"({why})");
+        }
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0
-            ? $"{Cases.Length} permission cases, {Receivers.Length} candidate rules "
-              + $"and {Descriptions.Length} statuses, all as expected."
+            ? $"{Cases.Length} permission cases, {Receivers.Length} candidate rules, "
+              + $"{Limits.Length} grant limits and {Descriptions.Length} statuses, all as expected."
             : $"{failed} failed.");
         return failed == 0 ? 0 : 1;
     }

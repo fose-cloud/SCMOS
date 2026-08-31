@@ -25,6 +25,7 @@ public enum AlertKind
     CarParOverdue,
     CapacityShortage,
     KpiBelowTarget,
+    ActingForColleague,
 }
 
 /// <summary>Critical needs somebody now; Warning needs somebody today; Information is context.</summary>
@@ -108,6 +109,12 @@ public static class Notifications
 
         new(AlertKind.KpiBelowTarget, "KPI below target", "KPI ต่ำกว่าเป้า",
             AlertLevel.Warning, "ดูว่าผู้ขนส่งรายใดหรือเส้นทางใดฉุดค่าเฉลี่ย", "kpi"),
+
+        // Not a problem to fix — a fact somebody needs before they start
+        // editing. Information, because telling them it is urgent would be
+        // untrue and would train them to ignore the level.
+        new(AlertKind.ActingForColleague, "Covering for a colleague", "คุณกำลังถืองานของเพื่อนร่วมงาน",
+            AlertLevel.Information, "งานของเขาจะแก้ได้จนถึงวันสิ้นสุด และยังบันทึกชื่อคุณเป็นผู้แก้", "workspace"),
     ];
 
     public static AlertDefinition Of(AlertKind kind) => All.First(alert => alert.Kind == kind);

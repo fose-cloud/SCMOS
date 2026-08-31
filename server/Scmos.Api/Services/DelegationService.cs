@@ -25,6 +25,54 @@ public class DelegationService(ScmosDbContext db)
     public record Candidate(string Id, string Name, string Role);
 
     /// <summary>
+    /// The longest a grant may run.
+    ///
+    /// Both dates were already required, which stops a grant with no end. It
+    /// does not stop 31/12/2099, which is the same thing typed differently —
+    /// and the person who sets one will not be the one who remembers to remove
+    /// it. Ninety days covers any leave anybody here takes; longer than that is
+    /// a change of who owns the work, and should be made as one.
+    /// </summary>
+    public const int MaxDays = 90;
+
+    /// <summary>
+    /// Why a grant cannot be made, or null when it can.
+    ///
+    /// Every limit in one place, taking the dates and the grants already on
+    /// file rather than reading a clock or a database, so the rules can be
+    /// checked without either. `--check-delegation` runs them.
+    /// </summary>
+    public static string? WhyRefused(
+        DateOnly from, DateOnly to, DateOnly today,
+        string delegateId, IEnumerable<JobDelegation> existing)
+    {
+        if (to < from) return "วันสิ้นสุดต้องไม่อยู่ก่อนวันเริ่ม";
+
+        // Backdating writes a permission that was not in force at the time it
+        // appears to cover. Read months later it is indistinguishable from
+        // somebody arranging an alibi for edits already made.
+        if (from < today) return "เริ่มย้อนหลังไม่ได้ — วันเริ่มต้องเป็นวันนี้หรือหลังจากนี้";
+
+        var days = to.DayNumber - from.DayNumber + 1;
+        if (days > MaxDays)
+            return $"มอบได้ครั้งละไม่เกิน {MaxDays} วัน (ที่ขอมา {days} วัน) — ถ้ายาวกว่านี้ควรเปลี่ยนผู้รับผิดชอบงานแทน";
+
+        // Two live grants to the same person over the same days are one
+        // arrangement entered twice. Two people covering different halves of a
+        // leave is a real thing, so only the same delegate is refused.
+        var clash = existing.FirstOrDefault(grant =>
+            !grant.Revoked
+            && string.Equals(grant.DelegateId, delegateId, StringComparison.OrdinalIgnoreCase)
+            && Formats.ParseDay(grant.FromDate) is DateOnly start
+            && Formats.ParseDay(grant.ToDate) is DateOnly end
+            && start <= to && from <= end);
+
+        return clash is null
+            ? null
+            : $"มีการมอบสิทธิ์ให้คนนี้อยู่แล้วในช่วง {clash.FromDate} – {clash.ToDate}";
+    }
+
+    /// <summary>
     /// Whether this person may be handed somebody else's register work.
     ///
     /// One reading, used by the form that offers the names and by the grant
@@ -135,6 +183,36 @@ public class DelegationService(ScmosDbContext db)
         return ActingFor(grants, delegateId, Today);
     }
 
+    /// <summary>
+    /// The live grants under which this person is holding somebody else's work.
+    ///
+    /// What the alert feed reads. `ActingFor` answers which owner ids, which is
+    /// what the write check needs; this answers whose and until when, which is
+    /// what a person needs to be told.
+    /// </summary>
+    public async Task<IReadOnlyList<Grant>> CoveringForAsync(string delegateId, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(delegateId)) return [];
+
+        var grants = await db.JobDelegations.AsNoTracking()
+            .Where(grant => grant.DelegateId == delegateId && !grant.Revoked)
+            .ToListAsync(token);
+
+        var today = Today;
+        var live = grants.Where(grant => IsLive(grant, today)
+            && !string.Equals(grant.OwnerId, delegateId, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (live.Count == 0) return [];
+
+        var people = await db.Staff.AsNoTracking()
+            .ToDictionaryAsync(person => person.Id, person => person.Name, token);
+
+        return live.Select(grant => new Grant(
+            grant.Id, grant.OwnerId, people.GetValueOrDefault(grant.OwnerId, grant.OwnerId),
+            grant.DelegateId, people.GetValueOrDefault(grant.DelegateId, grant.DelegateId),
+            grant.FromDate, grant.ToDate, grant.Reason,
+            Describe(grant, today), grant.CreatedBy)).ToList();
+    }
+
     /// <summary>Every grant this person made, or was given, most recent first.</summary>
     public async Task<IReadOnlyList<Grant>> ForPersonAsync(string staffId, bool all, CancellationToken token)
     {
@@ -175,8 +253,13 @@ public class DelegationService(ScmosDbContext db)
         var end = TrainingRules.ParseDate(to);
         if (start is null || end is null)
             return new Result(false, "ต้องระบุวันเริ่มและวันสิ้นสุด (วว/ดด/ปปปป)");
-        if (end.Value < start.Value)
-            return new Result(false, "วันสิ้นสุดต้องไม่อยู่ก่อนวันเริ่ม");
+
+        var mine = await db.JobDelegations.AsNoTracking()
+            .Where(grant => grant.OwnerId == owner.OperatorId)
+            .ToListAsync(token);
+
+        var refused = WhyRefused(start.Value, end.Value, Today, delegateId, mine);
+        if (refused is not null) return new Result(false, refused);
 
         var person = await db.Staff.AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == delegateId, token);

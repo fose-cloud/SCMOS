@@ -27,7 +27,8 @@ public record AlertFeed(IReadOnlyList<Alert> Alerts, int Critical, int Warning, 
 /// Alerts are grouped rather than listed one per job. "84 jobs missing a plate"
 /// is actionable; eighty-four separate rows are a wall somebody scrolls past.
 /// </summary>
-public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache register)
+public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache register,
+    DelegationService delegations)
 {
     public async Task<AlertFeed> BuildAsync(string? ownerId, CancellationToken token)
     {
@@ -41,6 +42,21 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
         // team's alerts; an operator opening their own workspace wants theirs.
         if (!string.IsNullOrWhiteSpace(ownerId))
             jobs = jobs.Where(job => job.OpId == ownerId).ToList();
+
+        /* ---- 0. holding somebody else's work ---- */
+        // Before the rest, because it changes what every other alert on this
+        // feed is about: some of those jobs are not yours.
+        if (!string.IsNullOrWhiteSpace(ownerId))
+        {
+            var covering = await delegations.CoveringForAsync(ownerId, token);
+            foreach (var grant in covering)
+            {
+                Add(alerts, AlertKind.ActingForColleague, 1,
+                    $"คุณกำลังถืองานของ {grant.OwnerName}",
+                    $"ตั้งแต่ {grant.FromDate} ถึง {grant.ToDate} · {grant.Reason}",
+                    grant.OwnerId, "operator");
+            }
+        }
 
         /* ---- 1. supplier not confirmed ---- */
         var noCarrier = jobs.Where(Notifications.NeedsCarrier).ToList();
