@@ -156,30 +156,23 @@ export function Chrome(p: Props) {
     <div style={css("display:flex;flex-direction:column;height:100vh;min-height:100vh;overflow:hidden;color:#16232F")}>
       <header style={css("flex:none;height:60px;background:#0A2240;display:flex;align-items:center;gap:0;padding:0 20px 0 0;border-bottom:1px solid #071A31;z-index:40")}>
         {/*
-          The wordmark is `public/cargo-logo.png`, on a white panel.
+          The wordmark is `public/cargo-logo.png`, drawn directly on the band.
 
           It had been set in type because the artwork available then —
           `brand-leschaco.png` — is a fully transparent PNG, max alpha 0, which
-          is why the band looked empty. This one is real, and opaque: white
-          behind navy ink, on a navy band. Dropped in as-is it reads as a white
-          rectangle with something in it, so the white is given a shape and a
-          radius and becomes a panel the mark sits on.
-
-          Not recoloured to a knockout white. That is somebody's decision about
-          their own brand, not a rendering detail to change in passing.
+          is why the band looked empty. This one is real and opaque, and already
+          carries a navy background close to the header colour. It needs no
+          white wrapper: that wrapper was the visible frame around the mark.
         */}
         <div className="brand-band" style={css("width:248px;flex:none;height:60px;display:flex;align-items:center;gap:12px;padding-left:20px;border-right:1px solid #1B3A5C")}>
           {/* A phone header has room for one name, not a company band and a
               product band and a rule between them. SCMOS is the one that tells
               somebody which application they are looking at. */}
           <div className="only-wide" style={css("display:flex;align-items:center;gap:12px")}>
-            <span style={css("display:flex;align-items:center;background:#fff;border-radius:4px;"
-              + "padding:5px 8px;line-height:0")}>
-              {/* Sized by height so the panel keeps its proportions whatever
-                  the file's pixel dimensions turn out to be. */}
-              <img src="/cargo-logo.png" alt="Leschaco (Thailand)"
-                style={css("height:22px;width:auto;display:block")} />
-            </span>
+            {/* Sized by height so the mark keeps its proportions whatever the
+                file's pixel dimensions turn out to be. */}
+            <img src="/cargo-logo.png" alt="Leschaco (Thailand)"
+              style={css("height:22px;width:auto;display:block")} />
             <div style={css("width:1px;height:24px;background:#2C4E75")} />
           </div>
           <div style={css("display:flex;flex-direction:column;line-height:1.05")}>
