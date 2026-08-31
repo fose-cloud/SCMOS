@@ -93,10 +93,6 @@ public static class DelegationCheck
         ("a past grant has expired", Grant("OP-01", "OP-02", "01/08/2026", "31/08/2026"), "หมดอายุแล้ว"),
     ];
 
-    /// <summary>
-    /// Null when this is not the flag being asked for; otherwise the exit code,
-    /// so a failing check can stop a build rather than only saying so.
-    /// </summary>
     private static StaffMember Person(string id, string role, bool active = true) =>
         new() { Id = id, Name = id, Role = role, Active = active };
 
@@ -164,6 +160,10 @@ public static class DelegationCheck
             Day(14), Day(18), [Grant("OP-01", "OP-03", "12/09/2026", "16/09/2026")], true),
     ];
 
+    /// <summary>
+    /// Null when this is not the flag being asked for; otherwise the exit code,
+    /// so a failing check can stop a build rather than only saying so.
+    /// </summary>
     public static int? Run(string[] args)
     {
         if (!args.Contains("--check-delegation")) return null;
