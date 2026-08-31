@@ -41,6 +41,18 @@ public static class DelegationEndpoints
             });
         });
 
+        // Who I may hand my jobs to. Signed in is enough: arranging cover for
+        // your own leave is not an audit question, and the staff endpoint this
+        // list used to come from needs ViewAudit — which the operators who
+        // actually take leave do not have, so the dropdown was always empty.
+        group.MapGet("/candidates", async (HttpContext context, IUserAccessor users,
+            DelegationService delegations, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            return Results.Json(await delegations.CandidatesAsync(user.OperatorId, token));
+        });
+
         group.MapPost("", async ([FromBody] GrantBody body, HttpContext context, IUserAccessor users,
             DelegationService delegations, AuditService audit, CancellationToken token) =>
         {

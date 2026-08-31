@@ -683,10 +683,14 @@ function Delegations({ me, onToast }: { me: Account; onToast: (message: string) 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/delegations", { headers: { accept: "application/json" } });
     if (response.ok) setGrants(((await response.json()) as { grants: Grant[] }).grants);
-    const staff = await apiFetch("/api/staff", { headers: { accept: "application/json" } });
+    // Not /api/staff: that needs ViewAudit, which an Operation User does not
+    // have, so this list was empty for exactly the people who go on leave. The
+    // API answers who may be handed work using the same rule it validates the
+    // grant with, so nothing offered here can be refused on the way in.
+    const staff = await apiFetch("/api/delegations/candidates", { headers: { accept: "application/json" } });
     if (staff.ok) {
-      const body = await staff.json() as { people: { id: string; name: string; active: boolean }[] };
-      setPeople(body.people.filter((person) => person.active && person.id !== me.opId));
+      const body = await staff.json() as { id: string; name: string }[];
+      setPeople(body);
     }
   }, [me.opId]);
 

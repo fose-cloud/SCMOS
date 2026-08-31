@@ -21,6 +21,43 @@ public class DelegationService(ScmosDbContext db)
 
     public record Result(bool Ok, string Message, long Id = 0);
 
+    /// <param name="Id">The staff id a grant is written against.</param>
+    public record Candidate(string Id, string Name, string Role);
+
+    /// <summary>
+    /// Whether this person may be handed somebody else's register work.
+    ///
+    /// One reading, used by the form that offers the names and by the grant
+    /// that accepts one — a list built from a different rule than the one that
+    /// validates it offers names that are refused on the way in, which reads as
+    /// the feature being broken.
+    ///
+    /// A closed account cannot be given work. A carrier's account works its own
+    /// company's jobs through the portal and has no place holding an operator's
+    /// register. And nobody covers for themselves.
+    /// </summary>
+    public static bool CanReceive(StaffMember person, string ownerId) =>
+        person.Active
+        && person.Id.Length > 0
+        && !string.Equals(person.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(person.Id, ownerId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Who this person may hand their jobs to.
+    ///
+    /// Deliberately not behind ViewAudit, which /api/staff needs: going on
+    /// leave is not an audit question, and the five people who do it most had
+    /// no way to see this list at all.
+    /// </summary>
+    public async Task<IReadOnlyList<Candidate>> CandidatesAsync(string ownerId, CancellationToken token)
+    {
+        var people = await db.Staff.AsNoTracking().OrderBy(person => person.Name).ToListAsync(token);
+        return people
+            .Where(person => CanReceive(person, ownerId))
+            .Select(person => new Candidate(person.Id, person.Name, person.Role))
+            .ToList();
+    }
+
     /// <summary>
     /// Today at the yard, not at the server.
     ///
@@ -142,13 +179,17 @@ public class DelegationService(ScmosDbContext db)
             return new Result(false, "วันสิ้นสุดต้องไม่อยู่ก่อนวันเริ่ม");
 
         var person = await db.Staff.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == delegateId && p.Active, token);
-        if (person is null) return new Result(false, "ไม่พบผู้รับมอบหมาย หรือบัญชีถูกปิดอยู่");
+            .FirstOrDefaultAsync(p => p.Id == delegateId, token);
+        if (person is null) return new Result(false, "ไม่พบผู้รับมอบหมาย");
 
-        // A carrier's account works one company's jobs through its own portal
-        // and has no place holding an operator's register work.
-        if (string.Equals(person.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase))
-            return new Result(false, "มอบหมายให้บัญชีผู้รับเหมาไม่ได้");
+        // The same reading the list of names is built from, so a name that was
+        // offered cannot be refused here.
+        if (!CanReceive(person, owner.OperatorId))
+        {
+            return new Result(false, !person.Active
+                ? "บัญชีผู้รับมอบหมายถูกปิดอยู่"
+                : "มอบหมายให้บัญชีผู้รับเหมาไม่ได้");
+        }
 
         var grant = new JobDelegation
         {

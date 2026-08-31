@@ -97,6 +97,24 @@ public static class DelegationCheck
     /// Null when this is not the flag being asked for; otherwise the exit code,
     /// so a failing check can stop a build rather than only saying so.
     /// </summary>
+    private static StaffMember Person(string id, string role, bool active = true) =>
+        new() { Id = id, Name = id, Role = role, Active = active };
+
+    /// <summary>
+    /// Who may be handed somebody else's work. The list the form offers and the
+    /// rule the grant validates with are the same reading, so a name that
+    /// appears in the dropdown cannot be refused on the way in.
+    /// </summary>
+    private static readonly (string Why, StaffMember Person, string Owner, bool Expect)[] Receivers =
+    [
+        ("a colleague on the operations team can cover", Person("OP-03", "Operation User"), "OP-01", true),
+        ("so can a supervisor", Person("OP-05", "Operation Supervisor"), "OP-01", true),
+        ("a closed account cannot be given work", Person("OP-03", "Operation User", active: false), "OP-01", false),
+        ("a carrier's account works its own jobs, not the register's",
+            Person("SUB-01", "Subcontractor"), "OP-01", false),
+        ("nobody covers for themselves", Person("OP-01", "Operation User"), "OP-01", false),
+    ];
+
     public static int? Run(string[] args)
     {
         if (!args.Contains("--check-delegation")) return null;
@@ -126,8 +144,19 @@ public static class DelegationCheck
         }
 
         Console.WriteLine();
+        foreach (var (why, person, owner, expect) in Receivers)
+        {
+            var got = DelegationService.CanReceive(person, owner);
+            var ok = got == expect;
+            if (!ok) failed++;
+            Console.WriteLine($"{(ok ? "ok  " : "FAIL")}  {person.Id} ({person.Role}) -> "
+                + $"{(got ? "may cover" : "may not"),-10} " + (ok ? "" : "wrong  ") + $"({why})");
+        }
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0
-            ? $"{Cases.Length} permission cases and {Descriptions.Length} statuses, all as expected."
+            ? $"{Cases.Length} permission cases, {Receivers.Length} candidate rules "
+              + $"and {Descriptions.Length} statuses, all as expected."
             : $"{failed} failed.");
         return failed == 0 ? 0 : 1;
     }
