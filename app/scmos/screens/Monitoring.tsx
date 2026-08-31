@@ -29,6 +29,13 @@ type Props = {
   isSupervisor: boolean;
   /** Opens a job from a row on the board. */
   onOpenJob: (key: string) => void;
+  /**
+   * A shipment to open on arrival, from an alert or the header search.
+   *
+   * Null when somebody opened the menu entry themselves, which is the case
+   * where they want the list and picking one for them would be wrong.
+   */
+  focus: string | null;
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -38,11 +45,21 @@ const STATUS_THAI: Record<string, string> = {
   pending: "ยังไม่บันทึก", done: "เสร็จ", delayed: "ล่าช้า", skipped: "ข้าม",
 };
 
-export function Monitoring({ jobs, canEdit, onToast, isSupervisor, onOpenJob }: Props) {
+export function Monitoring({ jobs, canEdit, onToast, isSupervisor, onOpenJob, focus }: Props) {
   // The team's view or one journey's. An operator has no team view to switch
   // to, so they are not shown a switch — a control that only ever refuses is
   // worse than no control.
   const [view, setView] = useState<"board" | "journey">(isSupervisor ? "board" : "journey");
+
+  // Somebody who arrived here from an alert about one shipment is asking about
+  // that shipment, so the board steps aside for it. Read during render on the
+  // value changing rather than in an effect, which would show the board for a
+  // frame and then replace it.
+  const [came, setCame] = useState(focus);
+  if (came !== focus) {
+    setCame(focus);
+    if (focus) setView("journey");
+  }
 
   if (isSupervisor && view === "board") {
     return (
@@ -56,7 +73,7 @@ export function Monitoring({ jobs, canEdit, onToast, isSupervisor, onOpenJob }: 
   return (
     <div style={css("display:flex;flex-direction:column;gap:12px")}>
       {isSupervisor && <ViewSwitch view={view} onView={setView} />}
-      <Journey jobs={jobs} canEdit={canEdit} onToast={onToast} />
+      <Journey jobs={jobs} canEdit={canEdit} onToast={onToast} focus={focus} />
     </div>
   );
 }
@@ -73,9 +90,20 @@ function ViewSwitch({ view, onView }: { view: string; onView: (v: "board" | "jou
   );
 }
 
-function Journey({ jobs, canEdit, onToast }: { jobs: Job[]; canEdit: (job: Job) => boolean; onToast: (m: string) => void }) {
+function Journey({ jobs, canEdit, onToast, focus }: {
+  jobs: Job[]; canEdit: (job: Job) => boolean; onToast: (m: string) => void; focus: string | null;
+}) {
   const [query, setQuery] = useState("");
-  const [picked, setPicked] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(focus);
+
+  // The same arrival, one level down. Kept as its own state rather than used
+  // directly so that clicking another row still works: the row the alert named
+  // is where the person starts, not where they are held.
+  const [came, setCame] = useState(focus);
+  if (came !== focus) {
+    setCame(focus);
+    if (focus) setPicked(focus);
+  }
   const [track, setTrack] = useState<ShipmentTrack | null>(null);
   const [reasons, setReasons] = useState<DelayReasonOption[]>([]);
 

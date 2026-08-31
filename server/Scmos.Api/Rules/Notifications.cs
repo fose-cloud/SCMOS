@@ -61,25 +61,44 @@ public static class Notifications
     /// </summary>
     public const int CarrierWarningDays = 2;
 
+    // Booking, Pre-Run and Document Verification left the menu on 2026-08-31,
+    // and five of these were still pointing at them. An alert that opens a
+    // screen the team has stopped using is a dead end wearing a warning colour,
+    // so each one now names the screen where the work is actually done.
+    //
+    // Held to that by tests/alertTargets.test.mjs: every screen named here has
+    // to be somewhere a person can actually get to. Nothing tied these strings
+    // to the menu before, which is how three screens could leave it and take
+    // seven alerts with them without anybody noticing.
     public static readonly AlertDefinition[] All =
     [
         new(AlertKind.SupplierNotConfirmed, "Supplier not confirmed", "ผู้ขนส่งยังไม่ยืนยัน",
-            AlertLevel.Critical, "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ", "booking"),
+            AlertLevel.Critical, "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ", "myjob"),
 
         new(AlertKind.BookingMissingData, "Booking missing data", "ข้อมูลจองรถไม่ครบ",
-            AlertLevel.Warning, "เติมทะเบียนรถ คนขับ และเบอร์ติดต่อให้ครบก่อนวันงาน", "booking"),
+            AlertLevel.Warning, "เติมทะเบียนรถ คนขับ และเบอร์ติดต่อให้ครบก่อนวันงาน", "myjob"),
 
+        // The one on this list that is chased rather than typed: somebody has
+        // to phone the carrier. That is following a shipment, so it goes where
+        // shipments are followed — and it is the same question the supervisor's
+        // risk board asks under "ยังไม่มีรถ/คนขับ".
         new(AlertKind.PreRunNotConfirmed, "Pre-run not confirmed", "ยังไม่ยืนยันก่อนออกงาน",
-            AlertLevel.Critical, "โทรตามผู้ขนส่งให้ยืนยันรถและคนขับ", "prerun"),
+            AlertLevel.Critical, "โทรตามผู้ขนส่งให้ยืนยันรถและคนขับ", "monitoring"),
 
         new(AlertKind.TruckDelay, "Truck delay", "รถล่าช้า",
             AlertLevel.Critical, "บันทึกสาเหตุ แจ้งลูกค้า และประเมินเวลาที่จะถึงใหม่", "monitoring"),
 
+        // Whatever it is named, what it counts is a container number that fails
+        // its own check digit — see ContainerWillNotMatch below. The fix is to
+        // retype it on the job row.
         new(AlertKind.ECardMismatch, "E-Card mismatch", "E-Card ไม่ตรงกับงาน",
-            AlertLevel.Critical, "ให้ CS ตรวจสอบ E-Card เทียบกับ booking ก่อนรถเข้าท่า", "docverify"),
+            AlertLevel.Critical, "ให้ CS ตรวจสอบ E-Card เทียบกับ booking ก่อนรถเข้าท่า", "myjob"),
 
+        // The only one of the five that is about a document rather than a job:
+        // it carries no job key at all, so My Job would open a list with nothing
+        // to look at. It goes where its sibling POD missing already goes.
         new(AlertKind.DocumentUnclear, "Document unclear", "เอกสารไม่ชัดเจน",
-            AlertLevel.Warning, "ขอไฟล์ใหม่จากผู้ส่ง", "docverify"),
+            AlertLevel.Warning, "ขอไฟล์ใหม่จากผู้ส่ง", "documents"),
 
         new(AlertKind.PodMissing, "POD missing", "ยังไม่มีใบรับของ",
             AlertLevel.Warning, "ขอ POD จากผู้ขนส่งก่อนวางบิล", "documents"),
@@ -102,8 +121,12 @@ public static class Notifications
         new(AlertKind.AuditExpiring, "Audit expiring", "ผลตรวจประเมินใกล้หมดอายุ",
             AlertLevel.Information, "นัดตรวจประเมินรอบใหม่", "evaluation"),
 
+        // "carpar" until 2026-08-31. That id still resolves, so the alert worked
+        // — but it names a door that is no longer in the menu, and the rules we
+        // control should name the live entry rather than lean on an alias kept
+        // for saved links.
         new(AlertKind.CarParOverdue, "CAR/PAR overdue", "CAR/PAR เกินกำหนด",
-            AlertLevel.Critical, "ติดตามผู้รับผิดชอบ หรือขยายกำหนดพร้อมเหตุผล", "carpar"),
+            AlertLevel.Critical, "ติดตามผู้รับผิดชอบ หรือขยายกำหนดพร้อมเหตุผล", "incident"),
 
         new(AlertKind.CapacityShortage, "Capacity shortage", "กำลังรถไม่พอ",
             AlertLevel.Warning, "หาผู้ขนส่งรายอื่น หรือเลื่อนงานที่ยืดหยุ่นได้", "capacity"),
@@ -111,17 +134,21 @@ public static class Notifications
         new(AlertKind.KpiBelowTarget, "KPI below target", "KPI ต่ำกว่าเป้า",
             AlertLevel.Warning, "ดูว่าผู้ขนส่งรายใดหรือเส้นทางใดฉุดค่าเฉลี่ย", "kpi"),
 
+        // These two said "workspace", which was worse than a disused screen:
+        // Workspace is a menu heading with nothing rendered behind it, so the
+        // alert opened a blank page. The jobs being covered are on My Job.
+        //
         // Not a problem to fix — a fact somebody needs before they start
         // editing. Information, because telling them it is urgent would be
         // untrue and would train them to ignore the level.
         new(AlertKind.ActingForColleague, "Covering for a colleague", "คุณกำลังถืองานของเพื่อนร่วมงาน",
-            AlertLevel.Information, "งานของเขาจะแก้ได้จนถึงวันสิ้นสุด และยังบันทึกชื่อคุณเป็นผู้แก้", "workspace"),
+            AlertLevel.Information, "งานของเขาจะแก้ได้จนถึงวันสิ้นสุด และยังบันทึกชื่อคุณเป็นผู้แก้", "myjob"),
 
         // Somebody arranged cover over your work without you doing it. Told,
         // not discovered: you should hear it from the system before you hear it
         // from the edit history.
         new(AlertKind.CoverArrangedForYou, "Cover arranged for your jobs", "มีคนมอบสิทธิ์งานของคุณให้ผู้อื่น",
-            AlertLevel.Information, "ถ้าไม่ถูกต้อง ยกเลิกได้ที่หน้ามอบสิทธิ์", "workspace"),
+            AlertLevel.Information, "ถ้าไม่ถูกต้อง ยกเลิกได้ที่หน้ามอบสิทธิ์", "myjob"),
     ];
 
     public static AlertDefinition Of(AlertKind kind) => All.First(alert => alert.Kind == kind);

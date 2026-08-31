@@ -4,8 +4,24 @@ import { useCallback, useEffect, useState, type ChangeEvent, type DragEvent } fr
 import { apiFetch } from "../api";
 import { badge, css } from "../theme";
 import type { Alert, WsTarget } from "../alerts";
-import type { Account } from "../nav";
+import { ALL_NAV, type Account } from "../nav";
 import { PER_PAGE_OPTIONS, type Prefs, type Profile } from "../settings";
+
+/**
+ * Where an alert opens, in the same words the menu uses for it.
+ *
+ * Every row used to promise the Workspace. That was true when every alert went
+ * there and stopped being true on 2026-08-31, when they were spread across My
+ * Job, the shipment monitor and the Document Centre — a label that names the
+ * wrong screen is worse than none, because somebody reads it instead of looking.
+ * Taken from the menu itself so the two cannot drift apart.
+ */
+const DESTINATION = new Map(ALL_NAV.map(([screen, , thai]) => [screen as string, thai]));
+
+/** Client-built alerts carry no screen; they all open My Job. */
+function destinationOf(target: WsTarget): string {
+  return DESTINATION.get(target.screen ?? "myjob") ?? "งานของฉัน";
+}
 
 /* ----------------------------------------------------------------- toast */
 
@@ -64,7 +80,9 @@ export function Notifications(p: {
             <div style={css("font-size:12.5px;font-weight:600;color:#0A2240;margin-top:7px")}>{a.title}</div>
             <div style={css("font-size:11.5px;color:#334155;margin-top:2px")}>{a.th}</div>
             <div style={css("font-size:11.5px;color:#64748B;margin-top:4px;line-height:1.45;text-wrap:pretty")}>{a.body}</div>
-            <div style={css("font-size:10.5px;color:#2E7DD1;margin-top:7px;font-weight:600")}>เปิดงานชุดนี้ใน Workspace →</div>
+            <div style={css("font-size:10.5px;color:#2E7DD1;margin-top:7px;font-weight:600")}>
+              เปิดใน {destinationOf(a.target)} →
+            </div>
           </button>
         ))}
         {!p.alerts.length && (

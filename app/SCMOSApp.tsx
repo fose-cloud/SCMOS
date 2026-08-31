@@ -179,6 +179,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   /** Day / month / year the dashboard reports on. */
   const [period, setPeriod] = useState<Period>(ALL_PERIOD);
   const [sel, setSel] = useState<number | null>(null);
+  /**
+   * A real job for the shipment monitor to open on arrival.
+   *
+   * Separate from `sel`, which is the generated demo register's numeric id and
+   * means nothing to the job register the monitor actually reads.
+   */
+  const [shipFocus, setShipFocus] = useState<string | null>(null);
 
   // ---- session -----------------------------------------------------------
   // With real auth the visitor is already authenticated at the edge, so the demo
@@ -820,6 +827,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     if (target.screen && target.screen !== "myjob") {
       setNotif(false);
       go(target.screen as Screen);
+      // An alert that names one shipment should arrive at that shipment. Sent
+      // to the monitor without it, the person is told "one of these 2,093 is
+      // late, go and find it", which is the same as not being told. After `go`,
+      // which clears the selection.
+      if (target.screen === "monitoring" && target.jobKey) setShipFocus(target.jobKey);
       return;
     }
     setScreen("myjob");
@@ -1181,6 +1193,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     setPage(1);
     setQ("");
     setSel(null);
+    // Cleared on every move, so coming back to the monitor by hand later opens
+    // the list rather than re-opening whatever an alert pointed at last week.
+    setShipFocus(null);
   };
 
   /**
@@ -2499,7 +2514,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "monitoring" && (ops
               ? <Monitoring jobs={periodJobs} canEdit={canEditJob} onToast={setToast}
                   isSupervisor={me.role !== "Operation User" && able("AssignJobs")}
-                  onOpenJob={setDrawer} />
+                  onOpenJob={setDrawer} focus={shipFocus} />
               : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
                   กำลังโหลดแผนงาน…
                 </div>)}

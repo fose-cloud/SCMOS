@@ -82,8 +82,17 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
   // records feed the carrier scorecard's vehicle-readiness measure and the KPI
   // engine, so removing the service would quietly change a carrier's score —
   // a hidden screen costs nothing, a missing measurement costs somebody marks.
-  // Five alert kinds still point at these screens; an alert that opens one is
-  // the only way in now.
+  //
+  // Five alert kinds still pointed at them until 2026-08-31, when they were
+  // repointed at My Job, the monitor and the Document Centre — see
+  // Notifications.cs. So the three screens now have no way in from the UI at
+  // all, and one thing follows that is worth knowing: PreRun.tsx is the only
+  // code that creates or answers a pre-run check, so the pending count can no
+  // longer go up or down. It is zero today and it will stay zero. The
+  // scorecard keeps reading the records already there.
+  //
+  // tests/alertTargets.test.mjs now fails if an alert names a screen that is
+  // not in this list, so the next removal cannot quietly strand one.
   workspace: [
     ["myjob", "My Job", "งานของฉัน", [[2, 2, 12, 4], [2, 8, 5, 6], [9, 8, 5, 2], [9, 12, 5, 2]]],
     // Next to My Job because it is the same jobs, and separate from it because
