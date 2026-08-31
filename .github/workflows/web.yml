@@ -36,6 +36,9 @@ jobs:
 
       - run: npm run lint
       - run: npm run typecheck
+      # Before the build, so a broken rule fails in seconds rather than after a
+      # full Next.js compile.
+      - run: npm test
       - run: npm run build
 
       # `output: standalone` leaves the server in .next/standalone but not the

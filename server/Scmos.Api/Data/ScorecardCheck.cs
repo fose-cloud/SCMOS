@@ -19,9 +19,13 @@ namespace Scmos.Api.Data;
 /// </summary>
 public static class ScorecardCheck
 {
-    public static bool Run(string[] args)
+    /// <summary>
+    /// Null when this is not the flag being asked for; otherwise the exit code,
+    /// so a failing check can stop a build rather than only saying so.
+    /// </summary>
+    public static int? Run(string[] args)
     {
-        if (!args.Contains("--check-scorecard")) return false;
+        if (!args.Contains("--check-scorecard")) return null;
 
         var jobs = new List<(string Key, string Carrier, JobRecord Record)>
         {
@@ -190,7 +194,7 @@ public static class ScorecardCheck
             ? "  the scorecard counts what it says it counts."
             : $"  {failed} of {checks.Length} wrong.");
         Console.WriteLine();
-        return true;
+        return failed == 0 ? 0 : 1;
     }
 
     private static ScoreLine Line(CarrierScore score, string id) =>

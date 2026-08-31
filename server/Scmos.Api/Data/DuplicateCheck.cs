@@ -17,9 +17,13 @@ namespace Scmos.Api.Data;
 /// </summary>
 public static class DuplicateCheck
 {
-    public static bool Run(string[] args)
+    /// <summary>
+    /// Null when this is not the flag being asked for; otherwise the exit code,
+    /// so a failing check can stop a build rather than only saying so.
+    /// </summary>
+    public static int? Run(string[] args)
     {
-        if (!args.Contains("--check-duplicates")) return false;
+        if (!args.Contains("--check-duplicates")) return null;
 
         var rows = new List<(int Id, string Name)>
         {
@@ -129,6 +133,6 @@ public static class DuplicateCheck
             ? "  the register can see what it is holding twice."
             : $"  {failed} wrong.");
         Console.WriteLine();
-        return true;
+        return failed == 0 ? 0 : 1;
     }
 }

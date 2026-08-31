@@ -93,9 +93,13 @@ public static class DelegationCheck
         ("a past grant has expired", Grant("OP-01", "OP-02", "01/08/2026", "31/08/2026"), "หมดอายุแล้ว"),
     ];
 
-    public static bool Run(string[] args)
+    /// <summary>
+    /// Null when this is not the flag being asked for; otherwise the exit code,
+    /// so a failing check can stop a build rather than only saying so.
+    /// </summary>
+    public static int? Run(string[] args)
     {
-        if (!args.Contains("--check-delegation")) return false;
+        if (!args.Contains("--check-delegation")) return null;
 
         var failed = 0;
         Console.WriteLine($"Today is {Today:dd/MM/yyyy} for every case below.");
@@ -125,7 +129,7 @@ public static class DelegationCheck
         Console.WriteLine(failed == 0
             ? $"{Cases.Length} permission cases and {Descriptions.Length} statuses, all as expected."
             : $"{failed} failed.");
-        return true;
+        return failed == 0 ? 0 : 1;
     }
 
     private static string Show(string who) => who.Length == 0 ? "(none)" : who;

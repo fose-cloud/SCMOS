@@ -68,9 +68,13 @@ public static class TypeCheck
         ("1X20DC", "1X20DC", "DC is not a suffix this knows — left alone rather than guessed"),
     ];
 
-    public static bool Run(string[] args)
+    /// <summary>
+    /// Null when this is not the flag being asked for; otherwise the exit code,
+    /// so a failing check can stop a build rather than only saying so.
+    /// </summary>
+    public static int? Run(string[] args)
     {
-        if (!args.Contains("--check-types")) return false;
+        if (!args.Contains("--check-types")) return null;
 
         var failed = 0;
         foreach (var (raw, expect, why) in Cases)
@@ -94,7 +98,7 @@ public static class TypeCheck
         Console.WriteLine(failed == 0
             ? $"{Cases.Length} spellings, {JobVehicleType.All.Length} canonical types, all as expected."
             : $"{failed} failed.");
-        return true;
+        return failed == 0 ? 0 : 1;
     }
 
     private static string Quote(string value) => "\"" + value + "\"";

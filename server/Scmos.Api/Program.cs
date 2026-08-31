@@ -136,10 +136,14 @@ var app = builder.Build();
 // Arithmetic only: no database, no register, nothing written. It answers the
 // question a screen of straight hundreds cannot — whether the scorecard is
 // counting wrongly, or there is genuinely nothing to count.
-if (ScorecardCheck.Run(args)) return 0;
-if (DuplicateCheck.Run(args)) return 0;
-if (TypeCheck.Run(args)) return 0;
-if (DelegationCheck.Run(args)) return 0;
+// Each returns null when it is not the flag being asked for, and otherwise the
+// exit code. Returning 0 regardless made every one of them a check that could
+// print FAIL and still let a build through — which is worse than no check,
+// because it looks like one.
+if (ScorecardCheck.Run(args) is int scorecardExit) return scorecardExit;
+if (DuplicateCheck.Run(args) is int duplicateExit) return duplicateExit;
+if (TypeCheck.Run(args) is int typeExit) return typeExit;
+if (DelegationCheck.Run(args) is int delegationExit) return delegationExit;
 
 if (args.Contains("--seed"))
 {

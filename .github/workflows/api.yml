@@ -47,6 +47,22 @@ jobs:
       - name: Build
         run: dotnet build ${{ env.PROJECT }} --configuration Release --no-restore -warnaserror
 
+      # The rule checks, before anything is published. They need no database and
+      # no session — that is why they were written that way — so they cost a few
+      # seconds and can refuse a build that has broken one of them.
+      #
+      # Delegation decides who may edit whose work; the type rule decides what a
+      # vehicle is called across seven thousand jobs; the duplicate rule decides
+      # which carrier spellings are one company; the scorecard decides what a
+      # haulier is scored on. None of those should reach production unchecked.
+      - name: Rule checks
+        run: |
+          for check in delegation types duplicates scorecard; do
+            echo "::group::--check-$check"
+            dotnet run --project ${{ env.PROJECT }} --configuration Release --no-build               --no-launch-profile -- "--check-$check"
+            echo "::endgroup::"
+          done
+
       - name: Publish
         run: dotnet publish ${{ env.PROJECT }} --configuration Release --no-build --output publish
 
