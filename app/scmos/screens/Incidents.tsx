@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
+import { STAGES, STAGE_TH } from "../incidentStages";
 
 /**
  * Incident and CAR/PAR.
@@ -41,11 +42,7 @@ type Evidence = {
   uploadedBy: string; uploadedAt: string;
 };
 
-const STAGES = ["open", "analysis", "action", "follow-up", "monitoring", "approval", "closed"];
-const STAGE_TH: Record<string, string> = {
-  open: "เปิดเคส", analysis: "วิเคราะห์", action: "กำหนดการแก้ไข",
-  "follow-up": "ติดตาม", monitoring: "ติดตามประสิทธิผล", approval: "รออนุมัติ", closed: "ปิดแล้ว",
-};
+
 const CATEGORY_TH: Record<string, string> = {
   accident: "อุบัติเหตุ", damage: "ความเสียหาย", delay: "ความล่าช้า",
   safety: "ความปลอดภัย", quality: "คุณภาพ", other: "อื่นๆ",

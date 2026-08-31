@@ -3,13 +3,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { css, STATUS_LADDER, STATUS_TH } from "../theme";
 import { useRemembered } from "../pageCache";
-import type { Db, Ship } from "../demo";
+import type { Ship } from "../demo";
 import type { WsTarget } from "../alerts";
 import { opsStats, STATUS_RE as RE, type Job, type OpsStats } from "../ops";
 import { periodLabel, type Period } from "../period";
 import { dowOf, money, pad } from "../util";
 import { PeriodBar } from "../PeriodBar";
 import { apiFetch } from "../api";
+import { byStage } from "../incidentStages";
 
 /**
  * The three dashboard tabs answer three different questions, so they are three
@@ -28,7 +29,6 @@ import { apiFetch } from "../api";
 export type Drill = WsTarget;
 
 type Props = {
-  db: Db;
   filtered: Ship[];
   /** Real operation jobs, already narrowed to the chosen period. */
   jobs: Job[];
@@ -315,7 +315,35 @@ function ContractScores({ period, onOpen }: { period: Period; onOpen: () => void
   );
 }
 
-export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, loaded, note, tab, onDrill, onOpenKpi }: Props) {
+/**
+ * The CAR/PAR cases, from the screen that owns them.
+ *
+ * Read here rather than counted from anything the dashboard already holds:
+ * these cases are not derived from the job register, and the only place that
+ * knows about them is the incident table. Failing quietly is deliberate — a
+ * panel that cannot reach the API keeps the last count it had rather than
+ * dropping to zero, which would read as "no open cases".
+ */
+function useCarPar(): { stage: string }[] | null {
+  const [cases, setCases] = useRemembered<{ stage: string }[]>("dashboardCarPar");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const response = await apiFetch("/api/incidents", { headers: { accept: "application/json" } });
+        if (!response.ok || !alive) return;
+        const body = await response.json() as { stage: string }[];
+        if (alive) setCases(body);
+      } catch { /* keep what was there; an unreachable API is not an empty register */ }
+    })();
+    return () => { alive = false; };
+  }, [setCases]);
+
+  return cases ?? null;
+}
+
+export function Dashboard({ filtered: fl, jobs, allJobs, period, onPeriod, loaded, note, tab, onDrill, onOpenKpi }: Props) {
   const s = opsStats(jobs);
   const total = s.jobs.length;
   const pct = (n: number) => (total ? Math.round((n / total) * 100) + "%" : "—");
@@ -346,7 +374,7 @@ export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, l
       {bar}
       {tab === "Wall Board" ? <WallBoard s={s} period={period} />
         : tab === "Operational" ? <Operational s={s} onDrill={onDrill} />
-          : <Executive s={s} db={db} fl={fl} total={total} pct={pct} onDrill={onDrill} />}
+          : <Executive s={s} fl={fl} total={total} pct={pct} onDrill={onDrill} />}
 
       {/* Only on the executive view, and only once the request answers. That is
           the view already asking "how are we doing"; the wall board is for a
@@ -362,13 +390,12 @@ export function Dashboard({ db, filtered: fl, jobs, allJobs, period, onPeriod, l
 
 function Executive(p: {
   s: OpsStats;
-  db: Db;
   fl: Ship[];
   total: number;
   pct: (n: number) => string;
   onDrill: (patch: Drill) => void;
 }) {
-  const { s, db, fl, total, onDrill } = p;
+  const { s, fl, total, onDrill } = p;
 
   // Volume per operation day, newest 14 days, split by direction.
   const days = s.dates.slice(-14).map((d) => {
@@ -400,6 +427,7 @@ function Executive(p: {
     .slice(0, 8);
 
   const bill = (k: string) => fl.filter((x) => x.bill === k).length;
+  const carPar = useCarPar();
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:16px")}>
@@ -511,19 +539,22 @@ function Executive(p: {
             "#B45309", 4,
           )} />
         </Panel>
-        <Panel title="CAR / PAR Status" sub="สถานะการแก้ไข/ป้องกัน" right={DEMO_BADGE}>
-          <BarRows items={bars(
-            db.carpar.reduce((acc: Record<string, number>, c) => {
-              acc[c.status] = (acc[c.status] || 0) + 1;
-              return acc;
-            }, {}),
-            "#0A2240", 6,
-          )} />
+        {/*
+          The real cases, by the stage they are sitting at. Seven stages, seven
+          rows: the cap is the whole process rather than a top-six, because a
+          pipeline with a stage silently missing from the middle reads as a
+          shorter pipeline instead of an incomplete picture.
+        */}
+        <Panel title="CAR / PAR Status" sub="สถานะการแก้ไข/ป้องกัน · จาก Incident & CAR/PAR"
+          right={carPar === null
+            ? <span style={css("font-size:10px;color:#94A3B8")}>กำลังอ่าน…</span>
+            : <span style={css("font-size:10px;color:#94A3B8")}>{carPar.length} เคส</span>}>
+          <BarRows items={bars(byStage(carPar ?? []), "#0A2240", 7)} />
         </Panel>
       </div>
 
       <span style={css("font-size:11px;color:#94A3B8")}>
-        แผงที่ติดป้าย DEMO DATA ยังใช้ข้อมูลจำลอง เพราะ ops.json ยังไม่มีค่าขนส่ง สถานะวางบิล และ CAR/PAR — ตัวเลขอื่นทั้งหมดมาจากงานจริง {total} งาน
+        แผงที่ติดป้าย DEMO DATA ยังใช้ข้อมูลจำลอง เพราะ ops.json ยังไม่มีค่าขนส่งและสถานะวางบิล — CAR/PAR อ่านจากเคสจริงในเมนู Incident &amp; CAR/PAR และตัวเลขอื่นทั้งหมดมาจากงานจริง {total} งาน
       </span>
     </div>
   );

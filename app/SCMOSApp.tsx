@@ -2405,9 +2405,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             )}
 
             {screen === "dashboard" && activeTab !== "TODAY" && (
-              <Dashboard
-                db={db}
-                filtered={filtered}
+              <Dashboard filtered={filtered}
                 jobs={periodJobs}
                 allJobs={ops?.jobs ?? []}
                 period={period}
