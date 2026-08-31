@@ -139,6 +139,7 @@ var app = builder.Build();
 if (ScorecardCheck.Run(args)) return 0;
 if (DuplicateCheck.Run(args)) return 0;
 if (TypeCheck.Run(args)) return 0;
+if (DelegationCheck.Run(args)) return 0;
 
 if (args.Contains("--seed"))
 {

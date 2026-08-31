@@ -29,7 +29,7 @@ public class DelegationService(ScmosDbContext db)
     /// Derived rather than stored, so a grant ends on the day it says it ends
     /// whether or not anything ran overnight.
     /// </summary>
-    private static bool IsLive(JobDelegation grant, DateOnly today)
+    public static bool IsLive(JobDelegation grant, DateOnly today)
     {
         if (grant.Revoked) return false;
         var from = TrainingRules.ParseDate(grant.FromDate);
@@ -49,6 +49,33 @@ public class DelegationService(ScmosDbContext db)
     /// <summary>
     /// The owner ids this person may edit for right now, their own excluded.
     ///
+    /// Separated from the query so the rule can be exercised without a database
+    /// or a session — it decides who may write to somebody else's work, and
+    /// that deserves to be checkable on its own. `--check-delegation` runs it.
+    ///
+    /// Own id excluded for real, not only by the grant form refusing to create
+    /// such a row: this is asked on every request, and a row that got in by any
+    /// other route would otherwise widen the answer rather than being ignored.
+    /// </summary>
+    public static IReadOnlyList<string> ActingFor(
+        IEnumerable<JobDelegation> grants, string delegateId, DateOnly today)
+    {
+        var who = (delegateId ?? "").Trim();
+        if (who.Length == 0) return [];
+
+        return grants
+            .Where(grant => string.Equals(grant.DelegateId, who, StringComparison.OrdinalIgnoreCase))
+            .Where(grant => IsLive(grant, today))
+            .Select(grant => grant.OwnerId)
+            .Where(owner => owner.Length > 0
+                && !string.Equals(owner, who, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The owner ids this person may edit for right now, their own excluded.
+    ///
     /// Empty for almost everybody, and that is the expected answer — this is a
     /// holiday arrangement, not a role.
     /// </summary>
@@ -60,9 +87,7 @@ public class DelegationService(ScmosDbContext db)
             .Where(grant => grant.DelegateId == delegateId && !grant.Revoked)
             .ToListAsync(token);
 
-        var today = Today;
-        return grants.Where(grant => IsLive(grant, today))
-            .Select(grant => grant.OwnerId).Distinct().ToList();
+        return ActingFor(grants, delegateId, Today);
     }
 
     /// <summary>Every grant this person made, or was given, most recent first.</summary>
