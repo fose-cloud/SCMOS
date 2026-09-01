@@ -8,8 +8,9 @@ import {
   ALL_PERIOD, inPeriod, monthLabel, periodLabel, periodOptions, type Period,
 } from "../period";
 import { MOVEMENT_STAGE, toInstant, toTyped } from "../truckTimes";
-import { kilos } from "../util";
+import { cell, kilos, paginate, type Cell } from "../util";
 import { css } from "../theme";
+import { DataTable, type TableModel } from "../DataTable";
 
 /**
  * The L'OREAL truck report, in the shape the customer already receives.
@@ -110,6 +111,16 @@ function joinDateTime(date: string, time: string): string {
 
 export const CUSTOMER = "L'OREAL";
 
+/**
+ * Rows to a page.
+ *
+ * High enough that this customer's month — ninety containers — is one page, so
+ * the report reads the way it did before it moved onto the paged grid, and low
+ * enough that a customer with a year of work does not render thousands of rows
+ * at once.
+ */
+const PER = 200;
+
 export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   jobs: Job[];
   onToast: (message: string) => void;
@@ -119,6 +130,9 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   onSetField: (job: Job, field: keyof Job, value: string) => void;
 }) {
   const [period, setPeriod] = useState<Period>(ALL_PERIOD);
+  const [page, setPage] = useState(1);
+  /** The grid filling the screen with everything else hidden — same as My Job. */
+  const [full, setFull] = useState(false);
 
   /** Recorded times, keyed job then stage. Read once for the whole customer. */
   const [times, setTimes] = useState<Record<string, Record<string, string>>>({});
@@ -172,6 +186,8 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
 
   /** Changing a wider box clears the narrower ones, which no longer apply. */
   function choose(patch: Partial<Period>) {
+    // Or a narrower period leaves the pager on a page that no longer exists.
+    setPage(1);
     setPeriod((was) => ({
       ...was,
       ...patch,
@@ -231,9 +247,88 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
     (column) => column.source === "movement"
       && rows.every((job) => !show(job, column))).length;
 
-  return (
-    <div style={css("display:flex;flex-direction:column;gap:13px")}>
-      <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap")}>
+
+  const pg = paginate(rows, page, PER);
+
+  /**
+   * One cell, either showing a value or open for typing.
+   *
+   * Built through the grid's own cell kinds rather than as bespoke markup, so
+   * this table gets the frozen header, the zoom and the full screen that My Job
+   * has by being the same table rather than a second one that looks like it.
+   */
+  function toCell(job: Job, column: Column): Cell {
+    const value = show(job, column);
+    const refused = why(job, column);
+    const movement = column.source === "movement";
+
+    if (editing?.key === job.key && editing.head === column.head) {
+      return {
+        kind: "input",
+        v: draft,
+        value: draft,
+        td: "padding:2px 6px;border-bottom:1px solid #EDF1F5;vertical-align:middle;",
+        sp: "",
+        inpStyle: "width:100%;min-width:120px;height:26px;border:1px solid #2E7DD1;border-radius:3px;"
+          + "padding:0 6px;font-size:12px;font-family:inherit;outline:none",
+        onChange: (event) => setDraft(event.target.value),
+        onBlur: () => { void commit(job, column, draft); },
+        onKey: (event) => {
+          if (event.key === "Enter") { event.preventDefault(); void commit(job, column, draft); }
+          // Escape closes the cell before the blur that follows, so the draft
+          // is not written on the way out.
+          if (event.key === "Escape") setEditing(null);
+        },
+      };
+    }
+
+    const base = cell(value, { mono: movement, mute: !value });
+    return {
+      ...base,
+      td: base.td + (movement ? "background:#FDFAF5;" : "") + (refused ? "cursor:default;" : "cursor:text;"),
+      title: refused || (movement ? "คลิกเพื่อกรอกเวลา — วว/ดด/ปปปป ชช:นน" : "คลิกเพื่อแก้ไข"),
+      go: () => {
+        if (refused) { if (!canEdit(job)) onToast(refused); return; }
+        setDraft(value);
+        setEditing({ key: job.key, head: column.head });
+      },
+    };
+  }
+
+  const model: TableModel = {
+    title: "Truck Report",
+    meta: `${rows.length} ตู้ · ${periodLabel(period)} · ${CUSTOMER}`,
+    // Not through `cols()`: that one makes every header a sort button, and
+    // nothing here sorts. A header that looks clickable and does nothing is
+    // worse than a plain one.
+    cols: COLUMNS.map((column) => ({
+      label: column.head,
+      style: "position:sticky;top:0;z-index:2;padding:6px 11px;text-align:left;font-size:10px;"
+        + "letter-spacing:.04em;text-transform:uppercase;font-weight:600;white-space:nowrap;"
+        + "border-bottom:1px solid #D8E0E8;user-select:none;background:"
+        + (column.source === "movement" ? "#FDF6EC" : "#F4F7FA")
+        + ";color:" + (column.source === "movement" ? "#B45309" : "#465A6E"),
+      sort: () => undefined,
+    })),
+    rows: pg.slice.map((job) => ({
+      key: job.key,
+      style: "",
+      cells: COLUMNS.map((column) => toCell(job, column)),
+    })),
+    total: pg.total,
+    pageCount: pg.pageCount,
+    page: pg.p,
+    per: pg.per,
+    tools: [],
+    fill: true,
+    actions: [{
+      label: "ดาวน์โหลด Excel",
+      style: "height:28px;padding:0 13px;border:1px solid #3FA372;background:#16794C;color:#fff;"
+        + "border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit",
+      go: () => downloadWorkbook(rows, periodLabel(period), onToast),
+    }],
+    controls: (
+      <div style={css("display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:8px")}>
         <Picker label="ปี" value={period.year} onPick={(year) => choose({ year })}
           all={`ทุกปี · ${mine.length} ตู้`}
           options={options.years.map((year) => [year, year])} />
@@ -244,122 +339,33 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
         <Picker label="วันที่" value={period.day} onPick={(day) => choose({ day })}
           all="ทุกวัน" options={options.days.map((dd) => [dd, dd])} />
 
-        <div style={css("flex:1;min-width:180px;font-size:12.5px;color:#5A6B7D;line-height:1.6")}>
-          <b style={css("color:#0F2B46")}>{rows.length}</b> ตู้ในรายงาน · {periodLabel(period)} ·
-          ดึงจากทะเบียนงานจริง ลูกค้า {CUSTOMER}
-          {options.undated > 0 && (
-            /* Said rather than hidden: a container with no date belongs to no
-               period, so choosing one drops it and the count would otherwise
-               fall with no explanation. */
-            <span style={css("color:#B45309")}> · {options.undated} ตู้ไม่มีวันที่ที่อ่านได้
-              {period === ALL_PERIOD ? "" : " (ไม่อยู่ในช่วงที่เลือก)"}</span>
-          )}
+        <span style={css("font-size:11.5px;color:#B9CFE5;padding-bottom:7px;line-height:1.6")}>
+          {missing > 0
+            ? `${missing} ช่องเวลาเดินรถยังว่างทุกแถว — คลิกที่ช่องเพื่อกรอก · วว/ดด/ปปปป ชช:นน`
+            : "เวลาเดินรถกรอกครบทุกช่องแล้ว — คลิกที่ช่องเพื่อแก้ไข"}
+          {options.undated > 0 && ` · ${options.undated} ตู้ไม่มีวันที่ที่อ่านได้`}
+        </span>
+      </div>
+    ),
+  };
+
+  return (
+    <div style={css("display:flex;flex-direction:column;gap:11px;min-height:0;flex:1")}>
+      {/* Said once, above the grid: what these times are and where they go.
+          Hidden in full screen, which is the one place every pixel is the
+          table's. */}
+      {!full && (
+        <div style={css("background:#FFF8F0;border:1px solid #F0D8B8;border-left:3px solid #B45309;border-radius:5px;padding:10px 15px;font-size:12px;color:#8A5A12;line-height:1.6")}>
+          เวลาที่กรอกที่นี่บันทึกลงเป็นขั้นตอนเดินรถของงานนั้น (<code style={css("font-family:ui-monospace,monospace")}>shipment_milestones</code>)
+          จึงเป็นค่าเดียวกับที่หน้า Shipment Monitor แสดง ไม่ใช่ข้อมูลคนละชุด ·
+          เวลาที่กรอกถือตามเวลาไทย (+07:00) เสมอ ไม่ขึ้นกับนาฬิกาของเครื่องที่เปิด ·
+          ช่อง PACKAGE, CARD และ Estimated Delivery ยังแก้ที่นี่ไม่ได้ — ดูคำอธิบายเมื่อชี้ที่ช่อง
         </div>
+      )}
 
-        <button
-          onClick={() => downloadWorkbook(rows, periodLabel(period), onToast)}
-          disabled={rows.length === 0}
-          style={css("height:31px;padding:0 15px;border:1px solid #16794C;background:" +
-            (rows.length === 0 ? "#C3CFDB" : "#16794C") +
-            ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
-          ดาวน์โหลด Excel
-        </button>
-      </div>
-
-      {/* Said once, at the top, in the same words every time: which columns the
-          system cannot fill yet, and what would fill them. */}
-      <div style={css("background:#FFF8F0;border:1px solid #F0D8B8;border-left:3px solid #B45309;border-radius:5px;padding:12px 15px;font-size:12.5px;color:#8A5A12;line-height:1.65")}>
-        {missing > 0
-          ? <><b>{missing} ช่องเวลาเดินรถยังว่างทุกแถวในเดือนนี้</b> — คลิกที่ช่องเพื่อกรอกได้เลย
-            รูปแบบ วว/ดด/ปปปป ชช:นน เช่น 01/07/2026 08:30</>
-          : <><b>เวลาเดินรถกรอกครบทุกช่องแล้ว</b> — คลิกที่ช่องเพื่อแก้ไขได้</>}
-        <br />
-        เวลาที่กรอกที่นี่บันทึกลงเป็นขั้นตอนเดินรถของงานนั้น (<code style={css("font-family:ui-monospace,monospace")}>shipment_milestones</code>)
-        จึงเป็นค่าเดียวกับที่หน้า Shipment Monitor แสดง ไม่ใช่ข้อมูลคนละชุด ·
-        เวลาที่กรอกถือตามเวลาไทย (+07:00) เสมอ ไม่ขึ้นกับนาฬิกาของเครื่องที่เปิด ·
-        ช่อง PACKAGE, CARD และ Estimated Delivery ยังแก้ที่นี่ไม่ได้ — ดูคำอธิบายเมื่อชี้ที่ช่อง
-      </div>
-
-      <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow-x:auto")}>
-        <table style={css("border-collapse:collapse;font-size:11.5px;white-space:nowrap")}>
-          <thead>
-            <tr>
-              {COLUMNS.map((column) => (
-                <th key={column.head}
-                  title={column.source === "movement" ? "ยังไม่มีแหล่งข้อมูล" : undefined}
-                  style={css("background:" + (column.source === "movement" ? "#FDF6EC" : "#F8FAFC") +
-                    ";padding:8px 10px;text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:" +
-                    (column.source === "movement" ? "#B45309" : "#7B8CA0") +
-                    ";font-weight:600;border-bottom:1px solid #E9EFF5;position:sticky;top:0")}>
-                  {column.head}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((job, index) => (
-              <tr key={job.key} style={css(index % 2 ? "background:#FBFCFD" : "")}>
-                {COLUMNS.map((column) => {
-                  const value = show(job, column);
-                  const refused = why(job, column);
-                  const open = editing?.key === job.key && editing.head === column.head;
-
-                  if (open) {
-                    return (
-                      <td key={column.head} style={css("padding:2px 4px;border-bottom:1px solid #F1F5F9")}>
-                        <input
-                          // Same reason as the workspace grid: the box only
-                          // exists because the cell was just clicked into, so
-                          // the focus follows the click rather than stealing it.
-                          // eslint-disable-next-line jsx-a11y/no-autofocus
-                          autoFocus
-                          value={draft}
-                          onChange={(event) => setDraft(event.target.value)}
-                          onBlur={() => void commit(job, column, draft)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") { event.preventDefault(); void commit(job, column, draft); }
-                            // Escape puts the cell back without writing. The blur
-                            // that follows must not then save the draft, so the
-                            // cell is closed before the field loses focus.
-                            if (event.key === "Escape") { setEditing(null); }
-                          }}
-                          placeholder={column.source === "movement" ? "01/07/2026 08:30" : ""}
-                          style={css("width:100%;min-width:120px;height:26px;border:1px solid #2E7DD1;border-radius:3px;"
-                            + "padding:0 6px;font-size:11.5px;font-family:inherit;outline:none")}
-                        />
-                      </td>
-                    );
-                  }
-
-                  return (
-                    <td key={column.head}
-                      title={refused || (column.source === "movement"
-                        ? "คลิกเพื่อกรอกเวลา — วว/ดด/ปปปป ชช:นน"
-                        : "คลิกเพื่อแก้ไข")}
-                      onClick={() => {
-                        if (refused) { if (canEdit(job) === false) onToast(refused); return; }
-                        setDraft(value);
-                        setEditing({ key: job.key, head: column.head });
-                      }}
-                      style={css("padding:6px 10px;border-bottom:1px solid #F1F5F9;color:" +
-                        (value ? "#243B53" : "#C3CFDB") +
-                        (column.source === "movement" ? ";background:#FDFAF5" : "") +
-                        (refused ? ";cursor:default" : ";cursor:text"))}>
-                      {value || "—"}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={COLUMNS.length} style={css("padding:26px;text-align:center;color:#7B8CA0;font-size:12.5px")}>
-                  ไม่มีงานของ {CUSTOMER} ในช่วงที่เลือก
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="grid-only" style={css("flex:1;min-height:0;display:flex;flex-direction:column")}>
+        <DataTable model={model} full={full} onFull={() => setFull((on) => !on)}
+          onPage={setPage} onTool={() => undefined} />
       </div>
     </div>
   );

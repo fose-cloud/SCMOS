@@ -657,6 +657,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const lockedCat = domesticGrid ? "DELIVERY" : undefined;
   const isWorkspace = (screen === "myjob" || domesticGrid) && !isDetail;
 
+
   // The rate book is nearly two megabytes of subcontractor quotations, so it is
   // fetched the first time somebody opens a screen that prices work, rather than
   // on every load. Booking needs it as much as Rates does — choosing a carrier
@@ -2346,7 +2347,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         // card for as long as the database takes to wake, and hiding the strip
         // through that would leave two minutes with no way to change tab.
         hideTabs={isWorkspace && !!workspaceOps}
-        lockScroll={isWorkspace && !!workspaceOps}
+        /*
+          Screens whose grid fills the page instead of the page scrolling past
+          it. The customer truck report is worked the same way My Job is — a
+          wide grid read left to right with the headings held in place — so it
+          locks the page too. Not folded into `isWorkspace`, which also decides
+          server paging, tabs and filters and means none of those here.
+        */
+        lockScroll={(isWorkspace && !!workspaceOps) || screen === "loreal"}
         filters={showFilters ? { defs: filterDefs, q, onQ: (v) => { setQ(v); setPage(1); }, onReset: () => { setF(EMPTY_FILTERS); setQ(""); setPage(1); setToast("Filters reset"); } } : null}
       >
         {isDetail && selectedShip && (
