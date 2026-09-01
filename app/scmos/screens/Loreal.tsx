@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { customerMilestones, saveMilestone } from "../flow";
 import type { Job } from "../ops";
-import { monthKey, monthKeyLabel } from "../period";
+import {
+  ALL_PERIOD, inPeriod, monthLabel, periodLabel, periodOptions, type Period,
+} from "../period";
 import { MOVEMENT_STAGE, toInstant, toTyped } from "../truckTimes";
 import { kilos } from "../util";
 import { css } from "../theme";
@@ -116,7 +118,7 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   /** The register save path, so a cell typed here goes through what My Job uses. */
   onSetField: (job: Job, field: keyof Job, value: string) => void;
 }) {
-  const [month, setMonth] = useState("ALL");
+  const [period, setPeriod] = useState<Period>(ALL_PERIOD);
 
   /** Recorded times, keyed job then stage. Read once for the whole customer. */
   const [times, setTimes] = useState<Record<string, Record<string, string>>>({});
@@ -145,19 +147,38 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
     [jobs],
   );
 
-  const months = useMemo(() => {
-    const seen = new Set<string>();
-    for (const job of mine) {
-      const key = monthOf(job);
-      if (key) seen.add(key);
-    }
-    return [...seen].sort();
-  }, [mine]);
+  /**
+   * Each job paired with the date the report is about.
+   *
+   * A truck report is read by when the container was delivered, so the period
+   * follows the arrival and falls back to the plan when nothing was recorded —
+   * which is what the month dropdown did before this. The date is shimmed onto
+   * `date` so the year/month/day rules in period.ts apply unchanged rather than
+   * being written a second time here with a chance of disagreeing.
+   */
+  const dated = useMemo(
+    () => mine.map((job) => ({ job, keyed: { ...job, date: job.arrDate || job.date } })),
+    [mine],
+  );
+
+  // What each dropdown offers, narrowed by the ones above it: picking 2026 then
+  // offers only that year's months, and a month only its own days.
+  const options = useMemo(
+    () => periodOptions(dated.map((one) => one.keyed), period), [dated, period]);
 
   const rows = useMemo(
-    () => (month === "ALL" ? mine : mine.filter((job) => monthOf(job) === month)),
-    [mine, month],
-  );
+    () => dated.filter((one) => inPeriod(one.keyed, period)).map((one) => one.job),
+    [dated, period]);
+
+  /** Changing a wider box clears the narrower ones, which no longer apply. */
+  function choose(patch: Partial<Period>) {
+    setPeriod((was) => ({
+      ...was,
+      ...patch,
+      ...(patch.year !== undefined ? { month: "ALL", day: "ALL" } : {}),
+      ...(patch.month !== undefined ? { day: "ALL" } : {}),
+    }));
+  }
 
   /** What a cell shows: the register for most of it, the recorded time for six. */
   function show(job: Job, column: Column): string {
@@ -213,23 +234,30 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap")}>
-        <div style={css("display:flex;flex-direction:column;gap:3px")}>
-          <span style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>เดือน</span>
-          <select value={month} onChange={(event) => setMonth(event.target.value)}
-            style={css("height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff")}>
-            <option value="ALL">ทุกเดือน · {mine.length} ตู้</option>
-            {months.map((key) => (
-              <option key={key} value={key}>{monthKeyLabel(key)} · {mine.filter((j) => monthOf(j) === key).length} ตู้</option>
-            ))}
-          </select>
-        </div>
+        <Picker label="ปี" value={period.year} onPick={(year) => choose({ year })}
+          all={`ทุกปี · ${mine.length} ตู้`}
+          options={options.years.map((year) => [year, year])} />
+
+        <Picker label="เดือน" value={period.month} onPick={(month) => choose({ month })}
+          all="ทุกเดือน" options={options.months.map((mm) => [mm, monthLabel(mm)])} />
+
+        <Picker label="วันที่" value={period.day} onPick={(day) => choose({ day })}
+          all="ทุกวัน" options={options.days.map((dd) => [dd, dd])} />
 
         <div style={css("flex:1;min-width:180px;font-size:12.5px;color:#5A6B7D;line-height:1.6")}>
-          <b style={css("color:#0F2B46")}>{rows.length}</b> ตู้ในรายงาน · ดึงจากทะเบียนงานจริง ลูกค้า {CUSTOMER}
+          <b style={css("color:#0F2B46")}>{rows.length}</b> ตู้ในรายงาน · {periodLabel(period)} ·
+          ดึงจากทะเบียนงานจริง ลูกค้า {CUSTOMER}
+          {options.undated > 0 && (
+            /* Said rather than hidden: a container with no date belongs to no
+               period, so choosing one drops it and the count would otherwise
+               fall with no explanation. */
+            <span style={css("color:#B45309")}> · {options.undated} ตู้ไม่มีวันที่ที่อ่านได้
+              {period === ALL_PERIOD ? "" : " (ไม่อยู่ในช่วงที่เลือก)"}</span>
+          )}
         </div>
 
         <button
-          onClick={() => downloadWorkbook(rows, month, onToast)}
+          onClick={() => downloadWorkbook(rows, periodLabel(period), onToast)}
           disabled={rows.length === 0}
           style={css("height:31px;padding:0 15px;border:1px solid #16794C;background:" +
             (rows.length === 0 ? "#C3CFDB" : "#16794C") +
@@ -337,10 +365,41 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   );
 }
 
-/** `MM/YYYY` off whichever date the row actually carries. */
-/** This report groups by the arrival, falling back to the plan date. */
-function monthOf(job: Job): string {
-  return monthKey(job.arrDate || job.date);
+/**
+ * A period as something Windows will accept as part of a filename.
+ *
+ * Keeps letters, digits, spaces, dots and dashes and replaces the rest, so the
+ * Thai month names come through intact and the slashes in a date do not become
+ * folders.
+ */
+function safeName(scope: string): string {
+  return scope.replace(/[^\p{L}\p{N} .-]/gu, "-").trim() || "all";
+}
+
+/**
+ * One of the three period boxes.
+ *
+ * Every option carries a value the register actually holds, so a month with no
+ * containers is not offered and cannot be chosen into an empty table.
+ */
+function Picker({ label, value, all, options, onPick }: {
+  label: string;
+  value: string;
+  /** What the "no narrowing" option reads as. */
+  all: string;
+  options: [string, string][];
+  onPick: (value: string) => void;
+}) {
+  return (
+    <div style={css("display:flex;flex-direction:column;gap:3px")}>
+      <span style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</span>
+      <select value={value} onChange={(event) => onPick(event.target.value)}
+        style={css("height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff;min-width:110px")}>
+        <option value="ALL">{all}</option>
+        {options.map(([key, shown]) => <option key={key} value={key}>{shown}</option>)}
+      </select>
+    </div>
+  );
 }
 
 /**
@@ -350,7 +409,7 @@ function monthOf(job: Job): string {
  * screen cannot drift apart — the failure this project has hit more than once
  * is the same rule written twice and quietly disagreeing.
  */
-function downloadWorkbook(rows: Job[], month: string, onToast: (message: string) => void) {
+function downloadWorkbook(rows: Job[], scope: string, onToast: (message: string) => void) {
   try {
     const sheet = XLSX.utils.aoa_to_sheet([
       COLUMNS.map((column) => column.head),
@@ -361,7 +420,8 @@ function downloadWorkbook(rows: Job[], month: string, onToast: (message: string)
 
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, CUSTOMER);
-    XLSX.writeFile(book, `Truck Report Loreal ${month === "ALL" ? "all" : month}.xlsx`);
+    // The period in the filename, so two months on a desk are told apart.
+    XLSX.writeFile(book, `Truck Report Loreal ${safeName(scope)}.xlsx`);
     onToast(`ดาวน์โหลดแล้ว ${rows.length} ตู้`);
   } catch (error) {
     onToast("สร้างไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
