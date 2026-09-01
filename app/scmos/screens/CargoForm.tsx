@@ -29,6 +29,33 @@ const ADDRESS = "3354/36-39 Manorom Building, 11th Floor, Rama IV Road, Klongtoe
 const CONTACT = "Tel : (66) 0 2686 1000 Fax : (66) 0 2671 6717";
 const FORM_NO = "ISO-FRM-TH-ADM-26-06";
 
+/**
+ * Who signs, in the order the form puts them.
+ *
+ * The template this was first built from had sixty-two points of empty row
+ * here and no labels, so none were invented. A filled-in copy of the receipt
+ * settled it: three signatures, the Leschaco officer on the left, the driver
+ * taking the load in the middle, the customer receiving it on the right.
+ *
+ * The lines stay blank. The copy that named them was one officer signing one
+ * delivery in June 2022; printing that name onto every blank form afterwards
+ * would put somebody's signature under work they never saw.
+ */
+/**
+ * Rows in one copy of the form, and therefore the offset of the second.
+ *
+ * Written down rather than left as the 24 it used to be: the signature block
+ * made the copy a row taller, and a hard-coded offset would have dropped the
+ * second copy's merges a row into the first one's note.
+ */
+const COPY_ROWS = 25;
+
+const SIGNATURES: [string, string][] = [
+  ["ลายมือชื่อพนักงานเลสชาโก้", "LESCHACO OFFICER"],
+  ["ลายมือชื่อผู้รับบรรทุก", ""],
+  ["ลายมือชื่อลูกค้า", ""],
+];
+
 /** The conditions of carriage, exactly as the cell in A19 holds them. */
 const TERMS = "1. ได้รับสินค้าไปในสภาพที่เรียบร้อยตามรายการ (HAVE RECEIVED IN GOOD ORDER AND CONDITION FOR ABOVE MENTIONED GOODS.)\n"
   + "2. ถ้าสินค้ามีการสูญหายหรือชำรุด โปรดระบุลงในใบรับสินค้านี้ภายใน 24 ชั่วโมง ส่งจดหมายเคลมถึงเลสชาโก้ภายใน 7 วัน นับจากวันได้รับสินค้า มิเช่นนั้นแล้วทางบริษัทจะไม่รับผิดชอบต่อการสูญเสียหรือชำรุดรวมถึงการรับเคลมด้วย\n"
@@ -184,7 +211,7 @@ export function CargoForm({ stored, onStore, onToast }: {
     // Cell for cell as the workbook has it, twice, because that is what the
     // sheet is: one receipt for the customer and one for the driver.
     const copy = (): (string | number)[][] => {
-      const rows: (string | number)[][] = Array.from({ length: 23 }, () => Array(5).fill(""));
+      const rows: (string | number)[][] = Array.from({ length: COPY_ROWS - 1 }, () => Array(5).fill(""));
       const put = (r: number, c: number, v: string) => { rows[r - 1][c] = v; };
 
       put(1, 0, "CARGO RECEIPT");
@@ -216,12 +243,22 @@ export function CargoForm({ stored, onStore, onToast }: {
       });
 
       put(19, 0, TERMS);
-      put(22, 0, NOTE);
-      put(23, 4, FORM_NO);
+      // The signature row, so a printed sheet carries the same three lines the
+      // screen does rather than an empty band somebody has to label by hand.
+      put(21, 0, "(                    )");
+      put(21, 2, "(                    )");
+      put(21, 4, "(                    )");
+      put(22, 0, SIGNATURES[0][1] + "\n" + SIGNATURES[0][0]);
+      put(22, 2, SIGNATURES[1][0]);
+      put(22, 4, SIGNATURES[2][0]);
+      put(23, 0, NOTE);
+      put(24, 4, FORM_NO);
       return rows;
     };
 
-    // A blank row between the two, as row 24 is on the original.
+    // A blank row between the two, as on the original. One row longer than it
+    // was now that the signatures are written out, so the second copy shifts
+    // with it rather than landing on top of the first one's note.
     const aoa = [...copy(), Array(5).fill(""), ...copy()];
     const sheet = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -230,9 +267,10 @@ export function CargoForm({ stored, onStore, onToast }: {
       [1, 0, 1, 4], [2, 0, 2, 4], [5, 0, 5, 4],
       [7, 0, 7, 2], [8, 0, 8, 2], [9, 0, 9, 2], [10, 0, 10, 2], [11, 0, 11, 2],
       [12, 2, 12, 3], [12, 4, 13, 4],
-      [19, 0, 19, 4], [22, 0, 22, 4],
+      [19, 0, 19, 4], [21, 0, 21, 1], [21, 2, 21, 3], [22, 0, 22, 1], [22, 2, 22, 3],
+      [23, 0, 23, 4],
     ];
-    sheet["!merges"] = spans.flatMap(([r1, c1, r2, c2]) => [0, 24].map((shift) => ({
+    sheet["!merges"] = spans.flatMap(([r1, c1, r2, c2]) => [0, COPY_ROWS].map((shift) => ({
       s: { r: r1 - 1 + shift, c: c1 }, e: { r: r2 - 1 + shift, c: c2 },
     })));
     sheet["!cols"] = [{ wch: 18 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 30 }];
@@ -408,9 +446,18 @@ function Receipt({ form, lines, onField, onLine }: {
 
     <div style={css("font-size:9px;line-height:1.5;white-space:pre-line;margin-top:7px")}>{TERMS}</div>
 
-    {/* Row 20 of the sheet is sixty-two points of nothing. That is where the
-        form is signed; it carries no labels and none are invented here. */}
-    <div style={css("height:62px")} />
+    {/* Where the form is signed. The blank row it used to be is now the three
+        signatures the real receipt carries, left empty for whoever signs. */}
+    <div style={css("display:flex;gap:18px;margin-top:34px;margin-bottom:6px")}>
+      {SIGNATURES.map(([thai, english]) => (
+        <div key={thai} style={css("flex:1;text-align:center")}>
+          <div style={css("border-bottom:1px dotted #333;height:1px;margin-bottom:5px")} />
+          <div style={css("font-size:10px;letter-spacing:.5px")}>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+          <div style={css("font-size:9px;color:#333;margin-top:2px")}>{thai}</div>
+          {english && <div style={css("font-size:9px;font-weight:600;margin-top:1px")}>{english}</div>}
+        </div>
+      ))}
+    </div>
 
     <div style={css("font-size:8.5px;line-height:1.45;white-space:pre-line;color:#333;border-top:1px solid #999;padding-top:4px")}>{NOTE}</div>
     <div style={css("text-align:right;font-size:9px;color:#333;margin-top:3px")}>{FORM_NO}</div>

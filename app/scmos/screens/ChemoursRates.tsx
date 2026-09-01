@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
+import { cell, paginate } from "../util";
+import { DataTable, type TableModel } from "../DataTable";
 import {
   bandForDiesel, chemoursLayout, parseChemoursSheet, priceFor, reconcileChemoursBands,
   type FuelBand, type RateIssue, type RateLane,
@@ -103,9 +105,64 @@ function laneRows(card: RateCard, carrier: string): LaneRow[] {
 
 const VEHICLES = ["4W", "6W", "10W"];
 
+/**
+ * Rows to a page.
+ *
+ * A rate card runs to a few hundred lanes at most, so this is one page for
+ * nearly every card and a guard for the one that is not.
+ */
+const RATE_PER = 300;
+
+/** The card as the shared grid draws it. */
+function rateModel(
+  rows: LaneRow[],
+  priceAt: (row: LaneRow, vehicle: string) => number | null,
+  carrier: string,
+  page: number,
+): TableModel {
+  const pg = paginate(rows, page, RATE_PER);
+  const head = (label: string, right: boolean) => ({
+    label,
+    // Sticky so the vehicle columns stay named while a long card is read. Not
+    // through `cols()`, which makes every heading a sort button, and nothing
+    // here sorts — the card's own order is the order it was negotiated in.
+    style: "position:sticky;top:0;z-index:2;background:#F4F7FA;padding:7px 10px;font-size:10px;"
+      + "color:#465A6E;border-bottom:1px solid #D8E0E8;white-space:nowrap;user-select:none;text-align:"
+      + (right ? "right" : "left"),
+    sort: () => undefined,
+  });
+
+  return {
+    title: "ค่าขนส่ง",
+    meta: `${rows.length} เส้นทาง · ${carrier === "ALL" ? "ทุกผู้ขนส่ง" : carrier}`,
+    cols: [
+      head("ผู้ขนส่ง", false), head("ต้นทาง", false), head("ปลายทาง", false), head("ZIP", false),
+      ...VEHICLES.map((vehicle) => head(vehicle, true)),
+    ],
+    rows: pg.slice.map((row, index) => ({
+      key: `${row.carrier}|${row.from}|${row.to}|${index}`,
+      style: "",
+      cells: [
+        cell(row.carrier), cell(row.from), cell(row.to), cell(row.zip, { mono: true }),
+        ...VEHICLES.map((vehicle) => {
+          const value = priceAt(row, vehicle);
+          // A lane the card does not price is a dash, not a zero: zero is a
+          // price and this is the absence of one.
+          return cell(value == null ? "" : value.toLocaleString("en-US"),
+            { mono: true, align: "right", mute: value == null });
+        }),
+      ],
+    })),
+    total: pg.total,
+    pageCount: pg.pageCount,
+    page: pg.p,
+    per: pg.per,
+    tools: [],
+  };
+}
+
 const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600";
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
-const CELL = "padding:7px 10px;border-bottom:1px solid #F1F5F9;white-space:nowrap";
 
 export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, onToast }: {
   card: RateCard | null;
@@ -135,7 +192,17 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, 
   const readable = Number.isFinite(price) && price > 0;
   const band = card && readable ? bandForDiesel(card.bands, price) : -1;
 
+  const [page, setPage] = useState(1);
+  /** The card filling the screen with everything else hidden, as on My Job. */
+  const [full, setFull] = useState(false);
+
   const rows = useMemo(() => (card ? laneRows(card, carrier) : []), [card, carrier]);
+
+  // Picking another haulier is a different card, and page four of the last one
+  // is not a place to land. Read during render on the value changing rather
+  // than in an effect, which would draw the wrong page for a frame first.
+  const [shown, setShown] = useState(carrier);
+  if (shown !== carrier) { setShown(carrier); setPage(1); }
   const carriers = useMemo(
     () => [...new Set((card?.lanes ?? []).map((lane) => lane.carrier))].sort(),
     [card],
@@ -295,53 +362,23 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, 
             ราคาที่แสดงคือราคาที่ช่วงน้ำมันด้านบน เปลี่ยนตัวเลขแล้วทั้งตารางเปลี่ยนตาม
           </div>
 
-          <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden")}>
-            {rows.length === 0 ? (
-              <div style={css("padding:30px 16px;text-align:center;font-size:12.5px;color:#94A3B8")}>
-                ไม่มีเส้นทางของผู้ขนส่งที่เลือก
-              </div>
-            ) : (
-              <div style={css("overflow-x:auto")}>
-                <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
-                  <thead>
-                    <tr>
-                      {["ผู้ขนส่ง", "ต้นทาง", "ปลายทาง", "ZIP", ...VEHICLES].map((head) => (
-                        <th
-                          key={head}
-                          style={css("background:#F4F7FA;padding:7px 10px;font-size:10px;color:#465A6E;border-bottom:1px solid #D8E0E8;white-space:nowrap;text-align:"
-                            + (VEHICLES.indexOf(head) >= 0 ? "right" : "left"))}
-                        >
-                          {head}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, index) => (
-                      <tr key={index} className="row-hover">
-                        <td style={css(CELL)}>{row.carrier}</td>
-                        <td style={css(CELL)}>{row.from}</td>
-                        <td style={css(CELL)}>{row.to}</td>
-                        <td style={css(CELL + ";font-family:'IBM Plex Mono',monospace")}>{row.zip || "—"}</td>
-                        {VEHICLES.map((vehicle) => {
-                          const value = priceAt(row, vehicle);
-                          return (
-                            <td
-                              key={vehicle}
-                              style={css(CELL + ";text-align:right;font-family:'IBM Plex Mono',monospace"
-                                + (value == null ? ";color:#B4C0CC" : ""))}
-                            >
-                              {value == null ? "—" : value.toLocaleString("en-US")}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          {rows.length === 0 ? (
+            <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:30px 16px;text-align:center;font-size:12.5px;color:#94A3B8")}>
+              ไม่มีเส้นทางของผู้ขนส่งที่เลือก
+            </div>
+          ) : (
+            /* The same grid My Job and the truck report draw: the heading holds
+               while a long card is read, the zoom fits more lanes on a screen,
+               and full screen is there for comparing two hauliers. Not `fill`,
+               because the diesel price and the file pickers above it are part
+               of reading the card and a locked page would squeeze them. */
+            <DataTable
+              model={rateModel(rows, priceAt, carrier, page)}
+              full={full}
+              onFull={() => setFull((on) => !on)}
+              onPage={setPage}
+              onTool={() => undefined} />
+          )}
         </>
       )}
     </div>
