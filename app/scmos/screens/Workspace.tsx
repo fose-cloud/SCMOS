@@ -676,20 +676,43 @@ export function Workspace(p: Props) {
     return matchesChosen(parts.y, ws.year) && matchesChosen(parts.m, ws.month);
   });
 
-  // Keep every choice available after the first tick. Reading these lists from
-  // a filtered page would make the second value disappear before it can be
-  // selected; the API supplies the complete lists until the register arrives.
+  // Keep every choice available after the first tick — but only within the one
+  // control. Reading a list from its own filtered result would make the second
+  // value disappear before it could be ticked, which is why these start from
+  // `catBase`; reading it without the *other* controls applied is the bug that
+  // put August days in the list after September was chosen. So each list is
+  // narrowed by the controls above it and never by itself, the same rule the
+  // customer and haulier pickers already follow.
   const years = (valuesFromServer("years")
     ?? [...new Set(catBase.map((j) => partsOf(j.date)?.y).filter(Boolean) as string[])]).sort();
-  const months = (valuesFromServer("months")
-    ?? [...new Set(catBase.map((j) => partsOf(j.date)?.m).filter(Boolean) as string[])]).sort();
+  // Narrowed by the year, and from the dates because those carry both parts —
+  // the server's month list is bare "01".."12" with no year on it.
+  const everyDate = valuesFromServer("periodDates")
+    ?? [...new Set(catBase.map((j) => j.date).filter(Boolean))];
+  const months = [...new Set(everyDate
+    .map((date) => partsOf(date))
+    .filter((parts) => !!parts && matchesChosen(parts.y, ws.year))
+    .map((parts) => parts!.m))].sort();
   const undated = catBase.filter((j) => !partsOf(j.date)).length;
 
   const localDateCount: Record<string, number> = {};
   catBase.forEach((j) => { if (j.date) localDateCount[j.date] = (localDateCount[j.date] || 0) + 1; });
   const dateCount = countsFromServer() ?? localDateCount;
   const dates = (valuesFromServer("periodDates") ?? Object.keys(dateCount))
+    .filter((date) => {
+      const parts = partsOf(date);
+      return !!parts && matchesChosen(parts.y, ws.year) && matchesChosen(parts.m, ws.month);
+    })
     .sort((a, b) => dnum(a) - dnum(b));
+
+  /** The days still ticked once the year or month moves under them. */
+  const keptDays = (year: string, month: string) => {
+    const kept = chosenIn(ws.date).filter((date) => {
+      const parts = partsOf(date);
+      return !!parts && matchesChosen(parts.y, year) && matchesChosen(parts.m, month);
+    });
+    return kept.length ? kept.join("|") : "ALL";
+  };
 
   const scope = base.filter((j) => matchesChosen(j.date, ws.date));
 
@@ -1634,11 +1657,14 @@ export function Workspace(p: Props) {
 
               <span style={css("width:1px;height:20px;background:#24476E;flex:none")} />
               <span style={css("font-size:11px;font-weight:700;color:#CFE2F7;letter-spacing:.06em;white-space:nowrap")}>ช่วงเวลา</span>
+              {/* Changing the year or the month drops any day ticked that is
+                  no longer inside it — otherwise the grid empties and the
+                  reason is a tick two controls away. */}
               <FilterPickMany label="ปี" value={ws.year} options={years}
-                onPick={(value) => p.set({ year: value, page: 1 })} />
+                onPick={(value) => p.set({ year: value, date: keptDays(value, ws.month), page: 1 })} />
               <FilterPickMany label="เดือน" value={ws.month} options={months}
                 render={(month) => monthLabel(month) + " (" + month + ")"}
-                onPick={(value) => p.set({ month: value, page: 1 })} />
+                onPick={(value) => p.set({ month: value, date: keptDays(ws.year, value), page: 1 })} />
               <FilterPickMany label="วัน" value={ws.date} options={dates}
                 render={(date) => date + " · " + (dateCount[date] ?? 0) + " งาน"}
                 onPick={(value) => p.set({ date: value, page: 1 })} />

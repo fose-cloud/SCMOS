@@ -7,6 +7,8 @@ import type { Job } from "../ops";
 import { money, pad, rng } from "../util";
 import { DelayAnalysis } from "./DelayAnalysis";
 import { VolumeReport } from "./VolumeReport";
+import { SupplierPerformance } from "./SupplierPerformance";
+import { CarParReport } from "./CarParReport";
 
 
 /* ------------------------------------------------------------- import/export */
@@ -197,15 +199,19 @@ const REPORT_DEFS: [string, string, string, string][] = [
   ["Transportation Cost", "ต้นทุนค่าขนส่ง", "Total cost with fuel adjustment breakdown.", "Finance"],
   ["Cost by Customer", "ต้นทุนตามลูกค้า", "Cost, selling rate and margin per customer.", "Finance"],
   ["Cost by Supplier", "ต้นทุนตามผู้ขนส่ง", "Spend concentration and rate variance.", "Finance"],
-  ["Supplier Performance", "ผลงานผู้ขนส่ง", "Scorecard across ten weighted KPIs.", "Supplier"],
+  ["Supplier Performance", "ผลงานผู้ขนส่ง",
+    "ใบคะแนนผู้ขนส่งทุกรายในหน้าเดียว เรียงจากคะแนนต่ำสุด · เกณฑ์ที่ยังคิดคะแนนไม่ได้บอกว่าคิดไม่ได้ ไม่ใช่ 0",
+    "Supplier"],
   ["Delay Analysis", "วิเคราะห์ความล่าช้า", "Delay reasons, frequency and responsible party.", "Operations"],
   ["Billing KPI", "รายงาน KPI การวางบิล", "4-day compliance and aging distribution.", "Finance"],
   ["Safety Report", "รายงานความปลอดภัย", "Checklist compliance, incidents and PPE.", "Safety"],
-  ["CAR / PAR Report", "รายงาน CAR/PAR", "Case aging, closure rate and repeat findings.", "Quality"],
+  ["CAR / PAR Report", "รายงาน CAR/PAR",
+    "อายุของเคสที่ยังเปิด อัตราการปิด และหมวดที่เกิดซ้ำ — อ่านจากทะเบียนเคสเดียวกับเมนู Incident & CAR/PAR",
+    "Quality"],
 ];
 
 /** Reports that open something real rather than a message saying they would. */
-const BUILT = new Set(["Delay Analysis", "Volume Report"]);
+const BUILT = new Set(["Delay Analysis", "Volume Report", "Supplier Performance", "CAR / PAR Report"]);
 
 const REPORT_TONES: Record<string, "blue" | "green" | "teal" | "amber" | "red" | "gray"> = {
   Operations: "blue", Finance: "green", Supplier: "teal", Safety: "amber", Quality: "red", Commercial: "gray",
@@ -228,6 +234,12 @@ export function Reports({ jobs, toast }: { jobs: Job[]; toast: (message: string)
   }
   if (open === "Volume Report") {
     return <VolumeReport jobs={jobs} onToast={toast} onBack={() => setOpen("")} />;
+  }
+  if (open === "Supplier Performance") {
+    return <SupplierPerformance onToast={toast} onBack={() => setOpen("")} />;
+  }
+  if (open === "CAR / PAR Report") {
+    return <CarParReport onToast={toast} onBack={() => setOpen("")} />;
   }
 
   return (
