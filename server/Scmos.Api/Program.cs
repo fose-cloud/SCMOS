@@ -167,6 +167,13 @@ if (args.Contains("--normalise-types"))
     return await TypeMigration.RunAsync(app, args);
 }
 
+// Reports by default; --apply writes. See IssueLinkFix for why old issues need
+// it and new ones do not.
+if (args.Contains("--link-issues"))
+{
+    return await IssueLinkFix.RunAsync(app, args);
+}
+
 if (args.Contains("--migrate"))
 {
     using var scope = app.Services.CreateScope();

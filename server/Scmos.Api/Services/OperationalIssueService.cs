@@ -252,10 +252,29 @@ public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carrier
     /// No match is a normal outcome, not an error. An issue can be raised
     /// against a shipment that never became a job here.
     /// </summary>
-    public async Task<string> ResolveJobKeyAsync(string jobRef, CancellationToken token)
+    /// <summary>
+    /// The job an issue is about, from every reference the issue carries.
+    /// </summary>
+    /// <param name="jobRef">What was typed in "งานที่เกี่ยวข้อง".</param>
+    /// <param name="alsoTry">
+    /// Other references on the same row — the container number in practice.
+    ///
+    /// Added 2026-09-01 after a real row: reference SWELCHNSA26090001, which is
+    /// the shipping line's booking number and matches nothing, sitting directly
+    /// above container WHLU0282184, which matches a job perfectly. The resolver
+    /// already searched containers; it was only ever handed the one field.
+    ///
+    /// This is not cosmetic. An issue with no job key is left out of the
+    /// carrier scorecard entirely — see CarrierScorecard.Build, which counts
+    /// only issues that reach a job — so a case nobody could link was a case
+    /// counted against nobody.
+    /// </param>
+    public async Task<string> ResolveJobKeyAsync(string jobRef, CancellationToken token,
+        params string[] alsoTry)
     {
-        var parts = (jobRef ?? "")
-            .Split(['/', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        var parts = alsoTry.Prepend(jobRef ?? "")
+            .SelectMany(text => (text ?? "")
+                .Split(['/', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Where(part => part.Length >= 6)
             .Select(part => part.ToUpperInvariant())
             .Distinct()
@@ -300,8 +319,8 @@ public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carrier
         if (await db.OperationalIssues.AnyAsync(row => row.Code == issue.Code, token))
             return new IssueResult(false, $"รหัส {issue.Code} มีอยู่แล้ว");
 
-        if (issue.JobKey.Length == 0 && issue.JobRef.Length > 0)
-            issue.JobKey = await ResolveJobKeyAsync(issue.JobRef, token);
+        if (issue.JobKey.Length == 0 && (issue.JobRef.Length > 0 || issue.ContainerNo.Length > 0))
+            issue.JobKey = await ResolveJobKeyAsync(issue.JobRef, token, issue.ContainerNo);
 
         if (issue.Status.Trim().Length == 0) issue.Status = "เปิด";
         if (issue.Severity.Trim().Length == 0) issue.Severity = "ปานกลาง";
@@ -343,14 +362,21 @@ public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carrier
                 case "detail": issue.Detail = value.Trim(); break;
                 case "channel": issue.Channel = value.Trim(); break;
                 case "driver": issue.Driver = value.Trim(); break;
-                case "containerno": issue.ContainerNo = value.Trim(); break;
+                // Typing the container can be what finally links the row: the
+                // booking number in the reference field will never match on its
+                // own, and the container beside it will.
+                case "containerno":
+                    issue.ContainerNo = value.Trim();
+                    if (issue.JobKey.Length == 0)
+                        issue.JobKey = await ResolveJobKeyAsync(issue.JobRef, token, issue.ContainerNo);
+                    break;
                 case "licence": issue.Licence = value.Trim(); break;
                 case "accidentgrade": issue.AccidentGrade = value.Trim(); break;
                 case "scorecardcolumn": issue.ScorecardColumn = value.Trim(); break;
                 case "reporter": issue.Reporter = value.Trim(); break;
                 case "jobref":
                     issue.JobRef = value.Trim();
-                    issue.JobKey = await ResolveJobKeyAsync(issue.JobRef, token);
+                    issue.JobKey = await ResolveJobKeyAsync(issue.JobRef, token, issue.ContainerNo);
                     break;
                 // Anything else is ignored rather than refused: the screen sends
                 // what changed, and a field it does not own is not an error.
@@ -389,7 +415,7 @@ public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carrier
             if (!known.Add(issue.Code)) { skipped++; continue; }
 
             if (issue.JobKey.Length == 0 && issue.JobRef.Length > 0)
-                issue.JobKey = await ResolveJobKeyAsync(issue.JobRef, token);
+                issue.JobKey = await ResolveJobKeyAsync(issue.JobRef, token, issue.ContainerNo);
             if (issue.Status.Trim().Length == 0) issue.Status = "เปิด";
 
             issue.CreatedBy = by;
