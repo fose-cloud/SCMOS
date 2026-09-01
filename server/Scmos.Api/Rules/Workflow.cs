@@ -28,6 +28,16 @@ public enum Stage
     Dispatched,
     PickedUp,
     Loading,
+    /// <summary>
+    /// Loading finished, as distinct from loading started.
+    ///
+    /// Added 2026-09-01 for the customer truck reports, which have asked for
+    /// both times all along — "Truck loading time" and "Truck loading comp" are
+    /// two columns of the workbook L'OREAL is sent every month, and one stage
+    /// with one timestamp could only ever fill one of them. Safe to insert
+    /// here: the stage is stored as its name, never its position.
+    /// </summary>
+    LoadingComplete,
     InTransit,
     Delivered,
     ContainerReturned,
@@ -89,6 +99,7 @@ public static class Workflow
         new(Stage.Dispatched, "Dispatch", "จ่ายงาน", null),
         new(Stage.PickedUp, "Pickup", "รับตู้ / รับสินค้า", null),
         new(Stage.Loading, "Loading", "ขนถ่ายสินค้า", null),
+        new(Stage.LoadingComplete, "Loading complete", "ขนถ่ายเสร็จ", null),
         new(Stage.InTransit, "Transit", "ระหว่างขนส่ง", null),
         new(Stage.Delivered, "Delivery", "ส่งมอบ", null),
         new(Stage.ContainerReturned, "Container return", "คืนตู้", null),

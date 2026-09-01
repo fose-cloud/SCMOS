@@ -2554,7 +2554,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 registerCustomers={[...new Set((ops?.jobs ?? [])
                   .map((job) => job.customer.trim()).filter(Boolean))]} />
             )}
-            {screen === "loreal" && <Loreal jobs={ops?.jobs ?? []} onToast={setToast} />}
+            {screen === "loreal" && (
+              <Loreal jobs={ops?.jobs ?? []} onToast={setToast}
+                canEdit={(job) => !!ops && canEditJob(job)}
+                onSetField={setField} />
+            )}
             {screen === "issues" && (
               <OperationalIssues
                 jobs={ops?.jobs ?? []}

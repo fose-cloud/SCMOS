@@ -35,9 +35,46 @@ public class MonitoringService(ScmosDbContext db)
     /// <summary>The run itself, in order. The stages before dispatch are booking, not monitoring.</summary>
     public static readonly Stage[] Tracked =
     [
-        Stage.Dispatched, Stage.PickedUp, Stage.Loading, Stage.InTransit,
+        Stage.Dispatched, Stage.PickedUp, Stage.Loading, Stage.LoadingComplete, Stage.InTransit,
         Stage.Delivered, Stage.ContainerReturned, Stage.Closed,
     ];
+
+    /// <param name="JobKey">The job the time belongs to.</param>
+    /// <param name="Stage">Dispatched · PickedUp · Loading · LoadingComplete · InTransit · …</param>
+    public record StageTime(string JobKey, string Stage, DateTimeOffset? ActualAt, string Status);
+
+    /// <summary>
+    /// Every recorded time for one customer's jobs, in one answer.
+    ///
+    /// The customer truck reports print a month of containers with six movement
+    /// times each. Asking per shipment would be one request per row — a hundred
+    /// and more on a busy month, against a database that takes a minute to wake.
+    /// Only the four fields the report draws, so the payload stays small.
+    /// </summary>
+    public async Task<IReadOnlyList<StageTime>> TimesForCustomerAsync(
+        string customer, CancellationToken token)
+    {
+        var wanted = customer.Trim();
+        if (wanted.Length == 0) return [];
+
+        // Through the job table rather than a key list from the browser: the
+        // caller naming its own keys would let any signed-in person read the
+        // times of jobs they never see, and the URL would carry a hundred keys.
+        var keys = await db.OperationJobs.AsNoTracking()
+            .Where(job => EF.Functions.Like(job.Customer, wanted))
+            .Select(job => job.Key)
+            .ToListAsync(token);
+
+        if (keys.Count == 0) return [];
+        var owned = keys.ToHashSet(StringComparer.Ordinal);
+
+        var rows = await db.ShipmentMilestones.AsNoTracking()
+            .Where(row => owned.Contains(row.JobKey))
+            .Select(row => new StageTime(row.JobKey, row.Stage, row.ActualAt, row.Status))
+            .ToListAsync(token);
+
+        return rows;
+    }
 
     public async Task<ShipmentTrack?> ReadAsync(string jobKey, CancellationToken token)
     {

@@ -130,6 +130,19 @@ export const assignCarrier = (key: string, carrier: string) =>
 /* ------------------------------------------------------------- monitoring */
 
 export const readTrack = (key: string) => read<ShipmentTrack>(`/api/shipment/${encodeURIComponent(key)}`);
+
+/** One recorded time: which job, which stage, when. */
+export type StageTime = { jobKey: string; stage: string; actualAt: string | null; status: string };
+
+/**
+ * Every recorded time for one customer's jobs, in one request.
+ *
+ * The customer truck reports draw a month of containers with six movement times
+ * on each row. Asking `readTrack` per shipment would be a hundred requests
+ * against a database that takes a minute to wake.
+ */
+export const customerMilestones = (customer: string) =>
+  read<StageTime[]>(`/api/shipment/milestones?customer=${encodeURIComponent(customer)}`);
 export const delayReasons = () => read<DelayReasonOption[]>("/api/shipment/delay-reasons");
 export const classifyDelay = (text: string) =>
   read<Suggestion>(`/api/shipment/classify-delay?text=${encodeURIComponent(text)}`);

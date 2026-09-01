@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Scmos.Api.Auth;
+using Scmos.Api.Data;
 using Scmos.Api.Rules;
 using Scmos.Api.Services;
 
@@ -13,6 +14,34 @@ public static class MonitoringEndpoints
     public record DelayBody(string? Stage, string? Category, string? Detail, int? ImpactMinutes);
 
     public record DelayUpdateBody(long Id, string? NotifiedTeam, string? RecoveryAction, bool? Resolved);
+
+    /// <summary>
+    /// Whether this person may write to this job, answered here rather than
+    /// trusted from the browser.
+    ///
+    /// Both of these endpoints asked only for a signed-in user until
+    /// 2026-09-01. Measured before it was changed: Uthai could record a
+    /// movement time on a job of Watsana's, and got back "บันทึกแล้ว" — the
+    /// screen refused it and the API did not, which made the rule a fact about
+    /// what the buttons offer rather than about what can happen. It went
+    /// unnoticed while the only way in was one shipment at a time; the customer
+    /// truck reports now put ninety rows and six times each in front of people.
+    ///
+    /// The same rule and the same delegation allowance as a job edit, because a
+    /// movement time is an edit to somebody's job.
+    /// </summary>
+    private static async Task<IResult?> RefusedAsync(
+        AppUser user, string jobKey, JobsRepository jobs, DelegationService delegations,
+        CancellationToken token)
+    {
+        if (user.Can(Capability.EditAnyJob)) return null;
+
+        var acting = await delegations.ActingForAsync(user.OperatorId, token);
+        var others = await jobs.OthersJobsAsync([jobKey], user.OperatorId, token, acting);
+        return others.Count == 0
+            ? null
+            : ApiResults.Error("แก้ไม่ได้ — งานนี้เป็นของผู้อื่น", StatusCodes.Status403Forbidden);
+    }
 
     public static void MapMonitoring(this IEndpointRouteBuilder routes)
     {
@@ -44,6 +73,14 @@ public static class MonitoringEndpoints
             });
         });
 
+        // Declared before "/{jobKey}", or "milestones" is read as a job key.
+        group.MapGet("/milestones", async (string? customer, HttpContext context, IUserAccessor users,
+            MonitoringService monitoring, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await monitoring.TimesForCustomerAsync(customer ?? "", token));
+        });
+
         group.MapGet("/{jobKey}", async (string jobKey, HttpContext context, IUserAccessor users,
             MonitoringService monitoring, CancellationToken token) =>
         {
@@ -55,10 +92,12 @@ public static class MonitoringEndpoints
         });
 
         group.MapPost("/{jobKey}/milestone", async (string jobKey, [FromBody] MilestoneBody body,
-            HttpContext context, IUserAccessor users, MonitoringService monitoring, CancellationToken token) =>
+            HttpContext context, IUserAccessor users, MonitoringService monitoring,
+            JobsRepository jobs, DelegationService delegations, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            if (await RefusedAsync(user, jobKey, jobs, delegations, token) is { } refusal) return refusal;
 
             var result = await monitoring.UpdateAsync(jobKey, body.Stage ?? "", body.ActualAt,
                 body.Status ?? "", body.TruckNo ?? "", body.Driver ?? "", body.Remark ?? "",
@@ -70,10 +109,12 @@ public static class MonitoringEndpoints
         });
 
         group.MapPost("/{jobKey}/delay", async (string jobKey, [FromBody] DelayBody body,
-            HttpContext context, IUserAccessor users, MonitoringService monitoring, CancellationToken token) =>
+            HttpContext context, IUserAccessor users, MonitoringService monitoring,
+            JobsRepository jobs, DelegationService delegations, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            if (await RefusedAsync(user, jobKey, jobs, delegations, token) is { } refusal) return refusal;
 
             var result = await monitoring.RecordDelayAsync(jobKey, body.Stage ?? "", body.Category,
                 body.Detail ?? "", body.ImpactMinutes, user.Signature, token);
