@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { isCancelled, type Job } from "../ops";
 import { css } from "../theme";
-import { busiest, byField, byPeriod, type Grain, type Scope, type Tally } from "../volumeReport";
+import {
+  busiest, byField, byOperator, byPeriod, owner, type Grain, type Scope, type Tally,
+} from "../volumeReport";
 
 /**
  * How much work ran, and whose it was.
@@ -24,6 +26,15 @@ import { busiest, byField, byPeriod, type Grain, type Scope, type Tally } from "
 /** How many rows a ranking shows before it becomes scrolling rather than reading. */
 const TOP = 25;
 
+/**
+ * The three directions the team plans around, kept as columns even at zero.
+ *
+ * DELIVERY is the register's word for domestic distribution — the work under
+ * The Chemours. A month with none of it should say so; a column that quietly
+ * disappears reads as the report having forgotten the work exists.
+ */
+const DIRECTIONS = ["IMPORT", "EXPORT", "DELIVERY"];
+
 export function VolumeReport({ jobs, onToast, onBack }: {
   jobs: Job[];
   onToast: (message: string) => void;
@@ -37,10 +48,20 @@ export function VolumeReport({ jobs, onToast, onBack }: {
   // Wrapped only because volumeReport describes a job loosely enough to be
   // testable without the register's full type; the rule itself is ops'.
   const scope: Scope = useMemo(
-    () => ({ from, to, cancelledRule: (job) => isCancelled({ status: job.status ?? "" }) }),
+    () => ({
+      from, to, always: DIRECTIONS,
+      cancelledRule: (job) => isCancelled({ status: job.status ?? "" }),
+    }),
     [from, to]);
 
   const period = useMemo(() => byPeriod(jobs, grain, scope), [jobs, grain, scope]);
+
+  // Who is carrying what. Two tables rather than one: a person against the
+  // three directions is five rows, and a person against sixty-odd vehicle types
+  // only reads with the types down the side and the people across the top.
+  const operators = useMemo(() => byOperator(jobs, scope), [jobs, scope]);
+  const typeByOperator = useMemo(
+    () => byField(jobs, (j) => j.type, scope, owner), [jobs, scope]);
   const customers = useMemo(() => byField(jobs, (j) => j.customer, scope), [jobs, scope]);
   const truckers = useMemo(() => byField(jobs, (j) => j.trucker, scope), [jobs, scope]);
   const types = useMemo(() => byField(jobs, (j) => j.type, scope), [jobs, scope]);
@@ -70,22 +91,24 @@ export function VolumeReport({ jobs, onToast, onBack }: {
       ["จัดกลุ่มตาม", GRAINS.find((g) => g[0] === grain)?.[1] ?? grain],
       [],
       ["เที่ยวที่นับได้", period.counted],
-      ...period.cats.map((cat) => [cat, period.totals[cat] ?? 0]),
+      ...period.cols.map((col) => [col, period.totals[col] ?? 0]),
       [],
       ["ยกเลิก (ไม่นับเป็นปริมาณงาน)", period.cancelled],
       ["วันที่อ่านไม่ได้ (ไม่ถูกจัดเข้าช่วงใด)", period.undated],
     ]), "สรุป");
 
     // Every sheet is the whole ranking, not the twenty-five the screen shows.
-    for (const [name, tallied] of SHEETS(
-      { period, customers, truckers, types, impYard, impTo, expPlant, expReturn })) {
+    for (const [name, tallied] of SHEETS({
+      period, operators, typeByOperator, customers, truckers, types,
+      impYard, impTo, expPlant, expReturn,
+    })) {
       XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(asRows(tallied)), name);
     }
 
     const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const name = `VolumeReport_${stamp}.xlsx`;
     XLSX.writeFile(book, name);
-    onToast(`ส่งออกแล้ว · ${period.counted.toLocaleString()} เที่ยว · 8 ชีท · ${name}`);
+    onToast(`ส่งออกแล้ว · ${period.counted.toLocaleString()} เที่ยว · 11 ชีท · ${name}`);
   }
 
   return (
@@ -112,9 +135,9 @@ export function VolumeReport({ jobs, onToast, onBack }: {
 
       <div style={css("display:flex;gap:11px;flex-wrap:wrap")}>
         <Tile label="เที่ยวที่นับได้" value={period.counted.toLocaleString()} />
-        {period.cats.map((cat) => (
-          <Tile key={cat} label={cat} value={(period.totals[cat] ?? 0).toLocaleString()}
-            note={period.counted ? `${Math.round(((period.totals[cat] ?? 0) / period.counted) * 100)}%` : ""} />
+        {period.cols.map((col) => (
+          <Tile key={col} label={col} value={(period.totals[col] ?? 0).toLocaleString()}
+            note={period.counted ? `${Math.round(((period.totals[col] ?? 0) / period.counted) * 100)}%` : ""} />
         ))}
         {top && <Tile label="ช่วงที่หนักที่สุด" value={String(top.total)} note={top.label} />}
         {/* Both stated rather than folded into the total: a month that quietly
@@ -128,6 +151,14 @@ export function VolumeReport({ jobs, onToast, onBack }: {
 
       <Section title="ปริมาณงานตามช่วงเวลา" note="จำนวนเที่ยวต่อช่วง แยกตามประเภทงาน — ใหม่สุดอยู่บนสุด"
         tallied={period} first="ช่วงเวลา" limit={0} />
+
+      <Section title="ตามผู้รับผิดชอบ (Operation)"
+        note="งานที่แต่ละคนดูแล แยกนำเข้า / ส่งออก / ในประเทศ — นับตามรหัสผู้รับผิดชอบ ไม่ใช่ชื่อ"
+        tallied={operators} first="ผู้รับผิดชอบ" limit={0} />
+
+      <Section title="ประเภทรถ/ตู้ ที่แต่ละคนดูแล"
+        note="ประเภทรถอยู่แถว ผู้รับผิดชอบอยู่คอลัมน์ — นับตามที่บันทึกไว้ในทะเบียน"
+        tallied={typeByOperator} first="ประเภทรถ/ตู้" limit={TOP} />
 
       <Section title="ตามลูกค้า" note="เรียงจากลูกค้าที่มีงานมากที่สุด"
         tallied={customers} first="ลูกค้า" limit={TOP} />
@@ -166,6 +197,8 @@ const GRAINS: [Grain, string][] = [["day", "รายวัน"], ["week", "ร�
 function SHEETS(all: Record<string, Tally>): [string, Tally][] {
   return [
     ["ตามช่วงเวลา", all.period],
+    ["ตามผู้รับผิดชอบ", all.operators],
+    ["ประเภทรถรายคน", all.typeByOperator],
     ["ตามลูกค้า", all.customers],
     ["ตามผู้ขนส่ง", all.truckers],
     ["ตามประเภทรถ", all.types],
@@ -178,11 +211,11 @@ function SHEETS(all: Record<string, Tally>): [string, Tally][] {
 
 /** A tally as a sheet: a header row, every row, then the column totals. */
 function asRows(tallied: Tally): (string | number)[][] {
-  const head = ["", ...tallied.cats, "รวม"];
+  const head = ["", ...tallied.cols, "รวม"];
   const body = tallied.rows.map((row) => [
-    row.label, ...tallied.cats.map((cat) => row.byCat[cat] ?? 0), row.total,
+    row.label, ...tallied.cols.map((col) => row.byCol[col] ?? 0), row.total,
   ]);
-  const foot = ["รวมทั้งหมด", ...tallied.cats.map((cat) => tallied.totals[cat] ?? 0), tallied.counted];
+  const foot = ["รวมทั้งหมด", ...tallied.cols.map((col) => tallied.totals[col] ?? 0), tallied.counted];
   return [head, ...body, foot];
 }
 
@@ -216,7 +249,7 @@ function Section({ title, note, tallied, first, limit }: {
             <thead>
               <tr>
                 <th style={TH}>{first}</th>
-                {tallied.cats.map((cat) => <th key={cat} style={css(TH_CSS + ";text-align:right")}>{cat}</th>)}
+                {tallied.cols.map((col) => <th key={col} style={css(TH_CSS + ";text-align:right")}>{col}</th>)}
                 <th style={css(TH_CSS + ";text-align:right")}>รวม</th>
                 <th style={css(TH_CSS + ";width:120px")}>สัดส่วน</th>
               </tr>
@@ -225,9 +258,9 @@ function Section({ title, note, tallied, first, limit }: {
               {shown.map((row) => (
                 <tr key={row.label}>
                   <td style={css(TD)}>{row.label}</td>
-                  {tallied.cats.map((cat) => (
-                    <td key={cat} style={css(TD + ";text-align:right;font-family:'IBM Plex Mono',monospace;color:#475569")}>
-                      {row.byCat[cat] ?? 0}
+                  {tallied.cols.map((col) => (
+                    <td key={col} style={css(TD + ";text-align:right;font-family:'IBM Plex Mono',monospace;color:#475569")}>
+                      {row.byCol[col] ?? 0}
                     </td>
                   ))}
                   <td style={css(TD + ";text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;color:#0A2240")}>
@@ -246,9 +279,9 @@ function Section({ title, note, tallied, first, limit }: {
               ))}
               <tr>
                 <td style={css(TD + ";font-weight:600;color:#0A2240;background:#F8FAFC")}>รวมทั้งหมด</td>
-                {tallied.cats.map((cat) => (
-                  <td key={cat} style={css(TD + ";text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;background:#F8FAFC")}>
-                    {(tallied.totals[cat] ?? 0).toLocaleString()}
+                {tallied.cols.map((col) => (
+                  <td key={col} style={css(TD + ";text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;background:#F8FAFC")}>
+                    {(tallied.totals[col] ?? 0).toLocaleString()}
                   </td>
                 ))}
                 <td style={css(TD + ";text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700;color:#0A2240;background:#F8FAFC")}>

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { BLANK, bucket, busiest, byField, byPeriod, weekStart } from "../app/scmos/volumeReport.ts";
+import {
+  BLANK, bucket, busiest, byField, byOperator, byPeriod, owner, weekStart,
+} from "../app/scmos/volumeReport.ts";
 
 const job = (date, cat = "IMPORT", extra = {}) => ({ date, cat, status: "WAITING_SUPPLIER", ...extra });
 
@@ -67,7 +69,7 @@ test("the split follows the register rather than an assumed two", () => {
 
   // Domestic is worked under The Chemours; a "total" that silently left it out
   // would be wrong in exactly the way nobody checks.
-  assert.deepEqual(out.cats, ["IMPORT", "EXPORT", "DELIVERY"], "commonest first");
+  assert.deepEqual(out.cols, ["IMPORT", "EXPORT", "DELIVERY"], "commonest first");
   assert.equal(out.totals.DELIVERY, 1);
   assert.equal(out.counted, 6);
 });
@@ -76,7 +78,7 @@ test("equal counts fall back to the name, so the order never wobbles", () => {
   // Two directions with the same count must not swap places between renders
   // depending on which job the register happened to return first.
   const out = byPeriod([job("01/07/2026", "EXPORT"), job("02/07/2026", "DELIVERY")], "day", scope);
-  assert.deepEqual(out.cats, ["DELIVERY", "EXPORT"]);
+  assert.deepEqual(out.cols, ["DELIVERY", "EXPORT"]);
 });
 
 test("the range is inclusive at both ends", () => {
@@ -116,8 +118,8 @@ test("a breakdown ranks heaviest first and splits by direction", () => {
 
   assert.deepEqual(out.rows.map((r) => r.label), ["WEALTHY", "SANGJA"]);
   assert.equal(out.rows[0].total, 3);
-  assert.equal(out.rows[0].byCat.IMPORT, 2);
-  assert.equal(out.rows[0].byCat.EXPORT, 1);
+  assert.equal(out.rows[0].byCol.IMPORT, 2);
+  assert.equal(out.rows[0].byCol.EXPORT, 1);
 });
 
 test("a blank column is named and counted, not discarded", () => {
@@ -143,8 +145,8 @@ test("one direction can be asked for on its own", () => {
   const exports = byField(jobs, (j) => j.cyYard, { ...scope, cat: "EXPORT" });
 
   assert.equal(exports.counted, 2);
-  assert.deepEqual(exports.cats, ["EXPORT"]);
-  assert.equal(exports.rows.every((r) => r.byCat.IMPORT === undefined), true);
+  assert.deepEqual(exports.cols, ["EXPORT"]);
+  assert.equal(exports.rows.every((r) => r.byCol.IMPORT === undefined), true);
 });
 
 test("every table on the page counts the same trips", () => {
@@ -187,4 +189,101 @@ test("nothing in scope reports nothing rather than a zero-filled month", () => {
   assert.deepEqual(out.rows, []);
   assert.equal(busiest(out), null);
   assert.equal(out.counted, 0);
+});
+
+test("a person's work is grouped on their id, not their name", () => {
+  // Ownership by name has broken here before: two spellings of one person
+  // become two people and nothing says so. The two agree in the register today
+  // and this must not depend on them continuing to.
+  const out = byOperator([
+    { date: "01/07/2026", cat: "IMPORT", status: "OPEN", op: "Watsana", opId: "OP-01" },
+    { date: "02/07/2026", cat: "EXPORT", status: "OPEN", op: "watsana ", opId: "OP-01" },
+    { date: "03/07/2026", cat: "IMPORT", status: "OPEN", op: "Uthai", opId: "OP-02" },
+  ], scope);
+
+  assert.equal(out.rows.length, 2, "one person, one row, however their name was typed");
+  assert.equal(out.rows[0].total, 2);
+  assert.equal(out.rows[0].byCol.IMPORT, 1);
+  assert.equal(out.rows[0].byCol.EXPORT, 1);
+});
+
+test("a job with nobody on it is still counted, under a name", () => {
+  const out = byOperator([
+    { date: "01/07/2026", cat: "IMPORT", status: "OPEN", op: "", opId: "" },
+    { date: "02/07/2026", cat: "IMPORT", status: "OPEN", op: "Uthai", opId: "OP-02" },
+  ], scope);
+
+  assert.equal(out.counted, 2);
+  assert.equal(out.rows.find((r) => r.label === BLANK).total, 1);
+});
+
+test("the three directions stay as columns even with no work in them", () => {
+  // Domestic is worked under The Chemours. A month with none of it should say
+  // so; a column that quietly disappears reads as the report forgetting it.
+  const pinned = { ...scope, always: ["IMPORT", "EXPORT", "DELIVERY"] };
+  const out = byOperator([
+    { date: "01/07/2026", cat: "IMPORT", status: "OPEN", op: "Uthai", opId: "OP-02" },
+  ], pinned);
+
+  assert.deepEqual(out.cols, ["IMPORT", "EXPORT", "DELIVERY"]);
+  assert.equal(out.totals.DELIVERY, 0);
+  assert.equal(out.rows[0].byCol.DELIVERY, undefined, "no work is no cell, not a wrong one");
+});
+
+test("asking for one direction does not pin the other two", () => {
+  // An import-only table with empty EXPORT and DOMESTIC columns says nothing
+  // anybody needs and makes the table wider than the screen.
+  const out = byField([
+    { date: "01/07/2026", cat: "IMPORT", status: "OPEN", cyYard: "JWD" },
+    { date: "02/07/2026", cat: "EXPORT", status: "OPEN", cyYard: "JWD" },
+  ], (j) => j.cyYard, { ...scope, cat: "IMPORT", always: ["IMPORT", "EXPORT", "DELIVERY"] });
+
+  assert.deepEqual(out.cols, ["IMPORT"]);
+  assert.equal(out.counted, 1);
+});
+
+test("a table can be split by who handled it rather than by direction", () => {
+  const out = byField([
+    { date: "01/07/2026", cat: "IMPORT", status: "OPEN", type: "1X20'", op: "Uthai", opId: "OP-02" },
+    { date: "02/07/2026", cat: "EXPORT", status: "OPEN", type: "1X20'", op: "Watsana", opId: "OP-01" },
+    { date: "03/07/2026", cat: "IMPORT", status: "OPEN", type: "1X40'", op: "Uthai", opId: "OP-02" },
+  ], (j) => j.type, scope, owner);
+
+  assert.deepEqual(out.cols, ["Uthai", "Watsana"], "commonest first");
+  const twenty = out.rows.find((r) => r.label === "1X20'");
+  assert.equal(twenty.total, 2);
+  assert.equal(twenty.byCol.Uthai, 1);
+  assert.equal(twenty.byCol.Watsana, 1);
+});
+
+test("however a table is split, it counts the same trips", () => {
+  const jobs = [
+    { date: "01/07/2026", cat: "IMPORT", status: "OPEN", type: "1X20'", op: "Uthai", opId: "OP-02", customer: "SHPP" },
+    { date: "02/07/2026", cat: "EXPORT", status: "OPEN", type: "1X40'", op: "Watsana", opId: "OP-01", customer: "LOTUS" },
+    { date: "soon", cat: "IMPORT", status: "OPEN", type: "1X20'", op: "Uthai", opId: "OP-02", customer: "SHPP" },
+    { date: "03/07/2026", cat: "IMPORT", status: "CANCELLED", type: "1X20'", op: "Uthai", opId: "OP-02", customer: "SHPP" },
+  ];
+
+  for (const table of [
+    byPeriod(jobs, "month", scope),
+    byOperator(jobs, scope),
+    byField(jobs, (j) => j.type, scope, owner),
+    byField(jobs, (j) => j.customer, scope),
+  ]) {
+    assert.equal(table.counted, 2);
+    assert.equal(table.undated, 1);
+    assert.equal(table.cancelled, 1);
+    assert.equal(table.rows.reduce((sum, r) => sum + r.total, 0), table.counted);
+  }
+});
+
+test("a table split by person does not pin the direction columns", () => {
+  // Caught on screen: the vehicle-type-by-person table showed five people and
+  // then IMPORT, EXPORT and DELIVERY at zero, because the pins were applied to
+  // whatever the columns happened to be rather than to the directions.
+  const out = byField([
+    { date: "01/07/2026", cat: "IMPORT", status: "OPEN", type: "1X20'", op: "Uthai", opId: "OP-02" },
+  ], (j) => j.type, { ...scope, always: ["IMPORT", "EXPORT", "DELIVERY"] }, owner);
+
+  assert.deepEqual(out.cols, ["Uthai"], "people across the top, and only people");
 });

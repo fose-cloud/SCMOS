@@ -7,21 +7,25 @@
  * the same period to be typed and six chances for two of them to disagree about
  * what a trip is.
  *
- * Three things are decided here rather than in the screen, and all three are
- * reported on the page rather than folded silently into a total.
+ * Every table here is the same shape: something down the side, something across
+ * the top, a count in each cell. Period by direction, customer by direction,
+ * vehicle type by the person who handled it. One function does all of them, so
+ * a rule about what counts as a trip cannot hold in one table and not another.
+ *
+ * Three exclusions, all reported on the page rather than folded into a total.
  *
  * A cancelled job is not volume. It was booked and it did not run, and counting
- * it would inflate a month on the strength of work nobody did. It is counted
- * separately so the number stays visible.
+ * it would inflate a month on the strength of work nobody did.
  *
  * A job whose plan date cannot be read belongs to no day, week or month. It is
  * not dropped and it is not guessed at — it is counted as undated and shown,
  * because a total that quietly loses rows is worse than one that admits them.
  *
- * The categories are taken from the register rather than assumed to be the two
- * everybody talks about. IMPORT and EXPORT are what the workspace carries;
- * Domestic is worked under The Chemours and would otherwise vanish from a
- * report calling itself a total.
+ * The columns come from the register rather than from an assumption about what
+ * is in it, with one exception: a caller may pin columns that must appear even
+ * at zero. Domestic work is worked under The Chemours and a month with none of
+ * it should say so rather than silently dropping the column, which reads as the
+ * report having forgotten about it.
  *
  * No imports, so `tests/volumeReport.test.mjs` can run the rules without
  * dragging the register, the theme and the nav in behind them — the shape every
@@ -36,22 +40,23 @@ export type Grain = "day" | "week" | "month";
 export type VolumeJob = {
   date?: string; cat?: string; status?: string;
   customer?: string; trucker?: string; type?: string;
+  op?: string; opId?: string;
   cyYard?: string; destination?: string; plant?: string; returnLoc?: string;
 };
 
-/** One line of any table here: what it is, and how many trips per direction. */
+/** One row: what it is, and how many trips fall in each column. */
 export type Slice = {
-  /** Sortable within a period table; zero in the breakdowns, which rank by size. */
+  /** Sorts a period table; zero in the rankings, which order by size. */
   order: number;
   label: string;
-  byCat: Record<string, number>;
+  byCol: Record<string, number>;
   total: number;
 };
 
 export type Tally = {
   rows: Slice[];
-  /** Every category that appeared, commonest first — the table's columns. */
-  cats: string[];
+  /** The columns, commonest first, with any pinned ones kept even at zero. */
+  cols: string[];
   totals: Record<string, number>;
   counted: number;
   /** Booked and did not run. Excluded from every figure above. */
@@ -64,7 +69,7 @@ export type Tally = {
 
 const DATE = /^(\d{2})\/(\d{2})\/(\d{4})/;
 
-/** What a row is called when the column it groups on is empty. */
+/** What a row or column is called when the field behind it is empty. */
 export const BLANK = "ไม่ระบุ";
 
 /** dd/MM/yyyy to its parts, or null when it is not a date. */
@@ -127,12 +132,17 @@ export type Scope = {
   to?: string;
   /** One direction only, for the import and export sections. */
   cat?: string;
+  /** Columns that must appear even with nothing in them. */
+  always?: string[];
   /** `isCancelled` from ops — passed rather than reimplemented. */
   cancelledRule: (job: VolumeJob) => boolean;
 };
 
+/** What names a row. `key` groups where it differs from what is displayed. */
+type Named = { order: number; label: string; key?: string };
+
 /**
- * Count trips into buckets, split by direction.
+ * Count trips into a table: `group` down the side, `split` across the top.
  *
  * The exclusions happen here, once, so every table on the page counts the same
  * trips. That matters more than it sounds: the first version let the rankings
@@ -145,7 +155,17 @@ export type Scope = {
 function tally(
   jobs: VolumeJob[],
   scope: Scope,
-  group: (job: VolumeJob) => { order: number; label: string },
+  group: (job: VolumeJob) => Named,
+  split: (job: VolumeJob) => string,
+  /**
+   * Columns to keep even at zero.
+   *
+   * Passed by the caller rather than read from the scope, because a pin only
+   * means anything when the columns are the thing pinned. A table split by
+   * person once carried five people followed by IMPORT, EXPORT and DELIVERY at
+   * zero — the pins were for a set of columns that table does not have.
+   */
+  pins?: string[],
 ): Tally {
   const start = dayOrder(scope.from);
   const end = dayOrder(scope.to);
@@ -157,8 +177,7 @@ function tally(
   let counted = 0, cancelled = 0, undated = 0, blank = 0;
 
   for (const job of jobs) {
-    const cat = (job.cat ?? "").trim() || BLANK;
-    if (wanted && cat.toUpperCase() !== wanted) continue;
+    if (wanted && (job.cat ?? "").trim().toUpperCase() !== wanted) continue;
 
     // Out of the range asked for is out of scope entirely — not counted as
     // cancelled or undated either, because those figures describe the period
@@ -177,23 +196,38 @@ function tally(
     const at = group(job);
     if (at.label === BLANK) blank++;
 
-    seen.set(cat, (seen.get(cat) ?? 0) + 1);
-    totals[cat] = (totals[cat] ?? 0) + 1;
+    const col = split(job);
+    seen.set(col, (seen.get(col) ?? 0) + 1);
+    totals[col] = (totals[col] ?? 0) + 1;
     counted++;
 
-    const key = at.order || at.label;
+    const key = at.key ?? (at.order || at.label);
     let row = buckets.get(key);
-    if (!row) { row = { order: at.order, label: at.label, byCat: {}, total: 0 }; buckets.set(key, row); }
-    row.byCat[cat] = (row.byCat[cat] ?? 0) + 1;
+    if (!row) { row = { order: at.order, label: at.label, byCol: {}, total: 0 }; buckets.set(key, row); }
+    row.byCol[col] = (row.byCol[col] ?? 0) + 1;
     row.total++;
   }
 
-  const cats = [...seen.entries()]
+  // Commonest first so the column that matters is nearest the labels, then by
+  // name so equal counts do not swap places between one render and the next.
+  const cols = [...seen.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([cat]) => cat);
+    .map(([col]) => col);
 
-  return { rows: [...buckets.values()], cats, totals, counted, cancelled, undated, blank };
+  // Pinned columns, in the order asked for, after the ones with work in them.
+  // Skipped when a single direction was asked for: an import-only table with
+  // empty EXPORT and DOMESTIC columns says nothing anybody needs.
+  if (!wanted) {
+    for (const col of pins ?? []) {
+      if (!cols.includes(col)) { cols.push(col); totals[col] = totals[col] ?? 0; }
+    }
+  }
+
+  return { rows: [...buckets.values()], cols, totals, counted, cancelled, undated, blank };
 }
+
+/** A job's direction, which is what most of these tables split on. */
+const direction = (job: VolumeJob) => (job.cat ?? "").trim() || BLANK;
 
 /**
  * Trips per period, newest first — the meeting is about this week, and last
@@ -202,7 +236,7 @@ function tally(
 export function byPeriod(jobs: VolumeJob[], grain: Grain, scope: Scope): Tally {
   // Non-null: `tally` has already dropped anything `dayOrder` cannot read, and
   // both read the date through the same `parts`.
-  const out = tally(jobs, scope, (job) => bucket(job.date, grain)!);
+  const out = tally(jobs, scope, (job) => bucket(job.date, grain)!, direction, scope.always);
   out.rows.sort((a, b) => b.order - a.order);
   return out;
 }
@@ -219,11 +253,40 @@ export function byField(
   jobs: VolumeJob[],
   field: (job: VolumeJob) => string | undefined,
   scope: Scope,
+  split: (job: VolumeJob) => string = direction,
 ): Tally {
-  const out = tally(jobs, scope, (job) => ({ order: 0, label: (field(job) ?? "").trim() || BLANK }));
+  const out = tally(
+    jobs, scope,
+    (job) => ({ order: 0, label: (field(job) ?? "").trim() || BLANK }),
+    split,
+    // Only when the columns are the directions. A table split by who handled
+    // the work has people across the top, and pinning IMPORT there adds a
+    // column that can never hold anything.
+    split === direction ? scope.always : undefined);
   out.rows.sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
   return out;
 }
+
+/**
+ * Trips per person, split by direction.
+ *
+ * Grouped on the operator id and labelled with the name — the rule the rest of
+ * the app uses. Ownership by name has broken here before: two spellings of one
+ * person become two people, and the register has no way of telling anybody. The
+ * two agree today, and this does not depend on them continuing to.
+ */
+export function byOperator(jobs: VolumeJob[], scope: Scope): Tally {
+  const out = tally(jobs, scope, (job) => {
+    const id = (job.opId ?? "").trim();
+    const name = (job.op ?? "").trim();
+    return { order: 0, label: name || BLANK, key: id || name || BLANK };
+  }, direction, scope.always);
+  out.rows.sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  return out;
+}
+
+/** The person a job sits with, for a table split by who handled it. */
+export const owner = (job: VolumeJob) => (job.op ?? "").trim() || BLANK;
 
 /** The busiest row, for the line above a table. */
 export function busiest(tallied: Tally): Slice | null {
