@@ -1996,6 +1996,10 @@ export function Workspace(p: Props) {
    * mail client renders the borders and the heading row. Both formats go on the
    * clipboard together and whatever receives it takes the one it can use.
    */
+  /** The heading row of a copied table, in the app's own navy. */
+  const HEAD_BG = "#0A2240";
+  const HEAD_FG = "#FFFFFF";
+
   function blockPayload(lines: string[][], heads: string[] | null) {
     const rows = heads ? [heads, ...lines] : lines;
     const text = rows.map((line) => line.join(TAB)).join(NEWLINE);
@@ -2003,9 +2007,18 @@ export function Workspace(p: Props) {
       value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const box = (value: string, head: boolean) => {
       const tag = head ? "th" : "td";
-      const style = "border:1px solid #D8E0E8;padding:4px 9px;text-align:left"
-        + (head ? ";background:#F4F7FA;font-weight:600" : "");
-      return `<${tag} style="${style}">${esc(value) || "&nbsp;"}</${tag}>`;
+      // The heading row in the app's navy with white text — asked for so a
+      // pasted table reads as a heading in a mail rather than as a first row
+      // that happens to be bold. `bgcolor` and a `color` on the cell as well as
+      // the style: Outlook and Excel each drop one or other of them, and a
+      // white word on a white cell is worse than no colour at all.
+      const style = "border:1px solid " + (head ? HEAD_BG : "#D8E0E8") + ";padding:4px 9px;text-align:left"
+        + (head ? `;background-color:${HEAD_BG};color:${HEAD_FG};font-weight:600` : "");
+      const attrs = head ? ` bgcolor="${HEAD_BG}"` : "";
+      const inner = head
+        ? `<font color="${HEAD_FG}">${esc(value) || "&nbsp;"}</font>`
+        : (esc(value) || "&nbsp;");
+      return `<${tag}${attrs} style="${style}">${inner}</${tag}>`;
     };
     const html = '<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px">'
       + (heads ? `<thead><tr>${heads.map((h) => box(h, true)).join("")}</tr></thead>` : "")
