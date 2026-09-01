@@ -6,6 +6,7 @@ import type { Db, Ship } from "../demo";
 import type { Job } from "../ops";
 import { money, pad, rng } from "../util";
 import { DelayAnalysis } from "./DelayAnalysis";
+import { VolumeReport } from "./VolumeReport";
 
 
 /* ------------------------------------------------------------- import/export */
@@ -185,12 +186,14 @@ export function BillingAging({ filtered }: { filtered: Ship[] }) {
 /* --------------------------------------------------------------- reports */
 
 const REPORT_DEFS: [string, string, string, string][] = [
-  ["Shipment Volume Report", "รายงานปริมาณงาน", "Total trips by day, week and month with import/export split.", "Operations"],
-  ["Import Volume", "ปริมาณงานนำเข้า", "Import trips by port, terminal and customer.", "Operations"],
-  ["Export Volume", "ปริมาณงานส่งออก", "Export trips by origin plant and destination terminal.", "Operations"],
-  ["Trips by Supplier", "เที่ยวตามผู้ขนส่ง", "Allocation share per subcontractor with trend.", "Supplier"],
-  ["Trips by Truck Type", "เที่ยวตามประเภทรถ", "Fleet mix utilisation across the period.", "Operations"],
-  ["Trips by Customer", "เที่ยวตามลูกค้า", "Customer ranking by volume and direction.", "Commercial"],
+  // One entry where there were six: Shipment Volume, Import Volume, Export
+  // Volume, Trips by Supplier, Trips by Truck Type and Trips by Customer were
+  // the same count of the same register over the same period, cut six ways.
+  // Six cards meant the period was typed six times and could be typed six
+  // different ways; the report answers all six at once instead.
+  ["Volume Report", "รายงานปริมาณงาน",
+    "เที่ยวรายวัน/สัปดาห์/เดือน แยกนำเข้า-ส่งออก พร้อมยอดตามลูกค้า ผู้ขนส่ง ประเภทรถ ลานตู้ ปลายทาง โรงงานต้นทาง และจุดคืนตู้",
+    "Operations"],
   ["Transportation Cost", "ต้นทุนค่าขนส่ง", "Total cost with fuel adjustment breakdown.", "Finance"],
   ["Cost by Customer", "ต้นทุนตามลูกค้า", "Cost, selling rate and margin per customer.", "Finance"],
   ["Cost by Supplier", "ต้นทุนตามผู้ขนส่ง", "Spend concentration and rate variance.", "Finance"],
@@ -202,7 +205,7 @@ const REPORT_DEFS: [string, string, string, string][] = [
 ];
 
 /** Reports that open something real rather than a message saying they would. */
-const BUILT = new Set(["Delay Analysis"]);
+const BUILT = new Set(["Delay Analysis", "Volume Report"]);
 
 const REPORT_TONES: Record<string, "blue" | "green" | "teal" | "amber" | "red" | "gray"> = {
   Operations: "blue", Finance: "green", Supplier: "teal", Safety: "amber", Quality: "red", Commercial: "gray",
@@ -222,6 +225,9 @@ export function Reports({ jobs, toast }: { jobs: Job[]; toast: (message: string)
 
   if (open === "Delay Analysis") {
     return <DelayAnalysis jobs={jobs} onToast={toast} onBack={() => setOpen("")} />;
+  }
+  if (open === "Volume Report") {
+    return <VolumeReport jobs={jobs} onToast={toast} onBack={() => setOpen("")} />;
   }
 
   return (
