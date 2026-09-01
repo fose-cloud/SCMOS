@@ -139,6 +139,9 @@ const BOX = "border:1px solid #333;padding:0";
 const BOX_INPUT = "width:100%;border:none;background:transparent;font-size:11px;font-family:inherit;padding:3px 5px;outline:none";
 const HEAD_CELL = "border:1px solid #333;padding:3px 5px;font-size:10px;text-align:center;line-height:1.25";
 
+/** The printed sheet, and the frame the letterhead mark is placed against. */
+const SHEET_FRAME = "position:relative";
+
 export function CargoForm({ stored, onStore, onToast }: {
   /**
    * The customers already on file. null while they are still being fetched,
@@ -388,9 +391,15 @@ function Receipt({ form, lines, onField, onLine }: {
   onLine: (row: number, field: keyof Line, value: string) => void;
 }) {
   return (
-  <div style={css("display:flex;flex-direction:column;gap:0;color:#111")}>
+  <div style={css("display:flex;flex-direction:column;gap:0;color:#111;" + SHEET_FRAME)}>
     <div style={css("text-align:center;font-size:15px;font-weight:700;line-height:1.3")}>CARGO RECEIPT</div>
     <div style={css("text-align:center;font-size:13px;font-weight:600;line-height:1.3")}>ใบรับ-ส่งสินค้า</div>
+
+    {/* The mark, where the paper form carries it. Absolute so it sits beside
+        the two title lines without pushing them off centre — they are centred
+        on the sheet, not on the space left over next to a logo. */}
+    <img src="/cargo-logo.png" alt="Leschaco"
+      style={css("position:absolute;top:6px;right:10px;height:26px;width:auto")} />
 
     <div style={css("display:flex;gap:6px;font-size:10.5px;margin-top:2px")}>
       <span style={css("flex:0 0 62px;font-weight:600")}>Company :</span>
@@ -419,12 +428,18 @@ function Receipt({ form, lines, onField, onLine }: {
 
     <table style={css("width:100%;border-collapse:collapse;margin-top:8px")}>
       <thead>
+        {/* Two header rows, because "Time" sits over both clock columns on the
+            paper form. As one row it read as the heading of "Truck in" alone,
+            with a blank cell over "Truck out". */}
         <tr>
-          <th style={css(HEAD_CELL + ";width:17%")}>จำนวนหีบห่อ<br />No. of&nbsp; P&apos;kg (s)</th>
-          <th style={css(HEAD_CELL + ";width:21%")}>น้ำหนักโดยประมาณ<br />Approx Weight (kgs)</th>
-          <th style={css(HEAD_CELL + ";width:13%")}>Time<br />Truck in</th>
-          <th style={css(HEAD_CELL + ";width:13%")}>&nbsp;<br />Truck out</th>
-          <th style={css(HEAD_CELL)}>หมายเหตุ<br />Remarks</th>
+          <th rowSpan={2} style={css(HEAD_CELL + ";width:17%")}>จำนวนหีบห่อ<br />No. of&nbsp; P&apos;kg (s)</th>
+          <th rowSpan={2} style={css(HEAD_CELL + ";width:21%")}>น้ำหนักโดยประมาณ<br />Approx Weight (kgs)</th>
+          <th colSpan={2} style={css(HEAD_CELL + ";width:26%")}>Time</th>
+          <th rowSpan={2} style={css(HEAD_CELL)}>หมายเหตุ<br />Remarks</th>
+        </tr>
+        <tr>
+          <th style={css(HEAD_CELL + ";width:13%")}>Truck in</th>
+          <th style={css(HEAD_CELL + ";width:13%")}>Truck out</th>
         </tr>
       </thead>
       <tbody>

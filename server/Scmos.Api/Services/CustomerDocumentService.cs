@@ -240,8 +240,15 @@ public class CustomerDocumentService(ScmosDbContext db)
     /// </summary>
     public async Task<int> SaveTemplatesAsync(List<CargoTemplateInput> input, CancellationToken token)
     {
+        // The name alone is enough. Columns were required while this tab carried
+        // CCL-04-01, whose item table each customer had shaped differently; the
+        // form it carries now — ISO-FRM-TH-ADM-26-06 — has no item table at all,
+        // so the reader stopped opening the workbook and sends an empty list on
+        // purpose. This half was never updated with it, so every save of the new
+        // form was filtered down to nothing and answered 400 "ไม่มีแบบฟอร์มที่
+        // อ่านได้ในชุดนี้" — of fifty customers read, none could ever be kept.
         var clean = input
-            .Where(template => template.Customer.Trim().Length > 0 && template.Columns.Count > 0)
+            .Where(template => template.Customer.Trim().Length > 0)
             .GroupBy(template => template.Customer.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToList();
