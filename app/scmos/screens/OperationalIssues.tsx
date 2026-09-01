@@ -68,6 +68,11 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
 }) {
   const [issues, setIssues] = useState<Issue[] | null>(null);
   const [summary, setSummary] = useState<IssueSummary | null>(null);
+  // The subcontractor register, so the log can tell a haulier's name typed into
+  // "ผู้แจ้ง / บริษัทขนส่ง" from a person's. The form below already reads it;
+  // the table needed it too and did not have it, which is why a carrier chosen
+  // when the case was opened never appeared beside the job.
+  const carriers = useCarriers();
   const [form, setForm] = useState<IssueForm | null>(null);
   /**
    * The issue a file is being attached to, and the input that picks it.
@@ -381,7 +386,7 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
                     </td>
                     <td style={css(TD + ";white-space:nowrap")}>{issue.source || "—"}</td>
                     <td style={css(TD + ";min-width:190px")}>
-                      <JobLink issue={issue} />
+                      <JobLink issue={issue} companyOf={carriers.companyOf} />
                       {/* The lorry under the shipment it belongs to, rather
                           than three more columns on a table that already has
                           ten. Blank when nobody recorded it, which is honest. */}
@@ -497,13 +502,46 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
 }
 
 /** The job an issue attached to, or the reference it named and could not find. */
-function JobLink({ issue }: { issue: Issue }) {
-  if (!issue.jobRef && !issue.jobKey) return <span style={css("color:#C4CDD8")}>—</span>;
+/**
+ * The job an issue is about, and who was carrying it.
+ *
+ * The haulier used to come only from the matched job, so a case whose reference
+ * did not land showed no carrier at all — even when whoever raised it had
+ * chosen one, because the form's "ผู้แจ้ง / บริษัทขนส่ง" field is where that
+ * choice goes and nothing here read it.
+ *
+ * Both are shown, and which is which is on the row rather than left to be
+ * assumed. The register's answer is the firm that actually moved the shipment;
+ * the one typed on the case is what somebody said at the time, and the two can
+ * differ — a subcontracted run being the ordinary way.
+ */
+function JobLink({ issue, companyOf }: {
+  issue: Issue;
+  /** The register's name for a spelling, or null when it is not a haulier. */
+  companyOf: (spelling: string) => string | null;
+}) {
+  // Null unless it names a haulier. The same box takes a person's name —
+  // it is labelled "ผู้แจ้ง / บริษัทขนส่ง" — and printing "สมชาย" under a
+  // carrier heading would be worse than a blank. Resolved through the
+  // register so a case saved as "DGT" reads as the company the scorecard
+  // calls it.
+  const typed = companyOf(issue.reporter ?? "") ?? "";
+
+  const said = typed && typed !== issue.jobTrucker ? (
+    <div style={css("color:#7B8CA0")}>
+      {typed} <span style={css("color:#A8B6C4;font-size:10.5px")}>· จากที่กรอกในเคส</span>
+    </div>
+  ) : null;
+
+  if (!issue.jobRef && !issue.jobKey) {
+    return said ?? <span style={css("color:#C4CDD8")}>—</span>;
+  }
   if (!issue.jobKey) {
     return (
       <div>
         <div style={css("font-family:'IBM Plex Mono',monospace")}>{issue.jobRef}</div>
         <div style={css("color:#B08A5A")}>ไม่พบงานนี้ในทะเบียน</div>
+        {said}
       </div>
     );
   }
@@ -514,6 +552,7 @@ function JobLink({ issue }: { issue: Issue }) {
       <div style={css("color:#7B8CA0")}>
         {issue.jobTrucker || "ยังไม่มีผู้ขนส่ง"}{issue.jobDate ? ` · ${issue.jobDate}` : ""}
       </div>
+      {said}
     </div>
   );
 }
