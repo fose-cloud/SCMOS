@@ -97,27 +97,61 @@ public static class CarrierScorecard
     public static IReadOnlyList<CarrierScore> Build(
         IReadOnlyList<(string Key, string Carrier, JobRecord Record)> jobs,
         IReadOnlyList<OperationalIssue> issues,
-        IReadOnlyList<PreRunCheck> preRuns)
+        IReadOnlyList<PreRunCheck> preRuns,
+        /// <summary>
+        /// The register's name for a spelling, or null when it names no haulier.
+        ///
+        /// Used to read the carrier off an issue that never reached a job. The
+        /// field it comes from is labelled "ผู้แจ้ง / บริษัทขนส่ง" and takes a
+        /// person's name just as readily, so an unrecognised spelling has to
+        /// come back null — otherwise "สมชาย" becomes a carrier with a
+        /// scorecard of his own.
+        /// </summary>
+        Func<string, string?>? knownCarrier = null)
     {
         var carrierOf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var job in jobs) carrierOf[job.Key] = job.Carrier;
 
-        // Only issues that reach a job in this period. The rest are real and are
-        // reported elsewhere; they are simply not anybody's score.
-        var attributed = issues
-            .Where(issue => issue.JobKey.Length > 0 && carrierOf.ContainsKey(issue.JobKey))
-            .ToList();
+        /*
+         * The carrier an issue counts against, or "" for nobody.
+         *
+         * The job wins where there is one: that is the firm the register says
+         * moved the shipment, and it is the answer that survives somebody
+         * mistyping a name on the form. Only when no job was ever matched does
+         * the name chosen when the case was raised stand in — which until
+         * 2026-09-01 meant those issues counted against nobody at all, and the
+         * carrier had been named on the case the whole time.
+         *
+         * One carrier per issue. Reading both would count one event twice, on
+         * the two occasions they disagree, which is exactly when it matters.
+         */
+        string CarrierFor(OperationalIssue issue)
+        {
+            if (issue.JobKey.Length > 0 && carrierOf.TryGetValue(issue.JobKey, out var viaJob))
+                return viaJob;
+            return knownCarrier?.Invoke(issue.Reporter ?? "") ?? "";
+        }
 
-        var byCarrier = jobs.GroupBy(job => job.Carrier)
-            .Where(group => group.Key.Length > 0)
-            .OrderBy(group => group.Key, StringComparer.Ordinal);
+        var owner = issues.ToDictionary(issue => issue, CarrierFor);
+        var attributed = issues.Where(issue => owner[issue].Length > 0).ToList();
+
+        // Carriers with work, plus any that an issue names and no job does —
+        // otherwise a haulier whose only appearance this month is a complaint
+        // would be left off the sheet entirely, which is the opposite of what
+        // counting complaints is for.
+        var named = new SortedSet<string>(jobs.Select(job => job.Carrier)
+            .Concat(attributed.Select(issue => owner[issue]))
+            .Where(name => name.Length > 0), StringComparer.Ordinal);
+
+        var byJobs = jobs.GroupBy(job => job.Carrier).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
         var scores = new List<CarrierScore>();
-        foreach (var group in byCarrier)
+        foreach (var carrier in named)
         {
-            var shipments = group.Count();
-            var keys = group.Select(job => job.Key).ToHashSet(StringComparer.Ordinal);
-            var mine = attributed.Where(issue => keys.Contains(issue.JobKey)).ToList();
+            var group = byJobs.TryGetValue(carrier, out var held)
+                ? held : new List<(string Key, string Carrier, JobRecord Record)>();
+            var shipments = group.Count;
+            var mine = attributed.Where(issue => owner[issue] == carrier).ToList();
 
             // Which of the customer's five columns each issue counts under —
             // read from the issue rather than worked out here, so the heading
@@ -134,9 +168,13 @@ public static class CarrierScorecard
             // one entry cannot know whether another exists on the same job. A
             // breakdown the customer felt is already counted as a complaint,
             // and counting it twice would punish one event under two headings.
+            // Paired on the job, so only where there is one: every issue with
+            // no job key shares the empty string, and without this guard one
+            // complaint would cancel every unrelated breakdown beside it.
             var breakdownNoComplaint = mine.Count(issue =>
                 ScorecardColumn.Of(issue) == ScorecardColumn.Breakdown
-                && !mine.Any(other => other.JobKey == issue.JobKey && IsComplaint(other)));
+                && !(issue.JobKey.Length > 0
+                     && mine.Any(other => other.JobKey == issue.JobKey && IsComplaint(other))));
 
             var complaints = mine.Count(IsComplaint);
 
@@ -185,7 +223,7 @@ public static class CarrierScorecard
                 // a carrier's mark on a measurement nobody took.
                 new("vehicle-readiness", "Safety readiness of transport vehicles",
                     "ความพร้อมด้านความปลอดภัยของรถ", 10,
-                    null, 0, preRuns.Count(check => Same(check.Carrier, group.Key)), 100,
+                    null, 0, preRuns.Count(check => Same(check.Carrier, carrier)), 100,
                     "ยังไม่มีบันทึกผลตรวจความพร้อมรถ (ผ่าน/ไม่ผ่าน) ในระบบ — เกณฑ์นี้ยังคิดคะแนนไม่ได้"),
 
                 // On time delivery (Standard, normal & emergency orders).
@@ -234,7 +272,7 @@ public static class CarrierScorecard
                 ? null
                 : Round(measured.Sum(line => line.Percent!.Value * line.Weight) / available);
 
-            scores.Add(new CarrierScore(group.Key, shipments, lines, weighted, available, ungraded,
+            scores.Add(new CarrierScore(carrier, shipments, lines, weighted, available, ungraded,
                 new CarrierTally(major, minor, loading, complaints, breakdownNoComplaint)));
         }
 

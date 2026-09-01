@@ -91,12 +91,46 @@ public static class ScorecardCheck
         };
 
         var scores = CarrierScorecard.Build(jobs, issues, []);
+
+        /* ---- the carrier named on the case, when no job was matched ---- */
+        // Added 2026-09-01. Until then an issue that reached no job counted
+        // against nobody, and the haulier had been chosen on the form the whole
+        // time — the field is "ผู้แจ้ง / บริษัทขนส่ง". A person's name in that
+        // same box must still count against nobody.
+        var known = (string spelling) => spelling is "SSL" or "THAIKOT" ? spelling : null;
+        var loose = new List<OperationalIssue>
+        {
+            // No job, but the carrier is named: SSL's.
+            Reported("", "ความปลอดภัย/อุบัติเหตุ", "Subcontractor", "06/08/2026", "10:00",
+                new DateTimeOffset(2026, 8, 6, 10, 5, 0, TimeSpan.FromHours(7)), "Minor", "SSL"),
+            // No job and no carrier anybody knows — a person reported it.
+            Reported("", "ความปลอดภัย/อุบัติเหตุ", "Subcontractor", "06/08/2026", "10:00",
+                new DateTimeOffset(2026, 8, 6, 10, 5, 0, TimeSpan.FromHours(7)), "Minor", "นายสมชาย"),
+            // A job AND a name, and they disagree. The job wins; counting both
+            // would put one accident on two carriers.
+            Reported("J1", "ความปลอดภัย/อุบัติเหตุ", "Subcontractor", "06/08/2026", "10:00",
+                new DateTimeOffset(2026, 8, 6, 10, 5, 0, TimeSpan.FromHours(7)), "Minor", "THAIKOT"),
+        };
+        var withLoose = CarrierScorecard.Build(jobs, [.. issues, .. loose], [], known);
+        var looseSsl = withLoose.First(score => score.Carrier == "SSL");
+        var looseKot = withLoose.First(score => score.Carrier == "THAIKOT");
         var ssl = scores.First(score => score.Carrier == "SSL");
         var kot = scores.First(score => score.Carrier == "THAIKOT");
         var jtc = scores.First(score => score.Carrier == "JTC");
 
         var checks = new (string What, object? Got, object? Want)[]
         {
+            // Two more minor accidents than the base run: one named on the case
+            // with no job, and one on J1 which is SSL's job — the name on that
+            // one said THAIKOT and was rightly ignored.
+            ("named on the case, no job: counts against that carrier",
+                looseSsl.Tally.TransportAccidentMinor, ssl.Tally.TransportAccidentMinor + 2),
+            ("a person's name is not a carrier and counts against nobody",
+                withLoose.Sum(score => score.Tally.TransportAccidentMinor),
+                scores.Sum(score => score.Tally.TransportAccidentMinor) + 2),
+            ("the job wins over the name when they disagree",
+                looseKot.Tally.TransportAccidentMinor, kot.Tally.TransportAccidentMinor),
+
             ("SSL shipments", ssl.Shipments, 5),
             ("SSL transport accident (major)", ssl.Tally.TransportAccidentMajor, 1),
             ("SSL transport accident (minor)", ssl.Tally.TransportAccidentMinor, 0),
@@ -228,6 +262,15 @@ public static class ScorecardCheck
     {
         var issue = Issue(jobKey, category, source, foundOn, foundAt, createdAt, "");
         issue.ScorecardColumn = column;
+        return issue;
+    }
+
+    /// <summary>An issue as somebody raised it, with the haulier they named.</summary>
+    private static OperationalIssue Reported(string jobKey, string category, string source,
+        string foundOn, string foundAt, DateTimeOffset createdAt, string grade, string reporter)
+    {
+        var issue = Issue(jobKey, category, source, foundOn, foundAt, createdAt, grade);
+        issue.Reporter = reporter;
         return issue;
     }
 

@@ -196,7 +196,12 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         // reach a job are somebody's score, and the ones that do not are still
         // worth counting so the total on screen is the whole month.
         var periodIssues = issues.Where(issue => InPeriod(issue.FoundOn, period)).ToList();
-        var scorecard = CarrierScorecard.Build(scorecardJobs, periodIssues, preRuns);
+        // The register resolves the haulier named on an issue, the same way it
+        // resolves the one on a job, so "DGT" on a case and "DGT Cross Haul Co.,
+        // Ltd." on a shipment land on one carrier. Null when the name is not a
+        // haulier at all — that field also takes the reporter's own name.
+        var scorecard = CarrierScorecard.Build(scorecardJobs, periodIssues, preRuns,
+            spelling => directory.Knows(spelling) ? directory.Company(spelling) : null);
         var unattributed = periodIssues.Count(issue =>
             issue.JobKey.Length == 0 || !keys.Contains(issue.JobKey));
 
