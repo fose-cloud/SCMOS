@@ -23,6 +23,11 @@ on:
         type: choice
         options: ["no", "report", "apply", "undo"]
         default: "no"
+      linkIssues:
+        description: "Operational issues: report which unlinked ones a container would attach to a job, or write it"
+        type: choice
+        options: ["no", "report", "apply"]
+        default: "no"
 
 env:
   DOTNET_VERSION: "10.0.x"
@@ -151,6 +156,27 @@ jobs:
           esac
 
           dotnet publish/Scmos.Api.dll --normalise-types $extra
+
+      # Old issues carry a booking number where a job code was expected, so they
+      # never linked and were counted against no carrier on the scorecard. This
+      # attaches them by the container already on the row. It fills blanks only,
+      # never replaces a link, and prints the id of every row it touches — so
+      # "report" is safe to run whenever, and "apply" is undone by clearing the
+      # ids it printed.
+      - name: Link operational issues to their jobs
+        if: github.event_name == 'workflow_dispatch' && inputs.linkIssues != 'no'
+        env:
+          ConnectionStrings__ScmosDb: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: |
+          if [ -z "$ConnectionStrings__ScmosDb" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
+            exit 1
+          fi
+
+          extra=""
+          [ "${{ inputs.linkIssues }}" = "apply" ] && extra="--apply"
+          dotnet publish/Scmos.Api.dll --link-issues $extra
 
       - name: Deploy API to Azure App Service
         uses: azure/webapps-deploy@v3
