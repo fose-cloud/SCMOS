@@ -1,5 +1,5 @@
 export type Screen =
-  | "dashboard" | "workspace" | "booking" | "monitoring" | "docverify"
+  | "dashboard" | "workspace" | "booking" | "monitoring" | "prerun" | "docverify"
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
@@ -106,6 +106,10 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     // says whose a job is, this says whose it ought to be.
     ["rotation", "Job Rotation", "ความรับผิดชอบลูกค้า", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
     ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
+    // Back in the menu on 2026-09-01, having been out of it since the 31st and
+    // deleted for a few hours in between. A screen with no way in is not
+    // restored, and the alert below it has to point somewhere a person can go.
+    ["prerun", "Pre-Run Check", "ตรวจก่อนออกงาน", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 7]]],
     ["loreal", "L'OREAL", "รายงานตู้ลูกค้า", [[2, 2, 12, 3], [2, 7, 12, 1.5], [2, 11, 8, 1.5]]],
     ["chemours", "The Chemours", "รายงานงานกระจายสินค้า", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
   ],
@@ -147,6 +151,7 @@ export const META: Record<string, [string, string, string]> = {
   postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก", "งานที่แผนเปลี่ยนไปจากที่จองไว้ — เลื่อนวันโหลด/ส่ง หรือยกเลิก · เปิดจาก My Job แล้วกดปุ่ม “เลื่อนวัน” หรือ “ยกเลิกงาน” · งานที่ยกเลิกไม่ถูกลบ ยังค้นและนับได้"],
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
+  prerun: ["Pre-Run Check", "ตรวจก่อนออกงาน", "ยืนยันรถ คนขับ ทะเบียน และเอกสารก่อนวันงาน พร้อมจับเวลาตอบกลับตาม SLA"],
   subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง", "Approved carrier register with fleet, insurance, licence and safety validity."],
   capacity: ["Capacity Planning", "การวางแผนกำลังรถ", "ประเภทรถและตู้ที่คอลัมน์ TYPE เลือกได้ · และกำลังรถรายวันเทียบกับงานที่รับไว้"],
   rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง", "Cost vs selling rate with fuel adjustment and margin control per lane."],

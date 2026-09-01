@@ -57,8 +57,12 @@ test("no alert points at a menu heading", () => {
   assert.deepEqual(onHeading, []);
 });
 
-test("the three screens taken out of the menu keep no alerts", () => {
-  const removed = ["booking", "prerun", "docverify"];
+test("the screens taken out of the menu keep no alerts", () => {
+  // Booking and Document Verification went on 2026-08-31 and have stayed out.
+  // Pre-Run went with them, was deleted on 2026-09-01 and restored the same
+  // day, so it is off this list — the reachability test above is what holds it
+  // to being reachable now, rather than this one holding it to being gone.
+  const removed = ["booking", "docverify"];
   const pointing = alerts.filter(([, screen]) => removed.includes(screen));
-  assert.deepEqual(pointing, [], "these screens were removed on 2026-08-31");
+  assert.deepEqual(pointing, []);
 });

@@ -13,6 +13,7 @@ public enum AlertKind
 {
     SupplierNotConfirmed,
     BookingMissingData,
+    PreRunNotConfirmed,
     TruckDelay,
     ECardMismatch,
     DocumentUnclear,
@@ -21,6 +22,7 @@ public enum AlertKind
     DriverTrainingExpiring,
     DriverTrainingExpired,
     AuditExpiring,
+    CapacityShortage,
     CarParOverdue,
     KpiBelowTarget,
     ActingForColleague,
@@ -76,6 +78,12 @@ public static class Notifications
         new(AlertKind.BookingMissingData, "Booking missing data", "ข้อมูลจองรถไม่ครบ",
             AlertLevel.Warning, "เติมทะเบียนรถ คนขับ และเบอร์ติดต่อให้ครบก่อนวันงาน", "myjob"),
 
+        // Points at the Pre-Run screen again, which is back in the menu. It was
+        // sent to the monitor while that screen was hidden, and removed
+        // altogether while it was deleted; both are undone.
+        new(AlertKind.PreRunNotConfirmed, "Pre-run not confirmed", "ยังไม่ยืนยันก่อนออกงาน",
+            AlertLevel.Critical, "โทรตามผู้ขนส่งให้ยืนยันรถและคนขับ", "prerun"),
+
         new(AlertKind.TruckDelay, "Truck delay", "รถล่าช้า",
             AlertLevel.Critical, "บันทึกสาเหตุ แจ้งลูกค้า และประเมินเวลาที่จะถึงใหม่", "monitoring"),
 
@@ -118,6 +126,9 @@ public static class Notifications
         // for saved links.
         new(AlertKind.CarParOverdue, "CAR/PAR overdue", "CAR/PAR เกินกำหนด",
             AlertLevel.Critical, "ติดตามผู้รับผิดชอบ หรือขยายกำหนดพร้อมเหตุผล", "incident"),
+
+        new(AlertKind.CapacityShortage, "Capacity shortage", "กำลังรถไม่พอ",
+            AlertLevel.Warning, "หาผู้ขนส่งรายอื่น หรือเลื่อนงานที่ยืดหยุ่นได้", "capacity"),
 
         new(AlertKind.KpiBelowTarget, "KPI below target", "KPI ต่ำกว่าเป้า",
             AlertLevel.Warning, "ดูว่าผู้ขนส่งรายใดหรือเส้นทางใดฉุดค่าเฉลี่ย", "kpi"),
