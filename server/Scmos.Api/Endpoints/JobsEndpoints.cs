@@ -69,7 +69,7 @@ public static class JobsEndpoints
         group.MapGet("/page", async (string? tab, string? cat, string? year, string? month,
             string? day, string? q, string? sort, string? dir, int? page, int? per,
             string? assignee, string? customer, string? trucker, string? type, string? status,
-            string? kpi,
+            string? kpi, string? only,
             HttpContext context, IUserAccessor users, WorkspaceService workspace,
             CancellationToken token) =>
         {
@@ -100,7 +100,10 @@ public static class JobsEndpoints
                 Trucker: trucker ?? "ALL",
                 Type: type ?? "ALL",
                 Status: status ?? "ALL",
-                Kpi: kpi ?? "ALL"), token);
+                Kpi: kpi ?? "ALL",
+                // Set when somebody asked to be taken to one row — see the
+                // drawer's "edit in the table" button.
+                Only: only ?? ""), token);
 
             return Results.Json(new
             {

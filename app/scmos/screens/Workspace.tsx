@@ -35,6 +35,16 @@ export type WsState = {
   /** Month of that year as MM, e.g. "07". */
   month: string;
   q: string;
+  /**
+   * One job key, when somebody asked to be taken to a single row.
+   *
+   * Exact rather than a search of its number: 654 jobs in the register share a
+   * job code with another and the worst is shared by ten, so searching the
+   * number lands on a handful and leaves the person to work out which is
+   * theirs. Shown as a filter chip like every other narrowing, so it is visible
+   * and one click undoes it.
+   */
+  only?: string;
   page: number;
   edit: { key: string; field: string } | null;
   editVal: string;
@@ -514,6 +524,28 @@ export const WORKSPACE_TABS: Record<string, (job: Job, opId: string) => boolean>
   "CANCEL / MOVED": (job) => isCancelled(job) || wasMoved(job),
 };
 
+/**
+ * A tab on this screen that actually contains this job, or null if none does.
+ *
+ * The drawer opens from anywhere — an alert, the header search, another tab —
+ * so taking somebody to a row means first landing on a list the row is in.
+ * Widest first, and only among the tabs the screen actually offers, because My
+ * Job offers three of these and the rules for the others would send somebody to
+ * a tab that is not there.
+ *
+ * Null is a real answer: a cancelled job belongs to none of My Job's three
+ * unless it is the viewer's own. One job in the register is cancelled today, so
+ * this is rare — but landing on an empty table with no explanation is the kind
+ * of thing that reads as the system being broken.
+ */
+export function tabHolding(job: Job, opId: string, offered: string[]): string | null {
+  const widestFirst = ["PENDING", "COMPLETED", "MY JOBS", "CANCEL / MOVED", "DELAY", "DOCUMENT MISSING"];
+  for (const tab of widestFirst) {
+    if (offered.includes(tab) && WORKSPACE_TABS[tab]?.(job, opId)) return tab;
+  }
+  return null;
+}
+
 /** Tab labels carry live counts; the header renders them, so this is exported. */
 export function workspaceTabCounts(ops: Ops | null, opId: string, cat: string): Record<string, number> {
   if (!ops) return {};
@@ -783,6 +815,8 @@ export function Workspace(p: Props) {
   if (K === "Done") list = list.filter((j) => RE.done.test(j.status));
   if (K === "Act") list = list.filter((j) => j.action);
   if (K === "Fmt") list = list.filter(hasFormatError);
+
+  if (ws.only) list = list.filter((j) => j.key === ws.only);
 
   const q = (ws.q || "").toLowerCase().trim();
   if (q) {
@@ -1206,12 +1240,20 @@ export function Workspace(p: Props) {
   }
   if (ws.status !== "ALL") activeFilters.push(["สถานะ", ws.status, () => p.set({ status: "ALL", page: 1 })]);
   if (ws.kpi !== "All") activeFilters.push(["KPI", ws.kpi, () => p.set({ kpi: "All", page: 1 })]);
+  if (ws.only) {
+    const one = list[0];
+    activeFilters.push([
+      "งานที่เลือก",
+      one ? (one.jobCode || one.abs || one.customer || "1 งาน") : "1 งาน",
+      () => p.set({ only: "", page: 1 }),
+    ]);
+  }
   if (ws.q) activeFilters.push(["ค้นหา", ws.q, () => p.set({ q: "", page: 1 })]);
   if (ws.sort) activeFilters.push(["เรียง", ws.sort.key + (ws.sort.dir === "asc" ? " ↑" : " ↓"), () => p.set({ sort: null })]);
 
   const clearAll = () => p.set({
     cat: "ALL", year: "ALL", month: "ALL", date: "ALL", assignee: "All Team", cust: "ALL",
-    trucker: "ALL", type: "ALL", status: "ALL", kpi: "All", q: "", sort: null, page: 1,
+    trucker: "ALL", type: "ALL", status: "ALL", kpi: "All", q: "", only: "", sort: null, page: 1,
   });
 
   const panel = (key: keyof PanelPrefs) => () => p.onPanel(key);
@@ -2241,7 +2283,10 @@ export function Workspace(p: Props) {
 
       {!canAssign && (
         <span style={css("font-size:11px;color:#94A3B8")}>
-          Reassignment is limited to Supervisor and above — open a job to request a change.
+          {/* Said without naming a control: it used to send people to a
+              Reassign button in the job drawer, which was taken off on
+              2026-09-01 because ticking rows already does it. */}
+          การมอบหมายงานให้คนอื่นทำได้เฉพาะระดับหัวหน้างานขึ้นไป — แจ้งหัวหน้าเพื่อเปลี่ยนผู้รับผิดชอบ
         </span>
       )}
     </div>

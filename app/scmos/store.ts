@@ -81,6 +81,8 @@ export type PageQuery = {
   /** The rest of the workspace's filter bar, answered by the same endpoint. */
   customer?: string; trucker?: string; type?: string; status?: string;
   assignee?: string; kpi?: string;
+  /** One job key, when the screen is taking somebody to a single row. */
+  only?: string;
 };
 
 /**
@@ -110,6 +112,10 @@ export async function loadJobsPage(query: PageQuery): Promise<JobPage | null> {
   if (query.status) params.set("status", query.status);
   if (query.assignee) params.set("assignee", query.assignee);
   if (query.kpi) params.set("kpi", query.kpi);
+  // Sent to the API rather than filtered here: with the server paging, the row
+  // somebody asked for may not be on the page the browser is holding, so a
+  // filter applied to that page would find nothing and show an empty table.
+  if (query.only) params.set("only", query.only);
   params.set("page", String(query.page ?? 1));
   params.set("per", String(query.per ?? 50));
 

@@ -12,8 +12,6 @@ export function JobDrawer(p: {
   canEdit: boolean;
   onClose: () => void;
   onEdit: () => void;
-  onDuplicate: () => void;
-  onReassign: () => void;
   onMove: () => void;
   onCancelJob: () => void;
   onDelete: () => void;
@@ -158,8 +156,14 @@ export function JobDrawer(p: {
         >
           {p.canEdit ? "Edit inline in table" : "View only"}
         </button>
-        <button className="ghost-btn" onClick={p.onDuplicate} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Duplicate</button>
-        <button className="ghost-btn" onClick={p.onReassign} style={css("height:34px;padding:0 13px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer")}>Reassign</button>
+        {/*
+          Duplicate and Reassign were taken off this row on 2026-09-01. Both had
+          a second way in that does the same work from the grid, where the job
+          already is: the + on a row copies it onto the same booking through this
+          same handler, and ticking rows offers "มอบหมายให้…", which reassigns —
+          one row ticked is the single-job case. Two buttons for one action drift
+          apart and make the person wonder which one is the real one.
+        */}
         {p.canEdit && !isCancelled(j) && (
           <>
             <button className="ghost-btn" onClick={p.onMove}
@@ -313,58 +317,6 @@ export function JobChangeModal(p: {
 }
 
 /* -------------------------------------------------------- reassign modal */
-
-export function AssignModal(p: {
-  reference: string;
-  current: string;
-  operators: string[];
-  loads: Record<string, number>;
-  onPick: (name: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div style={css("position:fixed;inset:0;background:rgba(7,26,49,.48);z-index:64;display:flex;align-items:center;justify-content:center;padding:40px")}>
-      <div style={css("background:#fff;border-radius:6px;width:460px;max-width:100%;box-shadow:0 24px 60px rgba(7,26,49,.3);animation:tin .16s ease")}>
-        <div style={css("padding:15px 20px;background:#0A2240;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;align-items:center")}>
-          <div>
-            <div style={css("font-size:14px;font-weight:600;color:#fff")}>Reassign Job</div>
-            <div style={css("font-size:11px;color:#7FA5CC")}>{p.reference}</div>
-          </div>
-          <button onClick={p.onClose} aria-label="Close" style={css("width:28px;height:28px;border:1px solid #24476E;background:#0E2B4F;color:#B9CFE5;border-radius:4px;cursor:pointer")}>✕</button>
-        </div>
-        <div style={css("padding:16px 20px;display:flex;flex-direction:column;gap:8px")}>
-          {p.operators.map((name) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => p.onPick(name)}
-              style={css(
-                "width:100%;font-family:inherit;text-align:left;" +
-                "display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid " +
-                (p.current === name ? "#2E7DD1" : "#E9EFF5") + ";background:" + (p.current === name ? "#F4F8FC" : "#fff") +
-                ";border-radius:4px;cursor:pointer",
-              )}
-            >
-              <span style={css("width:28px;height:28px;border-radius:4px;background:#0A2240;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center")}>
-                {name.slice(0, 2).toUpperCase()}
-              </span>
-              <span style={css("display:flex;flex-direction:column;line-height:1.25")}>
-                <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>{name}</span>
-                <span style={css("font-size:11px;color:#64748B")}>{p.loads[name] || 0} active jobs</span>
-              </span>
-            </button>
-          ))}
-          <span style={css("font-size:11px;color:#94A3B8;line-height:1.5;margin-top:4px")}>
-            Assignment history is never overwritten — the previous operator, who changed it and when are appended to the
-            job&apos;s change history.
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------- add job modal */
 
 /** [label, form key, select options (null = free text), placeholder] */
 type FieldDef = [string, string, string[] | null, string?];

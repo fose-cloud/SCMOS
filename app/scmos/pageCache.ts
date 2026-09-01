@@ -57,6 +57,9 @@ export function pageCacheKey(opId: string, query: PageQuery): string {
     query.page ?? 1, query.per ?? 25,
     query.customer ?? "", query.trucker ?? "", query.type ?? "",
     query.status ?? "", query.assignee ?? "", query.kpi ?? "",
+    // Part of the key: a one-row answer and the full page are different views
+    // of the same tab, and without this the second would be served the first.
+    query.only ?? "",
   ].join("|");
 }
 

@@ -34,7 +34,16 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         string Tab, string Cat, string Year, string Month, string Day,
         string Search, string SortKey, string SortDir, int Page, int Per, string OpId,
         string Assignee, string Owner, string Customer, string Trucker, string Type,
-        string Status, string Kpi);
+        string Status, string Kpi,
+        /// <summary>
+        /// One job key, when the caller is being taken to a single row rather
+        /// than browsing.
+        ///
+        /// Appended rather than slotted in beside the other filters: this record
+        /// is positional, and moving an argument here silently shifts every
+        /// field after it into the wrong slot.
+        /// </summary>
+        string Only = "");
 
     public record Page(
         IReadOnlyList<JsonElement> Rows,
@@ -114,6 +123,11 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
             || wantedTruckers.Any(one => directory.Same(job.Trucker, one));
 
         var matching = beforeNames
+            // Applied here rather than up in `beforeNames`, which is what the
+            // customer and haulier dropdowns are built from: narrowing to one
+            // row before that point would leave those pickers offering the one
+            // job's own customer and nothing else.
+            .Where(job => query.Only.Length == 0 || string.Equals(job.Key, query.Only, StringComparison.Ordinal))
             .Where(job => IsAny(job.Customer, query.Customer))
             // Through the register: choosing "Sangja Transport Co., Ltd."
             // finds the jobs written SJ and SANGJA as well, which is the whole

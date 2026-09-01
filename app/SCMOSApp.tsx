@@ -73,7 +73,7 @@ import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
 import { BillingAging, Reports } from "./scmos/screens/Panels";
 import { Booking } from "./scmos/screens/Booking";
-import { Workspace, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
+import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
 
 import { Abs } from "./scmos/screens/Abs";
 import { Loreal } from "./scmos/screens/Loreal";
@@ -84,7 +84,7 @@ import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toas
 import type { Alert, WsTarget } from "./scmos/alerts";
 import { globalSearch, type SearchHit } from "./scmos/search";
 import { DEFAULT_PREFS, EMPTY_PROFILE, loadPrefs, loadProfile, readAvatar, savePrefs, saveProfile, type Prefs, type Profile } from "./scmos/settings";
-import { AddJobModal, AssignModal, JobChangeModal, JobDrawer } from "./scmos/overlays/WorkspaceOverlays";
+import { AddJobModal, JobChangeModal, JobDrawer } from "./scmos/overlays/WorkspaceOverlays";
 
 const EMPTY_FILTERS: Filters = { dir: "All", cust: "All", sub: "All", truck: "All", status: "All", month: "All" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
@@ -92,7 +92,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
 
 const EMPTY_WS = {
   cat: "ALL", cust: "ALL", trucker: "ALL", date: "ALL", kpi: "All", assignee: "All Team",
-  status: "ALL", type: "ALL", year: "ALL", month: "ALL",
+  status: "ALL", type: "ALL", year: "ALL", month: "ALL", only: "",
   edit: null as { key: string; field: string } | null, editVal: "",
   sort: null as { key: string; dir: "asc" | "desc" } | null,
   picked: [] as string[],
@@ -240,7 +240,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [drawer, setDrawer] = useState<string | null>(null);
   /** The job whose date is being moved or which is being called off, and which of the two. */
   const [changing, setChanging] = useState<{ key: string; mode: "move" | "cancel" } | null>(null);
-  const [assignFor, setAssignFor] = useState<string | null>(null);
   /**
    * A job handed from the workspace drawer to the issue log.
    *
@@ -1038,7 +1037,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         q, sort: ws.sort?.key, dir: ws.sort?.dir,
         page: sectionPages[cat] ?? 1, per: prefs.perPage,
         customer: ws.cust, trucker: ws.trucker, type: ws.type,
-        status: ws.status, assignee: ws.assignee, kpi: ws.kpi,
+        status: ws.status, assignee: ws.assignee, kpi: ws.kpi, only: ws.only,
       }));
 
       // Draw last time's answer first, if this exact view has one.
@@ -1113,7 +1112,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     // `me.opId` keys the saved pages, so a change of account must re-read them
     // rather than show this person the last one's rows.
   }, [isWorkspace, lockedCat, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
-      ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q,
+      ws.type, ws.status, ws.assignee, ws.kpi, ws.only, ws.sort?.key, ws.sort?.dir, q,
       sectionPages, prefs.perPage, revision, me.opId]);
 
   // Changing what is being looked at puts every section back to its first page.
@@ -1122,7 +1121,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   useEffect(() => {
     setSectionPages({});
   }, [activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
-      ws.type, ws.status, ws.assignee, ws.kpi, ws.sort?.key, ws.sort?.dir, q, prefs.perPage]);
+      ws.type, ws.status, ws.assignee, ws.kpi, ws.only, ws.sort?.key, ws.sort?.dir, q, prefs.perPage]);
 
   const workspacePageOps = useMemo(() => {
     if (!serverPages) return null;
@@ -1196,6 +1195,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     // Cleared on every move, so coming back to the monitor by hand later opens
     // the list rather than re-opening whatever an alert pointed at last week.
     setShipFocus(null);
+    // Same reasoning for the single-row filter: leaving the screen ends it, so
+    // nobody comes back tomorrow to a table holding one job and no memory of why.
+    setWs((prev) => (prev.only ? { ...prev, only: "" } : prev));
   };
 
   /**
@@ -2205,7 +2207,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     [ops, pinnedKeys, revision],
   );
   const changingJob = changing && ops ? ops.jobs.find((x) => x.key === changing.key) ?? null : null;
-  const assignJob = assignFor && ops ? ops.jobs.find((x) => x.key === assignFor) ?? null : null;
   const delayJob = opsDelay && ops ? ops.jobs.find((x) => x.key === opsDelay) ?? null : null;
   const delayShip = delayFor !== null ? db.ships.find((x) => x.id === delayFor) ?? null : null;
 
@@ -2791,29 +2792,32 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               setToast("View only — handled by " + drawerJob.op);
               return;
             }
-            setDrawer(null);
-            setToast("Click any highlighted cell in the row to edit");
-          }}
-          onDuplicate={() => {
-            if (!ops) return;
-            const copy: Job = {
-              ...drawerJob, key: "X" + Date.now(), id: "X" + Date.now(),
-              container: "", seal: "", licence: "", driver: "", contact: "", arrDate: "", arrTime: "",
-              status: drawerJob.cat === "DELIVERY" ? "Scheduled" : "Waiting Truck", hist: [],
-            };
-            flagJob(copy);
-            ops.jobs.unshift(copy);
-            persist([copy]);
-            setDrawer(copy.key);
-            setToast("Job duplicated — container and driver cleared");
-            touch();
-          }}
-          onReassign={() => {
-            if (!able("AssignJobs")) {
-              setToast("Only Supervisor and above can reassign jobs");
+            // It used to close the drawer and say "click any highlighted cell in
+            // the row" — which was advice, not an action. The row could be on
+            // another tab, another page, behind a filter, or on a screen the
+            // person was not even looking at, and none of those is something
+            // being told to click can solve.
+            //
+            // Domestic work is not in this grid at all: it is worked under The
+            // Chemours, which mounts the same table locked to that category.
+            const home: Screen = drawerJob.cat === "DELIVERY" ? "chemours" : "myjob";
+            const holding = tabHolding(drawerJob, me.opId ?? "", TAB_DEFS[home] ?? []);
+            if (!holding) {
+              setToast("งานนี้ไม่ได้อยู่ในแท็บใดของหน้านี้ — เปิดที่เมนู เลื่อน / ยกเลิก");
               return;
             }
-            setAssignFor(drawerJob.key);
+            setDrawer(null);
+            go(home);
+            setTab(holding);
+            // Every narrowing cleared and replaced with one that names the job
+            // itself, so the row is on screen whatever the person had filtered
+            // to before. The chip above the grid says so and undoes it.
+            setWs((prev) => ({
+              ...prev, only: drawerJob.key,
+              cat: "ALL", cust: "ALL", trucker: "ALL", type: "ALL", assignee: "All Team",
+              status: "ALL", kpi: "All", year: "ALL", month: "ALL", date: "ALL", sort: null,
+            }));
+            setToast("เปิดงานนี้ในตารางแล้ว — คลิกช่องที่แก้ไขได้ · กด × ที่ “งานที่เลือก” เพื่อกลับไปดูทั้งหมด");
           }}
           onMove={() => setChanging({ key: drawerJob.key, mode: "move" })}
           onCancelJob={() => setChanging({ key: drawerJob.key, mode: "cancel" })}
@@ -2827,29 +2831,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           mode={changing.mode}
           onApply={(change) => applyJobChange(changingJob, changing.mode, change)}
           onClose={() => setChanging(null)}
-        />
-      )}
-
-      {assignJob && ops && (
-        <AssignModal
-          reference={(assignJob.jobCode || assignJob.jobNo || assignJob.abs) + " · " + assignJob.customer}
-          current={assignJob.op}
-          operators={ops.masters.operators}
-          loads={ops.masters.operators.reduce<Record<string, number>>((acc, name) => {
-            acc[name] = ops.jobs.filter((j) => j.op === name).length;
-            return acc;
-          }, {})}
-          onPick={(name) => {
-            const old = assignJob.op;
-            assignJob.op = name;
-            assignJob.opId = opIdForName(name);
-            pushAct(assignJob, "Assigned Operator", old, name);
-            persist([assignJob]);
-            setAssignFor(null);
-            setToast("Reassigned " + (assignJob.jobCode || assignJob.jobNo) + ": " + old + " → " + name);
-            touch();
-          }}
-          onClose={() => setAssignFor(null)}
         />
       )}
 
