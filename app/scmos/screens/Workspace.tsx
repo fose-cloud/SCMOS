@@ -967,9 +967,14 @@ export function Workspace(p: Props) {
   /** A cell whose value is one of a fixed set — category, priority. */
   const edChoice = (j: Job, field: keyof Job, options: string[], opts: CellOpts = {}): Cell => {
     const current = (j[field] as string) || "";
-    if (!canEditJob(j)) return cell(current || "—", opts);
+    // `field` on both branches, editable or not. It is what says which value of
+    // which job a cell holds, and copy-with-headers and the dragged rectangle
+    // both read it — a dropdown without it was a column that vanished from
+    // every copy. Customer and Truck are dropdowns.
+    if (!canEditJob(j)) return { ...cell(current || "—", opts), field };
     return {
       kind: "select",
+      field,
       v: current,
       sp: "",
       value: current,
@@ -987,7 +992,7 @@ export function Workspace(p: Props) {
   /** Status is a dropdown for jobs you own; "Delayed" routes into the delay modal. */
   const stCell = (j: Job): Cell => {
     if (!canEditJob(j)) {
-      const plain = cell(j.status, { tone: opTone(j.status) });
+      const plain = { ...cell(j.status, { tone: opTone(j.status) }), field: "status" };
       markIssue(plain, j, "status");
       return plain;
     }
@@ -995,6 +1000,7 @@ export function Workspace(p: Props) {
     const options = opts.indexOf(j.status) >= 0 ? opts : [j.status].concat(opts);
     return {
       kind: "select",
+      field: "status",
       v: j.status,
       sp: "",
       value: j.status,
@@ -1330,7 +1336,7 @@ export function Workspace(p: Props) {
         ed(j, "remark", { w: 180, mute: true }),
         ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
         ed(j, "cs", { mono: true }), stCell(j),
-        cell(j.op, { bold: mine, mute: !mine }),
+        { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
       ]);
     }
     if (layout === "EXPORT") {
@@ -1348,7 +1354,7 @@ export function Workspace(p: Props) {
         ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }), ed(j, "contact", { mono: true }),
         ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
         ed(j, "remark", { w: 180, mute: true }), stCell(j),
-        cell(j.op, { bold: mine, mute: !mine }),
+        { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
       ]);
     }
     if (layout === "DELIVERY") {
@@ -1375,7 +1381,7 @@ export function Workspace(p: Props) {
         ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtl", { mono: true, align: "right" }),
         cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right", bold: true }),
         ed(j, "remark", { w: 170, mute: true }), stCell(j),
-      cell(j.op, { bold: mine, mute: !mine }),
+      { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
       ]);
     }
     return head.concat([
@@ -1393,7 +1399,7 @@ export function Workspace(p: Props) {
       ed(j, "reason", { w: 170, color: j.reason ? "#B45309" : null }), ed(j, "remark", { w: 170, mute: true }),
       ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
       ed(j, "cs", { mono: true }), stCell(j),
-      cell(j.op, { bold: mine, mute: !mine }),
+      { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
     ]);
   };
 
@@ -1674,6 +1680,30 @@ export function Workspace(p: Props) {
   // grid and nothing else, so a bar outside it vanished at exactly the
   // moment fifty rows had been ticked — the selection still there and no
   // way left to act on it.
+  /**
+   * The new-row bar, and the button that finishes a new row.
+   *
+   * It used to sit on the page above the grid, which meant full screen — the
+   * mode where the grid covers everything — hid the only way to finish the row
+   * somebody had just added. It goes into the grid's own banner now, so it
+   * follows the table into full screen and out again.
+   */
+  const pinnedBar = p.pinned.length > 0 ? (
+    <div style={css("border:1px solid #CFE3D6;background:#F5FBF8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
+      <span style={css(badge("แถวใหม่", "green"))}>แถวใหม่ {p.pinned.length}</span>
+      <span style={css("font-size:11.5px;color:#16794C;flex:1;min-width:220px")}>
+        อยู่บนสุดของตารางจนกว่าจะกดเสร็จ — คลิกช่องในแถวเพื่อกรอกได้เลย
+        บันทึกทุกช่องทันทีที่พิมพ์เสร็จ
+      </span>
+      {p.pinned.map((job) => (
+        <button key={job.key} onClick={() => p.onDonePinning(job.key)}
+          style={css("height:30px;padding:0 13px;border:1px solid #16794C;background:#16794C;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
+          เสร็จแล้ว · {job.customer || "แถวใหม่"}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   const bulkBar = pickedJobs.length ? (
             <div style={css("padding:10px 14px;background:#FFF7DE;border:1px solid #EADFC8;border-radius:5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
               <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>
@@ -2084,22 +2114,6 @@ export function Workspace(p: Props) {
     // The page does not scroll; this fills it and the grid scrolls inside.
     <div style={css("display:flex;flex-direction:column;gap:0;flex:1;min-height:0")}>
 
-      {p.pinned.length > 0 && (
-        <div style={css("border:1px solid #CFE3D6;background:#F5FBF8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
-          <span style={css(badge("แถวใหม่", "green"))}>แถวใหม่ {p.pinned.length}</span>
-          <span style={css("font-size:11.5px;color:#16794C;flex:1;min-width:220px")}>
-            อยู่บนสุดของตารางจนกว่าจะกดเสร็จ — คลิกช่องในแถวเพื่อกรอกได้เลย
-            บันทึกทุกช่องทันทีที่พิมพ์เสร็จ
-          </span>
-          {p.pinned.map((job) => (
-            <button key={job.key} onClick={() => p.onDonePinning(job.key)}
-              style={css("height:30px;padding:0 13px;border:1px solid #16794C;background:#16794C;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
-              เสร็จแล้ว · {job.customer || "แถวใหม่"}
-            </button>
-          ))}
-        </div>
-      )}
-
 
       {!complete && (
         <div style={css("background:#F4F8FC;border:1px solid #BBD5EE;border-left:3px solid #2E7DD1;border-radius:5px;padding:10px 14px;font-size:11.5px;color:#475569")}>
@@ -2253,7 +2267,13 @@ export function Workspace(p: Props) {
               // tables of one selection, and a second copy of the filter would
               // be two controls fighting over one value.
               model={grid.layout === grids[0].layout
-                ? { ...grid.model, fill: true, banner: bulkBar,
+                ? { ...grid.model, fill: true,
+                    banner: (pinnedBar || bulkBar) ? (
+                      <div style={css("display:flex;flex-direction:column;gap:8px")}>
+                        {pinnedBar}
+                        {bulkBar}
+                      </div>
+                    ) : null,
                     actions: p.actions,
                     controls: controlBar }
                 : { ...grid.model, fill: true }}
