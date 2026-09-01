@@ -40,7 +40,7 @@ import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
 import { JobRotation } from "./scmos/screens/JobRotation";
 import { Today } from "./scmos/screens/Today";
-import { VehicleTypes } from "./scmos/screens/VehicleTypes";
+import { CapacityBoard } from "./scmos/screens/CapacityBoard";
 import { Documents } from "./scmos/screens/Documents";
 import { Administration } from "./scmos/screens/Administration";
 import { Verification } from "./scmos/screens/Verification";
@@ -66,7 +66,7 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
   subcontractors: true, carpar: true, incident: true, assistant: true,
   vendor: true, evaluation: true, quotation: true,
-  documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true, training: true,
+  capacity: true, documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true, training: true,
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
@@ -2542,14 +2542,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   กำลังโหลดแผนงาน…
                 </div>)}
             {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
-            {screen === "admin" && (
-              <div style={css("display:flex;flex-direction:column;gap:14px")}>
-                <Administration jobs={ops?.jobs ?? []} me={me.name} onToast={setToast} />
-                {/* The vehicle-type master, moved here when Capacity left the
-                    menu. It is the only way to add or retire a TYPE, and the
-                    My Job dropdown offers exactly what it holds. */}
-                <VehicleTypes canAdmin={able("AdministerData")} onToast={setToast} />
-              </div>
+            {screen === "admin" && <Administration jobs={ops?.jobs ?? []} me={me.name} onToast={setToast} />}
+            {screen === "capacity" && (
+              <CapacityBoard canEdit={able("EditOwnJobs")} canAdmin={able("AdministerData")} onToast={setToast} />
             )}
             {screen === "abs" && <Abs />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}

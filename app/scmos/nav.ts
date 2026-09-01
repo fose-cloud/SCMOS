@@ -1,6 +1,6 @@
 export type Screen =
   | "dashboard" | "workspace" | "booking" | "monitoring" | "docverify"
-  | "subcontractors" | "rates" | "billing" | "kpi" | "incident" | "carpar"
+  | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
@@ -45,6 +45,10 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["subcontractors", "Supplier Register", "ทะเบียนผู้รับเหมา", [[2, 6, 4, 8], [7, 3, 4, 11], [12, 8, 2, 6]]],
     ["vendor", "Add New Vendor", "เพิ่มผู้ขนส่งใหม่", [[2, 6, 5, 8], [8, 3, 6, 3], [8, 8, 6, 3], [8, 12, 6, 2]]],
     ["training", "Training Control", "อบรมคนขับ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 7]]],
+    // Out of the menu for a few hours on 2026-09-01 and back the same day: the
+    // vehicle-type master is worked here, which is what the screen is actually
+    // used for.
+    ["capacity", "Capacity", "วางแผนกำลังรถ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
     ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
     ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
   ],
@@ -144,6 +148,7 @@ export const META: Record<string, [string, string, string]> = {
   detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
   subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง", "Approved carrier register with fleet, insurance, licence and safety validity."],
+  capacity: ["Capacity Planning", "การวางแผนกำลังรถ", "ประเภทรถและตู้ที่คอลัมน์ TYPE เลือกได้ · และกำลังรถรายวันเทียบกับงานที่รับไว้"],
   rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง", "Cost vs selling rate with fuel adjustment and margin control per lane."],
   billing: ["Billing Control", "การควบคุมการวางบิล", "Supplier invoices must be received within 4 calendar days after delivery / loading completion."],
   monitoring: ["Shipment Monitoring", "ติดตามการขนส่ง", "ติดตามงานตั้งแต่จ่ายงานจนปิดงาน — แผนกับเวลาจริงของทุกขั้นตอน พร้อมบันทึกความล่าช้าและสาเหตุ"],
