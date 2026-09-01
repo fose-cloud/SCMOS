@@ -86,14 +86,6 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             $"{incomplete.Count} งานมีผู้ขนส่งแล้วแต่ยังไม่มีทะเบียนรถหรือคนขับ",
             "รถจะมาแต่ไม่มีใครรู้ว่าคันไหน", First(incomplete), "job");
 
-        /* ---- 3. pre-run not confirmed ---- */
-        var preRun = await db.PreRunChecks.AsNoTracking()
-            .Where(check => check.Outcome == "pending").ToListAsync(token);
-        Add(alerts, AlertKind.PreRunNotConfirmed, preRun.Count,
-            $"{preRun.Count} รายการตรวจก่อนออกงานยังไม่ได้รับคำตอบ",
-            preRun.Count > 0 ? $"เก่าสุดส่งไปเมื่อ {preRun.Min(c => c.SentAt):dd/MM HH:mm}" : "",
-            preRun.FirstOrDefault()?.JobKey ?? "", "job");
-
         /* ---- 4. truck delay ---- */
         var delays = await db.DelayRecords.AsNoTracking()
             .Where(delay => delay.ResolvedAt == null).ToListAsync(token);
@@ -150,26 +142,6 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             $"{overdue.Count} เคส CAR/PAR เกินกำหนด",
             overdue.Count > 0 ? $"เก่าสุด: {overdue.OrderBy(c => Formats.DateNumber(c.DueDate)).First().Reference}" : "",
             overdue.FirstOrDefault()?.Reference ?? "", "incident");
-
-        /* ---- 11. capacity shortage ---- */
-        // Measured against what carriers have actually told us they have. Nobody
-        // has yet, so this reports that rather than a shortage it cannot know
-        // about — an invented capacity risk would send people chasing trucks
-        // that were never short.
-        var capacity = await db.SupplierCapacities.AsNoTracking().CountAsync(token);
-        if (capacity == 0)
-        {
-            alerts.Add(Describe(AlertKind.CapacityShortage, 0,
-                "ยังประเมินกำลังรถไม่ได้",
-                "ยังไม่มีผู้ขนส่งรายใดแจ้งจำนวนรถที่ว่างเข้ามา", "", "supplier", AlertLevel.Information));
-        }
-        else
-        {
-            var short_ = await db.SupplierCapacities.AsNoTracking()
-                .CountAsync(row => row.Committed > row.Available, token);
-            Add(alerts, AlertKind.CapacityShortage, short_,
-                $"{short_} วันที่งานที่รับไว้เกินจำนวนรถที่แจ้ง", "หาผู้ขนส่งรายอื่นหรือเลื่อนงาน", "", "supplier");
-        }
 
         /* ---- 12. KPI below target ---- */
         var report = await kpi.BuildAsync(Period.All, token);

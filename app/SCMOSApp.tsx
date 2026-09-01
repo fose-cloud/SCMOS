@@ -28,7 +28,6 @@ import { Dashboard } from "./scmos/screens/Dashboard";
 import { Rates } from "./scmos/screens/Rates";
 import { Kpi } from "./scmos/screens/Kpi";
 import { Monitoring } from "./scmos/screens/Monitoring";
-import { PreRun } from "./scmos/screens/PreRun";
 import { Audit, NotBuilt } from "./scmos/screens/Audit";
 import { Suppliers } from "./scmos/screens/Suppliers";
 import { Incidents } from "./scmos/screens/Incidents";
@@ -41,7 +40,7 @@ import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
 import { JobRotation } from "./scmos/screens/JobRotation";
 import { Today } from "./scmos/screens/Today";
-import { CapacityBoard } from "./scmos/screens/CapacityBoard";
+import { VehicleTypes } from "./scmos/screens/VehicleTypes";
 import { Documents } from "./scmos/screens/Documents";
 import { Administration } from "./scmos/screens/Administration";
 import { Verification } from "./scmos/screens/Verification";
@@ -67,7 +66,7 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
   subcontractors: true, carpar: true, incident: true, assistant: true,
   vendor: true, evaluation: true, quotation: true,
-  capacity: true, documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true, training: true,
+  documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true, training: true,
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
@@ -118,7 +117,7 @@ const WAKE_DELAYS = [0, 5_000, 10_000, 20_000, 30_000, 45_000, 60_000];
 
 /** Screens whose tools genuinely need the whole register in the browser. */
 const REGISTER_SCREENS = new Set<Screen>([
-  "myjob", "monitoring", "booking", "training", "loreal", "chemours", "prerun", "postpone",
+  "myjob", "monitoring", "booking", "training", "loreal", "chemours", "postpone",
   // The issue screen needs it to suggest job references and to say which
   // shipment an issue is about; Reports needs it for Delay Analysis.
   "issues", "reports",
@@ -1276,7 +1275,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     // Screens with no real export yet get no button. The generic fallback below
     // offers an "Export Excel" that only raises a toast, and a button that
     // claims to export and does not is worse than no button.
-    if (screen === "kpi" || screen === "monitoring" || screen === "prerun" || screen === "audit") return [];
+    if (screen === "kpi" || screen === "monitoring" || screen === "audit") return [];
     if (NOT_BUILT[screen] || OWN_SCREEN[screen]) return [];
     if (screen === "booking") {
       const waiting = (ops?.jobs ?? []).filter((j) => !/complet|delivered|gate-in/i.test(j.status) && !j.licence.trim());
@@ -2542,11 +2541,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               : <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
                   กำลังโหลดแผนงาน…
                 </div>)}
-            {screen === "capacity" && (
-              <CapacityBoard canEdit={able("EditOwnJobs")} canAdmin={able("AdministerData")} onToast={setToast} />
-            )}
             {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
-            {screen === "admin" && <Administration jobs={ops?.jobs ?? []} me={me.name} onToast={setToast} />}
+            {screen === "admin" && (
+              <div style={css("display:flex;flex-direction:column;gap:14px")}>
+                <Administration jobs={ops?.jobs ?? []} me={me.name} onToast={setToast} />
+                {/* The vehicle-type master, moved here when Capacity left the
+                    menu. It is the only way to add or retire a TYPE, and the
+                    My Job dropdown offers exactly what it holds. */}
+                <VehicleTypes canAdmin={able("AdministerData")} onToast={setToast} />
+              </div>
+            )}
             {screen === "abs" && <Abs />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (
@@ -2624,7 +2628,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 already do and what is missing, rather than showing invented
                 figures — a screen full of plausible demo numbers is how a
                 system starts being trusted for things it cannot do. */}
-            {screen === "prerun" && <PreRun canEdit={(job) => canEditJob(job)} jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "audit" && <Audit canView={isSupervisor} />}
 
             {/* Supplier register, CAR/PAR and the assistant all read the API

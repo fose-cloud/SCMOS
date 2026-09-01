@@ -1,6 +1,6 @@
 export type Screen =
-  | "dashboard" | "workspace" | "booking" | "monitoring" | "prerun" | "docverify"
-  | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
+  | "dashboard" | "workspace" | "booking" | "monitoring" | "docverify"
+  | "subcontractors" | "rates" | "billing" | "kpi" | "incident" | "carpar"
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
@@ -45,7 +45,6 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["subcontractors", "Supplier Register", "ทะเบียนผู้รับเหมา", [[2, 6, 4, 8], [7, 3, 4, 11], [12, 8, 2, 6]]],
     ["vendor", "Add New Vendor", "เพิ่มผู้ขนส่งใหม่", [[2, 6, 5, 8], [8, 3, 6, 3], [8, 8, 6, 3], [8, 12, 6, 2]]],
     ["training", "Training Control", "อบรมคนขับ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 7]]],
-    ["capacity", "Capacity", "วางแผนกำลังรถ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
     ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
     ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
   ],
@@ -146,13 +145,11 @@ export const META: Record<string, [string, string, string]> = {
   booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
   subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง", "Approved carrier register with fleet, insurance, licence and safety validity."],
   rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง", "Cost vs selling rate with fuel adjustment and margin control per lane."],
-  capacity: ["Capacity Planning", "การวางแผนกำลังรถ", "Daily and weekly truck availability against confirmed demand."],
   billing: ["Billing Control", "การควบคุมการวางบิล", "Supplier invoices must be received within 4 calendar days after delivery / loading completion."],
   monitoring: ["Shipment Monitoring", "ติดตามการขนส่ง", "ติดตามงานตั้งแต่จ่ายงานจนปิดงาน — แผนกับเวลาจริงของทุกขั้นตอน พร้อมบันทึกความล่าช้าและสาเหตุ"],
   kpi: ["Operational KPI", "ตัวชี้วัดการปฏิบัติงาน", "ทุกตัวเลขคำนวณจากทะเบียนงานจริงฝั่ง .NET ตามกฎชุดเดียวกับที่หน้า Workspace ใช้ — เปลี่ยนช่วงเวลาแล้วทุกค่าคิดใหม่ทั้งหมด"],
   carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR", "ทะเบียนเดียวกับหน้า Incident — ระบบไม่ยอมให้ข้ามขั้น: ไม่มีสาเหตุที่แท้จริงก็กำหนดการแก้ไขไม่ได้ ไม่มีผู้รับผิดชอบและกำหนดเสร็จก็ติดตามไม่ได้ และปิดเคสได้เฉพาะระดับหัวหน้างานขึ้นไป"],
   incident: ["Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข", "เปิดเคสจากเหตุที่เกิดจริง บันทึก 5W1H สาเหตุที่แท้จริง การแก้ไขและการป้องกัน แล้วเดินตามขั้นจนปิดเคสด้วยลายเซ็นของคน"],
-  prerun: ["Pre-Run Check", "ตรวจก่อนออกงาน", "ยืนยันรถ คนขับ ทะเบียน และเอกสารก่อนวันงาน พร้อมจับเวลาตอบกลับตาม SLA"],
   audit: ["Audit Trail", "ประวัติการใช้งาน", "ใครแก้อะไร เมื่อไหร่ จากค่าเดิมเป็นค่าใหม่อะไร — อ่านจากประวัติที่ผูกกับงานแต่ละใบ"],
   assistant: ["AI Assistant", "ผู้ช่วย AI", "สิทธิ์ของผู้ช่วยอ่านจาก API ที่บังคับใช้จริง — อ่านและร่างได้เลย เปลี่ยนข้อมูลจริงต้องมีคนอนุมัติ และการลบไม่มีอยู่ในระบบเลย"],
   vendor: ["Add New Vendor", "เพิ่มผู้ขนส่งใหม่", "ลงทะเบียนผู้ขนส่งรายใหม่เข้าทะเบียนเดียวกับที่ Workspace และ KPI ใช้ — เริ่มที่สถานะร่าง จ่ายงานได้ต่อเมื่ออนุมัติแล้ว"],

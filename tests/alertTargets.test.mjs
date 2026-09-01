@@ -27,10 +27,21 @@ const alerts = [...source.matchAll(/new\(AlertKind\.(\w+),([\s\S]*?)\),\n/g)]
 /** Screens a person can actually open, which is not the same as screens that exist. */
 const reachable = new Set(ALL_NAV.map(([screen]) => screen).filter((screen) => !HEADINGS.includes(screen)));
 
-test("the alert list was found at all", () => {
-  // Guards the regex above: a parse that silently matched nothing would make
-  // every assertion below pass by having nothing to check.
-  assert.ok(alerts.length >= 16, `only found ${alerts.length} alerts`);
+test("every alert kind has a definition, and the parse found them all", () => {
+  // Guards the regex above — a parse that silently matched nothing would make
+  // every assertion below pass by having nothing to check — and pins a real
+  // property while it is at it: `Notifications.Of` throws on a kind with no
+  // definition, so a kind added to the enum and forgotten in the list is a
+  // crash waiting for the first alert run.
+  //
+  // Counted against the enum rather than a number written here. The first
+  // version said "at least 16" and went red the moment two alerts were
+  // deliberately removed, which is a test reporting its own staleness.
+  const enumBlock = /public enum AlertKind\s*\{([\s\S]*?)\}/.exec(source)?.[1] ?? "";
+  const kinds = [...enumBlock.matchAll(/^\s*(\w+),/gm)].map(([, name]) => name);
+
+  assert.ok(kinds.length > 0, "the enum should parse");
+  assert.deepEqual(alerts.map(([kind]) => kind).sort(), [...kinds].sort());
   assert.ok(alerts.every(([, screen]) => screen.length > 0), "every alert names a screen");
 });
 
