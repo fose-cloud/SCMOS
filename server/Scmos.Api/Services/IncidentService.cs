@@ -129,6 +129,37 @@ public class IncidentService(ScmosDbContext db)
             if (value.Length > 0) apply(value);
         }
 
+        /*
+         * The case number.
+         *
+         * Issued here on creation, but editable, because the number that matters
+         * is the one on the paper form the auditor is holding. A case entered
+         * after the fact has to be able to take that number, and a team that
+         * renumbers mid-year has to be able to say so — otherwise the two
+         * records cannot be put side by side, which is the whole use of a
+         * reference.
+         *
+         * Unique in the database. The collision is caught and named here rather
+         * than left to surface as a failed save with an index name in it.
+         *
+         * Files already attached keep the path they were written under, which
+         * still carries the old number. That is deliberate: the object key is
+         * what the storage account can be searched by when the database and the
+         * container disagree, and rewriting history in a bucket to match a
+         * rename is how that guarantee gets lost.
+         */
+        var wanted = Take("reference").ToUpperInvariant();
+        var renamedFrom = "";
+        if (wanted.Length > 0 && wanted != record.Reference)
+        {
+            if (wanted.Length > 40) return new IncidentResult(false, "เลขที่ยาวเกิน 40 ตัวอักษร");
+            var clash = await db.IncidentCases.AsNoTracking()
+                .AnyAsync(c => c.Id != id && c.Reference == wanted, token);
+            if (clash) return new IncidentResult(false, $"เลขที่ {wanted} ถูกใช้กับเคสอื่นอยู่แล้ว");
+            renamedFrom = record.Reference;
+            record.Reference = wanted;
+        }
+
         Set("what", v => record.What = v);
         Set("where", v => record.Where = v);
         Set("when", v => record.When = v);
@@ -167,7 +198,13 @@ public class IncidentService(ScmosDbContext db)
 
         record.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
-        return new IncidentResult(true, "บันทึกแล้ว", id);
+        // The old number travels in the message so the audit row says what the
+        // case used to be called. Nothing else records that.
+        return new IncidentResult(true,
+            renamedFrom.Length > 0
+                ? $"บันทึกแล้ว · เปลี่ยนเลขที่ {renamedFrom} → {record.Reference}"
+                : "บันทึกแล้ว",
+            id);
     }
 
     /// <summary>

@@ -33,7 +33,34 @@ const IDENTITY_HEADERS = [
 ];
 
 /** Passed through because the request needs them; everything else is dropped. */
-const REQUEST_HEADERS = ["content-type", "accept", "accept-language"];
+const REQUEST_HEADERS = ["content-type", "accept", "accept-language", "range"];
+
+/**
+ * Passed back because the browser needs them; everything else is dropped.
+ *
+ * Only content-type used to come back, which was enough for JSON and wrong for
+ * everything else. A stored file arrived with its Content-Disposition stripped,
+ * so every download saved as "content" with no extension whatever the file was
+ * really called, and the API's range support could not be used because neither
+ * the request's Range nor the reply's Accept-Ranges survived the trip.
+ *
+ * The two security headers matter more. A file the API has decided is safe to
+ * show in the browser is served with nosniff and a policy that permits nothing
+ * to run; dropping them here would quietly undo that decision.
+ */
+const RESPONSE_HEADERS = [
+  "content-type", "content-disposition", "content-length",
+  "accept-ranges", "content-range",
+  "x-content-type-options", "content-security-policy",
+];
+
+/** The demo account from the cookie, when there is one. */
+function devUserCookie(header: string | null): string {
+  const found = (header ?? "").split(";")
+    .map((one) => one.trim())
+    .find((one) => one.startsWith("scmos-dev-user="));
+  return found ? decodeURIComponent(found.slice("scmos-dev-user=".length)) : "";
+}
 
 async function forward(request: Request, path: string[]): Promise<Response> {
   if (!API_BASE) {
@@ -59,7 +86,12 @@ async function forward(request: Request, path: string[]): Promise<Response> {
   // Local development has no identity provider, so the demo account the user
   // picked on the login screen travels instead — the same demo gate as before,
   // and the API only honours it when it is running in Development.
-  const devUser = incoming.get("x-scmos-dev-user");
+  //
+  // From the cookie when the header is absent: the browser issues an `<img>` or
+  // an `<iframe>` request itself and no page code gets to add a header to it,
+  // which is every piece of evidence on a CAR/PAR. Deployed, neither is needed —
+  // the platform's own principal is already on the request.
+  const devUser = incoming.get("x-scmos-dev-user") ?? devUserCookie(incoming.get("cookie"));
   if (devUser) outgoing.set("x-scmos-dev-user", devUser);
 
   const target = new URL(`${API_BASE}/api/${path.map(encodeURIComponent).join("/")}`);
@@ -80,8 +112,10 @@ async function forward(request: Request, path: string[]): Promise<Response> {
     } as RequestInit);
 
     const out = new Headers();
-    const contentType = response.headers.get("content-type");
-    if (contentType) out.set("content-type", contentType);
+    for (const name of RESPONSE_HEADERS) {
+      const value = response.headers.get(name);
+      if (value) out.set(name, value);
+    }
     out.set("cache-control", "no-store");
 
     return new Response(response.body, { status: response.status, headers: out });

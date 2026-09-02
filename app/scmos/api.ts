@@ -16,9 +16,26 @@ import type { Account } from "./nav";
 
 let devUser = "";
 
-/** Called whenever the demo account changes. A no-op once real sign-in is in front. */
+/**
+ * Called whenever the demo account changes. A no-op once real sign-in is in
+ * front.
+ *
+ * Written to a cookie as well as held here, because a header can only be added
+ * by code that makes the request. An `<img src>` or an `<iframe src>` is issued
+ * by the browser itself, so evidence on a case arrived at the API with no
+ * identity at all and came back 401 — a picture that exists, is served
+ * correctly, and will not display. Deployed there is no such gap: App Service
+ * signs the user in at the front door and puts its principal on every request
+ * including those ones. This is the local stand-in for that, and it is inert
+ * anywhere else — the API only reads the demo account in Development
+ * (UserAccessor.Current).
+ */
 export function setDevUser(account: Account | null) {
   devUser = account?.user ?? "";
+  if (typeof document === "undefined") return;
+  document.cookie = devUser.length > 0
+    ? `scmos-dev-user=${encodeURIComponent(devUser)}; path=/; SameSite=Lax`
+    : "scmos-dev-user=; path=/; Max-Age=0; SameSite=Lax";
 }
 
 /**

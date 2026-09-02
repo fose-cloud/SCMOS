@@ -11,7 +11,9 @@ public record DocumentView(
     string ObjectKey, string BlobUrl, string ExpiryDate, string Note,
     string JobKey, int? SupplierId, long? CaseId,
     string Year, string Customer, string JobRef,
-    string UploadedBy, DateTimeOffset UploadedAt, bool Expiring, bool Expired);
+    string UploadedBy, DateTimeOffset UploadedAt, bool Expiring, bool Expired,
+    /// <summary>Whether a screen may offer to open this rather than download it.</summary>
+    bool CanShow);
 
 public record DocumentResult(bool Ok, string Message, DocumentView? Document = null);
 
@@ -326,7 +328,10 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
         d.Id, d.Scope, d.Folder, d.Kind, d.FileName, d.ContentType, d.SizeBytes,
         d.ObjectKey, d.BlobUrl, d.ExpiryDate, d.Note,
         d.JobKey, d.SupplierId, d.CaseId, d.Year, d.Customer, d.JobRef,
-        d.UploadedBy, d.UploadedAt, IsExpiring(d.ExpiryDate), IsExpired(d.ExpiryDate));
+        d.UploadedBy, d.UploadedAt, IsExpiring(d.ExpiryDate), IsExpired(d.ExpiryDate),
+        // Decided here, from the same rule the content route serves by, so the
+        // screen never offers to open something the API would refuse to show.
+        Rules.InlineViewing.CanShow(d.FileName));
 
     private static string FirstFilled(params string[] values) =>
         values.FirstOrDefault(value => value.Trim().Length > 0)?.Trim() ?? "";

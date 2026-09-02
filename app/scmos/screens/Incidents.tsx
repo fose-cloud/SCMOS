@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
@@ -40,7 +41,18 @@ type Evidence = {
   id: number; kind: string; fileName: string; note: string;
   folder: string; sizeBytes: number; objectKey: string;
   uploadedBy: string; uploadedAt: string;
+  /**
+   * Whether the API will show this in the browser rather than hand it over to
+   * be saved. Decided there, by the same rule the content route serves by, so
+   * this screen never offers to open something the API would refuse — see
+   * Rules/InlineViewing.cs for why the answer is not simply "is it an image".
+   */
+  canShow: boolean;
 };
+
+/** Where the bytes come from: shown in the page, or saved to disk. */
+const shownAt = (id: number) => `/api/documents/${id}/content?inline=1`;
+const savedAt = (id: number) => `/api/documents/${id}/content`;
 
 
 const CATEGORY_TH: Record<string, string> = {
@@ -270,17 +282,28 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
    * the file lands — the job's own year, customer and CARPAR folder — is the
    * API's to decide, so the storage structure holds however the file arrives.
    */
-  async function upload(caseId: number, file: File, kind: string) {
-    if (busy) return;
+  async function upload(caseId: number, files: File[], kind: string) {
+    if (busy || files.length === 0) return;
     setBusy(true);
     try {
-      const body = new FormData();
-      body.append("caseId", String(caseId));
-      body.append("kind", kind);
-      body.append("file", file);
-      const response = await apiFetch("/api/documents", { method: "POST", body });
-      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
-      onToast(reply.message ?? reply.error ?? "อัปโหลดไม่สำเร็จ");
+      // One request each rather than one for all: the API decides a path per
+      // file, and a batch that fails halfway would leave nobody able to say
+      // which half. Each file's own refusal is kept and reported by name.
+      const refused: string[] = [];
+      let added = 0;
+      for (const file of files) {
+        const body = new FormData();
+        body.append("caseId", String(caseId));
+        body.append("kind", kind);
+        body.append("file", file);
+        const response = await apiFetch("/api/documents", { method: "POST", body });
+        const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+        if (response.ok) added++;
+        else refused.push(`${file.name}: ${reply.error ?? reply.message ?? response.status}`);
+      }
+      onToast(refused.length === 0
+        ? `แนบไฟล์แล้ว ${added} ไฟล์`
+        : `แนบได้ ${added} จาก ${files.length} — ${refused[0]}`);
       await load();
     } finally { setBusy(false); }
   }
@@ -421,7 +444,7 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
           <Detail case_={chosen} busy={busy} job={byKey.get(chosen.jobKey) ?? null} onOpenJob={onOpenJob}
             onSave={(fields) => void post(`/${chosen.id}`, fields)}
             onAdvance={() => void post(`/${chosen.id}/advance`, {})}
-            onUpload={(file, kind) => void upload(chosen.id, file, kind)}
+            onUpload={(files, kind) => void upload(chosen.id, files, kind)}
             onClose={() => setPicked(null)} />
         )}
       </div>
@@ -443,18 +466,61 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
   onOpenJob?: (jobKey: string) => void;
   onSave: (fields: Record<string, string>) => void;
   onAdvance: () => void;
-  onUpload: (file: File, kind: string) => void;
+  onUpload: (files: File[], kind: string) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [kind, setKind] = useState("photo");
+  /** Which evidence file is open, as a position in the case's own list. */
+  const [viewing, setViewing] = useState<number | null>(null);
+  /** The case number while it is being retyped; null when it is not. */
+  const [renaming, setRenaming] = useState<string | null>(null);
   const position = STAGES.indexOf(case_.stage);
+  const onView = (index: number) => setViewing(index);
+
+  function rename() {
+    const wanted = (renaming ?? "").trim().toUpperCase();
+    setRenaming(null);
+    if (wanted.length > 0 && wanted !== case_.reference) onSave({ reference: wanted });
+  }
 
   return (
     <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;position:sticky;top:12px;max-height:calc(100vh - 110px);overflow-y:auto")}>
       <div style={css("padding:13px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;gap:10px")}>
         <div>
-          <div style={css("font-size:13.5px;font-weight:650;color:#0A2240")}>{case_.reference} · {case_.title}</div>
+          {/*
+            The number is editable because the one that counts is on the paper
+            form somebody is holding. A case entered after that form was written
+            has to be able to take its number. Closed cases refuse, as they
+            refuse every other edit.
+          */}
+          <div style={css("font-size:13.5px;font-weight:650;color:#0A2240;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap")}>
+            {renaming !== null ? (
+              <input
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                value={renaming} disabled={busy}
+                // Selected on opening: this is a short identifier somebody is
+                // replacing, not prose they are amending, so the first keystroke
+                // should overwrite it rather than land in the middle of it.
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setRenaming(e.target.value)}
+                onBlur={rename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") rename();
+                  if (e.key === "Escape") setRenaming(null);
+                }}
+                style={css("width:150px;height:26px;border:1px solid #0A5FA8;border-radius:3px;padding:0 7px;font-family:ui-monospace,monospace;font-size:12.5px;font-weight:600;color:#0A2240")} />
+            ) : case_.stage === "closed" ? (
+              <span style={css("font-family:ui-monospace,monospace")}>{case_.reference}</span>
+            ) : (
+              <button type="button" onClick={() => setRenaming(case_.reference)} title="แก้ไขเลขที่"
+                style={css("border:none;background:none;padding:0;font-family:ui-monospace,monospace;font-size:13.5px;font-weight:650;color:#0A2240;cursor:pointer;border-bottom:1px dashed #94A3B8")}>
+                {case_.reference}
+              </button>
+            )}
+            <span>· {case_.title}</span>
+          </div>
           <div style={css("font-size:11.5px;color:#7B8CA0;margin-top:2px")}>
             เปิดโดย {case_.raisedBy} · {stamp(case_.raisedAt)}
             {case_.approvedBy && ` · ปิดโดย ${case_.approvedBy}`}
@@ -553,12 +619,36 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
           หลักฐาน · {case_.evidence.length} ไฟล์
         </div>
 
-        {case_.evidence.map((file) => (
-          <div key={file.id} style={css("display:flex;gap:9px;align-items:baseline;padding:5px 0;border-bottom:1px solid #F1F5F9")}>
-            <a href={`/api/documents/${file.id}/content`} target="_blank" rel="noreferrer"
-              style={css("font-size:12px;color:#0A5FA8;text-decoration:none;flex:1;word-break:break-all")}>
-              {file.fileName}
-            </a>
+        {case_.evidence.map((file, index) => (
+          <div key={file.id} style={css("display:flex;gap:9px;align-items:center;padding:5px 0;border-bottom:1px solid #F1F5F9")}>
+            {/*
+              A photograph is recognised by looking at it, not by reading
+              "IMG_20260902.JPG". The thumbnail is the same route the viewer
+              uses, so a picture that will not open does not appear here either.
+            */}
+            {file.canShow && IMAGE.test(file.fileName) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={shownAt(file.id)} alt="" loading="lazy"
+                style={css("width:34px;height:34px;object-fit:cover;border-radius:3px;border:1px solid #E3E8EE;flex:none;background:#F8FAFC")} />
+            ) : (
+              <span style={css("width:34px;height:34px;border-radius:3px;border:1px solid #E3E8EE;background:#F8FAFC;flex:none;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;color:#94A3B8")}>
+                {extensionOf(file.fileName)}
+              </span>
+            )}
+
+            {file.canShow ? (
+              <button type="button" onClick={() => onView(index)}
+                style={css("flex:1;text-align:left;border:none;background:none;padding:0;font-family:inherit;font-size:12px;color:#0A5FA8;cursor:pointer;word-break:break-all;text-decoration:underline")}>
+                {file.fileName}
+              </button>
+            ) : (
+              // Nothing a browser can render, so the only honest offer is to
+              // save it. Dressing it as "open" would produce a download anyway.
+              <a href={savedAt(file.id)} download
+                style={css("flex:1;font-size:12px;color:#0A5FA8;text-decoration:none;word-break:break-all")}>
+                {file.fileName} ↓
+              </a>
+            )}
             <span style={css("font-size:11px;color:#7B8CA0;white-space:nowrap")}>{file.kind}</span>
             <span style={css("font-family:ui-monospace,monospace;font-size:11px;color:#94A3B8;white-space:nowrap")}>{size(file.sizeBytes)}</span>
           </div>
@@ -575,20 +665,122 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
             </select>
             <label style={css("height:28px;padding:0 12px;border:1px solid #0A2240;background:#fff;color:#0A2240;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center")}>
               แนบไฟล์
-              <input type="file" disabled={busy} style={css("display:none")}
+              <input type="file" multiple disabled={busy} style={css("display:none")}
                 onChange={(e) => {
-                  const file = e.target.files?.[0];
+                  const files = [...e.target.files ?? []];
                   e.target.value = "";
-                  if (file) onUpload(file, kind);
+                  if (files.length) onUpload(files, kind);
                 }} />
             </label>
             <span style={css("font-size:11px;color:#94A3B8")}>
-              เก็บใน SCMOS/{case_.jobKey ? "ปี/ลูกค้า/งาน" : "ปี/CARPAR/เลขเคส"}/CARPAR
+              เลือกได้หลายไฟล์ · เก็บใน SCMOS/{case_.jobKey ? "ปี/ลูกค้า/งาน" : "ปี/CARPAR/เลขเคส"}/CARPAR
             </span>
           </div>
         )}
       </div>
+
+      {viewing !== null && case_.evidence[viewing] && (
+        <Viewer files={case_.evidence} at={viewing} onMove={setViewing} onClose={() => setViewing(null)} />
+      )}
     </div>
+  );
+}
+
+/** Names that hold a picture, for deciding whether to draw a thumbnail. */
+const IMAGE = /\.(jpe?g|png|gif|webp|bmp|heic)$/i;
+
+const extensionOf = (name: string) => {
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? "?" : name.slice(dot + 1, dot + 5).toUpperCase();
+};
+
+/**
+ * Looking at the evidence, rather than only collecting it.
+ *
+ * A CAR/PAR is mostly photographs of the damage and a scan of the signed form,
+ * and every one of them used to be a download — which meant nobody read a case
+ * on the screen, they filed it. The bytes still come through the API, which
+ * knows who is asking; the container stays private and no URL here works
+ * without a session.
+ *
+ * What may be displayed at all is the API's decision, not this component's. It
+ * only ever asks for files the list already marked as showable.
+ */
+function Viewer({ files, at, onMove, onClose }: {
+  files: Evidence[]; at: number;
+  onMove: (at: number) => void; onClose: () => void;
+}) {
+  const file = files[at];
+  // Stepping moves between the files that can be shown, skipping any that would
+  // only offer to download — an arrow key that lands on a blank frame is worse
+  // than one that does nothing.
+  const shown = files.map((f, i) => (f.canShow ? i : -1)).filter((i) => i >= 0);
+  const place = shown.indexOf(at);
+
+  useEffect(() => {
+    function pressed(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight" && place >= 0 && place < shown.length - 1) onMove(shown[place + 1]);
+      if (event.key === "ArrowLeft" && place > 0) onMove(shown[place - 1]);
+    }
+    window.addEventListener("keydown", pressed);
+    return () => window.removeEventListener("keydown", pressed);
+  });
+
+  /*
+   * Rendered into the body rather than where it sits in the tree.
+   *
+   * The drawer around it is position:sticky, which makes a stacking context,
+   * and a fixed child of one cannot rise above anything outside it however high
+   * its z-index goes. In place, the viewer covered the page but the header and
+   * the rail were drawn over the top of it — the file was on screen and its own
+   * close button was not.
+   */
+  return createPortal(
+    <div style={css("position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;background:rgba(4,16,30,.86)")}>
+      <div style={css("display:flex;align-items:center;gap:12px;padding:10px 16px;color:#fff;flex:none")}>
+        <span style={css("font-size:12.5px;font-weight:600;flex:1;word-break:break-all")}>{file.fileName}</span>
+        <span style={css("font-size:11.5px;color:#B6C6D6;white-space:nowrap")}>
+          {file.kind} · {size(file.sizeBytes)}
+          {shown.length > 1 && ` · ${place + 1}/${shown.length}`}
+        </span>
+        <a href={savedAt(file.id)} download
+          style={css("font-size:11.5px;color:#fff;border:1px solid #46617E;border-radius:4px;padding:4px 10px;text-decoration:none;white-space:nowrap")}>
+          บันทึกไฟล์
+        </a>
+        <button type="button" onClick={onClose} aria-label="ปิด"
+          style={css("border:none;background:none;color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:0 4px")}>×</button>
+      </div>
+
+      <div style={css("flex:1;min-height:0;display:flex;align-items:center;gap:8px;padding:0 12px 14px")}>
+        <Step to={place > 0 ? shown[place - 1] : null} onMove={onMove} back />
+        <div style={css("flex:1;height:100%;min-width:0;display:flex;align-items:center;justify-content:center")}>
+          {IMAGE.test(file.fileName) ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={shownAt(file.id)} alt={file.fileName}
+              style={css("max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;background:#fff")} />
+          ) : (
+            // A PDF or a text file: the browser's own viewer, pointed at the
+            // API. It runs under the policy the API sends with the file.
+            <iframe src={shownAt(file.id)} title={file.fileName}
+              style={css("width:100%;height:100%;border:none;border-radius:4px;background:#fff")} />
+          )}
+        </div>
+        <Step to={place >= 0 && place < shown.length - 1 ? shown[place + 1] : null} onMove={onMove} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function Step({ to, onMove, back }: { to: number | null; onMove: (at: number) => void; back?: boolean }) {
+  return (
+    <button type="button" disabled={to === null} aria-label={back ? "ก่อนหน้า" : "ถัดไป"}
+      onClick={() => to !== null && onMove(to)}
+      style={css("flex:none;width:36px;height:56px;border:none;border-radius:4px;font-size:24px;line-height:1;font-family:inherit;"
+        + (to === null ? "background:transparent;color:#3C5470;cursor:default" : "background:rgba(255,255,255,.14);color:#fff;cursor:pointer"))}>
+      {back ? "‹" : "›"}
+    </button>
   );
 }
 

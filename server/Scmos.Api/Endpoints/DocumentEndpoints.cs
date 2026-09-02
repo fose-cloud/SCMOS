@@ -152,8 +152,12 @@ public static class DocumentEndpoints
             });
         });
 
-        group.MapGet("/{id:long}/content", async (long id, HttpContext context, IUserAccessor users,
-            DocumentService documents, CancellationToken token) =>
+        // `?inline=1` asks for the file to be shown rather than saved. Whether it
+        // may be is InlineViewing's decision, not the caller's and not the
+        // uploader's — see that file for why the stored content type is no part
+        // of it.
+        group.MapGet("/{id:long}/content", async (long id, string? inline, HttpContext context,
+            IUserAccessor users, DocumentService documents, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
 
@@ -169,9 +173,26 @@ public static class DocumentEndpoints
             if (stream is null)
                 return ApiResults.Error($"ไฟล์หายจากที่เก็บ: {document.ObjectKey}", StatusCodes.Status404NotFound);
 
+            // Stops a browser deciding for itself that a file is really HTML,
+            // on the way out and on the way down alike.
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+
+            var shown = Asked(inline) ? InlineViewing.TypeFor(document.FileName) : null;
+            if (shown is not null)
+            {
+                context.Response.Headers["Content-Security-Policy"] = InlineViewing.Policy;
+                // No download name is what makes the browser show it: naming the
+                // file here is what sets Content-Disposition to attachment.
+                return Results.File(stream, shown, enableRangeProcessing: true);
+            }
+
             return Results.File(stream, document.ContentType, document.FileName, enableRangeProcessing: true);
         });
     }
+
+    /// <summary>Whether `?inline=` asks for the file to be displayed.</summary>
+    private static bool Asked(string? value) =>
+        value is "1" or "true" or "yes" or "";
 
     private static string Text(IFormCollection form, string name) => form[name].ToString().Trim();
 
