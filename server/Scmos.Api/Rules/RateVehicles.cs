@@ -60,6 +60,16 @@ public static class RateVehicles
 
         new("6W FB", "6WH Flatbed", Special, false, false),
         new("10W HIAB", "10WH Hiab Truck", Special, false, false),
+
+        // Priced in the inquiry workbook and missing here until 2026-09-02, so
+        // nine quotes across fourteen months had nowhere to land. Few, and that
+        // is the point: a vehicle asked for twice a year is exactly the one
+        // nobody remembers to add, and the price was being typed into a column
+        // this system could not read.
+        new("6W HIAB", "6WH Hiab Truck", Special, false, false),
+        new("SIDE", "Side Curtain Truck", Special, false, false),
+        new("FBT", "Flat-bed Trailer", Special, false, false),
+        new("FBT DG", "Flat-bed Trailer DG", Special, true, false),
     ];
 
     private static readonly HashSet<string> Codes =

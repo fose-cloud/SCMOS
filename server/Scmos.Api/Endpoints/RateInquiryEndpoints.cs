@@ -64,5 +64,43 @@ public static class RateInquiryEndpoints
 
             return Results.Json(new { message = result.Message, id = result.Id, number = result.Number });
         });
+
+        // Many at once, for the workbook the team has kept since August 2025.
+        // Sent in batches by the browser rather than as one three-megabyte body,
+        // so a slow link fails a batch instead of the whole import — and so the
+        // screen can say how far it has got.
+        //
+        // Each one goes through CreateAsync, the same path a typed inquiry
+        // takes: the vehicle codes, the dates and the lane rules are checked
+        // once, here, and not a second time in the importer where they would
+        // drift. A refusal is reported with its row rather than aborting the
+        // batch, because one bad lane in 1975 is not a reason to lose 1974.
+        group.MapPost("/import", async ([FromBody] List<RateInquiryService.InquiryPost> body,
+            HttpContext context, IUserAccessor users, RateInquiryService inquiries,
+            AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์นำเข้าใบขอราคา", StatusCodes.Status403Forbidden);
+
+            var added = 0;
+            var refused = new List<string>();
+            foreach (var post in body ?? [])
+            {
+                var result = await inquiries.CreateAsync(user, post, token);
+                if (result.Ok) added++;
+                else refused.Add($"{post.Customer} {post.InquiredOn}: {result.Message}");
+            }
+
+            if (added > 0)
+            {
+                await audit.RecordAsync(user, AuditActions.Register, "rate-inquiry", "import",
+                    "นำเข้าใบขอราคาจากไฟล์", "import", "",
+                    $"{added} ใบ" + (refused.Count > 0 ? $" · ปฏิเสธ {refused.Count}" : ""), "", token);
+            }
+
+            return Results.Json(new { added, refused = refused.Take(20).ToList(), refusedTotal = refused.Count });
+        });
     }
 }
