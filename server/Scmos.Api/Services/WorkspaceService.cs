@@ -306,18 +306,38 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
         || string.Equals(job.Cat, cat, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The year picker's value for "no usable date".
+    ///
+    /// The same word the screen uses — see <c>NO_DATE</c> in app/scmos/period.ts,
+    /// which is the client's copy of this rule for the screens it filters itself.
+    /// A test fails if the two stop agreeing.
+    /// </summary>
+    public const string NoDate = "NONE";
+
+    /// <summary>
     /// The period bar, on the same <c>dd/MM/yyyy</c> text the register stores.
     /// A job with no date is out as soon as any part of the period is chosen —
     /// it cannot be shown to fall inside a month nobody can place it in.
+    ///
+    /// <para>Unless it is what was asked for. Undated jobs were counted on the
+    /// bar and there was no way to list them, which is backwards: a job whose
+    /// date will not parse is the one somebody has to go and fix, and every
+    /// other choice on this bar hides it.</para>
     /// </summary>
     private static bool MatchesPeriod(WorkspaceTabs.JobView job, Query query)
     {
+        var parts = job.Date.Split('/');
+
+        // Asked for by name, and then nothing else on the bar applies: a month
+        // beside "no date" would narrow it to nothing and look like an answer.
+        if (Wanted(query.Year).Contains(NoDate, StringComparer.OrdinalIgnoreCase))
+            return parts.Length != 3;
+
         var wantsPeriod = Wanted(query.Year).Length > 0
             || Wanted(query.Month).Length > 0
             || Wanted(query.Day).Length > 0;
         if (!wantsPeriod) return true;
 
-        var parts = job.Date.Split('/');
         if (parts.Length != 3) return false;
 
         return IsAny(parts[2], query.Year)

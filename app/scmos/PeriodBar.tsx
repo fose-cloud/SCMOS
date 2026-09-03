@@ -2,7 +2,7 @@
 
 import { css } from "./theme";
 import type { Job } from "./ops";
-import { ALL_PERIOD, latestDay, monthLabel, periodLabel, periodOptions, type Period } from "./period";
+import { ALL_PERIOD, NO_DATE, latestDay, monthLabel, periodLabel, periodOptions, type Period } from "./period";
 
 /**
  * Year → month → day, each list built from the jobs that exist. Choosing a year
@@ -19,7 +19,13 @@ export function PeriodBar(p: {
   const active = p.period.year !== "ALL" || p.period.month !== "ALL" || p.period.day !== "ALL";
   const latest = latestDay(p.allJobs);
 
-  const select = (label: string, value: string, values: string[], render: (v: string) => string, onPick: (v: string) => void) => (
+  /** Offered on the year, and only when there is something to look at. */
+  const undatedOption = options.undated > 0
+    ? <option value={NO_DATE}>ไม่มีวันที่ ({options.undated})</option>
+    : null;
+
+  const select = (label: string, value: string, values: string[], render: (v: string) => string,
+    onPick: (v: string) => void, extra?: React.ReactNode) => (
     <label style={css("display:flex;align-items:center;gap:6px")}>
       <span style={css("font-size:10.5px;color:#8496A8;letter-spacing:.05em;font-weight:600")}>{label}</span>
       <select
@@ -28,6 +34,7 @@ export function PeriodBar(p: {
         style={css("height:32px;min-width:92px;border:1px solid #D8E0E8;border-radius:4px;background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;cursor:pointer")}
       >
         <option value="ALL">ทั้งหมด</option>
+        {extra}
         {values.map((v) => <option key={v} value={v}>{render(v)}</option>)}
       </select>
     </label>
@@ -37,9 +44,16 @@ export function PeriodBar(p: {
     <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
       <span style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em")}>ช่วงเวลา</span>
 
-      {select("ปี", p.period.year, options.years, (v) => v, (v) => p.onPeriod({ year: v, month: "ALL", day: "ALL" }))}
-      {select("เดือน", p.period.month, options.months, (v) => monthLabel(v) + " (" + v + ")", (v) => p.onPeriod({ ...p.period, month: v, day: "ALL" }))}
-      {select("วัน", p.period.day, options.days, (v) => v, (v) => p.onPeriod({ ...p.period, day: v }))}
+      {select("ปี", p.period.year, options.years, (v) => v,
+        (v) => p.onPeriod({ year: v, month: "ALL", day: "ALL" }), undatedOption)}
+      {/* A month or a day beside "no date" narrows nothing and reads as though
+          it might, so both are put away while it is chosen. */}
+      {p.period.year !== NO_DATE && (
+        <>
+          {select("เดือน", p.period.month, options.months, (v) => monthLabel(v) + " (" + v + ")", (v) => p.onPeriod({ ...p.period, month: v, day: "ALL" }))}
+          {select("วัน", p.period.day, options.days, (v) => v, (v) => p.onPeriod({ ...p.period, day: v }))}
+        </>
+      )}
 
       {latest && (
         <button

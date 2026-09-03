@@ -9,7 +9,7 @@ import type { Account } from "../nav";
 import { TOOLBAR_SLOT } from "../Chrome";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
 import { JobCards } from "../JobCards";
-import { monthLabel, partsOf } from "../period";
+import { NO_DATE, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { useCarriers } from "../carriers";
@@ -694,6 +694,16 @@ export function Workspace(p: Props) {
     .filter((parts) => !!parts && matchesChosen(parts.y, ws.year))
     .map((parts) => parts!.m))].sort();
   const undated = catBase.filter((j) => !partsOf(j.date)).length;
+  /*
+   * "No date" as a year.
+   *
+   * The count beside the bar has always been there and there was no way to act
+   * on it: choosing any year, month or day hides exactly the jobs it names, and
+   * those are the ones somebody has to go and fix. Offered on the year because
+   * it answers the year's own question — which period is this in — with "none".
+   */
+  const yearChoices = undated > 0 ? [NO_DATE, ...years] : years;
+  const noDateChosen = chosenIn(ws.year).includes(NO_DATE);
 
   const localDateCount: Record<string, number> = {};
   catBase.forEach((j) => { if (j.date) localDateCount[j.date] = (localDateCount[j.date] || 0) + 1; });
@@ -1660,14 +1670,36 @@ export function Workspace(p: Props) {
               {/* Changing the year or the month drops any day ticked that is
                   no longer inside it — otherwise the grid empties and the
                   reason is a tick two controls away. */}
-              <FilterPickMany label="ปี" value={ws.year} options={years}
-                onPick={(value) => p.set({ year: value, date: keptDays(value, ws.month), page: 1 })} />
-              <FilterPickMany label="เดือน" value={ws.month} options={months}
-                render={(month) => monthLabel(month) + " (" + month + ")"}
-                onPick={(value) => p.set({ month: value, date: keptDays(ws.year, value), page: 1 })} />
-              <FilterPickMany label="วัน" value={ws.date} options={dates}
-                render={(date) => date + " · " + (dateCount[date] ?? 0) + " งาน"}
-                onPick={(value) => p.set({ date: value, page: 1 })} />
+              <FilterPickMany label="ปี" value={ws.year} options={yearChoices}
+                /*
+                 * No count beside it, unlike the bar on Dashboard and KPI.
+                 *
+                 * Those filter the same list they counted, so their number is
+                 * the number of rows you get. This grid is paged by the API and
+                 * the tab narrows it there — `undated` is every undated job in
+                 * the category, which on MY JOBS was 28 against a grid that then
+                 * showed none of them. A label that promises a count has to be
+                 * able to keep it.
+                 */
+                render={(year) => (year === NO_DATE ? "ไม่มีวันที่" : year)}
+                onPick={(value) => p.set({
+                  year: value,
+                  // Nothing narrower survives "no date": a month beside it
+                  // matches nothing and would read as though it might.
+                  month: chosenIn(value).includes(NO_DATE) ? "ALL" : ws.month,
+                  date: chosenIn(value).includes(NO_DATE) ? "ALL" : keptDays(value, ws.month),
+                  page: 1,
+                })} />
+              {!noDateChosen && (
+                <>
+                  <FilterPickMany label="เดือน" value={ws.month} options={months}
+                    render={(month) => monthLabel(month) + " (" + month + ")"}
+                    onPick={(value) => p.set({ month: value, date: keptDays(ws.year, value), page: 1 })} />
+                  <FilterPickMany label="วัน" value={ws.date} options={dates}
+                    render={(date) => date + " · " + (dateCount[date] ?? 0) + " งาน"}
+                    onPick={(value) => p.set({ date: value, page: 1 })} />
+                </>
+              )}
 
               <button
                 disabled={!periodNarrowed}

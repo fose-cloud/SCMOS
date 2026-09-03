@@ -1,5 +1,4 @@
 import type { Job } from "./ops";
-import { dnum } from "./util";
 
 /**
  * The dashboard's period filter.
@@ -14,6 +13,23 @@ export type Period = { year: string; month: string; day: string };
 
 export const ALL_PERIOD: Period = { year: "ALL", month: "ALL", day: "ALL" };
 
+/**
+ * The year picker's value for "no usable date".
+ *
+ * Undated jobs were counted and named — "วันที่ใช้ไม่ได้ 28" — and there was no
+ * way to look at them. They are the ones that need looking at: a job whose date
+ * will not parse is a job nobody can plan, and choosing any period hides it,
+ * which is exactly when somebody would want the list.
+ *
+ * Carried in the year rather than as a fourth field because it is the same
+ * question the year asks — which period is this in — with "none" as an answer.
+ * The month and day are meaningless beside it and are cleared when it is chosen.
+ *
+ * The API knows this word too, for the workspace grid it pages server-side.
+ * `tests/noDateFilter.test.mjs` fails if the two ever stop agreeing.
+ */
+export const NO_DATE = "NONE";
+
 const DATE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
 export function partsOf(date: string): { d: string; m: string; y: string } | null {
@@ -22,6 +38,10 @@ export function partsOf(date: string): { d: string; m: string; y: string } | nul
 }
 
 export function inPeriod(job: Job, period: Period): boolean {
+  // Asked for the undated ones: the only jobs that belong are those with no
+  // date at all, whatever the month and day still say.
+  if (period.year === NO_DATE) return partsOf(job.date) === null;
+
   if (period.year === "ALL" && period.month === "ALL" && period.day === "ALL") return true;
   const parts = partsOf(job.date);
   // A job whose date will not parse cannot belong to a period. It stays visible
@@ -100,6 +120,7 @@ export function periodOptions(jobs: Job[], period: Period) {
 }
 
 export function periodLabel(period: Period): string {
+  if (period.year === NO_DATE) return "ไม่มีวันที่";
   if (period.year === "ALL" && period.month === "ALL" && period.day === "ALL") return "ทั้งแผน";
   const parts: string[] = [];
   if (period.day !== "ALL") parts.push(period.day);
@@ -108,13 +129,25 @@ export function periodLabel(period: Period): string {
   return parts.join(" ");
 }
 
-/** The most recent day that carries work, for the "latest day" shortcut. */
+/**
+ * The most recent day that carries work, for the "latest day" shortcut.
+ *
+ * Ranked through this file's own parser rather than through `dnum` next door.
+ * It was already discarding anything `partsOf` refused before asking `dnum` to
+ * order what was left, so the two agreed by construction and only one of them
+ * was needed — and without that import nothing outside this file is reached,
+ * which is what lets the period rules be tested on their own.
+ */
 export function latestDay(jobs: Job[]): Period | null {
-  let best = "";
+  let best: { d: string; m: string; y: string } | null = null;
+  let highest = -1;
+
   for (const job of jobs) {
-    if (!partsOf(job.date)) continue;
-    if (!best || dnum(job.date) > dnum(best)) best = job.date;
+    const parts = partsOf(job.date);
+    if (!parts) continue;
+    const rank = Number(parts.y) * 10000 + Number(parts.m) * 100 + Number(parts.d);
+    if (rank > highest) { highest = rank; best = parts; }
   }
-  const parts = best ? partsOf(best) : null;
-  return parts ? { year: parts.y, month: parts.m, day: parts.d } : null;
+
+  return best ? { year: best.y, month: best.m, day: best.d } : null;
 }
