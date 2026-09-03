@@ -9,7 +9,7 @@ import type { Account } from "../nav";
 import { TOOLBAR_SLOT } from "../Chrome";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
 import { JobCards } from "../JobCards";
-import { NO_DATE, monthLabel, partsOf } from "../period";
+import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { useCarriers } from "../carriers";
@@ -674,11 +674,9 @@ export function Workspace(p: Props) {
 
   // Each period control is an any-of filter, and the controls combine with one
   // another. This is the same rule CUSTOMER and TRUCKER already use.
-  const base = catBase.filter((j) => {
-    const parts = partsOf(j.date);
-    if (!parts) return !yearWanted.length && !monthWanted.length;
-    return matchesChosen(parts.y, ws.year) && matchesChosen(parts.m, ws.month);
-  });
+  const base = catBase.filter((j) => inChosenPeriod(j.date, {
+    year: ws.year, month: ws.month, day: "ALL",
+  }));
 
   // Keep every choice available after the first tick — but only within the one
   // control. Reading a list from its own filtered result would make the second

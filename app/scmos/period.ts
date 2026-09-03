@@ -32,25 +32,44 @@ export const NO_DATE = "NONE";
 
 const DATE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
+/** Decode the period pickers' pipe-separated any-of value. */
+function chosenPeriodValues(value: string): string[] {
+  return !value || value === "ALL" ? [] : value.split("|").filter(Boolean);
+}
+
 export function partsOf(date: string): { d: string; m: string; y: string } | null {
   const m = DATE.exec(String(date ?? "").trim());
   return m ? { d: m[1], m: m[2], y: m[3] } : null;
 }
 
-export function inPeriod(job: Job, period: Period): boolean {
-  // Asked for the undated ones: the only jobs that belong are those with no
-  // date at all, whatever the month and day still say.
-  if (period.year === NO_DATE) return partsOf(job.date) === null;
+/**
+ * The workspace's any-of period filter.
+ *
+ * Its pickers may carry several pipe-separated years, months or dates. Keeping
+ * this beside the single-period rule prevents the fast API page and the full
+ * register that replaces it from interpreting an invalid date differently.
+ */
+export function inChosenPeriod(date: string, period: Period): boolean {
+  const years = chosenPeriodValues(period.year);
+  const months = chosenPeriodValues(period.month);
+  const days = chosenPeriodValues(period.day);
+  const parts = partsOf(date);
 
-  if (period.year === "ALL" && period.month === "ALL" && period.day === "ALL") return true;
-  const parts = partsOf(job.date);
-  // A job whose date will not parse cannot belong to a period. It stays visible
-  // only while no period is chosen, so a filtered view never quietly counts it.
-  if (!parts) return false;
-  if (period.year !== "ALL" && parts.y !== period.year) return false;
-  if (period.month !== "ALL" && parts.m !== period.month) return false;
-  if (period.day !== "ALL" && parts.d !== period.day) return false;
+  // "No date" is one of the year choices. It can be selected by itself or
+  // alongside a real year; stale month/day values never hide the undated rows.
+  if (!parts) return years.includes(NO_DATE)
+    || (!years.length && !months.length && !days.length);
+
+  if (years.length && !years.includes(parts.y)) return false;
+  if (months.length && !months.includes(parts.m)) return false;
+  // The compact period bar stores a day-of-month ("15"), while Workspace's
+  // any-of picker stores the full date ("15/07/2026"). Accept both shapes.
+  if (days.length && !days.includes(date) && !days.includes(parts.d)) return false;
   return true;
+}
+
+export function inPeriod(job: Job, period: Period): boolean {
+  return inChosenPeriod(job.date, period);
 }
 
 export function filterPeriod(jobs: Job[], period: Period): Job[] {

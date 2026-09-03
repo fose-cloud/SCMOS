@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { ALL_PERIOD, NO_DATE, inPeriod, periodLabel, periodOptions } from "../app/scmos/period.ts";
+import {
+  ALL_PERIOD, NO_DATE, inChosenPeriod, inPeriod, periodLabel, periodOptions,
+} from "../app/scmos/period.ts";
 
 const job = (date) => ({ date });
 
@@ -27,6 +29,33 @@ test("a month left over from a previous choice cannot narrow it to nothing", () 
   // URL can still carry one. It must not silently empty the list.
   const undated = job("WAIT");
   assert.ok(inPeriod(undated, { year: NO_DATE, month: "07", day: "15" }));
+});
+
+test("the full register keeps the undated rows returned by the API page", () => {
+  const period = { year: NO_DATE, month: "ALL", day: "ALL" };
+  const rows = ["01/07/2026", "WAIT", "", "—"].filter((date) =>
+    inChosenPeriod(date, period));
+
+  assert.deepEqual(rows, ["WAIT", "", "—"]);
+});
+
+test("no date may be selected beside a real year in the any-of picker", () => {
+  const period = { year: `${NO_DATE}|2026`, month: "ALL", day: "ALL" };
+  assert.ok(inChosenPeriod("WAIT", period));
+  assert.ok(inChosenPeriod("01/07/2026", period));
+  assert.equal(inChosenPeriod("01/07/2025", period), false);
+});
+
+test("day filters accept the period bar and Workspace value shapes", () => {
+  assert.ok(inPeriod(job("15/07/2026"), {
+    year: "2026", month: "07", day: "15",
+  }));
+  assert.ok(inChosenPeriod("15/07/2026", {
+    year: "2026", month: "07", day: "15/07/2026",
+  }));
+  assert.equal(inChosenPeriod("16/07/2026", {
+    year: "2026", month: "07", day: "15/07/2026",
+  }), false);
 });
 
 test("a dated job is never in the no-date period", () => {
@@ -72,4 +101,8 @@ test("the screen and the API use the same word for it", () => {
   assert.ok(found, "WorkspaceService should name the no-date value");
   assert.equal(found[1], NO_DATE,
     `the API says "${found?.[1]}" where the screen says "${NO_DATE}"`);
+
+  const workspace = readFileSync("app/scmos/screens/Workspace.tsx", "utf8");
+  assert.match(workspace, /catBase\.filter\(\(j\) => inChosenPeriod\(j\.date/,
+    "the full register must reuse the tested no-date rule instead of filtering WAIT out again");
 });

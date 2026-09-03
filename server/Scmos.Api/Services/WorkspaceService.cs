@@ -326,21 +326,26 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     /// </summary>
     private static bool MatchesPeriod(WorkspaceTabs.JobView job, Query query)
     {
+        var years = Wanted(query.Year);
+        var months = Wanted(query.Month);
+        var days = Wanted(query.Day);
+        var wantsPeriod = years.Length > 0 || months.Length > 0 || days.Length > 0;
         var parts = job.Date.Split('/');
 
-        // Asked for by name, and then nothing else on the bar applies: a month
-        // beside "no date" would narrow it to nothing and look like an answer.
-        if (Wanted(query.Year).Contains(NoDate, StringComparer.OrdinalIgnoreCase))
-            return parts.Length != 3;
+        // "No date" is one of the year choices. An any-of picker may carry it
+        // beside a real year, so an invalid row matches that choice while a
+        // dated row still gets a chance to match one of the real years.
+        if (parts.Length != 3)
+            return !wantsPeriod
+                || years.Contains(NoDate, StringComparer.OrdinalIgnoreCase);
 
-        var wantsPeriod = Wanted(query.Year).Length > 0
-            || Wanted(query.Month).Length > 0
-            || Wanted(query.Day).Length > 0;
         if (!wantsPeriod) return true;
 
-        if (parts.Length != 3) return false;
+        var yearMatches = years.Length == 0
+            || years.Any(year => !year.Equals(NoDate, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(parts[2], year, StringComparison.OrdinalIgnoreCase));
 
-        return IsAny(parts[2], query.Year)
+        return yearMatches
             && IsAny(parts[1], query.Month)
             && IsAny(job.Date, query.Day);
     }
