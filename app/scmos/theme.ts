@@ -64,7 +64,11 @@ export function badge(_text: string, tone?: Tone | null): string {
   const c = TONES[(tone ?? "gray") as Tone] || TONES.gray;
   return (
     "display:inline-block;padding:1px 7px;border-radius:3px;font-size:10.5px;" +
-    "font-weight:600;letter-spacing:.02em;background:" + c[1] + ";color:" + c[0]
+    // Ends with the semicolon it used to leave off. Anything appended to a
+    // badge landed inside the colour it finished on — "color:#1D5FA8border:1px
+    // …" — which the browser drops whole, so the addition vanished and so did
+    // the colour, with nothing to say either had happened.
+    "font-weight:600;letter-spacing:.02em;background:" + c[1] + ";color:" + c[0] + ";"
   );
 }
 

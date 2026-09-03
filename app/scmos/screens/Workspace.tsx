@@ -986,8 +986,7 @@ export function Workspace(p: Props) {
     markIssue(c, j, String(field));
     if (canEditJob(j)) {
       c.td += "cursor:cell;";
-      // One click selects — the range machinery below does that on mousedown —
-      // and only swallows the click so the row's drawer does not open under it.
+      // One click selects — the range machinery below does that on mousedown.
       // Two clicks edit. A single click used to open the editor, which put a
       // text box under the pointer every time somebody touched a cell to read
       // it, and fought the drag: the anchor turned into an input mid-gesture.
@@ -1351,7 +1350,7 @@ export function Workspace(p: Props) {
       // the row rather than about any one field of it.
       plusCell(j),
       cell(j.prio, { tone: j.prio === "HIGH" ? "red" : j.prio === "MEDIUM" ? "amber" : "gray" }),
-      cell(mine ? "MY JOB" : "VIEW ONLY", { tone: mine ? "blue" : "gray" }),
+      ownCell(j, mine),
     ];
 
     // Changing the category moves a job to a different grid with different
@@ -1453,12 +1452,32 @@ export function Workspace(p: Props) {
   });
 
   /**
+   * The OWN badge, and the one place the job opens from.
+   *
+   * The whole row used to open the drawer. That was fine when a click meant
+   * nothing else, and stopped being fine once a click also picked a cell to
+   * copy, retype or empty — every touch of the grid put a panel over the third
+   * of the screen somebody was working in, and half the cells had to swallow
+   * their own click to prevent it.
+   *
+   * So it moves onto one cell that was already about the row rather than about
+   * any field of it. Drawn as a control, because a badge that opens something
+   * has to look like it does.
+   */
+  const ownCell = (j: Job, mine: boolean): Cell => {
+    const c = cell(mine ? "MY JOB" : "VIEW ONLY", { tone: mine ? "blue" : "gray" });
+    c.td += "cursor:pointer;";
+    c.sp += "border:1px solid " + (mine ? "#9CC2E8" : "#D0D8E0") + ";";
+    c.title = "เปิดรายละเอียดงาน";
+    c.go = () => p.onDrawer(j.key);
+    return c;
+  };
+
+  /**
    * The + that copies a row into another job on the same booking.
    *
    * A plain cell rather than a control, because the whole cell is the target
-   * and a three-pixel button in a thirty-pixel row is a thing people miss. The
-   * click is stopped here: the row itself opens the drawer, and copying a job
-   * is not opening it.
+   * and a three-pixel button in a thirty-pixel row is a thing people miss.
    */
   const plusCell = (j: Job): Cell => {
     const c = cell("+", {});
@@ -1466,9 +1485,7 @@ export function Workspace(p: Props) {
     c.sp = "display:inline-block;width:17px;height:17px;line-height:15px;border:1px solid #C9D6E2;"
       + "border-radius:3px;color:#5A6B7D;font-size:13px;font-weight:600;text-align:center;";
     if (!canEditJob(j)) {
-      // Dimmed and inert, like the tick on the same row — and it swallows the
-      // click rather than letting it fall through and open the job, because a
-      // + that opens a drawer reads as having half worked.
+      // Dimmed and inert, like the tick on the same row.
       c.sp += "opacity:.35;";
       c.td += "cursor:not-allowed;";
       c.title = "งานของ " + j.op + " — เพิ่มจากแถวนี้ไม่ได้";
@@ -1845,7 +1862,7 @@ export function Workspace(p: Props) {
 
     const rows: TableRow[] = pg.slice.map((j, rowIndex) => ({
       key: j.key,
-      go: () => p.onDrawer(j.key),
+      // No row-level click: the OWN cell opens the job. See ownCell.
       title: pinnedKeys.has(j.key) ? "แถวใหม่ — กรอกข้อมูลแล้วกด “เสร็จแล้ว” เพื่อให้เรียงเข้าที่"
         : isCancelled(j) ? "ยกเลิกแล้ว" + (j.cancelReason ? " — " + j.cancelReason : "")
         : wasMoved(j) ? "เลื่อนจาก " + j.origDate + (j.moveReason ? " — " + j.moveReason : "")
@@ -1854,7 +1871,7 @@ export function Workspace(p: Props) {
       // amber edge. Ownership still wins the tick and the border it already had:
       // a row you have selected has to look selected whatever else is true of
       // it, or the bulk actions act on rows you cannot see you picked.
-      style: "cursor:pointer;background:" +
+      style: "background:" +
         (pinnedKeys.has(j.key) ? "#FFFDF2"
           : picked.has(j.key) ? "#FFF7DE"
           : isCancelled(j) ? "#F4F6F8"
