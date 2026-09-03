@@ -68,6 +68,7 @@ public static class RateVehicles
         // this system could not read.
         new("6W HIAB", "6WH Hiab Truck", Special, false, false),
         new("SIDE", "Side Curtain Truck", Special, false, false),
+        new("SIDE DG", "Side Curtain Truck DG", Special, true, false),
         new("FBT", "Flat-bed Trailer", Special, false, false),
         new("FBT DG", "Flat-bed Trailer DG", Special, true, false),
     ];

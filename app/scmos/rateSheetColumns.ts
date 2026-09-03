@@ -55,9 +55,12 @@ const DETAILS: SheetColumn[] = [
  * Two departures from the file, both deliberate:
  *
  * "Side Curtain truck NON-DG" is written twice in the newest sheets, columns 29
- * and 30, with nothing in either. One of them was meant to be the DG variant.
- * Two columns writing one price would fight, so it appears once until somebody
- * says what the second should have been.
+ * and 30. The second was meant to be the DG variant and is headed that way here.
+ * It is not a cosmetic difference: on August 2026 row 203 — BERICAP, No. 63 —
+ * both are priced, 11,000 and 11,500, and while the file gives them one heading
+ * the importer can only read them as one vehicle and the 11,500 is dropped.
+ * The file still needs its own column 30 renamed for an import to tell them
+ * apart; this screen can already hold both.
  *
  * "6WH Hiab Truck" is priced by the register and has no column in the file at
  * all — the sheet has the 10-wheel one only. It is added at the end rather than
@@ -71,7 +74,7 @@ const PRICES: SheetColumn[] = [
   ["20' NON-DG", "20F"], ["40'/40'HQ NON-DG", "40F"],
   ["20' DG", "20F DG"], ["40'/40'HQ DG", "40F DG"],
   ["20' Reefer", "20RF"], ["40'/40'HQ Reefer", "40RF"],
-  ["Side Curtain truck NON-DG", "SIDE"],
+  ["Side Curtain truck NON-DG", "SIDE"], ["Side Curtain truck DG", "SIDE DG"],
   ["Flat-bed Trailer Non-DG", "FBT"], ["Flat-bed Trailer DG", "FBT DG"],
   ["20'OT (IG)", "20OT"],
   ["ISO Tank", "20TK"], ["20’Isotank DG", "20TK DG"], ["40’Isotank", "40TK"],

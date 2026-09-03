@@ -96,6 +96,7 @@ const VEHICLE_BY_HEADING: Record<string, string> = {
   "6WHFLATBED": "6W FB", "6WFLATBED": "6W FB",
   "10WHHIABTRUCK": "10W HIAB", "6WHHIABTRUCK": "6W HIAB",
   "SIDECURTAINTRUCKNONDG": "SIDE", "SIDECURTAINTRUCK": "SIDE",
+  "SIDECURTAINTRUCKDG": "SIDE DG",
   "FLATBEDTRAILERNONDG": "FBT", "FLATBEDTRAILERDG": "FBT DG",
 
   // The older sheets give 40' and 40'HQ a column each where the current ones
@@ -340,6 +341,7 @@ export function readSheet(sheet: string, rows: unknown[][]): ImportRead {
 const DG_OF: Record<string, string> = {
   "4W": "4W DG", "6W": "6W DG", "10W": "10W DG",
   "20F": "20F DG", "40F": "40F DG",
+  "SIDE": "SIDE DG",
 };
 
 /** Every month in the workbook, in the order the sheets sit. */

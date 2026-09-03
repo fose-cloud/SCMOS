@@ -249,3 +249,45 @@ test("an empty row ends the block, so nothing leaks across it", () => {
   assert.equal(inquiries.length, 2);
   assert.equal(inquiries[1].lanes[0].fromPlace, "");
 });
+
+test("the two side-curtain columns are two vehicles once the file names them apart", () => {
+  // The newest sheets head columns 29 and 30 identically — "Side Curtain truck
+  // NON-DG" twice — and the second was meant to be the DG one. Read as written
+  // they are one vehicle, and on August 2026 row 203 that costs the 11,500 in
+  // the second column, which is reported as a conflict and dropped.
+  const header = [
+    [null, null, null, null, null, null, "Rate Base on Fuel 30.00-32.99"],
+    ["No.", "Requestor", "Customer", "From", "To", "Subcon",
+      "Side Curtain truck NON-DG", "Side Curtain truck NON-DG"],
+  ];
+  const asFileHasIt = readSheet("August 2026", [...header,
+    [63, "Tum", "BERICAP", "BERICAP", "THAINAMTHIP", "SSL", 11000, 11500],
+  ]);
+  assert.equal(asFileHasIt.inquiries[0].lanes[0].prices["SIDE"], 11000, "the first wins");
+  assert.equal(asFileHasIt.inquiries[0].lanes[0].prices["SIDE DG"], undefined);
+  assert.equal(asFileHasIt.conflicts.length, 1, "and the loss is named rather than silent");
+  assert.match(asFileHasIt.conflicts[0], /11000 vs 11500/);
+
+  // Renamed in the file, they are two prices against two vehicles.
+  const renamed = [...header];
+  renamed[1] = [...header[1]];
+  renamed[1][7] = "Side Curtain truck DG";
+  const asItShouldBe = readSheet("August 2026", [...renamed,
+    [63, "Tum", "BERICAP", "BERICAP", "THAINAMTHIP", "SSL", 11000, 11500],
+  ]);
+  assert.equal(asItShouldBe.inquiries[0].lanes[0].prices["SIDE"], 11000);
+  assert.equal(asItShouldBe.inquiries[0].lanes[0].prices["SIDE DG"], 11500);
+  assert.deepEqual(asItShouldBe.conflicts, []);
+});
+
+test("an older sheet's DG tick moves a side-curtain price to the DG vehicle", () => {
+  const header = [
+    [null, null, null, null, null, null, null, null],
+    ["No.", "Requestor", "Customer", "From", "To", "Suncon", "DG", "Side Curtain truck"],
+  ];
+  const { inquiries } = readSheet("Aug 2025", [...header,
+    [1, "Faris", "BERICAP", "A", "B", "SSL", "x", 11500],
+  ]);
+  assert.equal(inquiries[0].lanes[0].prices["SIDE DG"], 11500);
+  assert.equal(inquiries[0].lanes[0].prices["SIDE"], undefined);
+});
