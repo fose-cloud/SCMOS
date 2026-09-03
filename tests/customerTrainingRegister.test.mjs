@@ -14,7 +14,7 @@ test("Customer Training register preserves the nine workbook columns in order", 
   ];
   let after = -1;
   for (const heading of headings) {
-    const at = screen.indexOf(`\"${heading}\"`, after + 1);
+    const at = screen.indexOf(`"${heading}"`, after + 1);
     assert.ok(at > after, `${heading} should appear after the preceding workbook column`);
     after = at;
   }
