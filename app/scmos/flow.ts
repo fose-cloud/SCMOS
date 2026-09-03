@@ -137,7 +137,7 @@ export type StageTime = { jobKey: string; stage: string; actualAt: string | null
 /**
  * Every recorded time for one customer's jobs, in one request.
  *
- * The customer truck reports draw a month of containers with six movement times
+ * The customer truck reports draw a month of containers with five movement times
  * on each row. Asking `readTrack` per shipment would be a hundred requests
  * against a database that takes a minute to wake.
  */

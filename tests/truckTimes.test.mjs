@@ -67,7 +67,7 @@ test("every movement column names a stage, and no two share one", () => {
     .filter(([, , from]) => from === "movement")
     .map(([, head]) => head);
 
-  assert.ok(columns.length >= 6, `only found ${columns.length} movement columns`);
+  assert.ok(columns.length >= 5, `only found ${columns.length} movement columns`);
   assert.deepEqual(Object.keys(MOVEMENT_STAGE).sort(), [...columns].sort());
 
   // One stage holds one timestamp, so two columns sharing a stage would mean

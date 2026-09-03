@@ -81,7 +81,6 @@ export function toTyped(instant: string | null | undefined): string {
  */
 export const MOVEMENT_STAGE: Record<string, string> = {
   "Leave base": "Dispatched",
-  "Truck arrival": "PickedUp",
   "Truck loading time": "Loading",
   // Added to the register's stage list for this report: one stage carries one
   // timestamp, so loading started and loading finished cannot be the same one.

@@ -20,11 +20,11 @@ import { editHistoryShortcut } from "../editHistory";
  * every month, not invented here — so what this screen produces can be checked
  * against last month's file line for line.
  *
- * Ten of the twenty columns come straight out of the register. Six are movement
- * times — left base, arrived, loading started, loading finished, departed,
- * container returned — and until 2026-09-01 nothing could write them: the
- * `shipment_milestones` table existed with a column for each and stood empty,
- * so the report went to the customer with six blank columns every month.
+ * Most columns come straight out of the register. Five are movement times —
+ * left base, loading started, loading finished, departed and container returned
+ * — and until 2026-09-01 nothing could write them: the `shipment_milestones`
+ * table existed with a column for each and stood empty, so those columns went
+ * to the customer blank every month.
  *
  * They are typed here now, in the table, by whoever is handling the job. That
  * is the request: not a second screen to visit, the report itself. Each one is
@@ -34,10 +34,10 @@ import { editHistoryShortcut } from "../editHistory";
  *
  * What is still not editable is said on the row rather than left to be
  * discovered: PACKAGE and CARD have nowhere in the register to go, and
- * Estimated Delivery is My Job's DATE and PLAN LOADING TIME joined for the
- * customer's benefit — two fields, edited on My Job, and a single box writing
- * both would have to guess where one ends when an operator has typed a note
- * where a clock was expected.
+ * Estimated Delivery and Truck Arrival join the corresponding date and time
+ * pairs from My Job for the customer's benefit. They are edited as two fields
+ * in My Job; a single box writing both would have to guess where one ends when
+ * an operator has typed a note where a clock was expected.
  */
 
 /** [header, where it comes from, how to read it out of a job] */
@@ -48,8 +48,8 @@ type Column = {
   /**
    * The register field this column writes, when it writes one straight through.
    *
-   * Absent on the three columns that cannot be typed here: two have no field
-   * behind them at all, and one is two fields joined.
+   * Absent on the four columns that cannot be typed here: two have no field
+   * behind them at all, and two are date/time pairs joined for display.
    */
   field?: keyof Job;
 };
@@ -79,7 +79,7 @@ export const COLUMNS: Column[] = [
     head: "Pick up container", source: "register", field: "lorealPickupContainer",
     read: (j) => j.lorealPickupContainer,
   },
-  { head: "Truck arrival", source: "movement", read: NONE },
+  { head: "Truck arrival", source: "register", read: (j) => joinDateTime(j.arrDate, j.arrTime) },
   { head: "Truck loading time", source: "movement", read: NONE },
   { head: "Truck loading completed", source: "movement", read: NONE },
   { head: "Truck departure", source: "movement", read: NONE },
@@ -222,7 +222,7 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
     }));
   }
 
-  /** What a cell shows: the register for most of it, the recorded time for six. */
+  /** What a cell shows: the register for most of it, the recorded movement times for five. */
   function show(job: Job, column: Column): string {
     return column.source === "movement"
       ? times[job.key]?.[MOVEMENT_STAGE[column.head]] ?? ""
@@ -232,9 +232,13 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   /** Whether this cell can be typed in at all, and why not when it cannot. */
   function why(job: Job, column: Column): string {
     if (column.source === "register" && !column.field) {
-      return column.head === "Estimated Delivery Time"
-        ? "ดึงจาก DATE และ PLAN LOADING TIME — แก้ที่หน้า My Job (เป็นสองช่อง)"
-        : "ยังไม่มีช่องเก็บค่านี้ในระบบ";
+      if (column.head === "Estimated Delivery Time") {
+        return "ดึงจาก DATE และ PLAN LOADING TIME — แก้ที่หน้า My Job (เป็นสองช่อง)";
+      }
+      if (column.head === "Truck arrival") {
+        return "ดึงจาก ARRIVAL DATE และ ARRIVAL TIME — แก้ที่หน้า My Job (เป็นสองช่อง)";
+      }
+      return "ยังไม่มีช่องเก็บค่านี้ในระบบ";
     }
     if (!canEdit(job)) return "งานของ " + (job.op || "คนอื่น") + " — แก้ไขไม่ได้";
     return "";
@@ -521,7 +525,7 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
           เวลาที่กรอกที่นี่บันทึกลงเป็นขั้นตอนเดินรถของงานนั้น (<code style={css("font-family:ui-monospace,monospace")}>shipment_milestones</code>)
           จึงเป็นค่าเดียวกับที่หน้า Shipment Monitor แสดง ไม่ใช่ข้อมูลคนละชุด ·
           เวลาที่กรอกถือตามเวลาไทย (+07:00) เสมอ ไม่ขึ้นกับนาฬิกาของเครื่องที่เปิด ·
-          ช่อง PACKAGE, CARD และ Estimated Delivery ยังแก้ที่นี่ไม่ได้ — ดูคำอธิบายเมื่อชี้ที่ช่อง
+          ช่อง PACKAGE, CARD, Estimated Delivery และ Truck Arrival ยังแก้ที่นี่ไม่ได้ — ดูคำอธิบายเมื่อชี้ที่ช่อง
         </div>
       )}
 
