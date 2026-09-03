@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { css } from "./theme";
 
 /**
@@ -56,6 +56,55 @@ export function useTableZoom(): [number, (next: number) => void] {
   return [zoom, change];
 }
 
+/**
+ * Keeps a scrolling box short enough that whatever sits under it stays on screen.
+ *
+ * A fixed `calc(100vh - 300px)` was the first attempt and it is a guess about
+ * something that differs per screen: Subcontractor Master puts four tiles and a
+ * search box above its table, My Job puts a toolbar and four rows of filter
+ * chips, Document Register puts almost nothing. Guessed too tall, the zoom and
+ * the sideways scrollbar sit below the fold — which is the state this was meant
+ * to fix.
+ *
+ * So it is measured. The box asks where it actually starts and takes the rest of
+ * the window, less the bar beneath it. Written straight to the node rather than
+ * held in state: it is a measurement of the layout, and feeding it back through
+ * a render to change the layout is how a loop starts.
+ */
+function useFitted(height?: string) {
+  const box = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (height) return;
+    const fit = () => {
+      const node = box.current;
+      if (!node) return;
+      const room = window.innerHeight - node.getBoundingClientRect().top - BENEATH;
+      // Never so short that it is not worth scrolling; never taller than fits.
+      node.style.maxHeight = `${Math.max(FLOOR, Math.round(room))}px`;
+    };
+    fit();
+
+    window.addEventListener("resize", fit);
+    // Everything above a table can change height after it is drawn — figures
+    // arrive, a filter bar wraps onto a second line, a panel is expanded.
+    const watch = new ResizeObserver(fit);
+    watch.observe(document.body);
+    return () => {
+      window.removeEventListener("resize", fit);
+      watch.disconnect();
+    };
+  }, [height]);
+
+  return box;
+}
+
+/** The zoom bar's own height, plus enough air to see the edge of the box. */
+const BENEATH = 58;
+
+/** Shorter than this and scrolling inside the box is worse than scrolling the page. */
+const FLOOR = 220;
+
 /** The − slider + control, identical wherever it appears because it is one component. */
 export function ZoomBar({ zoom, onZoom }: { zoom: number; onZoom: (next: number) => void }) {
   const step = (by: number) => onZoom(zoom + by);
@@ -103,6 +152,7 @@ export function TableFrame({ children, title, meta, actions, note, height }: {
   height?: string;
 }) {
   const [zoom, setZoom] = useTableZoom();
+  const box = useFitted(height);
 
   return (
     <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;display:flex;flex-direction:column;overflow:hidden")}>
@@ -123,7 +173,7 @@ export function TableFrame({ children, title, meta, actions, note, height }: {
         it takes the header, the filters and the toolbar with it, so reading the
         last column means losing sight of which screen you are on.
       */}
-      <div style={css("overflow:auto;" + (height ? `max-height:${height}` : "max-height:calc(100vh - 300px)"))}>
+      <div ref={box} style={css("overflow:auto;" + (height ? `max-height:${height}` : ""))}>
         {/*
           Zoom on a wrapper rather than on the table, so it applies whatever the
           screen put inside — two tables, a table and a caption, anything.
@@ -153,10 +203,22 @@ export function TableFrame({ children, title, meta, actions, note, height }: {
  */
 export function ZoomBox({ children, height }: { children: ReactNode; height?: string }) {
   const [zoom, setZoom] = useTableZoom();
+  const box = useFitted(height);
 
   return (
     <>
-      <div style={css("overflow:auto;" + (height ? `max-height:${height};` : ""))}>
+      {/*
+        Capped, and that cap is most of the point.
+
+        Left to grow, the box is as tall as its table, so on a screen of two
+        hundred rows the sideways scrollbar and the zoom sit at the bottom of
+        the page — under everything, reachable only by scrolling past the whole
+        report, which is the same as not being there. Capped, the rows scroll
+        inside the box and both controls stay where they were put. It is what
+        My Job's grid has always done; a shorter table is untouched, because a
+        maximum only ever takes away.
+      */}
+      <div ref={box} style={css("overflow:auto;" + (height ? `max-height:${height}` : ""))}>
         {/* On a wrapper, not the table: a screen may have put two in here. */}
         <div style={css("zoom:" + zoom / 100)}>{children}</div>
       </div>

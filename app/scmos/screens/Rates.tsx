@@ -334,7 +334,7 @@ function Surcharges({ book }: { book: RateBook }) {
         <span style={css("font-size:11.5px;font-weight:400;color:#94A3B8")}>จากชีท Remark ของฟอร์มกลาง</span>
       </button>
       {open && (
-        <div style={css("overflow-x:auto;border-top:1px solid #E9EFF5")}>
+        <div style={css("border-top:1px solid #E9EFF5")}><ZoomBox>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead>
               <tr>{["บริการ", "รายการ", "สกุล", "อัตรา", "หน่วย"].map((h) => (
@@ -353,7 +353,7 @@ function Surcharges({ book }: { book: RateBook }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ZoomBox></div>
       )}
     </div>
   );
