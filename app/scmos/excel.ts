@@ -4,6 +4,7 @@ import { opsStats, STATUS_RE, type Job } from "./ops";
 import type { RateBook } from "./rates";
 import { DEFAULT_STATUS, legacyStatus, normaliseJob, validateJob, clean, type Fix, type Issue } from "./standard";
 import { inferImportCategory, sheetImportCategory, type ImportCategory } from "./excelImportCategory";
+import { SHEET_COLUMNS, cellText, type SheetRow } from "./rateSheetColumns";
 import { STATUS_LADDER, STATUS_TH } from "./theme";
 import { dowOf, pad } from "./util";
 
@@ -862,4 +863,36 @@ export async function parseWorkbook(
     // Matched after normalising, so "9.00" and "09:00" are not two jobs.
     dups: matchDuplicates(jobs, existing, supplied),
   };
+}
+
+
+/**
+ * The rate sheet, out to a file shaped like the one it came from.
+ *
+ * Column for column and heading for heading, so what comes out opens beside
+ * `Rate Inquiry.xlsx` and can be read against it — which is the whole reason
+ * the screen keeps the workbook's layout instead of the register's.
+ *
+ * Given every row the filters left, not the fifty on screen. A page is what the
+ * grid can draw; an export that quietly held only that would be the file
+ * somebody then negotiates from.
+ */
+export function exportRateSheet(rows: SheetRow[], scopeLabel: string): string {
+  const headers = SHEET_COLUMNS.map((column) => column.head);
+  const out = rows.map((row) => {
+    const line: Record<string, string> = {};
+    SHEET_COLUMNS.forEach((column, index) => {
+      line[headers[index]] = cellText(row, column);
+    });
+    return line;
+  });
+
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(out, { header: headers });
+  sheet["!cols"] = autoWidth(out, headers);
+  XLSX.utils.book_append_sheet(book, sheet, "Rate Inquiry");
+
+  const filename = `SCMOS_Rate_Inquiry_${scopeLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(book, filename);
+  return filename;
 }

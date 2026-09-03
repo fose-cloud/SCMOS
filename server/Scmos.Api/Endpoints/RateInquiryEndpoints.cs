@@ -62,13 +62,31 @@ public static class RateInquiryEndpoints
          * Paged here rather than in the browser: three thousand lanes with
          * twenty-eight price columns is a quarter of a million cells.
          */
-        group.MapGet("/sheet", async (string? q, string? customer, string? month,
+        group.MapGet("/sheet", async (string? q, string? customer, string? requestor,
+            string? carrier, string? county, string? year, string? month, string? day,
             int? page, int? per, HttpContext context, IUserAccessor users,
             RateInquiryService inquiries, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
-            return Results.Json(await inquiries.SheetAsync(
-                q ?? "", customer ?? "", month ?? "", page ?? 1, per ?? 50, token));
+            return Results.Json(await inquiries.SheetAsync(new RateInquiryService.SheetQuery(
+                q ?? "", customer ?? "", requestor ?? "", carrier ?? "", county ?? "",
+                year ?? "", month ?? "", day ?? "", page ?? 1, per ?? 50), token));
+        });
+
+        /*
+         * What the pickers above that sheet may offer.
+         *
+         * Its own request rather than part of every page: the lists are the
+         * whole register's and do not move while somebody turns pages, so
+         * paying for the scan on each turn would buy nothing. The screen asks
+         * once when it opens, and again after an import has changed what is
+         * there to choose from.
+         */
+        group.MapGet("/sheet/choices", async (HttpContext context, IUserAccessor users,
+            RateInquiryService inquiries, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await inquiries.SheetChoicesAsync(token));
         });
 
         // One cell, because that is how a grid is used — and because a

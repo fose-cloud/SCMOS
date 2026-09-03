@@ -91,3 +91,49 @@ export const SHEET_COLUMNS: SheetColumn[] = [
 /** Every vehicle the sheet prices, for the test that checks them against the register. */
 export const SHEET_VEHICLES: string[] =
   SHEET_COLUMNS.filter((one) => one.kind === "price").map((one) => one.vehicle!);
+
+/**
+ * One row of the sheet: a lane, with the request above it repeated onto it.
+ *
+ * Beside the columns rather than in the screen, because the screen is not the
+ * only thing that pairs the two — the Excel export walks the same columns over
+ * the same rows, and a second idea of what a row holds is how the file and the
+ * grid end up disagreeing about a column.
+ */
+export type SheetRow = {
+  laneId: number;
+  inquiryId: number;
+  date: string;
+  no: number;
+  requestor: string;
+  customer: string;
+  fuelBand: string;
+  fromPlace: string;
+  toPlace: string;
+  county: string;
+  carriers: string;
+  fcl: boolean;
+  lcl: boolean;
+  domestic: boolean;
+  remark: string;
+  prices: Record<string, number>;
+};
+
+/** What a column reads out of a row. */
+export function readCell(row: SheetRow, column: SheetColumn): string | number | boolean {
+  if (column.kind === "price") return row.prices[column.vehicle!] ?? "";
+  return row[column.field as keyof SheetRow] as string | number | boolean;
+}
+
+/**
+ * A column's value as the workbook writes it — the shape a file wants.
+ *
+ * A tick is an "x" because that is what the sheet holds, an absent price is
+ * blank rather than nought, and everything else is its own text.
+ */
+export function cellText(row: SheetRow, column: SheetColumn): string {
+  const value = readCell(row, column);
+  if (column.kind === "tick") return value ? "x" : "";
+  if (column.kind === "price") return typeof value === "number" && value > 0 ? String(value) : "";
+  return String(value ?? "");
+}

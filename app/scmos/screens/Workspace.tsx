@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { badge, css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
 import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
@@ -15,7 +15,8 @@ import { useGridRange } from "../useGridRange";
 import { useCarriers } from "../carriers";
 import { useVehicleTypes } from "../vehicleTypes";
 import { useRotationCustomers } from "../rotationCustomers";
-import { PICK_SEP, chosenIn, matchesChosen, pickLabel } from "../filterChoices";
+import { chosenIn, matchesChosen, pickLabel } from "../filterChoices";
+import { FilterPickMany } from "../FilterPickMany";
 
 export type WsState = {
   tab: string;
@@ -406,87 +407,6 @@ function planDate(offsetDays: number): string {
  * workbooks do carry: the container number, and the seal on an export. A truck
  * load that never has a container is not missing one.
  */
-/**
- * A filter that takes several values at once.
- *
- * A list of checkboxes rather than a native multiple-select, which needs
- * ctrl-click to add a second value and loses the lot on a stray click — a
- * control people avoid rather than learn. The button says what is chosen and
- * the panel stays open while several are ticked, because ticking three
- * customers is the whole point.
- */
-function FilterPickMany({ label, value, options, onPick, render = (option) => option, emptyValue = "ALL" }: {
-  label: string;
-  value: string;
-  options: string[];
-  onPick: (v: string) => void;
-  render?: (option: string) => string;
-  emptyValue?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement | null>(null);
-  const chosen = chosenIn(value);
-  const set = chosen.length > 0;
-
-  // Clicking anywhere else closes it, the way every other menu behaves.
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", away);
-    return () => window.removeEventListener("mousedown", away);
-  }, [open]);
-
-  const toggle = (option: string) => {
-    const next = chosen.includes(option)
-      ? chosen.filter((one) => one !== option)
-      : chosen.concat([option]);
-    onPick(next.length ? next.join(PICK_SEP) : emptyValue);
-  };
-
-  return (
-    <div ref={box} style={css("position:relative;display:flex;align-items:center;gap:6px")}>
-      <span style={css("font-size:10px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>{label}</span>
-      <button type="button" onClick={() => setOpen((was) => !was)}
-        title={set ? label + ": " + chosen.map(render).join(", ") : label + ": ทั้งหมด"}
-        style={css("height:27px;max-width:190px;border:1px solid " + (set ? "#4E9BE8" : "#24476E")
-          + ";background:" + (set ? "#16406E" : "#0A2240")
-          + ";color:#fff;border-radius:4px;font-size:11.5px;font-family:inherit;padding:0 8px;cursor:pointer;"
-          + "display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden"
-          + (set ? ";font-weight:600" : ""))}>
-        <span style={css("overflow:hidden;text-overflow:ellipsis")}>{pickLabel(value, render)}</span>
-        <span style={css("opacity:.7;font-size:9px")}>▼</span>
-      </button>
-
-      {open && (
-        <div style={css("position:absolute;top:30px;left:0;z-index:60;min-width:230px;max-height:320px;"
-          + "overflow:auto;background:#0A2240;border:1px solid #4E7BA8;border-radius:5px;"
-          + "box-shadow:0 10px 28px rgba(0,0,0,.4);padding:5px")}>
-          <button type="button" onClick={() => { onPick(emptyValue); }}
-            style={css("display:block;width:100%;text-align:left;padding:6px 9px;border:none;border-radius:3px;"
-              + "background:" + (set ? "transparent" : "#16406E") + ";color:#fff;font-size:11.5px;cursor:pointer")}>
-            ทั้งหมด{set ? " (ล้างที่เลือก " + chosen.length + " รายการ)" : ""}
-          </button>
-          <div style={css("height:1px;background:#1B3B60;margin:4px 2px")} />
-          {options.map((option) => {
-            const on = chosen.includes(option);
-            return (
-              <label key={option}
-                style={css("display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:3px;cursor:pointer;"
-                  + "font-size:11.5px;color:#fff;background:" + (on ? "#16406E" : "transparent"))}>
-                <input type="checkbox" checked={on} onChange={() => toggle(option)}
-                  style={css("width:14px;height:14px;accent-color:#4E9BE8;cursor:pointer")} />
-                <span style={css("overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{render(option)}</span>
-              </label>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function documentMissing(job: Job): boolean {
   if (RE.done.test(job.status)) return false;
   const blank = (value: string | undefined) => !(value ?? "").trim();

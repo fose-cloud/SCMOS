@@ -236,10 +236,7 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     /// less pleasant than one sentinel and much better than a server that reads
     /// "All Team" as somebody's name and answers with an empty grid.
     /// </summary>
-    private static bool NotSet(string value) =>
-        value.Length == 0
-        || value.Equals("ALL", StringComparison.OrdinalIgnoreCase)
-        || value.Equals("All Team", StringComparison.OrdinalIgnoreCase);
+    private static bool NotSet(string value) => AnyOfFilter.NotSet(value);
 
     /// <summary>An exact-value filter, where an unset value means no filter.</summary>
     private static bool Is(string value, string wanted) =>
@@ -253,18 +250,10 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     /// sending one name still works. A pipe rather than a comma because a
     /// company name may contain a comma and none of them contain a pipe.
     /// </summary>
-    private static string[] Wanted(string value) =>
-        NotSet(value)
-            ? []
-            : value.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static string[] Wanted(string value) => AnyOfFilter.Wanted(value);
 
     /// <summary>An any-of filter, where an unset value means no filter.</summary>
-    private static bool IsAny(string value, string wanted)
-    {
-        var list = Wanted(wanted);
-        return list.Length == 0
-            || list.Any(one => string.Equals(value, one, StringComparison.OrdinalIgnoreCase));
-    }
+    private static bool IsAny(string value, string wanted) => AnyOfFilter.IsAny(value, wanted);
 
     /// <summary>
     /// Whose work to show. MY JOBS is already one person's, so the picker does
@@ -308,47 +297,20 @@ public class WorkspaceService(JobRegisterCache register, CarrierDirectory carrie
     /// <summary>
     /// The year picker's value for "no usable date".
     ///
-    /// The same word the screen uses — see <c>NO_DATE</c> in app/scmos/period.ts,
-    /// which is the client's copy of this rule for the screens it filters itself.
-    /// A test fails if the two stop agreeing.
+    /// Kept as a name here because callers already reach for it through this
+    /// service; the word itself, and the rule that reads it, live in
+    /// <see cref="AnyOfFilter"/> so the rate sheet's bar means the same thing.
     /// </summary>
-    public const string NoDate = "NONE";
+    public const string NoDate = AnyOfFilter.NoDate;
 
     /// <summary>
     /// The period bar, on the same <c>dd/MM/yyyy</c> text the register stores.
-    /// A job with no date is out as soon as any part of the period is chosen —
-    /// it cannot be shown to fall inside a month nobody can place it in.
-    ///
-    /// <para>Unless it is what was asked for. Undated jobs were counted on the
-    /// bar and there was no way to list them, which is backwards: a job whose
-    /// date will not parse is the one somebody has to go and fix, and every
-    /// other choice on this bar hides it.</para>
+    /// The rule is <see cref="AnyOfFilter.InPeriod"/>, shared with the rate
+    /// sheet, which is paged by its own service and filters the same three
+    /// pickers.
     /// </summary>
-    private static bool MatchesPeriod(WorkspaceTabs.JobView job, Query query)
-    {
-        var years = Wanted(query.Year);
-        var months = Wanted(query.Month);
-        var days = Wanted(query.Day);
-        var wantsPeriod = years.Length > 0 || months.Length > 0 || days.Length > 0;
-        var parts = job.Date.Split('/');
-
-        // "No date" is one of the year choices. An any-of picker may carry it
-        // beside a real year, so an invalid row matches that choice while a
-        // dated row still gets a chance to match one of the real years.
-        if (parts.Length != 3)
-            return !wantsPeriod
-                || years.Contains(NoDate, StringComparer.OrdinalIgnoreCase);
-
-        if (!wantsPeriod) return true;
-
-        var yearMatches = years.Length == 0
-            || years.Any(year => !year.Equals(NoDate, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(parts[2], year, StringComparison.OrdinalIgnoreCase));
-
-        return yearMatches
-            && IsAny(parts[1], query.Month)
-            && IsAny(job.Date, query.Day);
-    }
+    private static bool MatchesPeriod(WorkspaceTabs.JobView job, Query query) =>
+        AnyOfFilter.InPeriod(job.Date, query.Year, query.Month, query.Day);
 
     private static bool MatchesSearch(WorkspaceTabs.JobView job, string search)
     {

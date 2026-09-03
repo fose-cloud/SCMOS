@@ -154,22 +154,54 @@ public class RateInquiryService(ScmosDbContext db)
     /// sending them all to draw fifty rows is how a screen becomes unusable on
     /// the machines this runs on.
     /// </summary>
-    public async Task<SheetPage> SheetAsync(string search, string customer, string month,
-        int page, int per, CancellationToken token)
+    /// <summary>
+    /// The bar above the sheet, as one value.
+    ///
+    /// Every picker carries several values at once, pipe-separated, the way My
+    /// Job's do — see <see cref="AnyOfFilter"/>, which both bars read through.
+    /// A record rather than ten parameters, because the next filter should cost
+    /// a field and not another argument threaded through three files.
+    /// </summary>
+    public record SheetQuery(
+        string Search = "", string Customer = "", string Requestor = "",
+        string Carrier = "", string County = "",
+        string Year = "", string Month = "", string Day = "",
+        int Page = 1, int Per = 50);
+
+    /// <summary>
+    /// What each picker may offer, taken from the whole register.
+    ///
+    /// Not from the page, and not from the filtered result. A list built out of
+    /// what is already showing makes the second picker useless — choose a
+    /// customer and the carrier list narrows to that customer's carriers, so
+    /// there is no way to widen back out except by clearing what you just set.
+    /// </summary>
+    public record SheetChoices(
+        IReadOnlyList<string> Customers, IReadOnlyList<string> Requestors,
+        IReadOnlyList<string> Carriers, IReadOnlyList<string> Counties,
+        IReadOnlyList<string> Years, IReadOnlyList<string> Months,
+        IReadOnlyList<string> Dates, int Undated);
+
+    public async Task<SheetPage> SheetAsync(SheetQuery query, CancellationToken token)
     {
-        var wanted = search.Trim();
         var lanes = from lane in db.RateInquiryLanes.AsNoTracking()
                     join inquiry in db.RateInquiries.AsNoTracking() on lane.InquiryId equals inquiry.Id
                     select new { lane, inquiry };
 
-        if (customer.Trim().Length > 0)
-            lanes = lanes.Where(row => row.inquiry.Customer.Contains(customer.Trim()));
+        // Anything SQL can answer is answered in SQL. An any-of picker becomes
+        // an IN clause; a customer chosen from the list is that customer, not
+        // everything containing their name — "Thai Oil" would otherwise drag in
+        // "Thai Oil Marine" and the count would not match the tick.
+        var customers = AnyOfFilter.Wanted(query.Customer);
+        if (customers.Length > 0) lanes = lanes.Where(row => customers.Contains(row.inquiry.Customer));
 
-        // The month as the sheet writes a date: dd/MM/yyyy, so "07/2026" is the
-        // tail of it.
-        if (month.Trim().Length > 0)
-            lanes = lanes.Where(row => row.inquiry.InquiredOn.EndsWith(month.Trim()));
+        var requestors = AnyOfFilter.Wanted(query.Requestor);
+        if (requestors.Length > 0) lanes = lanes.Where(row => requestors.Contains(row.inquiry.Requestor));
 
+        var counties = AnyOfFilter.Wanted(query.County);
+        if (counties.Length > 0) lanes = lanes.Where(row => counties.Contains(row.lane.County));
+
+        var wanted = query.Search.Trim();
         if (wanted.Length > 0)
         {
             lanes = lanes.Where(row =>
@@ -182,18 +214,63 @@ public class RateInquiryService(ScmosDbContext db)
                 || row.lane.Remark.Contains(wanted));
         }
 
-        var total = await lanes.CountAsync(token);
-        var size = Math.Clamp(per, 1, 500);
-        var at = Math.Max(1, page);
+        var ordered = lanes.OrderByDescending(row => row.inquiry.Id).ThenBy(row => row.lane.Id);
+        var size = Math.Clamp(query.Per, 1, 500);
+        var at = Math.Max(1, query.Page);
 
-        var slice = await lanes
-            .OrderByDescending(row => row.inquiry.Id).ThenBy(row => row.lane.Id)
-            .Skip((at - 1) * size).Take(size)
-            .ToListAsync(token);
+        /*
+         * Two filters SQL cannot be asked for, and what they cost.
+         *
+         * Subcon is a list inside one column — "SANGJA,SSL,PHURADA" — so it has
+         * to be split before it can be matched, and the period rule is the one
+         * My Job uses, which is C#. Both are applied here, over a projection of
+         * two short strings per lane rather than over the rows themselves:
+         * three thousand of those is nothing, three thousand full rows with
+         * their prices is the quarter of a million cells this screen was paged
+         * to avoid.
+         *
+         * And only when one of them is actually set. With the bar untouched —
+         * which is how the screen opens — nothing is materialised and the page
+         * comes back from SQL as it always did.
+         */
+        List<long> pageIds;
+        int total;
+        var narrowing = AnyOfFilter.Wanted(query.Carrier).Length > 0
+            || AnyOfFilter.Wanted(query.Year).Length > 0
+            || AnyOfFilter.Wanted(query.Month).Length > 0
+            || AnyOfFilter.Wanted(query.Day).Length > 0;
 
-        var laneIds = slice.Select(row => row.lane.Id).ToList();
+        if (narrowing)
+        {
+            var narrow = await ordered
+                .Select(row => new { row.lane.Id, row.lane.Carriers, row.inquiry.InquiredOn })
+                .ToListAsync(token);
+            var kept = narrow
+                .Where(row => AnyOfFilter.IsAnyOfList(row.Carriers, query.Carrier)
+                    && AnyOfFilter.InPeriod(row.InquiredOn, query.Year, query.Month, query.Day))
+                .ToList();
+            total = kept.Count;
+            pageIds = [.. kept.Skip((at - 1) * size).Take(size).Select(row => row.Id)];
+        }
+        else
+        {
+            total = await ordered.CountAsync(token);
+            pageIds = await ordered.Skip((at - 1) * size).Take(size)
+                .Select(row => row.lane.Id).ToListAsync(token);
+        }
+
+        var slice = await (from lane in db.RateInquiryLanes.AsNoTracking()
+                           join inquiry in db.RateInquiries.AsNoTracking() on lane.InquiryId equals inquiry.Id
+                           where pageIds.Contains(lane.Id)
+                           select new { lane, inquiry }).ToListAsync(token);
+        // `IN` promises no order, and this page's order was settled above.
+        // Restored rather than sorted a second time, so the two cannot disagree
+        // about which fifty rows page three is.
+        var place = pageIds.Select((id, index) => (id, index)).ToDictionary(one => one.id, one => one.index);
+        slice = [.. slice.OrderBy(row => place[row.lane.Id])];
+
         var prices = await db.RateInquiryPrices.AsNoTracking()
-            .Where(price => laneIds.Contains(price.LaneId))
+            .Where(price => pageIds.Contains(price.LaneId))
             .ToListAsync(token);
         var byLane = prices.GroupBy(price => price.LaneId)
             .ToDictionary(group => group.Key,
@@ -208,6 +285,71 @@ public class RateInquiryService(ScmosDbContext db)
             byLane.TryGetValue(row.lane.Id, out var found) ? found : [])).ToList();
 
         return new SheetPage(rows, total, at, size);
+    }
+
+    /// <summary>
+    /// Every value each picker can offer, and how many rows have no usable date.
+    ///
+    /// Asked for once when the screen opens rather than with every page: the
+    /// lists do not change while somebody turns pages, and a scan of the whole
+    /// register on each page turn would be paid for nothing.
+    ///
+    /// The undated count is returned because it is the one number the period
+    /// pickers cannot show. Every other choice on that bar hides those rows, so
+    /// without it "no date" is an option with no sign that anything is behind it.
+    /// </summary>
+    public async Task<SheetChoices> SheetChoicesAsync(CancellationToken token)
+    {
+        var customers = await db.RateInquiries.AsNoTracking()
+            .Select(one => one.Customer).Distinct().ToListAsync(token);
+        var requestors = await db.RateInquiries.AsNoTracking()
+            .Select(one => one.Requestor).Distinct().ToListAsync(token);
+        var dates = await db.RateInquiries.AsNoTracking()
+            .Select(one => one.InquiredOn).Distinct().ToListAsync(token);
+        var counties = await db.RateInquiryLanes.AsNoTracking()
+            .Select(one => one.County).Distinct().ToListAsync(token);
+        // Distinct over the whole column first, so the split below runs over a
+        // hundred strings rather than three thousand.
+        var carrierLists = await db.RateInquiryLanes.AsNoTracking()
+            .Select(one => one.Carriers).Distinct().ToListAsync(token);
+
+        var carriers = carrierLists.SelectMany(list =>
+            (list ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        var years = new SortedSet<string>(StringComparer.Ordinal);
+        var months = new SortedSet<string>(StringComparer.Ordinal);
+        var days = new List<string>();
+        var undated = 0;
+        foreach (var date in dates)
+        {
+            var parts = (date ?? "").Split('/');
+            if (parts.Length != 3) { undated++; continue; }
+            years.Add(parts[2]);
+            months.Add(parts[1]);
+            days.Add(date!);
+        }
+
+        return new SheetChoices(
+            Named(customers), Named(requestors), Named(carriers), Named(counties),
+            [.. years], [.. months],
+            // Newest first, the way the sheet itself is ordered.
+            [.. days.Distinct().OrderByDescending(Rank)],
+            undated);
+
+        static IReadOnlyList<string> Named(IEnumerable<string?> values) =>
+        [.. values.Select(one => (one ?? "").Trim())
+            .Where(one => one.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(one => one, StringComparer.OrdinalIgnoreCase)];
+
+        static int Rank(string date)
+        {
+            var parts = date.Split('/');
+            return parts.Length == 3 && int.TryParse(parts[2], out var y)
+                && int.TryParse(parts[1], out var m) && int.TryParse(parts[0], out var d)
+                ? (y * 10000) + (m * 100) + d
+                : 0;
+        }
     }
 
     /// <summary>

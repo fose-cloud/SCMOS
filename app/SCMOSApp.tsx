@@ -677,6 +677,17 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // booking screen and the rate screen must not be able to disagree about it.
   const [diesel, setDiesel] = useState(32.94);
 
+  /*
+   * Which half of Rate Quotation is open, held here rather than in the screen.
+   *
+   * Only the app can stop the page scrolling, and only the rate sheet wants
+   * that — it is worked the way My Job is, the grid filling the window and
+   * scrolling inside it, while the calculator beside it is a form that needs
+   * the page back. So the tab has to be readable from where `lockScroll` is
+   * decided.
+   */
+  const [quoteView, setQuoteView] = useState<"calculate" | "sheet">("sheet");
+
   useEffect(() => {
     if ((screen !== "rates" && screen !== "booking") || ratesAsked.current) return;
     ratesAsked.current = true;
@@ -2410,7 +2421,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           locks the page too. Not folded into `isWorkspace`, which also decides
           server paging, tabs and filters and means none of those here.
         */
-        lockScroll={(isWorkspace && !!workspaceOps) || screen === "loreal"}
+        lockScroll={(isWorkspace && !!workspaceOps) || screen === "loreal"
+          || (screen === "quotation" && quoteView === "sheet")}
         filters={showFilters ? { defs: filterDefs, q, onQ: (v) => { setQ(v); setPage(1); }, onReset: () => { setF(EMPTY_FILTERS); setQ(""); setPage(1); setToast("Filters reset"); } } : null}
       >
         {isDetail && selectedShip && (
@@ -2716,7 +2728,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             )}
             {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
-            {screen === "quotation" && <Quotation diesel={diesel} onDiesel={setDiesel}
+            {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
               canEditRates={able("EditRates")} onToast={setToast} />}
 
             {screen === "postpone" && (

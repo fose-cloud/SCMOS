@@ -95,12 +95,23 @@ test("the screen and the API use the same word for it", () => {
   // The workspace grid is paged server-side, so the same filter is written
   // twice — once here and once in C#. Every rule this codebase has written
   // twice has drifted; this is what stops that one.
-  const service = readFileSync("server/Scmos.Api/Services/WorkspaceService.cs", "utf8");
-  const found = /public const string NoDate = "([^"]+)";/.exec(service);
+  // The word lives in AnyOfFilter now, which is what the rate sheet's own bar
+  // reads too — the rule was extracted when a second screen wanted it, which
+  // is the moment it would otherwise have been written a third time.
+  const rules = readFileSync("server/Scmos.Api/Rules/AnyOfFilter.cs", "utf8");
+  const found = /public const string NoDate = "([^"]+)";/.exec(rules);
 
-  assert.ok(found, "WorkspaceService should name the no-date value");
+  assert.ok(found, "AnyOfFilter should name the no-date value");
   assert.equal(found[1], NO_DATE,
     `the API says "${found?.[1]}" where the screen says "${NO_DATE}"`);
+
+  // And the workspace must still be reading it from there rather than holding
+  // a second spelling of its own.
+  const service = readFileSync("server/Scmos.Api/Services/WorkspaceService.cs", "utf8");
+  assert.match(service, /public const string NoDate = AnyOfFilter\.NoDate;/,
+    "WorkspaceService must take the word from AnyOfFilter, not restate it");
+  assert.match(service, /MatchesPeriod\([^)]*\) =>\s+AnyOfFilter\.InPeriod\(/,
+    "the workspace must run the shared period rule rather than its own copy");
 
   const workspace = readFileSync("app/scmos/screens/Workspace.tsx", "utf8");
   assert.match(workspace, /catBase\.filter\(\(j\) => inChosenPeriod\(j\.date/,
