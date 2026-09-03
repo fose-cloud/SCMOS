@@ -27,6 +27,22 @@ type Extra = {
   rate: number; active: boolean; position: number;
 };
 
+/** What a set of past prices looked like. */
+type Band = { count: number; low: number; mid: number; high: number };
+
+type Look = {
+  /** The remembered distance, when this journey has been priced before. */
+  known: { id: number; fromPlace: string; toPlace: string; km: number; setBy: string; setAt: string; usedCount: number } | null;
+  /** What carriers have quoted for it. */
+  quoted: Band | null;
+  /** What the rate book holds for it. */
+  contracted: Band | null;
+  /** The lanes those figures came from, so a match can be judged. */
+  matched: string[];
+  /** Below this many prices, a range says more about the sample than the price. */
+  minimum: number;
+};
+
 type Card = {
   vehicles: (VehicleRate & { id: number; position: number })[];
   extras: Extra[];
@@ -42,7 +58,18 @@ const baht = (n: number) => n.toLocaleString("en-US");
 export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
   const [card, setCard] = useState<Card | null>(null);
   const [vehicle, setVehicle] = useState("4W");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [km, setKm] = useState("");
+  /*
+   * What the register knows about this journey: how far, and what it has cost.
+   *
+   * Held with the journey it was fetched for. Answers arrive after the typing
+   * that asked for them, so a bare value would show the last road's prices
+   * beside this road's name for as long as the request takes — and the reader
+   * has no way to tell. Tagged, it is simply not shown until it belongs.
+   */
+  const [fetched, setFetched] = useState<{ journey: string; look: Look } | null>(null);
   const [dg, setDg] = useState(false);
   const [margin, setMargin] = useState("");
   /** Which extras are ticked, and how many hours or trips of each. */
@@ -63,6 +90,45 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
   // the inquiry screen next door.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
+
+  /*
+   * Both questions about a journey, asked together.
+   *
+   * Waited on rather than asked per keystroke: a place name is a dozen
+   * characters and the history search reads two rate tables.
+   */
+  useEffect(() => {
+    if (!from.trim() || !to.trim()) return;
+    const wait = window.setTimeout(async () => {
+      const query = new URLSearchParams({ from: from.trim(), to: to.trim(), vehicle });
+      const response = await apiFetch(`/api/journeys/look?${query}`, { headers: { accept: "application/json" } });
+      if (!response.ok) return;
+      const answer = await response.json() as Look;
+      setFetched({ journey: `${from.trim()}→${to.trim()}|${vehicle}`, look: answer });
+      // A distance already agreed fills the box, so nobody types it twice and
+      // the two typings differ. Anything already typed is left alone.
+      if (answer.known && !km.trim()) setKm(String(answer.known.km));
+    }, 450);
+    return () => window.clearTimeout(wait);
+    // `km` is deliberately absent: filling the box must not re-run the lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, vehicle]);
+
+  /** Records the distance for this journey so the next quotation starts with it. */
+  async function remember() {
+    const wanted = Number(km.replace(/,/g, ""));
+    const response = await apiFetch("/api/journeys", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ from: from.trim(), to: to.trim(), km: wanted }),
+    });
+    const reply = await response.json().catch(() => ({})) as
+      { message?: string; error?: string; journey?: Look["known"] };
+    onToast(reply.message ?? reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`);
+    if (response.ok && reply.journey) {
+      setFetched((was) => was ? { ...was, look: { ...was.look, known: reply.journey! } } : was);
+    }
+  }
 
   async function save(path: string, payload: unknown) {
     if (busy) return;
@@ -92,6 +158,8 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
       quantity: one.basis === "perHour" ? (picked[one.id] || 0) : 1,
     }));
 
+  const look = fetched?.journey === `${from.trim()}→${to.trim()}|${vehicle}` ? fetched.look : null;
+
   const answer = quote(card.vehicles, {
     vehicle,
     km: Number(km.replace(/,/g, "")),
@@ -112,6 +180,14 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
               ))}
             </select>
           </Field>
+          <Field label="ต้นทาง" width="180px">
+            <input value={from} autoComplete="off" placeholder="เช่น LCB Port"
+              onChange={(e) => setFrom(e.target.value)} style={INPUT} />
+          </Field>
+          <Field label="ปลายทาง" width="180px">
+            <input value={to} autoComplete="off" placeholder="เช่น Amata City"
+              onChange={(e) => setTo(e.target.value)} style={INPUT} />
+          </Field>
           <Field label="ระยะทางไป (กม.)" width="130px">
             <input value={km} inputMode="decimal" autoComplete="off" placeholder="เช่น 120"
               onChange={(e) => setKm(e.target.value)} style={INPUT} />
@@ -125,6 +201,44 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
             สินค้าอันตราย (DG)
           </label>
         </div>
+
+        {/*
+          The distance, once somebody has said what it is.
+
+          Two of every five journeys in the register are quoted more than once,
+          and a distance retyped from memory each time is one that will
+          eventually differ from itself. So the first person to measure it
+          records it, and everybody after that starts from their number.
+        */}
+        {from.trim() && to.trim() && (
+          <div style={css("margin-top:9px;font-size:11.5px;display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
+            {look?.known ? (
+              <>
+                <span style={css("color:#16794C")}>
+                  จำไว้แล้ว {look.known.km.toLocaleString()} กม.
+                  {look.known.usedCount > 0 && ` · ใช้มาแล้ว ${look.known.usedCount} ครั้ง`}
+                  <span style={css("color:#94A3B8")}> · {look.known.setBy} {look.known.setAt}</span>
+                </span>
+                {Number(km.replace(/,/g, "")) > 0 && Number(km.replace(/,/g, "")) !== look.known.km && (
+                  <button type="button" onClick={() => void remember()}
+                    style={css("height:24px;padding:0 10px;border:1px solid #B45309;background:#fff;color:#B45309;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                    แก้เป็น {Number(km.replace(/,/g, "")).toLocaleString()} กม.
+                  </button>
+                )}
+              </>
+            ) : Number(km.replace(/,/g, "")) > 0 ? (
+              <>
+                <span style={css("color:#94A3B8")}>เส้นทางนี้ยังไม่เคยบันทึกระยะทาง</span>
+                <button type="button" onClick={() => void remember()}
+                  style={css("height:24px;padding:0 10px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                  จำระยะทางนี้ไว้
+                </button>
+              </>
+            ) : (
+              <span style={css("color:#94A3B8")}>ยังไม่เคยบันทึกระยะทางของเส้นทางนี้ — กรอกแล้วกดจำไว้ได้</span>
+            )}
+          </div>
+        )}
 
         {card.extras.some((one) => one.active) && (
           <div style={css("margin-top:12px;padding-top:11px;border-top:1px solid #EEF3F8")}>
@@ -210,7 +324,82 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
         </div>
       )}
 
+      {look && answer.refusals.length === 0 && <History look={look} total={answer.total} />}
+
       <CardEditor card={card} busy={busy} onSave={save} />
+    </div>
+  );
+}
+
+/**
+ * What this journey has actually cost, beside what the card says it should.
+ *
+ * The card is a rule; these are the prices carriers really quoted and really
+ * agreed. A calculated figure with nothing to check it against is a figure
+ * somebody sends to a customer without knowing it is twice the going rate — and
+ * on this register the same lorry on the same road has been quoted at 2.5 times
+ * the price, so the going rate is not obvious.
+ *
+ * Where there are too few past prices to read anything from, it says so instead
+ * of drawing a band across three numbers. The numbers are still shown: hiding
+ * what exists would be its own kind of lie, and two quotes are worth seeing even
+ * when they are not worth averaging.
+ */
+function History({ look, total }: { look: Look; total: number }) {
+  const rows: [string, Band | null][] = [
+    ["ตามสัญญา (Rate book)", look.contracted],
+    ["เคยเสนอมา (Rate inquiry)", look.quoted],
+  ];
+  const any = rows.some(([, band]) => band);
+
+  return (
+    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 16px")}>
+      <div style={css("font-size:12.5px;font-weight:650;color:#0A2240;margin-bottom:8px")}>
+        เทียบกับราคาที่เคยเป็นมา
+      </div>
+
+      {!any ? (
+        <div style={css("font-size:12px;color:#94A3B8")}>
+          ยังไม่มีราคาย้อนหลังของเส้นทางนี้สำหรับรถประเภทที่เลือก — ตัวเลขที่คำนวณได้จึงยังไม่มีอะไรมาเทียบ
+        </div>
+      ) : (
+        <div style={css("display:flex;flex-direction:column;gap:6px")}>
+          {rows.map(([label, band]) => (
+            <div key={label} style={css("display:flex;gap:10px;align-items:baseline;font-size:12px;flex-wrap:wrap")}>
+              <span style={css("width:180px;color:#31465C")}>{label}</span>
+              {band ? (
+                <>
+                  <span style={css("font-family:ui-monospace,monospace;color:#0A2240")}>
+                    {baht(band.low)} – {baht(band.mid)} – {baht(band.high)}
+                  </span>
+                  <span style={css("color:#94A3B8;font-size:11.5px")}>
+                    จาก {band.count} ราคา
+                    {band.count < look.minimum && " · น้อยเกินกว่าจะสรุปเป็นช่วง"}
+                  </span>
+                  {/* Where the quotation sits against what was really paid. */}
+                  {band.count >= look.minimum && (
+                    <span style={css("font-size:11.5px;font-weight:600;color:"
+                      + (total > band.high ? "#B42318" : total < band.low ? "#B45309" : "#16794C"))}>
+                      {total > band.high ? "สูงกว่าที่เคยจ่ายทุกครั้ง"
+                        : total < band.low ? "ต่ำกว่าที่เคยจ่ายทุกครั้ง"
+                        : "อยู่ในช่วงที่เคยจ่าย"}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span style={css("color:#B6C2CF;font-size:11.5px")}>ไม่มีข้อมูล</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {look.matched.length > 0 && (
+        // What was matched, so a wrong match can be seen rather than trusted.
+        <div style={css("font-size:11px;color:#94A3B8;margin-top:8px;line-height:1.6")}>
+          เทียบจากเส้นทาง: {look.matched.join(" · ")}
+        </div>
+      )}
     </div>
   );
 }

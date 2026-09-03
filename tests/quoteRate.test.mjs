@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DEFAULT_CARD, DEFAULT_MARGIN, journeyKey, quote } from "../app/scmos/quoteRate.ts";
+import { DEFAULT_CARD, DEFAULT_MARGIN, quote } from "../app/scmos/quoteRate.ts";
 
 const ask = (over = {}) => ({
   vehicle: "4W", km: 100, dangerousGoods: false,
@@ -130,19 +130,6 @@ test("the card is data — changing a rate changes the quote", () => {
   const after = quote(tuned, ask({ vehicle: "10W RF" })).total;
   assert.ok(after < before);
   assert.equal(after, Math.round((100 * 28 + 3500) * 1.24 * 1.1));
-});
-
-test("one journey is one key however its ends are spelled", () => {
-  // "BKK port", "BKK  port" and "bkk  Port" are one road. Typed as three, the
-  // distance gets entered three times and two people quote it differently.
-  assert.equal(journeyKey("BKK port", "Amata"), journeyKey("BKK  port", "amata"));
-  assert.equal(journeyKey("bkk  Port", "AMATA"), journeyKey("BKK port", "Amata"));
-  assert.notEqual(journeyKey("BKK port", "Amata"), journeyKey("BMT port", "Amata"));
-});
-
-test("a Thai place name survives being flattened", () => {
-  assert.equal(journeyKey("แหลมฉบัง", "ระยอง"), journeyKey(" แหลมฉบัง ", "ระยอง"));
-  assert.notEqual(journeyKey("แหลมฉบัง", "ระยอง"), journeyKey("แหลมฉบัง", "ชลบุรี"));
 });
 
 test("a card row missing a number refuses instead of quoting NaN", () => {

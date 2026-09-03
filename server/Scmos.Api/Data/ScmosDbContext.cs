@@ -52,6 +52,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<RateLane> RateLanes => Set<RateLane>();
 
     /// <summary>The request side of the rate book: what was asked, and of whom.</summary>
+    public DbSet<JourneyDistance> JourneyDistances => Set<JourneyDistance>();
     public DbSet<QuoteVehicleRate> QuoteVehicleRates => Set<QuoteVehicleRate>();
     public DbSet<QuoteExtra> QuoteExtras => Set<QuoteExtra>();
     public DbSet<QuoteSetting> QuoteSettings => Set<QuoteSetting>();
@@ -310,6 +311,23 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             // The question asked on every write: who is this person covering for.
             entry.HasIndex(e => e.DelegateId).HasDatabaseName("delegation_delegate_idx");
             entry.HasIndex(e => e.OwnerId).HasDatabaseName("delegation_owner_idx");
+        });
+
+        model.Entity<JourneyDistance>(entry =>
+        {
+            entry.ToTable("journey_distances");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Key).HasColumnName("journey_key").HasMaxLength(420).HasDefaultValue("");
+            entry.Property(e => e.FromPlace).HasColumnName("from_place").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.ToPlace).HasColumnName("to_place").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.Km).HasColumnName("km");
+            entry.Property(e => e.SetBy).HasColumnName("set_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.SetAt).HasColumnName("set_at");
+            entry.Property(e => e.UsedCount).HasColumnName("used_count");
+            // One road, one length. Two rows for the same journey is the very
+            // thing the key exists to stop.
+            entry.HasIndex(e => e.Key).IsUnique().HasDatabaseName("journey_key_idx");
         });
 
         model.Entity<QuoteVehicleRate>(entry =>

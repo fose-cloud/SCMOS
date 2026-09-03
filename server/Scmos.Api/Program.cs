@@ -69,6 +69,7 @@ builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();
 builder.Services.AddScoped<RateInquiryService>();
 builder.Services.AddScoped<QuoteCardService>();
+builder.Services.AddScoped<JourneyService>();
 builder.Services.AddScoped<VerificationService>();
 builder.Services.AddScoped<AiGateway>();
 // The audit trail records the caller's address and session, which only the
@@ -148,6 +149,7 @@ if (TypeCheck.Run(args) is int typeExit) return typeExit;
 if (DelegationCheck.Run(args) is int delegationExit) return delegationExit;
 if (MonitorCheck.Run(args) is int monitorExit) return monitorExit;
 if (InlineCheck.Run(args) is int inlineExit) return inlineExit;
+if (JourneyCheck.Run(args) is int journeyExit) return journeyExit;
 
 if (args.Contains("--seed"))
 {
@@ -219,6 +221,7 @@ app.MapTraining();
 app.MapDelegations();
 app.MapRateInquiries();
 app.MapQuoteCard();
+app.MapJourneys();
 app.MapVerification();
 app.MapUploads();
 app.MapOperationalIssues();

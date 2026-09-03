@@ -234,21 +234,3 @@ export function quote(card: VehicleRate[], ask: QuoteRequest): Quote {
 
   return { lines, cost, margin, total: cost + margin, refusals: [] };
 }
-
-/**
- * The distance a journey was given last time it was quoted.
- *
- * Place names in this business arrive spelled several ways — "BKK port", "BKK
- * port" with two spaces, "BMT port" — so a journey is looked up by a flattened
- * form of both ends. Without it the same road gets typed twice with two lengths,
- * and two people quote it differently.
- */
-export const journeyKey = (from: string, to: string) =>
-  `${flatten(from)}→${flatten(to)}`;
-
-function flatten(place: string) {
-  return (place ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9฀-๿]+/g, " ")
-    .trim();
-}
