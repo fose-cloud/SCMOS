@@ -225,6 +225,43 @@ public class RateInquiryService(ScmosDbContext db)
     public async Task<Result> SaveCellAsync(long laneId, string field, string value,
         CancellationToken token)
     {
+        var result = await ApplyCellAsync(laneId, field, value, token);
+        if (result.Ok) await db.SaveChangesAsync(token);
+        return result;
+    }
+
+    /// <summary>
+    /// A block of cells — a paste, or a Delete that empties them — in one go.
+    ///
+    /// One save for the lot, so a paste of forty cells is one round trip and one
+    /// transaction rather than forty of each. A cell the register refuses is
+    /// skipped and named; the rest still land, because a paste that rolls back
+    /// forty good values over one bad one is a paste nobody can use.
+    /// </summary>
+    public async Task<(int Saved, List<string> Refused)> SaveCellsAsync(
+        IReadOnlyList<(long LaneId, string Field, string Value)> edits, CancellationToken token)
+    {
+        var saved = 0;
+        var refused = new List<string>();
+
+        foreach (var (laneId, field, value) in edits)
+        {
+            var result = await ApplyCellAsync(laneId, field, value, token);
+            if (result.Ok) saved++;
+            else refused.Add($"{field}: {result.Message}");
+        }
+
+        if (saved > 0) await db.SaveChangesAsync(token);
+        return (saved, refused);
+    }
+
+    /// <summary>
+    /// Changes one cell in memory, without writing. The two callers above decide
+    /// when to save — one cell saves at once, a block saves after the last.
+    /// </summary>
+    private async Task<Result> ApplyCellAsync(long laneId, string field, string value,
+        CancellationToken token)
+    {
         var lane = await db.RateInquiryLanes.FirstOrDefaultAsync(one => one.Id == laneId, token);
         if (lane is null) return new Result(false, "ไม่พบเส้นทางนี้");
 
@@ -247,7 +284,6 @@ public class RateInquiryService(ScmosDbContext db)
             if (digits.Length == 0 || digits == "0")
             {
                 if (held is not null) db.RateInquiryPrices.Remove(held);
-                await db.SaveChangesAsync(token);
                 return new Result(true, $"ล้างราคา {code} แล้ว", inquiry.Id, inquiry.Number);
             }
 
@@ -258,7 +294,6 @@ public class RateInquiryService(ScmosDbContext db)
             { LaneId = laneId, Vehicle = code, Price = amount });
             else held.Price = amount;
 
-            await db.SaveChangesAsync(token);
             return new Result(true, $"บันทึกราคา {code} = {amount:N0}", inquiry.Id, inquiry.Number);
         }
 
@@ -295,7 +330,6 @@ public class RateInquiryService(ScmosDbContext db)
             default: return new Result(false, $"แก้ช่อง {name} ไม่ได้");
         }
 
-        await db.SaveChangesAsync(token);
         return new Result(true, "บันทึกแล้ว", inquiry.Id, inquiry.Number);
     }
 

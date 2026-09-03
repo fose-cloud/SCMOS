@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { DataTable, type TableModel } from "../DataTable";
 import { SHEET_COLUMNS, type SheetColumn } from "../rateSheetColumns";
 import { css } from "../theme";
+import { useGridRange } from "../useGridRange";
 import { cell, type Cell } from "../util";
 
 /**
@@ -18,10 +19,8 @@ import { cell, type Cell } from "../util";
  *
  * Built on the same grid My Job uses, so it inherits the frozen header, the
  * zoom, the full screen and the paging rather than growing its own copy of any
- * of them. What it does not inherit is that screen's dragged rectangle and its
- * copy, paste and Delete — those live in the workspace and would have to be
- * lifted out to be shared, which is a change worth making on purpose rather
- * than on the way past.
+ * of them — and, since `useGridRange` was lifted out of the workspace, the
+ * dragged rectangle with its copy, paste and Delete as well.
  *
  * Every cell saves on its own. A row here spans a lane and the request above
  * it, and two people editing two lanes of one request in the same minute is
@@ -55,6 +54,16 @@ type Editing = { laneId: number; column: number; value: string };
 
 const PER = 50;
 
+/**
+ * What a column writes, spelled as the API spells it.
+ *
+ * A price is "price:20F", named for the vehicle. The rectangle carries these
+ * rather than column indexes, so a block copied from one place and pasted into
+ * another lands in the fields it names.
+ */
+const fieldOf = (column: SheetColumn) =>
+  column.kind === "price" ? `price:${column.vehicle}` : column.field!;
+
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;"
   + "font-size:12.5px;font-family:inherit;background:#fff";
 
@@ -69,6 +78,61 @@ export function RateSheet({ canEdit, onToast }: {
   const [applied, setApplied] = useState("");
   const [editing, setEditing] = useState<Editing | null>(null);
   const [saving, setSaving] = useState(false);
+  const rows = page?.rows ?? [];
+
+  /*
+   * The rectangle, and everything a spreadsheet does with one.
+   *
+   * The same hook My Job uses. What differs is only what a row is and how a
+   * cell is written — here a block goes to the API in one request, because the
+   * register is the only copy and the browser holds none of it.
+   */
+  const grid = useGridRange<SheetRow, string>({
+    rowsOf: () => rows,
+    fieldsOf: () => SHEET_COLUMNS.map((column) => (canEdit ? fieldOf(column) : undefined)),
+    headsOf: () => SHEET_COLUMNS.map((column) => column.head),
+    read: (row, field) => String(readCell(row, columnFor(field)) ?? ""),
+    canEdit: () => canEdit,
+    write: (edits, how) => void writeBlock(edits, how),
+    openEditor: (row, field, seed) => {
+      const at = SHEET_COLUMNS.findIndex((column) => fieldOf(column) === field);
+      if (at < 0) return;
+      setEditing({
+        laneId: row.laneId,
+        column: at,
+        value: seed ?? String(readCell(row, SHEET_COLUMNS[at]) ?? ""),
+      });
+    },
+    editing: editing !== null,
+    onCopied: (lines, columns) => onToast(`คัดลอกแล้ว ${lines} แถว · ${columns} คอลัมน์`),
+    onNothingToClear: () => onToast("ช่องที่เลือกว่างอยู่แล้ว"),
+  });
+
+  /** A block of cells in one request, so a paste is one round trip. */
+  async function writeBlock(
+    edits: { row: SheetRow; field: string; value: string }[],
+    how: "paste" | "clear",
+  ) {
+    setSaving(true);
+    try {
+      const response = await apiFetch("/api/rate-inquiries/sheet/cells", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          edits: edits.map((one) => ({ laneId: one.row.laneId, field: one.field, value: one.value })),
+        }),
+      });
+      const reply = await response.json().catch(() => ({})) as
+        { saved?: number; refused?: string[]; error?: string };
+      if (!response.ok) { onToast(reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`); return; }
+
+      const doing = how === "clear" ? "ล้าง" : "วาง";
+      const refused = reply.refused ?? [];
+      onToast(`${doing}แล้ว ${reply.saved ?? 0} ช่อง`
+        + (refused.length ? ` · ข้าม ${refused.length} — ${refused[0]}` : ""));
+      await load();
+    } finally { setSaving(false); }
+  }
 
   const load = useCallback(async () => {
     const query = new URLSearchParams({ page: String(at), per: String(PER), q: applied });
@@ -78,10 +142,7 @@ export function RateSheet({ canEdit, onToast }: {
     setPage(await response.json() as Page);
   }, [at, applied, onToast]);
 
-  // Fetching on mount and whenever the page or the search moves. Every setState
-  // runs after an await, so it lands in a microtask rather than while this body
-  // does — the same idiom, and the same reason, as the screens next door.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Fetching on mount and whenever the page or the search moves.
   useEffect(() => { void load(); }, [load]);
 
   /**
@@ -133,10 +194,16 @@ export function RateSheet({ canEdit, onToast }: {
         + (column.kind === "price" ? "text-align:right;" : ""),
       sort: () => undefined,
     })),
-    rows: page.rows.map((row) => ({
+    noSelect: grid.dragSelecting,
+    rows: page.rows.map((row, r) => ({
       key: String(row.laneId),
       style: "",
-      cells: SHEET_COLUMNS.map((column, index) => toCell(row, column, index)),
+      cells: SHEET_COLUMNS.map((column, index) => ({
+        ...toCell(row, column, index),
+        // A tick box is not part of a rectangle: dragging across one selects
+        // nothing there, and a paste cannot land in it.
+        ...grid.cellProps("sheet", r, index, canEdit && column.kind !== "tick"),
+      })),
     })),
     total: page.total,
     pageCount: Math.max(1, Math.ceil(page.total / page.per)),
@@ -238,6 +305,11 @@ export function RateSheet({ canEdit, onToast }: {
         onTool={() => undefined} />
     </div>
   );
+}
+
+/** The column a field name belongs to, for reading a cell back out. */
+function columnFor(field: string): SheetColumn {
+  return SHEET_COLUMNS.find((column) => fieldOf(column) === field) ?? SHEET_COLUMNS[0];
 }
 
 /** What a column reads out of a row. */

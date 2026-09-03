@@ -13,6 +13,12 @@ namespace Scmos.Api.Endpoints;
 /// that come back are the same commercial-in-confidence numbers the rate book
 /// holds. A Viewer sees neither.
 /// </summary>
+/// <summary>A block of cells, as a dragged rectangle sends them.</summary>
+public record CellsBody(List<CellEdit>? Edits);
+
+/// <summary>One cell inside such a block.</summary>
+public record CellEdit(long LaneId, string? Field, string? Value);
+
 /// <summary>One cell of the rate sheet: which field, and what it becomes.</summary>
 public record CellBody(string? Field, string? Value);
 
@@ -85,6 +91,38 @@ public static class RateInquiryEndpoints
             await audit.RecordAsync(user, AuditActions.Update, "rate-inquiry",
                 result.Id.ToString(), result.Message, body.Field ?? "", "", body.Value ?? "", "", token);
             return Results.Json(new { message = result.Message });
+        });
+
+        // A block of cells at once — what a paste or a Delete over a dragged
+        // rectangle sends. One request and one transaction rather than one of
+        // each per cell.
+        group.MapPost("/sheet/cells", async ([FromBody] CellsBody body, HttpContext context,
+            IUserAccessor users, RateInquiryService inquiries, AuditService audit,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง",
+                    StatusCodes.Status403Forbidden);
+
+            var edits = (body.Edits ?? [])
+                .Select(one => (one.LaneId, one.Field ?? "", one.Value ?? ""))
+                .ToList();
+            if (edits.Count == 0) return Results.Json(new { saved = 0, refused = Array.Empty<string>() });
+            if (edits.Count > 500)
+                return ApiResults.Error("แก้ได้ครั้งละไม่เกิน 500 ช่อง", StatusCodes.Status413PayloadTooLarge);
+
+            var (saved, refused) = await inquiries.SaveCellsAsync(edits, token);
+
+            // One audit row for the block, naming how many moved. A row per cell
+            // would bury the day's real changes under a paste.
+            if (saved > 0)
+            {
+                await audit.RecordAsync(user, AuditActions.Update, "rate-inquiry", "sheet",
+                    $"แก้ {saved} ช่อง", "หลายช่อง", "", $"{saved} ช่อง", "", token);
+            }
+            return Results.Json(new { saved, refused = refused.Take(10) });
         });
 
         group.MapPost("", async ([FromBody] RateInquiryService.InquiryPost body, HttpContext context,
