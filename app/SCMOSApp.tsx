@@ -671,7 +671,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // without seeing what they charge is the decision this is meant to inform.
   const [rates, setRates] = useState<RateBook | null>(null);
   const [ratesError, setRatesError] = useState("");
-  const ratesAsked = useRef(false);
+  const ratesAsked = useRef(-1);
 
   // One diesel price for the whole app. Every quoted rate steps with it, so the
   // booking screen and the rate screen must not be able to disagree about it.
@@ -688,9 +688,15 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const [quoteView, setQuoteView] = useState<"calculate" | "sheet" | "terms">("sheet");
 
+  // Bumped to fetch the rate book again — after lanes are moved out of New
+  // Transport Rate, the answer has genuinely changed and the screen is showing
+  // the one from before the move.
+  const [ratesEpoch, setRatesEpoch] = useState(0);
+
   useEffect(() => {
-    if ((screen !== "rates" && screen !== "booking") || ratesAsked.current) return;
-    ratesAsked.current = true;
+    if (screen !== "rates" && screen !== "booking") return;
+    if (ratesAsked.current === ratesEpoch) return;
+    ratesAsked.current = ratesEpoch;
     (async () => {
       try {
         // From the API, not the public folder. Eighteen carriers' negotiated
@@ -707,7 +713,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           lanes: { id: number; carrier: string; service: string; customer: string;
                    from: string; to: string; county: string; remark: string;
                    prices: Record<string, (number | null)[]>;
-                   source?: "carrier" | "quotation" }[];
+                   source?: "carrier" | "quotation";
+                   promotedAt?: string | null; promotedStale?: boolean }[];
           surcharges: { service: string; no: string; description: string;
                         currency: string; rate: string; unit: string }[];
         };
@@ -723,7 +730,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         setRatesError(error instanceof Error ? error.message : String(error));
       }
     })();
-  }, [screen]);
+  }, [screen, ratesEpoch]);
 
   /**
    * Whose job this is.
@@ -2601,7 +2608,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 </div>)}
 
             {screen === "rates" && (
-              <Rates book={rates} error={ratesError} diesel={diesel} onDiesel={setDiesel} onToast={setToast} />
+              <Rates book={rates} error={ratesError} diesel={diesel} onDiesel={setDiesel} onToast={setToast}
+                canEditRates={able("EditRates")} onReload={() => setRatesEpoch((n) => n + 1)} />
             )}
 
             {screen === "booking" && (ops

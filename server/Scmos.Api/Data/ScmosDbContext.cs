@@ -786,7 +786,12 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Remark).HasMaxLength(300).HasDefaultValue("");
             e.Property(x => x.SourceFile).HasMaxLength(300).HasDefaultValue("");
             e.HasIndex(x => new { x.Carrier, x.Service }).HasDatabaseName("rate_lane_carrier_idx");
+            e.Property(x => x.PromotedBy).HasMaxLength(120).HasDefaultValue("");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("rate_lane_supplier_idx");
+            // The move looks a lane up by where it came from, once per row it
+            // writes. Without this that is a scan of the whole rate book per
+            // lane moved.
+            e.HasIndex(x => x.FromInquiryLaneId).HasDatabaseName("rate_lane_from_inquiry_idx");
         });
 
         model.Entity<RatePrice>(e =>

@@ -12,6 +12,9 @@ namespace Scmos.Api.Endpoints;
 /// to something: approving a vendor, changing a rate, deciding on an AI
 /// proposal. Reading is open to anyone signed in.
 /// </summary>
+/// <summary>Which quoted lanes to move into the contracted rate book.</summary>
+public record PromoteBody(List<long>? LaneIds);
+
 public static class SupplierEndpoints
 {
     public record RegisterBody(string? Name, string? Code, string? ServiceType, string? ServiceArea, string? Reason);
@@ -212,6 +215,47 @@ public static class SupplierEndpoints
             if (!user.Can(Capability.ViewRates))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูตารางราคา", StatusCodes.Status403Forbidden);
             return Results.Json(await service_.ReadAsync(carrier, service, source, token));
+        });
+
+        /*
+         * Moving quoted lanes into the contracted book.
+         *
+         * A write to the rate book, so ViewRates is not enough — this needs the
+         * capability that governs changing a rate, and it is recorded. Until it
+         * runs, a price keyed into Rate Quotation is a quotation; afterwards it
+         * is a rate the team is working to, and which of the two a number is
+         * should never be a question nobody can answer later.
+         */
+        rates.MapPost("/promote", async ([FromBody] PromoteBody body, HttpContext context,
+            IUserAccessor users, RateService service, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง", StatusCodes.Status403Forbidden);
+
+            var ids = body.LaneIds ?? [];
+            if (ids.Count == 0)
+                return ApiResults.Error("ไม่ได้เลือกเส้นทางที่จะย้าย", StatusCodes.Status400BadRequest);
+
+            // A cap, because this writes seven prices per vehicle per lane and
+            // the whole register at once is a request nobody can tell has hung.
+            if (ids.Count > 500)
+                return ApiResults.Error(
+                    $"ย้ายได้ครั้งละไม่เกิน 500 เส้นทาง (เลือกมา {ids.Count:N0}) — กรองให้แคบลงก่อน",
+                    StatusCodes.Status400BadRequest);
+
+            var done = await service.PromoteAsync(ids, user.Signature, token);
+            await audit.RecordAsync(user, AuditActions.Update, "rate", "promote",
+                "Rate Quotation -> Transport Rate", "ราคา", "",
+                $"{done.Lanes} เส้นทาง · {done.Prices} ราคา",
+                $"ย้ายจาก New Transport Rate เข้าตารางอัตราที่ใช้งานจริง", token);
+
+            var message = done.Lanes == 0
+                ? "ไม่มีเส้นทางที่ย้ายได้"
+                : $"ย้ายแล้ว {done.Lanes:N0} เส้นทาง · {done.Prices:N0} ราคา"
+                  + (done.Skipped > 0 ? $" · ข้าม {done.Skipped:N0}" : "");
+            return Results.Json(new { message, done.Lanes, done.Prices, done.Skipped, done.Notes });
         });
 
         rates.MapGet("/quotes", async (string? customer, string? destination, string? vehicle, decimal? diesel,

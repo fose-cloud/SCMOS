@@ -47,6 +47,10 @@ export type RateLane = {
    * absent means `carrier`, which is what those rows are.
    */
   source?: "carrier" | "quotation";
+  /** When this quoted lane was last moved into the contracted book. */
+  promotedAt?: string | null;
+  /** True when the quotation has changed since it was moved. */
+  promotedStale?: boolean;
 };
 
 export type RateSource = {

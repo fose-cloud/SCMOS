@@ -200,6 +200,21 @@ public class RateLane
 
     /// <summary>Source workbook, so a figure can be traced back to what the carrier sent.</summary>
     public string SourceFile { get; set; } = "";
+
+    /// <summary>
+    /// The rate-sheet lane this row was moved over from, when it was.
+    ///
+    /// Null for the great majority: those came off a carrier's own signed form
+    /// and were never a quotation. Set, it is what makes a second move update
+    /// this row instead of adding another one beside it — and what lets the New
+    /// Transport Rate tab say which of its lanes have already been moved.
+    /// </summary>
+    public long? FromInquiryLaneId { get; set; }
+
+    /// <summary>When it was moved, and by whom. Empty on a row that never was.</summary>
+    public DateTime? PromotedAt { get; set; }
+
+    public string PromotedBy { get; set; } = "";
 }
 
 /// <summary>One price: a lane, a vehicle type, a fuel band.</summary>

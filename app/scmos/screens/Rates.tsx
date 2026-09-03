@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { apiFetch } from "../api";
 import { bandForDiesel, priceFor, vehiclesIn, type RateBook, type RateLane } from "../rates";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
@@ -24,21 +25,34 @@ type Props = {
   diesel: number;
   onDiesel: (value: number) => void;
   onToast: (message: string) => void;
+  /** Whether this account may move quoted lanes into the contracted book. */
+  canEditRates: boolean;
+  /** Fetch the book again — after a move, what is on screen is from before it. */
+  onReload: () => void;
 };
 
-const PER_PAGE = 40;
-
 /**
- * The source picker's wording.
+ * The two halves of the rate book.
  *
- * Thai on screen, the API's word underneath — the two are joined here rather
- * than by a second copy of the mapping inside the handler.
+ * <b>Transport Rate</b> is what the team works to: prices off carriers' signed
+ * forms, plus anything moved across from the other tab. It behaves exactly as
+ * it did before the rate sheet was connected to it, which is the point — a
+ * number appearing here without somebody deciding it should is the failure this
+ * split exists to prevent.
+ *
+ * <b>New Transport Rate</b> is what Rate Quotation has been quoted, spread up
+ * the diesel bands by the fuel clause. It is a waiting room: readable,
+ * comparable, correctable, and not yet a rate anybody is quoting from. The
+ * button moves it.
  */
-const SOURCE_LABEL = {
-  All: "ทั้งหมด",
-  carrier: "จากใบเสนอราคาผู้รับเหมา",
-  quotation: "จาก Rate Quotation",
-} as const;
+const TABS = [
+  { key: "carrier", th: "Transport Rate", en: "อัตราที่ใช้งานจริง" },
+  { key: "quotation", th: "New Transport Rate", en: "จาก Rate Quotation · รอย้าย" },
+] as const;
+
+type Tab = (typeof TABS)[number]["key"];
+
+const PER_PAGE = 40;
 
 type Row = {
   lane: RateLane;
@@ -47,7 +61,7 @@ type Row = {
   band: string;
 };
 
-export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
+export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, onReload }: Props) {
   const [carrier, setCarrier] = useState("All");
   const [service, setService] = useState("All");
   const [vehicle, setVehicle] = useState("All");
@@ -55,15 +69,15 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
   const [page, setPage] = useState(1);
   const [compare, setCompare] = useState(false);
   /*
-   * Which prices to show.
+   * Which half of the book is open.
    *
-   * A price a carrier signed and a price somebody typed this morning are both
-   * rates, and both belong here — but only one of them is a contract. They are
-   * shown together by default because the question the screen answers is "what
-   * does this journey cost", and separable because the question underneath it
-   * is sometimes "what have we actually agreed".
+   * Opens on Transport Rate, and that tab shows only what the team is actually
+   * working to. The quoted lanes are next door until somebody moves them, so a
+   * price typed into Rate Quotation cannot turn up in a contracted rate table
+   * by itself.
    */
-  const [source, setSource] = useState<"All" | "carrier" | "quotation">("All");
+  const [tab, setTab] = useState<Tab>("carrier");
+  const [moving, setMoving] = useState(false);
 
   const carriers = useMemo(
     () => [...new Set(book?.lanes.map((l) => l.carrier) ?? [])].sort(),
@@ -74,6 +88,11 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
     [book],
   );
   const vehicles = useMemo(() => (book ? vehiclesIn(book.lanes) : []), [book]);
+  /** How many lanes are waiting next door, for the count on the tab. */
+  const quotedTotal = useMemo(
+    () => (book?.lanes ?? []).filter((lane) => lane.source === "quotation").length,
+    [book],
+  );
 
   /** One row per lane and vehicle, priced at the diesel price on screen. */
   const rows = useMemo<Row[]>(() => {
@@ -84,7 +103,7 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
     for (const lane of book.lanes) {
       // A row with no source is a carrier row: the browser's own reader builds
       // the book that way, and every one of those came off a signed form.
-      if (source !== "All" && (lane.source ?? "carrier") !== source) continue;
+      if ((lane.source ?? "carrier") !== tab) continue;
       if (carrier !== "All" && lane.carrier !== carrier) continue;
       if (service !== "All" && lane.service !== service) continue;
       if (wanted && ![lane.customer, lane.from, lane.to, lane.county, lane.carrier]
@@ -99,7 +118,48 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
       }
     }
     return out.sort((a, b) => a.lane.customer.localeCompare(b.lane.customer) || a.price - b.price);
-  }, [book, carrier, service, vehicle, query, diesel, source]);
+  }, [book, carrier, service, vehicle, query, diesel, tab]);
+
+  /**
+   * The lanes the move would write, which is what is on screen and no more.
+   *
+   * Filtered, not all of them. Somebody who narrowed to one customer before
+   * pressing the button meant that customer — moving the whole register because
+   * the button did not know about the filter is not a mistake anybody would
+   * catch until the rate book had grown three thousand rows.
+   */
+  const waiting = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of rows) if (!row.lane.promotedAt || row.lane.promotedStale) ids.add(row.lane.id);
+    return [...ids];
+  }, [rows]);
+
+  async function move() {
+    if (moving || waiting.length === 0) return;
+    // Asked, because this writes into the table the team quotes customers from.
+    // The count is in the question: "move 1,204 lanes" and "move 3" are not the
+    // same decision, and the button alone cannot tell you which one you pressed.
+    if (!window.confirm(
+      `ย้าย ${waiting.length.toLocaleString()} เส้นทางจาก New Transport Rate `
+      + "เข้าตาราง Transport Rate ที่ใช้งานจริง?\n\n"
+      + "ราคาทั้ง 7 ช่วงราคาน้ำมันจะถูกบันทึกไว้ ณ ตอนนี้ "
+      + "ถ้าแก้ราคาใน Rate Quotation ทีหลัง ต้องกดย้ายอีกครั้ง")) return;
+
+    setMoving(true);
+    try {
+      const response = await apiFetch("/api/rates/promote", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ laneIds: waiting.map(Number) }),
+      });
+      const reply = await response.json().catch(() => ({})) as
+        { message?: string; error?: string; notes?: string[] };
+      if (!response.ok) { onToast(reply.error ?? `ย้ายไม่สำเร็จ (${response.status})`); return; }
+      onToast((reply.message ?? "ย้ายแล้ว")
+        + (reply.notes?.length ? ` · ${reply.notes[0]}` : ""));
+      onReload();
+    } finally { setMoving(false); }
+  }
 
   /**
    * The same lane quoted by more than one carrier. This is the reason the
@@ -165,6 +225,63 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
+      <div style={css("display:flex;gap:7px;flex-wrap:wrap")}>
+        {TABS.map((one) => {
+          const on = tab === one.key;
+          const waitingHere = one.key === "quotation" ? quotedTotal : 0;
+          return (
+            <button key={one.key} onClick={() => { setTab(one.key); setPage(1); setCompare(false); }}
+              style={css("height:36px;padding:0 16px;border:1px solid " + (on ? "#0A2240" : "#E2E8F0")
+                + ";background:" + (on ? "#0A2240" : "#fff") + ";color:" + (on ? "#fff" : "#64748B")
+                + ";border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit;"
+                + "display:flex;align-items:center;gap:8px;font-weight:" + (on ? "600" : "400"))}>
+              {one.th}
+              <span style={css("opacity:.75;font-size:11px")}>· {one.en}</span>
+              {waitingHere > 0 && (
+                <span style={css("font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:9px;"
+                  + "background:" + (on ? "#1F4B7A" : "#FDF2E3") + ";color:" + (on ? "#CFE2F7" : "#B45309"))}>
+                  {waitingHere.toLocaleString()}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/*
+        The move, on the tab it moves from.
+
+        It says what it will take — the rows the filters left, not the whole
+        register — because the button is one click away from writing into the
+        table the team quotes customers from.
+      */}
+      {tab === "quotation" && (
+        <div style={css("background:#FFF9EC;border:1px solid #F0DCB4;border-left:3px solid #E0A33A;"
+          + "border-radius:5px;padding:11px 15px;display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>
+          <div style={css("font-size:11.5px;color:#6B5424;line-height:1.7;flex:1;min-width:280px")}>
+            <b>ราคาเหล่านี้ยังไม่ถูกใช้งาน</b> — กรอกไว้ที่ Rate Quotation แล้วไล่ขึ้นตามช่วงราคาน้ำมัน
+            +3% ปัดขึ้น · จะไปแสดงใน <b>Transport Rate</b> ก็ต่อเมื่อกดปุ่มย้าย
+          </div>
+          <span style={css("font-size:11.5px;color:#8A7550;white-space:nowrap")}>
+            รอย้าย <b>{waiting.length.toLocaleString()}</b> เส้นทาง
+            {rows.length > 0 && ` (จากที่กรองอยู่ ${new Set(rows.map((r) => r.lane.id)).size.toLocaleString()})`}
+          </span>
+          <button
+            onClick={() => void move()}
+            disabled={!canEditRates || moving || waiting.length === 0}
+            title={canEditRates
+              ? "บันทึกราคาทั้ง 7 ช่วงเข้าตารางอัตราที่ใช้งานจริง"
+              : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง"}
+            style={css("height:32px;padding:0 15px;border-radius:4px;font-size:12.5px;font-weight:600;"
+              + "font-family:inherit;white-space:nowrap;border:1px solid "
+              + (canEditRates && waiting.length > 0 && !moving
+                ? "#0A2240;background:#0A2240;color:#fff;cursor:pointer"
+                : "#D3DBE3;background:#EEF2F6;color:#94A3B8;cursor:not-allowed"))}>
+            {moving ? "กำลังย้าย…" : "ย้ายไป Transport Rate →"}
+          </button>
+        </div>
+      )}
+
       <Summary book={book} rows={rows} contested={contested.length} diesel={diesel} />
 
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap")}>
@@ -180,14 +297,6 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
           />
         </label>
 
-        <Picker label="ที่มาของราคา" value={SOURCE_LABEL[source]}
-          options={Object.values(SOURCE_LABEL)}
-          onChange={(v) => {
-            const key = (Object.keys(SOURCE_LABEL) as (keyof typeof SOURCE_LABEL)[])
-              .find((one) => SOURCE_LABEL[one] === v) ?? "All";
-            setSource(key);
-            setPage(1);
-          }} />
         <Picker label="ผู้รับเหมา" value={carrier} options={["All", ...carriers]} onChange={(v) => { setCarrier(v); setPage(1); }} />
         <Picker label="บริการ" value={service} options={["All", ...services]} onChange={(v) => { setService(v); setPage(1); }} />
         <Picker label="ประเภทรถ/ตู้" value={vehicle} options={["All", ...vehicles]} onChange={(v) => { setVehicle(v); setPage(1); }} />
@@ -255,12 +364,27 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
                         "a carrier signed this" and "we worked it out from one
                         figure in the rate sheet" are not the same promise.
                       */}
+                      {/*
+                        On the quoted tab the source is already the tab, so the
+                        badge says the one thing the tab cannot: whether this
+                        lane has been moved across, and whether the quote has
+                        changed since it was.
+                      */}
                       {row.lane.source === "quotation" && (
                         <span
-                          title="ราคาจาก Rate Quotation — กรอกไว้ช่องเดียว แล้วไล่ขึ้นตามช่วงราคาน้ำมัน +3% ปัดขึ้น"
+                          title={row.lane.promotedStale
+                            ? "ย้ายไปแล้ว แต่ราคาใน Rate Quotation เปลี่ยนหลังจากนั้น — กดย้ายอีกครั้งเพื่ออัปเดต"
+                            : row.lane.promotedAt
+                              ? "ย้ายเข้า Transport Rate แล้ว"
+                              : "ยังไม่ได้ย้าย — ยังไม่แสดงใน Transport Rate"}
                           style={css("margin-left:6px;font-size:9.5px;font-weight:700;padding:1px 5px;"
-                            + "border-radius:3px;background:#FDF2E3;color:#B45309;white-space:nowrap")}>
-                          QUOTE
+                            + "border-radius:3px;white-space:nowrap;"
+                            + (row.lane.promotedStale
+                              ? "background:#FDECEC;color:#B42318"
+                              : row.lane.promotedAt
+                                ? "background:#E8F3EC;color:#16794C"
+                                : "background:#FDF2E3;color:#B45309"))}>
+                          {row.lane.promotedStale ? "ราคาเปลี่ยน" : row.lane.promotedAt ? "ย้ายแล้ว" : "รอย้าย"}
                         </span>
                       )}
                     </td>

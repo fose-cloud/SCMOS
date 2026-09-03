@@ -23,7 +23,29 @@ public record LaneView(
     /// table that mixed them without saying which is which would be the more
     /// convenient of the two and the less trustworthy.
     /// </summary>
-    string Source = RateSources.Carrier);
+    string Source = RateSources.Carrier,
+    /// <summary>
+    /// When this quoted lane was last moved into the contracted book, or null
+    /// while it has not been.
+    ///
+    /// Only ever set on a <c>quotation</c> row. It is what lets the New
+    /// Transport Rate tab show what is still waiting and what has already gone
+    /// across, so pressing the button twice is not a guess.
+    /// </summary>
+    DateTime? PromotedAt = null,
+    /// <summary>
+    /// True when the quote has changed since it was moved.
+    ///
+    /// The contracted row is a copy taken at the moment of the move, on purpose
+    /// — a rate somebody agreed to should not move under them because the sheet
+    /// was edited afterwards. But the two drifting apart silently is how the
+    /// book stops meaning anything, so the difference is shown and moving again
+    /// is what resolves it.
+    /// </summary>
+    bool PromotedStale = false);
+
+/// <summary>How a move went: what was written, and what could not be.</summary>
+public record PromoteResult(int Lanes, int Prices, int Skipped, IReadOnlyList<string> Notes);
 
 /// <summary>Where a rate row came from. Two words, spelled in one place.</summary>
 public static class RateSources
@@ -199,8 +221,179 @@ public class RateService(ScmosDbContext db)
             lane.Prices[price.Vehicle] = FuelLadder.Expand(price.Price, rungOf[price.LaneId], where, width);
         }
 
-        // A lane with nothing priced is not a rate.
-        return [.. lanes.Values.Where(one => one.Prices.Count > 0)];
+        // Which of them are already in the contracted book, and whether what is
+        // there still matches. One query, and only the bottom-rung price is
+        // compared: the six above it are derived from that one, so if it agrees
+        // they all do.
+        var already = await db.RateLanes.AsNoTracking()
+            .Where(lane => lane.FromInquiryLaneId != null && ids.Contains(lane.FromInquiryLaneId.Value))
+            .Select(lane => new { lane.Id, From = lane.FromInquiryLaneId!.Value, lane.PromotedAt })
+            .ToListAsync(token);
+
+        var promotedIds = already.Select(one => one.Id).ToHashSet();
+        var promotedPrices = await db.RatePrices.AsNoTracking()
+            .Where(price => promotedIds.Contains(price.LaneId))
+            .ToListAsync(token);
+        var byPromoted = promotedPrices.GroupBy(price => price.LaneId)
+            .ToDictionary(group => group.Key,
+                group => group.ToDictionary(price => (price.Vehicle, price.BandPosition), price => price.Price));
+
+        var result = new List<LaneView>(lanes.Count);
+        foreach (var lane in lanes.Values)
+        {
+            // A lane with nothing priced is not a rate.
+            if (lane.Prices.Count == 0) continue;
+
+            var match = already.Find(one => one.From == lane.Id);
+            if (match is null) { result.Add(lane); continue; }
+
+            var stored = byPromoted.TryGetValue(match.Id, out var found) ? found : [];
+            var stale = lane.Prices.Count != stored.Select(one => one.Key.Vehicle).Distinct().Count();
+            if (!stale)
+            {
+                foreach (var (vehicle, row) in lane.Prices)
+                {
+                    for (var column = 0; column < row.Length && !stale; column++)
+                    {
+                        if (row[column] is null) continue;
+                        stale = !stored.TryGetValue((vehicle, column), out var was) || was != row[column];
+                    }
+                    if (stale) break;
+                }
+            }
+
+            result.Add(lane with { PromotedAt = match.PromotedAt, PromotedStale = stale });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Moves quoted lanes into the contracted rate book.
+    ///
+    /// Until this runs, a price typed into Rate Quotation lives only on the New
+    /// Transport Rate tab: it can be read, compared and corrected, and it is
+    /// not a rate anybody is working to. The move is what makes it one, which
+    /// is why it is a button somebody presses rather than something that
+    /// happens the moment a number is keyed.
+    ///
+    /// <para>The seven band prices are written out, not the one figure. The
+    /// contracted book is a record of what was agreed at the moment it was
+    /// agreed — deriving it live would mean an edit to the sheet silently
+    /// rewriting a rate somebody had already quoted to a customer. Moving the
+    /// same lane again overwrites its own row, so correcting a quote and
+    /// pressing the button once more is the way to update it, and nothing is
+    /// ever duplicated.</para>
+    ///
+    /// <para>Prices are replaced rather than merged. A vehicle dropped from the
+    /// quotation has to disappear from the contracted row too; merging would
+    /// leave it there for good, quoted by nobody.</para>
+    /// </summary>
+    public async Task<PromoteResult> PromoteAsync(IReadOnlyList<long> inquiryLaneIds, string who,
+        CancellationToken token)
+    {
+        var notes = new List<string>();
+        if (inquiryLaneIds.Count == 0) return new PromoteResult(0, 0, 0, notes);
+
+        var bands = await db.FuelBands.AsNoTracking().OrderBy(band => band.Position)
+            .Select(band => new BandView(band.Label, band.MinPrice, band.MaxPrice, band.Position))
+            .ToListAsync(token);
+        var width = bands.Count == 0 ? 0 : bands.Max(band => band.Position) + 1;
+        var where = FuelLadder.PositionsIn([.. bands.Select(band => (band.Max, band.Position))]);
+
+        var wanted = inquiryLaneIds.Distinct().ToList();
+        var rows = await (from lane in db.RateInquiryLanes
+                          join inquiry in db.RateInquiries on lane.InquiryId equals inquiry.Id
+                          where wanted.Contains(lane.Id)
+                          select new { lane, inquiry }).ToListAsync(token);
+
+        var prices = await db.RateInquiryPrices.AsNoTracking()
+            .Where(price => wanted.Contains(price.LaneId))
+            .ToListAsync(token);
+        var byLane = prices.GroupBy(price => price.LaneId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var existing = await db.RateLanes
+            .Where(lane => lane.FromInquiryLaneId != null && wanted.Contains(lane.FromInquiryLaneId.Value))
+            .ToListAsync(token);
+        var existingBy = existing.ToDictionary(lane => lane.FromInquiryLaneId!.Value);
+
+        var now = DateTime.UtcNow;
+        var movedLanes = 0;
+        var movedPrices = 0;
+        var skipped = 0;
+        var manyCarriers = 0;
+
+        foreach (var row in rows)
+        {
+            var rung = FuelLadder.RungOf(row.inquiry.FuelBand);
+            if (rung < 0)
+            {
+                skipped++;
+                if (notes.Count < 5)
+                    notes.Add($"ใบที่ {row.inquiry.Number}: ช่วงราคาน้ำมัน \"{row.inquiry.FuelBand}\" ไม่อยู่ในบันได 7 ช่อง");
+                continue;
+            }
+            if (!byLane.TryGetValue(row.lane.Id, out var quoted) || quoted.Count == 0)
+            {
+                skipped++;
+                continue;
+            }
+
+            // Counted, not corrected. One price against several carriers is what
+            // the register says, and picking one of them here would be this
+            // service inventing which carrier agreed it.
+            if (row.lane.Carriers.Contains(',')) manyCarriers++;
+
+            if (!existingBy.TryGetValue(row.lane.Id, out var lane))
+            {
+                lane = new RateLane { FromInquiryLaneId = row.lane.Id };
+                db.RateLanes.Add(lane);
+                existingBy[row.lane.Id] = lane;
+            }
+
+            lane.Carrier = row.lane.Carriers;
+            lane.Service = row.lane.Fcl ? "FCL" : row.lane.Lcl ? "LCL" : "DOMESTIC";
+            lane.Customer = row.inquiry.Customer;
+            lane.FromPlace = row.lane.FromPlace;
+            lane.ToPlace = row.lane.ToPlace;
+            lane.County = row.lane.County;
+            lane.Remark = row.lane.Remark;
+            lane.SourceFile = $"Rate Quotation · ใบที่ {row.inquiry.Number} · {row.inquiry.InquiredOn}";
+            lane.PromotedAt = now;
+            lane.PromotedBy = who;
+            movedLanes++;
+
+            // Saved before the prices, because a new lane has no id until it is.
+            await db.SaveChangesAsync(token);
+
+            var old = await db.RatePrices.Where(price => price.LaneId == lane.Id).ToListAsync(token);
+            if (old.Count > 0) db.RatePrices.RemoveRange(old);
+
+            foreach (var price in quoted)
+            {
+                var ladder = FuelLadder.Expand(price.Price, rung, where, width);
+                for (var column = 0; column < ladder.Length; column++)
+                {
+                    if (ladder[column] is not int value) continue;
+                    db.RatePrices.Add(new RatePrice
+                    {
+                        LaneId = lane.Id,
+                        Vehicle = price.Vehicle,
+                        BandPosition = column,
+                        Price = value,
+                    });
+                    movedPrices++;
+                }
+            }
+        }
+
+        await db.SaveChangesAsync(token);
+
+        if (manyCarriers > 0)
+            notes.Add($"{manyCarriers} เส้นทางมีผู้ขนส่งมากกว่า 1 รายในช่องเดียว — ย้ายตามที่ทะเบียนบันทึกไว้");
+
+        return new PromoteResult(movedLanes, movedPrices, skipped, notes);
     }
 
     /// <summary>
