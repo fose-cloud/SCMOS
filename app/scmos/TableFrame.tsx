@@ -70,18 +70,23 @@ export function useTableZoom(): [number, (next: number) => void] {
  * the window, less the bar beneath it. Written straight to the node rather than
  * held in state: it is a measurement of the layout, and feeding it back through
  * a render to change the layout is how a loop starts.
+ *
+ * A screen that asks for a height gets it as a ceiling and not as an answer.
+ * Shipment Monitoring asked for `calc(100vh - 220px)`, which on a 720-pixel
+ * window is 500 and put the bottom of its box — and with it the sideways
+ * scrollbar — twenty-one pixels below the fold. A request to be no taller than
+ * something is worth keeping; a request to be taller than the window is not.
  */
 function useFitted(height?: string) {
   const box = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (height) return;
     const fit = () => {
       const node = box.current;
       if (!node) return;
-      const room = window.innerHeight - node.getBoundingClientRect().top - BENEATH;
-      // Never so short that it is not worth scrolling; never taller than fits.
-      node.style.maxHeight = `${Math.max(FLOOR, Math.round(room))}px`;
+      const room = Math.max(FLOOR, Math.round(
+        window.innerHeight - node.getBoundingClientRect().top - BENEATH));
+      node.style.maxHeight = height ? `min(${height}, ${room}px)` : `${room}px`;
     };
     fit();
 
@@ -173,7 +178,7 @@ export function TableFrame({ children, title, meta, actions, note, height }: {
         it takes the header, the filters and the toolbar with it, so reading the
         last column means losing sight of which screen you are on.
       */}
-      <div ref={box} style={css("overflow:auto;" + (height ? `max-height:${height}` : ""))}>
+      <div ref={box} style={css("overflow:auto")}>
         {/*
           Zoom on a wrapper rather than on the table, so it applies whatever the
           screen put inside — two tables, a table and a caption, anything.
@@ -218,7 +223,7 @@ export function ZoomBox({ children, height }: { children: ReactNode; height?: st
         My Job's grid has always done; a shorter table is untouched, because a
         maximum only ever takes away.
       */}
-      <div ref={box} style={css("overflow:auto;" + (height ? `max-height:${height}` : ""))}>
+      <div ref={box} style={css("overflow:auto")}>
         {/* On a wrapper, not the table: a screen may have put two in here. */}
         <div style={css("zoom:" + zoom / 100)}>{children}</div>
       </div>
