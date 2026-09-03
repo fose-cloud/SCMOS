@@ -52,6 +52,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<RateLane> RateLanes => Set<RateLane>();
 
     /// <summary>The request side of the rate book: what was asked, and of whom.</summary>
+    public DbSet<QuoteVehicleRate> QuoteVehicleRates => Set<QuoteVehicleRate>();
+    public DbSet<QuoteExtra> QuoteExtras => Set<QuoteExtra>();
+    public DbSet<QuoteSetting> QuoteSettings => Set<QuoteSetting>();
     public DbSet<RateInquiry> RateInquiries => Set<RateInquiry>();
     public DbSet<RateInquiryLane> RateInquiryLanes => Set<RateInquiryLane>();
     public DbSet<RateInquiryPrice> RateInquiryPrices => Set<RateInquiryPrice>();
@@ -307,6 +310,45 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             // The question asked on every write: who is this person covering for.
             entry.HasIndex(e => e.DelegateId).HasDatabaseName("delegation_delegate_idx");
             entry.HasIndex(e => e.OwnerId).HasDatabaseName("delegation_owner_idx");
+        });
+
+        model.Entity<QuoteVehicleRate>(entry =>
+        {
+            entry.ToTable("quote_vehicle_rates");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Code).HasColumnName("code").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Label).HasColumnName("label").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.PerKm).HasColumnName("per_km");
+            entry.Property(e => e.BaseCharge).HasColumnName("base_charge");
+            entry.Property(e => e.Chill).HasColumnName("chill").HasPrecision(6, 3).HasDefaultValue(1m);
+            entry.Property(e => e.DangerousGoods).HasColumnName("dangerous_goods");
+            entry.Property(e => e.Position).HasColumnName("position");
+            // One row per vehicle. Two rows for the same truck is two prices for
+            // one journey, which is the thing this card exists to stop.
+            entry.HasIndex(e => e.Code).IsUnique().HasDatabaseName("quote_vehicle_code_idx");
+        });
+
+        model.Entity<QuoteExtra>(entry =>
+        {
+            entry.ToTable("quote_extras");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Label).HasColumnName("label").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.Basis).HasColumnName("basis").HasMaxLength(20).HasDefaultValue("flat");
+            entry.Property(e => e.Rate).HasColumnName("rate").HasPrecision(12, 2);
+            entry.Property(e => e.Active).HasColumnName("active").HasDefaultValue(true);
+            entry.Property(e => e.Position).HasColumnName("position");
+        });
+
+        model.Entity<QuoteSetting>(entry =>
+        {
+            entry.ToTable("quote_settings");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.MarginPercent).HasColumnName("margin_percent").HasPrecision(6, 3).HasDefaultValue(10m);
+            entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
         });
 
         model.Entity<RateInquiry>(entry =>

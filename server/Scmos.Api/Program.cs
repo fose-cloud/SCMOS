@@ -68,6 +68,7 @@ builder.Services.AddScoped<DelegationService>();
 builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();
 builder.Services.AddScoped<RateInquiryService>();
+builder.Services.AddScoped<QuoteCardService>();
 builder.Services.AddScoped<VerificationService>();
 builder.Services.AddScoped<AiGateway>();
 // The audit trail records the caller's address and session, which only the
@@ -217,6 +218,7 @@ app.MapCarrier();
 app.MapTraining();
 app.MapDelegations();
 app.MapRateInquiries();
+app.MapQuoteCard();
 app.MapVerification();
 app.MapUploads();
 app.MapOperationalIssues();

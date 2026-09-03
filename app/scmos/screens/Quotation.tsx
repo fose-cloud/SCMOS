@@ -4,6 +4,7 @@ import { useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import { QuoteCalculator } from "./QuoteCalculator";
 import { RateInquiry } from "./RateInquiry";
 
 /**
@@ -41,7 +42,7 @@ export function Quotation({ diesel, onDiesel, onToast }: {
    * opens on the question, because that is the one somebody arrives here to do
    * — the rate book answers itself.
    */
-  const [view, setView] = useState<"inquiry" | "compare">("inquiry");
+  const [view, setView] = useState<"inquiry" | "compare" | "calculate">("inquiry");
 
   async function ask() {
     if (busy) return;
@@ -69,9 +70,10 @@ export function Quotation({ diesel, onDiesel, onToast }: {
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
       <div style={css("display:flex;gap:7px;flex-wrap:wrap")}>
         {([
+          ["calculate", "คำนวณราคา", "Rate Calculator"],
           ["inquiry", "ขอราคาใหม่", "Rate Inquiry"],
           ["compare", "เทียบราคาที่มีอยู่", "Rate Comparison"],
-        ] as ["inquiry" | "compare", string, string][]).map(([key, th, en]) => {
+        ] as ["inquiry" | "compare" | "calculate", string, string][]).map(([key, th, en]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => setView(key)}
@@ -84,6 +86,8 @@ export function Quotation({ diesel, onDiesel, onToast }: {
           );
         })}
       </div>
+
+      {view === "calculate" && <QuoteCalculator onToast={onToast} />}
 
       {view === "inquiry" && <RateInquiry onToast={onToast} />}
 
