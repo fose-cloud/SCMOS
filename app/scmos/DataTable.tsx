@@ -58,6 +58,19 @@ export type TableModel = {
    * They belong wherever the grid is, and the grid can be full screen.
    */
   actions?: { label: string; style: string; go: () => void }[];
+  /**
+   * Searching the rows, shown on the header when the grid is full screen.
+   *
+   * Everywhere else the app's own header carries a search box. Full screen
+   * covers that header — that is what it is for — and took the search with it,
+   * leaving somebody looking at two and a half thousand rows with no way to
+   * find one. So the search goes where the grid goes.
+   */
+  search?: {
+    value: string;
+    onChange: (q: string) => void;
+    placeholder?: string;
+  };
 };
 
 type Props = {
@@ -196,6 +209,14 @@ export function DataTable(p: Props) {
           <span style={css("font-size:13.5px;font-weight:600;color:" + (model.fill ? "#fff" : "#0A2240"))}>{model.title}</span>
           <span style={css("font-size:11.5px;color:" + (model.fill ? "#CFE2F7" : "#94A3B8"))}>{model.meta}</span>
         </div>
+        {full && model.search && (
+          <GridSearch
+            value={model.search.value}
+            onChange={model.search.onChange}
+            placeholder={model.search.placeholder}
+            dark={!!model.fill}
+          />
+        )}
         <div style={css("display:flex;gap:7px;align-items:center")}>
           {/*
             The screen's buttons, restyled for the navy they now sit on.
@@ -365,6 +386,73 @@ export function DataTable(p: Props) {
           <ZoomBar zoom={zoom} onZoom={changeZoom} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The grid's own search, for the header of a full-screen table.
+ *
+ * Typed locally and handed over after a pause, because the workspace answers
+ * this filter from the API: a fetch per keystroke would put ten requests in the
+ * air to answer the last one. Enter hands it over at once for somebody who has
+ * finished typing and expects it to go.
+ */
+function GridSearch({ value, onChange, placeholder, dark }: {
+  value: string;
+  onChange: (q: string) => void;
+  placeholder?: string;
+  dark: boolean;
+}) {
+  const [draft, setDraft] = useState(value);
+  const held = useRef(value);
+
+  // Reset when the value changes from somewhere else — a filter chip cleared,
+  // a saved view opened — but not while the person is mid-word.
+  useEffect(() => {
+    if (value !== held.current) { held.current = value; setDraft(value); }
+  }, [value]);
+
+  useEffect(() => {
+    if (draft === held.current) return;
+    const wait = window.setTimeout(() => { held.current = draft; onChange(draft); }, 350);
+    return () => window.clearTimeout(wait);
+  }, [draft, onChange]);
+
+  return (
+    <div style={css("position:relative;display:flex;align-items:center;flex:1;min-width:170px;max-width:420px")}>
+      <span style={css("position:absolute;left:9px;font-size:12px;color:" + (dark ? "#7FA6CE" : "#94A3B8") + ";pointer-events:none")}>⌕</span>
+      <input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") { held.current = draft; onChange(draft); }
+          if (event.key !== "Escape") return;
+          // Escape leaves full screen, and this box lives on the full-screen
+          // header — so the first Escape in a search that has text clears the
+          // text and stops there. Pressing it again, on an empty box, leaves
+          // as it always did. Without this, clearing a search threw away the
+          // full screen it was typed in.
+          if (draft.length === 0) return;
+          event.stopPropagation();
+          setDraft("");
+          held.current = "";
+          onChange("");
+        }}
+        placeholder={placeholder ?? "ค้นหาในตาราง…"}
+        style={css("width:100%;height:28px;padding:0 26px 0 24px;border-radius:4px;font-size:12px;font-family:inherit;outline:none;"
+          + (dark
+            ? "border:1px solid #2C4E75;background:#0D2A4A;color:#fff"
+            : "border:1px solid #C9D6E2;background:#fff;color:#16232F"))}
+      />
+      {draft.length > 0 && (
+        <button type="button" aria-label="ล้างการค้นหา"
+          onClick={() => { setDraft(""); held.current = ""; onChange(""); }}
+          style={css("position:absolute;right:5px;border:0;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:2px;color:"
+            + (dark ? "#9FC0E0" : "#94A3B8"))}>
+          ×
+        </button>
+      )}
     </div>
   );
 }

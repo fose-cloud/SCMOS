@@ -68,3 +68,16 @@ test("fullscreen table covers app chrome without hiding global overlays", () => 
   assert.ok(layer > 45, "fullscreen table must cover the app header and mobile rail");
   assert.ok(layer < 50, "global drawers, pickers and modals must stay above fullscreen");
 });
+
+test("the grid's own search belongs to full screen and nowhere else", () => {
+  // The app's header carries a search everywhere except full screen, which
+  // covers that header — that is what it is for. Two search boxes on one page
+  // would be one too many, and each would mean something different.
+  assert.match(table, /\{full && model\.search &&/);
+
+  // Escape is also how full screen is left. A search with something in it takes
+  // the first press, so clearing a filter does not throw away the screen it was
+  // typed on; an empty box lets it through.
+  assert.match(table, /if \(draft\.length === 0\) return;/);
+  assert.match(table, /event\.stopPropagation\(\)/);
+});

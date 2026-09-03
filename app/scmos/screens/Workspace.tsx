@@ -2346,7 +2346,22 @@ export function Workspace(p: Props) {
                       </div>
                     ) : null,
                     actions: p.actions,
-                    controls: controlBar }
+                    controls: controlBar,
+                    /*
+                     * The grid's own search, which full screen is the first
+                     * thing ever to offer.
+                     *
+                     * `q` has been sent to the API and shown as a removable
+                     * chip since the workspace was paged server-side, and
+                     * nothing in the screen could set it — a working filter
+                     * with no way in. Full screen is where it is needed most,
+                     * because it covers the header the app keeps its search on.
+                     */
+                    search: {
+                      value: ws.q ?? "",
+                      onChange: (q: string) => p.set({ q, page: 1 }),
+                      placeholder: "ค้นหาในตาราง — เลขตู้, Job/ABS, ทะเบียน, คนขับ, ลูกค้า…",
+                    } }
                 : { ...grid.model, fill: true }}
               // The first grid is the one that fills the screen: it is the one
               // carrying the controls, and two full-screen grids is not a thing.
