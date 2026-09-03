@@ -15,7 +15,7 @@ import type { SearchGroup, SearchHit } from "./search";
  */
 export const TOOLBAR_SLOT = "scmos-screen-toolbar";
 
-export type HeaderAction = { label: string; style: string; go: () => void };
+export type HeaderAction = { label: string; title?: string; style: string; go: () => void };
 export type TabItem = { label: string; active: boolean; go: () => void };
 export type FilterDef = {
   label: string;
@@ -527,7 +527,7 @@ export function Chrome(p: Props) {
               {!p.lockScroll && (
                 <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:10px")}>
                   {p.actions.map((a) => (
-                    <button key={a.label} onClick={a.go} style={css(a.style)}>{a.label}</button>
+                    <button key={a.label} title={a.title} onClick={a.go} style={css(a.style)}>{a.label}</button>
                   ))}
                 </div>
               )}

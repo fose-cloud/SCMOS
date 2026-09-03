@@ -23,6 +23,10 @@ import { ImportModal, SavedViewsModal } from "./scmos/overlays/ExcelOverlays";
 import { buildTable, type Filters } from "./scmos/tables";
 import { BTN_PRIMARY, BTN_SECONDARY, STATUS, STATUS_RE, css } from "./scmos/theme";
 import { fdate, nowHM, pad } from "./scmos/util";
+import {
+  applyEditHistory, editHistoryShortcut,
+  type EditHistoryEdit, type EditHistoryStep,
+} from "./scmos/editHistory";
 
 import { Dashboard } from "./scmos/screens/Dashboard";
 import { Rates } from "./scmos/screens/Rates";
@@ -146,7 +150,7 @@ function screenNeedsRegister(screen: Screen, tab: string): boolean {
 }
 
 /** One job's fields as they stood before an edit, ready to be written back. */
-type UndoEdit = { key: string; before: Partial<Job> };
+type UndoEdit = EditHistoryEdit<Job>;
 
 /**
  * One press of undo.
@@ -155,7 +159,7 @@ type UndoEdit = { key: string; before: Partial<Job> };
  * block and a bulk status change each come back in one press, because that is
  * how they went in.
  */
-type UndoStep = { label: string; at: string; edits: UndoEdit[] };
+type UndoStep = EditHistoryStep<Job>;
 
 type Props = {
   /** Verified identity from App Service Web App Login; null in local dev. */
@@ -280,6 +284,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * back.
    */
   const [undos, setUndos] = useState<UndoStep[]>([]);
+  /** Steps walked back by Undo, newest available Redo last. */
+  const [redos, setRedos] = useState<UndoStep[]>([]);
   const [addForm, setAddForm] = useState<Record<string, string>>({});
   const [aiFields, setAiFields] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
@@ -1239,7 +1245,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         // Only when there is something to take back. A permanently greyed
         // button is the kind of dead control that gets asked about.
         ...(undos.length > 0
-          ? [{ label: "↶ ย้อนกลับ", style: BTN_SECONDARY, go: undo }]
+          ? [{ label: "↶ ย้อนกลับ", title: "ย้อนกลับ (Ctrl+Z)", style: BTN_SECONDARY, go: undo }]
+          : []),
+        ...(redos.length > 0
+          ? [{ label: "↷ ถัดไป", title: "กลับไปข้างหน้า (Ctrl+X หรือ Ctrl+Y)", style: BTN_SECONDARY, go: redo }]
           : []),
         { label: "+ แทรกแถว", style: BTN_SECONDARY, go: insertRow },
         { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => startAddJob("CHOOSE") },
@@ -1382,6 +1391,20 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   function remember(label: string, edits: UndoEdit[]) {
     if (!edits.length) return;
     setUndos((prev) => prev.slice(-19).concat([{ label, at: nowHM(), edits }]));
+    // Like Excel, a new branch of edits makes the old forward path invalid.
+    setRedos([]);
+  }
+
+  /** Move a saved step and capture the values needed for the opposite move. */
+  function moveHistory(step: UndoStep, direction: "ย้อนกลับ" | "ไปข้างหน้า") {
+    if (!ops) return null;
+    const result = applyEditHistory(ops.jobs, step, canEditJob, (job, field, from, to) => {
+      pushAct(job, field + " (" + direction + ")", String(from), String(to));
+    });
+    result.touched.forEach(flagJob);
+    if (result.touched.length > 0) persist(result.touched);
+    touch();
+    return result;
   }
 
   /** Puts the last step's values back where they were. */
@@ -1390,49 +1413,54 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     if (undos.length === 0) { setToast("ไม่มีการแก้ไขให้ย้อนกลับ"); return; }
 
     const step = undos[undos.length - 1];
-    const byKey = new Map(ops.jobs.map((j) => [j.key, j]));
-    const touched: Job[] = [];
-    let refused = 0;
-    let gone = 0;
-
-    for (const edit of step.edits) {
-      const job = byKey.get(edit.key);
-      // The row can have left the register, or changed hands, since the edit.
-      // Neither is an error worth stopping on — the rest of the step still
-      // goes back, and the count says what did not.
-      if (!job) { gone++; continue; }
-      if (!canEditJob(job)) { refused++; continue; }
-
-      let changed = false;
-      for (const [field, was] of Object.entries(edit.before)) {
-        const now = (job as unknown as Record<string, string>)[field] ?? "";
-        if (now === was) continue;
-        (job as unknown as Record<string, string>)[field] = was as string;
-        // Written into the job's own history too: a value that changes back on
-        // its own, with nothing saying why, is worse than the wrong value.
-        pushAct(job, String(field) + " (ย้อนกลับ)", now, was as string);
-        changed = true;
-      }
-      if (changed) { flagJob(job); touched.push(job); }
+    const result = moveHistory(step, "ย้อนกลับ");
+    if (!result) return;
+    setUndos((prev) => prev.slice(0, -1));
+    if (result.inverse.length > 0) {
+      setRedos((prev) => prev.slice(-19).concat([{
+        label: step.label, at: nowHM(), edits: result.inverse,
+      }]));
     }
 
-    setUndos((prev) => prev.slice(0, -1));
-    if (touched.length > 0) persist(touched);
-    touch();
-
-    if (touched.length === 0) {
-      setToast("ย้อนกลับไม่ได้ — " + (refused ? "งานนี้เป็นของผู้อื่นแล้ว" : gone ? "ไม่พบงานนี้แล้ว" : "ค่าเดิมอยู่ครบแล้ว"));
+    if (result.touched.length === 0) {
+      setToast("ย้อนกลับไม่ได้ — " + (result.refused ? "งานนี้เป็นของผู้อื่นแล้ว" : result.gone ? "ไม่พบงานนี้แล้ว" : "ค่าเดิมอยู่ครบแล้ว"));
       return;
     }
     setToast(
       "ย้อนกลับแล้ว ↶ " + step.label
-      + (refused ? " · ข้าม " + refused + " งานของผู้อื่น" : "")
-      + (gone ? " · ข้าม " + gone + " งานที่ไม่พบ" : ""),
+      + (result.refused ? " · ข้าม " + result.refused + " งานของผู้อื่น" : "")
+      + (result.gone ? " · ข้าม " + result.gone + " งานที่ไม่พบ" : ""),
+    );
+  }
+
+  /** Reapplies the most recently undone values. */
+  function redo() {
+    if (!ops) return;
+    if (redos.length === 0) { setToast("ไม่มีข้อมูลให้ไปข้างหน้า"); return; }
+
+    const step = redos[redos.length - 1];
+    const result = moveHistory(step, "ไปข้างหน้า");
+    if (!result) return;
+    setRedos((prev) => prev.slice(0, -1));
+    if (result.inverse.length > 0) {
+      setUndos((prev) => prev.slice(-19).concat([{
+        label: step.label, at: nowHM(), edits: result.inverse,
+      }]));
+    }
+
+    if (result.touched.length === 0) {
+      setToast("ไปข้างหน้าไม่ได้ — " + (result.refused ? "งานนี้เป็นของผู้อื่นแล้ว" : result.gone ? "ไม่พบงานนี้แล้ว" : "ค่าปัจจุบันตรงกันแล้ว"));
+      return;
+    }
+    setToast(
+      "กลับไปข้างหน้าแล้ว ↷ " + step.label
+      + (result.refused ? " · ข้าม " + result.refused + " งานของผู้อื่น" : "")
+      + (result.gone ? " · ข้าม " + result.gone + " งานที่ไม่พบ" : ""),
     );
   }
 
   /**
-   * Ctrl+Z, except where there is typing to undo instead.
+   * Ctrl+Z for Undo; Ctrl+X (requested), Ctrl+Y and Ctrl+Shift+Z for Redo.
    *
    * Inside a cell editor Ctrl+Z has to keep meaning "undo my typing" — the
    * browser's own undo — or a half-typed container number could not be fixed
@@ -1447,8 +1475,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== "z") return;
+      const command = editHistoryShortcut(e);
+      if (!command || !isWorkspace) return;
 
       const el = document.activeElement as HTMLElement | null;
       const tag = el?.tagName;
@@ -1460,6 +1488,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         const inCell = !!el?.closest?.("td");
         if (!inCell || !ws.edit) return;
 
+        // Ctrl+X remains Cut when text is actually selected in the editor.
+        const input = el as HTMLInputElement;
+        if (e.key.toLowerCase() === "x" && input.selectionStart !== input.selectionEnd) return;
+
         const job = ops?.jobs.find((entry) => entry.key === ws.edit!.key);
         const stored = job ? ((job[ws.edit.field as keyof Job] as string) || "") : "";
         // Typed in: theirs. Untouched: ours.
@@ -1468,7 +1500,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       }
 
       e.preventDefault();
-      undo();
+      if (command === "undo") undo();
+      else redo();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
