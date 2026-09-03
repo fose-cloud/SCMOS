@@ -35,6 +35,18 @@ export type RateLane = {
    * an error: the truck block on a mixed form only carries four bands.
    */
   prices: Record<string, (number | null)[]>;
+  /**
+   * Where the row came from.
+   *
+   * `carrier` is a price read off a carrier's own signed form. `quotation` is
+   * one keyed into the rate sheet and spread up the bands by the fuel clause —
+   * the API works those out from the single figure the sheet holds, so the two
+   * cannot drift apart.
+   *
+   * Optional because a book built by the browser's own reader has no opinion;
+   * absent means `carrier`, which is what those rows are.
+   */
+  source?: "carrier" | "quotation";
 };
 
 export type RateSource = {

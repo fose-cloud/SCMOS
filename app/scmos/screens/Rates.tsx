@@ -28,6 +28,18 @@ type Props = {
 
 const PER_PAGE = 40;
 
+/**
+ * The source picker's wording.
+ *
+ * Thai on screen, the API's word underneath — the two are joined here rather
+ * than by a second copy of the mapping inside the handler.
+ */
+const SOURCE_LABEL = {
+  All: "ทั้งหมด",
+  carrier: "จากใบเสนอราคาผู้รับเหมา",
+  quotation: "จาก Rate Quotation",
+} as const;
+
 type Row = {
   lane: RateLane;
   vehicle: string;
@@ -42,6 +54,16 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [compare, setCompare] = useState(false);
+  /*
+   * Which prices to show.
+   *
+   * A price a carrier signed and a price somebody typed this morning are both
+   * rates, and both belong here — but only one of them is a contract. They are
+   * shown together by default because the question the screen answers is "what
+   * does this journey cost", and separable because the question underneath it
+   * is sometimes "what have we actually agreed".
+   */
+  const [source, setSource] = useState<"All" | "carrier" | "quotation">("All");
 
   const carriers = useMemo(
     () => [...new Set(book?.lanes.map((l) => l.carrier) ?? [])].sort(),
@@ -60,6 +82,9 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
     const wanted = query.trim().toLowerCase();
 
     for (const lane of book.lanes) {
+      // A row with no source is a carrier row: the browser's own reader builds
+      // the book that way, and every one of those came off a signed form.
+      if (source !== "All" && (lane.source ?? "carrier") !== source) continue;
       if (carrier !== "All" && lane.carrier !== carrier) continue;
       if (service !== "All" && lane.service !== service) continue;
       if (wanted && ![lane.customer, lane.from, lane.to, lane.county, lane.carrier]
@@ -74,7 +99,7 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
       }
     }
     return out.sort((a, b) => a.lane.customer.localeCompare(b.lane.customer) || a.price - b.price);
-  }, [book, carrier, service, vehicle, query, diesel]);
+  }, [book, carrier, service, vehicle, query, diesel, source]);
 
   /**
    * The same lane quoted by more than one carrier. This is the reason the
@@ -155,6 +180,14 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
           />
         </label>
 
+        <Picker label="ที่มาของราคา" value={SOURCE_LABEL[source]}
+          options={Object.values(SOURCE_LABEL)}
+          onChange={(v) => {
+            const key = (Object.keys(SOURCE_LABEL) as (keyof typeof SOURCE_LABEL)[])
+              .find((one) => SOURCE_LABEL[one] === v) ?? "All";
+            setSource(key);
+            setPage(1);
+          }} />
         <Picker label="ผู้รับเหมา" value={carrier} options={["All", ...carriers]} onChange={(v) => { setCarrier(v); setPage(1); }} />
         <Picker label="บริการ" value={service} options={["All", ...services]} onChange={(v) => { setService(v); setPage(1); }} />
         <Picker label="ประเภทรถ/ตู้" value={vehicle} options={["All", ...vehicles]} onChange={(v) => { setVehicle(v); setPage(1); }} />
@@ -214,7 +247,23 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
                     onClick={() => onToast(`${row.lane.carrier} · ${row.lane.to || row.lane.customer} · ${row.vehicle} = ${row.price.toLocaleString()} บาท`)}
                     style={css("cursor:pointer;border-bottom:1px solid #F1F5F9")}
                   >
-                    <td style={CELL}><b style={css("color:#0A2240")}>{row.lane.carrier}</b></td>
+                    <td style={CELL}>
+                      <b style={css("color:#0A2240")}>{row.lane.carrier || "—"}</b>
+                      {/*
+                        Said on the row, not only in the filter. Somebody
+                        reading a price off this table is about to quote it, and
+                        "a carrier signed this" and "we worked it out from one
+                        figure in the rate sheet" are not the same promise.
+                      */}
+                      {row.lane.source === "quotation" && (
+                        <span
+                          title="ราคาจาก Rate Quotation — กรอกไว้ช่องเดียว แล้วไล่ขึ้นตามช่วงราคาน้ำมัน +3% ปัดขึ้น"
+                          style={css("margin-left:6px;font-size:9.5px;font-weight:700;padding:1px 5px;"
+                            + "border-radius:3px;background:#FDF2E3;color:#B45309;white-space:nowrap")}>
+                          QUOTE
+                        </span>
+                      )}
+                    </td>
                     <td style={CELL}>
                       <span style={css("font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:3px;background:#E7F0FA;color:#1D5FA8")}>{row.lane.service}</span>
                     </td>

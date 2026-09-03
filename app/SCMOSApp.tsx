@@ -696,13 +696,18 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         // From the API, not the public folder. Eighteen carriers' negotiated
         // prices were reachable by anyone who guessed the URL; now they are
         // behind the same sign-in as everything else.
-        const response = await apiFetch("/api/rates", { headers: { accept: "application/json" } });
+        // Both sources. The carrier forms are the contracts; the rate
+        // sheet's own quotes are what the team has agreed since, and the screen
+        // is where somebody asks "what does this journey cost" without caring
+        // which of the two answered.
+        const response = await apiFetch("/api/rates?source=", { headers: { accept: "application/json" } });
         if (!response.ok) throw new Error("HTTP " + response.status);
         const body = await response.json() as {
           bands: { label: string; min: number; max: number }[];
           lanes: { id: number; carrier: string; service: string; customer: string;
                    from: string; to: string; county: string; remark: string;
-                   prices: Record<string, (number | null)[]> }[];
+                   prices: Record<string, (number | null)[]>;
+                   source?: "carrier" | "quotation" }[];
           surcharges: { service: string; no: string; description: string;
                         currency: string; rate: string; unit: string }[];
         };

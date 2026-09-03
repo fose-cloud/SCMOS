@@ -151,6 +151,7 @@ if (MonitorCheck.Run(args) is int monitorExit) return monitorExit;
 if (InlineCheck.Run(args) is int inlineExit) return inlineExit;
 if (JourneyCheck.Run(args) is int journeyExit) return journeyExit;
 if (FilterCheck.Run(args) is int filterExit) return filterExit;
+if (LadderCheck.Run(args) is int ladderExit) return ladderExit;
 
 if (args.Contains("--seed"))
 {
