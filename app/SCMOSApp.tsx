@@ -1677,11 +1677,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     );
   }
 
-  function setField(job: Job, field: keyof Job, value: string) {
+  function setField(job: Job, field: keyof Job, value: string, recordHistory = true): string {
     const old = (job[field] as string) || "";
-    if (value === old) { touch(); return; }
+    if (value === old) { touch(); return old; }
 
-    remember(String(field) + ": " + (old || "—"), [{ key: job.key, before: { [field]: old } as Partial<Job> }]);
+    if (recordHistory) {
+      remember(String(field) + ": " + (old || "—"), [{ key: job.key, before: { [field]: old } as Partial<Job> }]);
+    }
     const fix = writeCell(job, field, value) || null;
     const saved = (job[field] as string) || "";
 
@@ -1695,6 +1697,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     }
     persist([job]);
     touch();
+    return saved;
   }
 
   /**

@@ -57,7 +57,7 @@ export type TableModel = {
    *
    * They belong wherever the grid is, and the grid can be full screen.
    */
-  actions?: { label: string; style: string; go: () => void }[];
+  actions?: { label: string; title?: string; disabled?: boolean; style: string; go: () => void }[];
   /**
    * Searching the rows, shown on the header when the grid is full screen.
    *
@@ -228,10 +228,10 @@ export function DataTable(p: Props) {
             fill so the action you came to do still leads.
           */}
           {(model.actions ?? []).map((a) => (
-            <button key={a.label} onClick={a.go}
-              style={css(model.fill
+            <button key={a.label} title={a.title} disabled={a.disabled} onClick={a.go}
+              style={css((model.fill
                 ? (a.style.includes("background:#0A2240") ? ACTION_BTN_LEAD : TOOL_BTN_DARK)
-                : a.style)}>
+                : a.style) + (a.disabled ? ";opacity:.55;cursor:not-allowed" : ""))}>
               {a.label}
             </button>
           ))}

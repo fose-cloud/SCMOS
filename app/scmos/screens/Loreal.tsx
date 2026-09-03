@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { customerMilestones, saveMilestone } from "../flow";
 import type { Job } from "../ops";
@@ -11,6 +11,7 @@ import { MOVEMENT_STAGE, toInstant, toTyped } from "../truckTimes";
 import { cell, kilos, paginate, type Cell } from "../util";
 import { css } from "../theme";
 import { DataTable, type TableModel } from "../DataTable";
+import { editHistoryShortcut } from "../editHistory";
 
 /**
  * The L'OREAL truck report, in the shape the customer already receives.
@@ -131,13 +132,27 @@ export const CUSTOMER = "L'OREAL";
  */
 const PER = 200;
 
+type ReportChange = {
+  jobKey: string;
+  head: string;
+  source: "register" | "movement";
+  field?: keyof Job;
+  before: string;
+  after: string;
+};
+
+const HISTORY_LIMIT = 20;
+const HISTORY_BTN =
+  "height:28px;padding:0 12px;border:1px solid #4E7BA8;background:transparent;color:#fff;"
+  + "border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit";
+
 export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   jobs: Job[];
   onToast: (message: string) => void;
   /** The same ownership rule the workspace draws — your jobs, or your team's. */
   canEdit: (job: Job) => boolean;
   /** The register save path, so a cell typed here goes through what My Job uses. */
-  onSetField: (job: Job, field: keyof Job, value: string) => void;
+  onSetField: (job: Job, field: keyof Job, value: string, recordHistory?: boolean) => string;
 }) {
   const [period, setPeriod] = useState<Period>(ALL_PERIOD);
   const [page, setPage] = useState(1);
@@ -151,6 +166,13 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   const [draft, setDraft] = useState("");
   /** Bumped after a save, so the times are re-read from the API rather than guessed. */
   const [revision, setRevision] = useState(0);
+  /** Report-local history includes both register cells and movement milestones. */
+  const [undos, setUndos] = useState<ReportChange[]>([]);
+  const [redos, setRedos] = useState<ReportChange[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const historyLock = useRef(false);
+  /** Enter can blur the same input; one gesture must still create one save. */
+  const committing = useRef(new Set<string>());
 
   useEffect(() => {
     let alive = true;
@@ -224,23 +246,30 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
     return "";
   }
 
-  async function commit(job: Job, column: Column, typed: string) {
-    setEditing(null);
-    const was = show(job, column);
-    if (typed.trim() === was.trim()) return;
+  function remember(change: ReportChange) {
+    if (change.before === change.after) return;
+    setUndos((was) => was.slice(-(HISTORY_LIMIT - 1)).concat([change]));
+    // A new edit starts a new branch, exactly as it does in My Job and Excel.
+    setRedos([]);
+  }
 
-    if (column.source === "register") {
-      onSetField(job, column.field!, typed);
-      return;
-    }
+  function showMovement(jobKey: string, stage: string, value: string) {
+    setTimes((was) => {
+      const row = { ...(was[jobKey] ?? {}) };
+      if (value) row[stage] = value;
+      else delete row[stage];
+      return { ...was, [jobKey]: row };
+    });
+  }
 
+  /** Save a movement value and return the canonical value shown by the report. */
+  async function writeMovement(job: Job, column: Column, typed: string, announce: boolean) {
     const stage = MOVEMENT_STAGE[column.head];
-    // Blank clears the time; anything else has to be a time. Refused rather
-    // than saved as midnight — this file goes to the customer.
-    const at = typed.trim().length === 0 ? null : toInstant(typed);
-    if (at === null && typed.trim().length > 0) {
+    const entered = typed.trim();
+    const at = entered.length === 0 ? null : toInstant(entered);
+    if (at === null && entered.length > 0) {
       onToast(`${column.head}: อ่านเป็นเวลาไม่ได้ — ใช้รูปแบบ วว/ดด/ปปปป ชช:นน เช่น 01/07/2026 08:30`);
-      return;
+      return { ok: false, saved: "" };
     }
 
     const answer = await saveMilestone(job.key, {
@@ -248,10 +277,123 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
       status: at === null ? "pending" : "done",
       actualAt: at,
     });
-    if (answer?.ok === false) { onToast(answer.message || "บันทึกไม่สำเร็จ"); return; }
-    onToast(`${column.head} · ${job.jobCode || job.container || job.key}: ${at === null ? "ล้างค่าแล้ว" : typed}`);
+    if (answer?.ok === false) {
+      onToast(answer.message || "บันทึกไม่สำเร็จ");
+      return { ok: false, saved: "" };
+    }
+
+    const saved = at === null ? "" : toTyped(at);
+    showMovement(job.key, stage, saved);
     setRevision((turn) => turn + 1);
+    if (announce) {
+      onToast(`${column.head} · ${job.jobCode || job.container || job.key}: ${saved || "ล้างค่าแล้ว"}`);
+    }
+    return { ok: true, saved };
   }
+
+  async function commit(job: Job, column: Column, typed: string) {
+    const token = job.key + "\u0000" + column.head;
+    if (committing.current.has(token)) return;
+    committing.current.add(token);
+    try {
+      setEditing(null);
+      const was = show(job, column);
+      if (typed.trim() === was.trim()) return;
+
+      if (column.source === "register") {
+        const field = column.field!;
+        const before = String(job[field] ?? "");
+        const saved = onSetField(job, field, typed, false);
+        remember({
+          jobKey: job.key, head: column.head, source: "register", field,
+          before, after: saved,
+        });
+        return;
+      }
+
+      const written = await writeMovement(job, column, typed, true);
+      if (!written.ok) return;
+      remember({
+        jobKey: job.key, head: column.head, source: "movement",
+        before: was, after: written.saved,
+      });
+    } finally {
+      committing.current.delete(token);
+    }
+  }
+
+  async function moveHistory(change: ReportChange, direction: "undo" | "redo") {
+    if (historyLock.current) return false;
+    historyLock.current = true;
+    setHistoryBusy(true);
+    try {
+      const job = jobs.find((candidate) => candidate.key === change.jobKey);
+      if (!job) { onToast("ไม่พบงานนี้แล้ว — ไม่สามารถย้อนประวัติได้"); return false; }
+      if (!canEdit(job)) { onToast("แก้ไม่ได้ — งานนี้เป็นของ " + (job.op || "ผู้อื่น")); return false; }
+
+      const wanted = direction === "undo" ? change.before : change.after;
+      if (change.source === "register") {
+        onSetField(job, change.field!, wanted, false);
+      } else {
+        const column = COLUMNS.find((candidate) => candidate.head === change.head);
+        if (!column) { onToast("ไม่พบคอลัมน์เดิมแล้ว — ไม่สามารถย้อนประวัติได้"); return false; }
+        const written = await writeMovement(job, column, wanted, false);
+        if (!written.ok) return false;
+      }
+
+      onToast(
+        (direction === "undo" ? "ย้อนกลับแล้ว ↶ " : "กลับไปข้างหน้าแล้ว ↷ ")
+        + change.head + " · " + (job.jobCode || job.container || job.key),
+      );
+      return true;
+    } finally {
+      historyLock.current = false;
+      setHistoryBusy(false);
+    }
+  }
+
+  async function undo() {
+    const change = undos[undos.length - 1];
+    if (!change) { onToast("ไม่มีการแก้ไขให้ย้อนกลับ"); return; }
+    if (!await moveHistory(change, "undo")) return;
+    setUndos((was) => was.slice(0, -1));
+    setRedos((was) => was.slice(-(HISTORY_LIMIT - 1)).concat([change]));
+  }
+
+  async function redo() {
+    const change = redos[redos.length - 1];
+    if (!change) { onToast("ไม่มีข้อมูลให้ไปข้างหน้า"); return; }
+    if (!await moveHistory(change, "redo")) return;
+    setRedos((was) => was.slice(0, -1));
+    setUndos((was) => was.slice(-(HISTORY_LIMIT - 1)).concat([change]));
+  }
+
+  /** The report keeps the same keyboard contract as My Job. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const command = editHistoryShortcut(event);
+      if (!command || historyLock.current) return;
+
+      const active = document.activeElement as HTMLElement | null;
+      const tag = active?.tagName;
+      if (tag === "TEXTAREA" || tag === "SELECT" || active?.isContentEditable) return;
+      if (tag === "INPUT") {
+        if (!active?.closest?.("td") || !editing) return;
+        const input = active as HTMLInputElement;
+        if (event.key.toLowerCase() === "x" && input.selectionStart !== input.selectionEnd) return;
+        const job = jobs.find((candidate) => candidate.key === editing.key);
+        const column = COLUMNS.find((candidate) => candidate.head === editing.head);
+        if (!job || !column || draft !== show(job, column)) return;
+        setEditing(null);
+      }
+
+      event.preventDefault();
+      if (command === "undo") void undo();
+      else void redo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const missing = COLUMNS.filter(
     (column) => column.source === "movement"
@@ -331,12 +473,28 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
     per: pg.per,
     tools: [],
     fill: true,
-    actions: [{
+    actions: [
+      ...(undos.length > 0 ? [{
+        label: "↶ ย้อนกลับ",
+        title: "ย้อนกลับ (Ctrl+Z)",
+        disabled: historyBusy,
+        style: HISTORY_BTN,
+        go: () => { void undo(); },
+      }] : []),
+      ...(redos.length > 0 ? [{
+        label: "↷ ถัดไป",
+        title: "กลับไปข้างหน้า (Ctrl+X หรือ Ctrl+Y)",
+        disabled: historyBusy,
+        style: HISTORY_BTN,
+        go: () => { void redo(); },
+      }] : []),
+      {
       label: "ดาวน์โหลด Excel",
       style: "height:28px;padding:0 13px;border:1px solid #3FA372;background:#16794C;color:#fff;"
         + "border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit",
       go: () => downloadWorkbook(rows, periodLabel(period), onToast),
-    }],
+      },
+    ],
     controls: (
       <div style={css("display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:8px")}>
         <Picker label="ปี" value={period.year} onPick={(year) => choose({ year })}
