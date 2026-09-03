@@ -206,9 +206,27 @@ export function TableFrame({ children, title, meta, actions, note, height }: {
  * screen already put around its table and the control lands on that card's
  * bottom edge — the same place My Job keeps it.
  */
-export function ZoomBox({ children, height }: { children: ReactNode; height?: string }) {
+export function ZoomBox({ children, height, capped = true }: {
+  children: ReactNode;
+  height?: string;
+  /**
+   * Whether the box is held to the fold.
+   *
+   * True for a screen whose table is the screen. False for one that stacks
+   * several — there, every box measures the room below its own top edge, so
+   * the second table starts lower, is given less, and a nineteen-row list ends
+   * up five rows tall with its own scrollbar inside a page that already
+   * scrolls. Two scrollbars for one list is worse than the problem the cap was
+   * added to fix.
+   *
+   * Only pass false when the lists are short enough to read whole. A capped box
+   * is still the right answer for anything that could run to hundreds of rows.
+   */
+  capped?: boolean;
+}) {
   const [zoom, setZoom] = useTableZoom();
-  const box = useFitted(height);
+  const fitted = useFitted(height);
+  const box = capped ? fitted : undefined;
 
   return (
     <>

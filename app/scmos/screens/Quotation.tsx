@@ -2,13 +2,16 @@
 
 import { css } from "../theme";
 import { QuoteCalculator } from "./QuoteCalculator";
+import { QuoteTerms } from "./QuoteTerms";
 import { RateSheet } from "./RateSheet";
 
 /**
- * What a journey costs, in the two ways the team asks it.
+ * What a journey costs, in the three ways the team asks it.
  *
- * The register, laid out as the workbook lays it out and typed into; and the
- * calculator, for a journey nobody has a price for yet.
+ * The register, laid out as the workbook lays it out and typed into; the
+ * calculator, for a journey nobody has a price for yet; and the conditions,
+ * which are the part of the price that is not the rate — waiting time, X-ray,
+ * a cancelled booking, a night with the chassis still hooked up.
  *
  * There were two more. "Rate Inquiry" was a form for raising a new request and
  * "Rate Comparison" asked the API which carriers had priced a lane — both
@@ -19,7 +22,7 @@ import { RateSheet } from "./RateSheet";
  * sheet, which is what it fills.
  */
 
-type View = "calculate" | "sheet";
+type View = "calculate" | "sheet" | "terms";
 
 export function Quotation({ view, onView, canEditRates, onToast }: {
   /**
@@ -53,6 +56,7 @@ export function Quotation({ view, onView, canEditRates, onToast }: {
         {([
           ["calculate", "คำนวณราคา", "Rate Calculator"],
           ["sheet", "ตารางอัตรา", "Rate Sheet"],
+          ["terms", "เงื่อนไขเพิ่มเติม", "Surcharges & Terms"],
         ] as [View, string, string][]).map(([key, th, en]) => {
           const on = view === key;
           return (
@@ -71,6 +75,9 @@ export function Quotation({ view, onView, canEditRates, onToast }: {
 
       {/* The register in the workbook's own shape, typed into like My Job. */}
       {view === "sheet" && <RateSheet canEdit={canEditRates} onToast={onToast} />}
+
+      {/* What is charged on top of the rate — a page to read, not to type in. */}
+      {view === "terms" && <QuoteTerms />}
     </div>
   );
 }

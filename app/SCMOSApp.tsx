@@ -686,7 +686,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * the page back. So the tab has to be readable from where `lockScroll` is
    * decided.
    */
-  const [quoteView, setQuoteView] = useState<"calculate" | "sheet">("sheet");
+  const [quoteView, setQuoteView] = useState<"calculate" | "sheet" | "terms">("sheet");
 
   useEffect(() => {
     if ((screen !== "rates" && screen !== "booking") || ratesAsked.current) return;
