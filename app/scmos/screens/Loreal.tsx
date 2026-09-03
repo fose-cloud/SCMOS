@@ -34,10 +34,10 @@ import { editHistoryShortcut } from "../editHistory";
  *
  * What is still not editable is said on the row rather than left to be
  * discovered: PACKAGE and CARD have nowhere in the register to go, and
- * Estimated Delivery is the arrival date and time joined for the customer's
- * benefit — two fields, edited on My Job, and a single box writing both would
- * have to guess where one ends when an operator has typed a note where a clock
- * was expected.
+ * Estimated Delivery is My Job's DATE and PLAN LOADING TIME joined for the
+ * customer's benefit — two fields, edited on My Job, and a single box writing
+ * both would have to guess where one ends when an operator has typed a note
+ * where a clock was expected.
  */
 
 /** [header, where it comes from, how to read it out of a job] */
@@ -70,7 +70,7 @@ export const COLUMNS: Column[] = [
   { head: "CARD", source: "register", read: NONE },
   { head: "LICENCE", source: "register", read: (j) => j.licence, field: "licence" },
   { head: "DRIVER", source: "register", read: (j) => j.driver, field: "driver" },
-  { head: "Estimated Delivery Time", source: "register", read: (j) => joinDateTime(j.arrDate || j.date, j.arrTime) },
+  { head: "Estimated Delivery Time", source: "register", read: (j) => joinDateTime(j.date, j.planTime) },
   { head: "Leave base", source: "movement", read: NONE },
   /*
    * The register holds this as a sentence — `รับตู้ 31.07.26 08.00 น.` — and
@@ -196,14 +196,12 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   /**
    * Each job paired with the date the report is about.
    *
-   * A truck report is read by when the container was delivered, so the period
-   * follows the arrival and falls back to the plan when nothing was recorded —
-   * which is what the month dropdown did before this. The date is shimmed onto
-   * `date` so the year/month/day rules in period.ts apply unchanged rather than
-   * being written a second time here with a chance of disagreeing.
+   * The report period follows the same My Job DATE shown in Estimated Delivery.
+   * Filtering by arrival while printing the plan date would put a row under a
+   * different month from the date the customer sees in that row.
    */
   const dated = useMemo(
-    () => mine.map((job) => ({ job, keyed: { ...job, date: job.arrDate || job.date } })),
+    () => mine.map((job) => ({ job, keyed: job })),
     [mine],
   );
 
@@ -239,7 +237,7 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   function why(job: Job, column: Column): string {
     if (column.source === "register" && !column.field) {
       return column.head === "Estimated Delivery Time"
-        ? "วันและเวลาที่รถถึง — แก้ที่หน้า My Job (เป็นสองช่อง)"
+        ? "ดึงจาก DATE และ PLAN LOADING TIME — แก้ที่หน้า My Job (เป็นสองช่อง)"
         : "ยังไม่มีช่องเก็บค่านี้ในระบบ";
     }
     if (!canEdit(job)) return "งานของ " + (job.op || "คนอื่น") + " — แก้ไขไม่ได้";
