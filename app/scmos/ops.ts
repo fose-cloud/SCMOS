@@ -60,6 +60,9 @@ export type Job = {
    *  date and a time in one sentence; they are split into these two. */
   pickupPlan: string;
   pickupTime: string;
+  /** Manually keyed only in the L'OREAL Truck Report. It is deliberately
+   *  separate from My Job's pickup plan and pickup time. */
+  lorealPickupContainer: string;
   cs: string;
   incident: string;
   freightType: string;
@@ -157,7 +160,8 @@ const EDITABLE_BLANK = {
   booking: "", product: "", fclLcl: "", agent: "", plant: "", cyYard: "",
   returnLoc: "", emptyReturn: "", container: "", seal: "", tare: "", licence: "",
   driver: "", contact: "", arrDate: "", arrTime: "", closingDate: "", closingTime: "",
-  reason: "", ot: "", pickupPlan: "", pickupTime: "", cs: "", incident: "", freightType: "",
+  reason: "", ot: "", pickupPlan: "", pickupTime: "", lorealPickupContainer: "",
+  cs: "", incident: "", freightType: "",
   origDate: "", moveReason: "", moveBy: "", cancelReason: "",
 };
 

@@ -673,7 +673,8 @@ const BLANK_JOB: Omit<Job, "key" | "id" | "cat" | "op"> = {
   fclLcl: "", agent: "", destination: "", plant: "", planTime: "", type: "", cyYard: "",
   returnLoc: "", emptyReturn: "", weight: "", container: "", seal: "", tare: "", licence: "",
   driver: "", contact: "", arrDate: "", arrTime: "", closingDate: "", closingTime: "",
-  reason: "", remark: "", ot: "", pickupPlan: "", pickupTime: "", cs: "", incident: "", freightType: "",
+  reason: "", remark: "", ot: "", pickupPlan: "", pickupTime: "", lorealPickupContainer: "",
+  cs: "", incident: "", freightType: "",
   origDate: "", moveReason: "", moveBy: "", cancelReason: "",
   status: "", hist: [], flags: [], action: false, prio: "MEDIUM", issues: [], fixes: [],
 };

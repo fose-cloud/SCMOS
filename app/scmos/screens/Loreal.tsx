@@ -72,16 +72,12 @@ export const COLUMNS: Column[] = [
   { head: "DRIVER", source: "register", read: (j) => j.driver, field: "driver" },
   { head: "Estimated Delivery Time", source: "register", read: (j) => joinDateTime(j.date, j.planTime) },
   { head: "Leave base", source: "movement", read: NONE },
-  /*
-   * The register holds this as a sentence — `รับตู้ 31.07.26 08.00 น.` — and
-   * `standard.ts` already reads it, on every load, into a date and a time. So
-   * the two are joined here exactly as Estimated Delivery joins its own pair,
-   * rather than parsed a second time: a rule this codebase has written twice
-   * has always ended up disagreeing with itself.
-   */
+  // Report-only: operators key this value directly here. It must not fall back
+  // to My Job's PICKUP PLAN / PICKUP TIME, because those describe the plan and
+  // editing this customer report must not silently change that plan.
   {
-    head: "Pick up container", source: "register", field: "pickupPlan",
-    read: (j) => joinDateTime(j.pickupPlan, j.pickupTime),
+    head: "Pick up container", source: "register", field: "lorealPickupContainer",
+    read: (j) => j.lorealPickupContainer,
   },
   { head: "Truck arrival", source: "movement", read: NONE },
   { head: "Truck loading time", source: "movement", read: NONE },
