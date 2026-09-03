@@ -35,6 +35,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Append-only in practice: renewal writes a new row, never an update.</summary>
     public DbSet<DriverTraining> DriverTrainings => Set<DriverTraining>();
 
+    /// <summary>The lossless register imported by Customer Training Control.</summary>
+    public DbSet<CustomerTrainingRecord> CustomerTrainingRecords => Set<CustomerTrainingRecord>();
+
     /// <summary>Append-only. Nothing in the codebase deletes from it.</summary>
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
@@ -572,6 +575,28 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             // record for this course", so that is what the index answers.
             entry.HasIndex(e => new { e.DriverId, e.CourseId }).HasDatabaseName("driver_training_idx");
             entry.HasIndex(e => e.ExpiryDate).HasDatabaseName("driver_training_expiry_idx");
+        });
+
+        model.Entity<CustomerTrainingRecord>(entry =>
+        {
+            entry.ToTable("customer_training_records");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.SequenceNo).HasColumnName("sequence_no").HasMaxLength(40).HasDefaultValue("");
+            entry.Property(e => e.CourseCustomer).HasColumnName("course_customer").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.FirstName).HasColumnName("first_name").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.LastName).HasColumnName("last_name").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.Company).HasColumnName("company").HasMaxLength(240).HasDefaultValue("");
+            entry.Property(e => e.DriverLicenseNo).HasColumnName("driver_license_no").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.LicenseType).HasColumnName("license_type").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.EffectiveDate).HasColumnName("effective_date").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.ExpiryDate).HasColumnName("expiry_date").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entry.HasIndex(e => e.ExpiryDate).HasDatabaseName("customer_training_expiry_idx");
+            entry.HasIndex(e => e.DriverLicenseNo).HasDatabaseName("customer_training_license_idx");
         });
 
         model.Entity<StoredDocument>(entry =>

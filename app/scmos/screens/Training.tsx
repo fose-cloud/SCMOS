@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import { CustomerTrainingRegister } from "./CustomerTrainingRegister";
 
 /**
  * Customer Training Control.
@@ -101,7 +102,7 @@ export function Training({ onToast, registerCustomers }: {
    */
   registerCustomers: string[];
 }) {
-  const [tab, setTab] = useState<"dashboard" | "drivers" | "requirements">("dashboard");
+  const [tab, setTab] = useState<"register" | "dashboard" | "drivers" | "requirements">("register");
   const [summary, setSummary] = useRemembered<Summary>("training");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -328,6 +329,34 @@ export function Training({ onToast, registerCustomers }: {
   const customers = withRules;
   const suggestions = [...new Set([...withRules, ...registerCustomers])].sort();
 
+  const tabBar = (
+    <div style={css("display:flex;gap:7px;flex-wrap:wrap") }>
+      {([[
+        "register", "ทะเบียนอบรม",
+      ], ["dashboard", "ภาพรวม"], ["drivers", `คนขับ ${drivers.length}`],
+        ["requirements", `ข้อกำหนดลูกค้า ${requirements.length}`]] as const).map(([id, label]) => {
+        const on = tab === id;
+        return (
+          <button key={id} onClick={() => setTab(id)}
+            style={css("height:33px;padding:0 15px;border:1px solid " + (on ? "#0A2240" : "#D3DBE3") +
+              ";background:" + (on ? "#0A2240" : "#fff") + ";color:" + (on ? "#fff" : "#3F5265") +
+              ";border-radius:5px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit") }>
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  if (tab === "register") {
+    return (
+      <div style={css("display:flex;flex-direction:column;gap:13px") }>
+        {tabBar}
+        <CustomerTrainingRegister onToast={onToast} />
+      </div>
+    );
+  }
+
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap")}>
@@ -488,20 +517,7 @@ export function Training({ onToast, registerCustomers }: {
         </div>
       )}
 
-      <div style={css("display:flex;gap:7px;flex-wrap:wrap")}>
-        {([["dashboard", "ภาพรวม"], ["drivers", `คนขับ ${drivers.length}`],
-           ["requirements", `ข้อกำหนดลูกค้า ${requirements.length}`]] as const).map(([id, label]) => {
-          const on = tab === id;
-          return (
-            <button key={id} onClick={() => setTab(id)}
-              style={css("height:33px;padding:0 15px;border:1px solid " + (on ? "#0A2240" : "#D3DBE3") +
-                ";background:" + (on ? "#0A2240" : "#fff") + ";color:" + (on ? "#fff" : "#3F5265") +
-                ";border-radius:5px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
+      {tabBar}
 
       {tab === "dashboard" && summary && (
         <>

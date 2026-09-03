@@ -25,6 +25,15 @@ public static class TrainingEndpoints
         string? CertificateNo, string? Provider, string? Remark, long? DocumentId);
     public record VoidBody(string? Reason);
     public record OverrideBody(int? DriverId, string? Customer, string? JobKey, string? Reason);
+    public record RegisterBody(
+        string? SequenceNo, string? CourseCustomer, string? FirstName, string? LastName,
+        string? Company, string? DriverLicenseNo, string? LicenseType,
+        string? EffectiveDate, string? ExpiryDate);
+    public record RegisterImportBody(IReadOnlyList<RegisterBody>? Rows);
+    public record RegisterView(
+        long Id, string SequenceNo, string CourseCustomer, string FirstName, string LastName,
+        string Company, string DriverLicenseNo, string LicenseType,
+        string EffectiveDate, string ExpiryDate, int? DaysLeft, string Status, string StatusTh);
 
     public static void MapTraining(this IEndpointRouteBuilder routes)
     {
@@ -391,6 +400,147 @@ public static class TrainingEndpoints
             return Results.Json(new { message = result.Message });
         });
 
+        /* -------------------------------------- workbook-backed register */
+
+        group.MapGet("/register", async (HttpContext context, IUserAccessor users,
+            ScmosDbContext db, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+
+            var today = ThailandToday();
+            var rows = (await db.CustomerTrainingRecords.AsNoTracking()
+                    .OrderByDescending(record => record.Id)
+                    .Take(10000)
+                    .ToListAsync(token))
+                .Select(record => DescribeRegister(record, today))
+                .ToList();
+
+            return Results.Json(new
+            {
+                rows,
+                summary = new
+                {
+                    total = rows.Count,
+                    valid = rows.Count(row => row.Status == TrainingRules.Valid),
+                    nearExpiry = rows.Count(row => row.Status == TrainingRules.ExpiringSoon),
+                    expired = rows.Count(row => row.Status == TrainingRules.Expired),
+                    invalidDate = rows.Count(row => row.Status == "INVALID_DATE"),
+                },
+                alertBeforeDays = 60,
+            });
+        });
+
+        group.MapPost("/register/import", async ([FromBody] RegisterImportBody body,
+            HttpContext context, IUserAccessor users, CarrierService carriers,
+            ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!await MayWriteAsync(user, carriers, token))
+                return ApiResults.Error("ไม่มีสิทธิ์นำเข้าทะเบียนอบรม", StatusCodes.Status403Forbidden);
+
+            var supplied = body.Rows ?? [];
+            if (supplied.Count == 0)
+                return ApiResults.Error("ไม่มีรายการสำหรับนำเข้า", StatusCodes.Status400BadRequest);
+            if (supplied.Count > 5000)
+                return ApiResults.Error("นำเข้าได้ครั้งละไม่เกิน 5,000 รายการ", StatusCodes.Status400BadRequest);
+
+            static string Text(string? value) => (value ?? "").Trim();
+            static string Key(string licence, string course, string effective, string expiry,
+                string firstName, string lastName, string company) =>
+                string.Join('\u001f', licence, course, effective, expiry,
+                    licence.Trim().Length == 0 ? firstName : "",
+                    licence.Trim().Length == 0 ? lastName : "",
+                    licence.Trim().Length == 0 ? company : "").ToUpperInvariant();
+
+            var existingRows = await db.CustomerTrainingRecords.AsNoTracking()
+                .Select(record => new
+                {
+                    record.DriverLicenseNo, record.CourseCustomer,
+                    record.EffectiveDate, record.ExpiryDate,
+                    record.FirstName, record.LastName, record.Company,
+                }).ToListAsync(token);
+            var known = existingRows.Select(row => Key(
+                    row.DriverLicenseNo, row.CourseCustomer, row.EffectiveDate, row.ExpiryDate,
+                    row.FirstName, row.LastName, row.Company))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var records = new List<CustomerTrainingRecord>();
+            var errors = new List<object>();
+            var skipped = 0;
+
+            for (var index = 0; index < supplied.Count; index++)
+            {
+                var row = supplied[index];
+                var course = Text(row.CourseCustomer);
+                var firstName = Text(row.FirstName);
+                var lastName = Text(row.LastName);
+                var effective = Text(row.EffectiveDate);
+                var expiry = Text(row.ExpiryDate);
+
+                var invalid = new List<string>();
+                if (course.Length == 0) invalid.Add("ชื่อหลักสูตร/ลูกค้า");
+                if (firstName.Length == 0 && lastName.Length == 0) invalid.Add("ชื่อหรือนามสกุล");
+                var effectiveDay = TrainingRules.ParseDate(effective);
+                var expiryDay = TrainingRules.ParseDate(expiry);
+                if (effectiveDay is null) invalid.Add("Effective date");
+                if (expiryDay is null) invalid.Add("Expire date");
+                if (effectiveDay is not null && expiryDay is not null && expiryDay < effectiveDay)
+                    invalid.Add("Expire date ต้องไม่ก่อน Effective date");
+
+                if (invalid.Count > 0)
+                {
+                    errors.Add(new { row = index + 1, fields = invalid });
+                    continue;
+                }
+
+                var licence = Text(row.DriverLicenseNo);
+                var key = Key(licence, course, effective, expiry, firstName, lastName, Text(row.Company));
+                if (!known.Add(key))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                records.Add(new CustomerTrainingRecord
+                {
+                    SequenceNo = Text(row.SequenceNo),
+                    CourseCustomer = course,
+                    FirstName = firstName,
+                    LastName = lastName,
+                    Company = Text(row.Company),
+                    DriverLicenseNo = licence,
+                    LicenseType = Text(row.LicenseType),
+                    EffectiveDate = TrainingRules.Write(effectiveDay!.Value),
+                    ExpiryDate = TrainingRules.Write(expiryDay!.Value),
+                    CreatedBy = user.Signature,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedBy = user.Signature,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                });
+            }
+
+            if (records.Count > 0)
+            {
+                db.CustomerTrainingRecords.AddRange(records);
+                await db.SaveChangesAsync(token);
+                await audit.RecordAsync(user, AuditActions.Upload, "customer-training-register",
+                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
+                    $"{records.Count} rows", "training-register", "", records.Count.ToString(),
+                    $"duplicate {skipped}; invalid {errors.Count}", token);
+            }
+
+            return Results.Json(new
+            {
+                message = $"นำเข้าสำเร็จ {records.Count} รายการ"
+                    + (skipped > 0 ? $" · ข้ามข้อมูลซ้ำ {skipped}" : "")
+                    + (errors.Count > 0 ? $" · ข้อมูลไม่ถูกต้อง {errors.Count}" : ""),
+                saved = records.Count,
+                skipped,
+                errors,
+            });
+        });
+
         /* ------------------------------------------------- courses and rules */
 
         group.MapGet("/courses", async (ScmosDbContext db, HttpContext context, IUserAccessor users,
@@ -518,5 +668,36 @@ public static class TrainingEndpoints
         var driver = await db.Drivers.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == driverId, token);
         return driver?.SupplierId == scope;
+    }
+
+    private static DateOnly ThailandToday() =>
+        DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+
+    private static RegisterView DescribeRegister(CustomerTrainingRecord record, DateOnly today)
+    {
+        var days = TrainingRules.DaysLeft(record.ExpiryDate, today);
+        // The requested warning boundary is strictly less than 60 days. A row
+        // with exactly 60 days remaining stays valid until the next day.
+        var status = days switch
+        {
+            null => "INVALID_DATE",
+            <= 0 => TrainingRules.Expired,
+            < 60 => TrainingRules.ExpiringSoon,
+            _ => TrainingRules.Valid,
+        };
+        var statusTh = status switch
+        {
+            "INVALID_DATE" => "วันที่หมดอายุไม่ถูกต้อง",
+            TrainingRules.Expired => "หมดอายุแล้ว",
+            TrainingRules.ExpiringSoon => "ใกล้หมดอายุ",
+            _ => "ยังใช้ได้",
+        };
+
+        return new RegisterView(
+            record.Id, record.SequenceNo, record.CourseCustomer,
+            record.FirstName, record.LastName, record.Company,
+            record.DriverLicenseNo, record.LicenseType,
+            record.EffectiveDate, record.ExpiryDate,
+            days, status, statusTh);
     }
 }

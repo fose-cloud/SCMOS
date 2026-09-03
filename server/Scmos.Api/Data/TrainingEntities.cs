@@ -155,3 +155,31 @@ public class DriverTraining
     public string VoidReason { get; set; } = "";
     public string VoidedBy { get; set; } = "";
 }
+
+/// <summary>
+/// A row from the Customer Training Control register.
+///
+/// This deliberately mirrors the operational workbook instead of forcing the
+/// row into <see cref="DriverTraining"/>.  The workbook is a customer training
+/// register (first name, surname, company and licence type included), while a
+/// DriverTraining row is a certificate tied to the course catalogue.  Keeping
+/// the source columns intact means an import is lossless and remains auditable.
+/// Expiry status is derived when the row is read; it is never stored stale.
+/// </summary>
+public class CustomerTrainingRecord
+{
+    public long Id { get; set; }
+    public string SequenceNo { get; set; } = "";
+    public string CourseCustomer { get; set; } = "";
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public string Company { get; set; } = "";
+    public string DriverLicenseNo { get; set; } = "";
+    public string LicenseType { get; set; } = "";
+    public string EffectiveDate { get; set; } = "";
+    public string ExpiryDate { get; set; } = "";
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public string UpdatedBy { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+}
