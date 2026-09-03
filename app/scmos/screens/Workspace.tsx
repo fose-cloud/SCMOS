@@ -63,7 +63,11 @@ type Props = {
   onDelay: (key: string) => void;
   onSaveCell: (job: Job, field: keyof Job) => void;
   /** A dragged rectangle written in one go, each column keeping its own rule. */
-  onPasteCells: (edits: { job: Job; field: keyof Job; value: string }[]) => void;
+  onPasteCells: (
+    edits: { job: Job; field: keyof Job; value: string }[],
+    /** What to call it in the toast and in the undo list. */
+    how?: "paste" | "clear",
+  ) => void;
   onToast: (message: string) => void;
   /**
    * Draw one category only, and stop offering the chooser.
@@ -2006,7 +2010,34 @@ export function Workspace(p: Props) {
       }
 
       const intent = gridEditIntent(e);
-      if (!intent || !editAnchor || ws.edit || !canEditJob(editAnchor.job)) return;
+      if (!intent || !editAnchor || ws.edit) return;
+
+      /*
+       * Delete over a selection empties it, the way it does in a spreadsheet.
+       *
+       * Sent through the same writer a paste uses, which is what makes it safe
+       * to offer: it skips cells on somebody else's job and says how many it
+       * skipped, and it records the whole block as one undo step, so the button
+       * on the toolbar puts every cell back in one press.
+       *
+       * Not gated on whether the anchor happens to be editable — a rectangle
+       * dragged across a mixed list is normal, and refusing all of it because
+       * of its top-left corner would be a rule nobody could see.
+       */
+      if (intent.mode === "clear") {
+        e.preventDefault();
+        const cleared = selection.flatMap((line) =>
+          line
+            // A cell that is already empty is not a change, and counting it
+            // would make the toast claim work that never happened.
+            .filter(({ job, field }) => ((job[field] as string) || "").length > 0)
+            .map(({ job, field }) => ({ job, field, value: "" })));
+        if (cleared.length) p.onPasteCells(cleared, "clear");
+        else p.onToast("ช่องที่เลือกว่างอยู่แล้ว");
+        return;
+      }
+
+      if (!canEditJob(editAnchor.job)) return;
       e.preventDefault();
       p.set({ edit: { key: editAnchor.job.key, field: String(editAnchor.field) },
               editVal: intent.mode === "replace"

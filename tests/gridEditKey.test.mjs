@@ -42,3 +42,23 @@ test("arrow navigation leaves browser shortcuts alone", () => {
   assert.equal(gridArrowTarget({ key: "ArrowRight", ctrlKey: true }, { row: 0, column: 1 }, 1, fields), null);
   assert.equal(gridArrowTarget({ key: "x" }, { row: 0, column: 1 }, 1, fields), null);
 });
+
+test("Delete and Backspace empty the selection rather than opening an editor", () => {
+  // The third gesture a spreadsheet has, and the one people reach for without
+  // thinking. Both keys: Excel clears with either and nobody remembers which.
+  assert.deepEqual(gridEditIntent({ key: "Delete" }), { mode: "clear" });
+  assert.deepEqual(gridEditIntent({ key: "Backspace" }), { mode: "clear" });
+});
+
+test("clearing still stands aside for a shortcut", () => {
+  // Ctrl+Backspace deletes a word, and on a Mac Cmd+Delete is "delete to the
+  // start of the line". Neither is a request to empty forty cells.
+  assert.equal(gridEditIntent({ key: "Delete", ctrlKey: true }), null);
+  assert.equal(gridEditIntent({ key: "Backspace", ctrlKey: true }), null);
+  assert.equal(gridEditIntent({ key: "Backspace", metaKey: true }), null);
+  assert.equal(gridEditIntent({ key: "Delete", altKey: true }), null);
+});
+
+test("Shift with Delete still clears, because a shifted Delete is still Delete", () => {
+  assert.deepEqual(gridEditIntent({ key: "Delete", shiftKey: true }), { mode: "clear" });
+});

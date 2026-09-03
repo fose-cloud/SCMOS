@@ -1588,7 +1588,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   }
 
   /**
-   * A block of cells pasted in one go.
+   * A block of cells written in one go — a paste, or a Delete that empties them.
+   *
+   * One path for both, because everything that makes it safe is the same: cells
+   * on somebody else's job are skipped and counted, the whole block is one undo
+   * step, the save queue carries it, and every value it overwrites goes into
+   * that job's own history with who did it. Only the wording differs, and a
+   * second copy of this that said "cleared" instead of "pasted" would be a
+   * second copy of all of that.
    *
    * Reports once rather than per cell: twenty toasts is not twenty pieces of
    * information. What it does say is the part a person cannot see for
@@ -1596,7 +1603,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * many cells were skipped because the job belongs to somebody else. Skipping
    * quietly would let a paste look like it landed when half of it did not.
    */
-  function pasteCells(edits: { job: Job; field: keyof Job; value: string }[]) {
+  function pasteCells(
+    edits: { job: Job; field: keyof Job; value: string }[],
+    how: "paste" | "clear" = "paste",
+  ) {
+    const doing = how === "clear" ? "ล้าง" : "วาง";
     const touched = new Map<string, Job>();
     let changed = 0;
     let fixed = 0;
@@ -1613,17 +1624,23 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       undoEdits.push({ key: edit.job.key, before: { [edit.field]: was } as Partial<Job> });
       touched.set(edit.job.key, edit.job);
     }
-    // One press takes the whole paste back out, not one cell of it.
-    remember("วาง " + changed + " ช่อง", undoEdits);
+    // One press takes the whole block back out, not one cell of it.
+    remember(doing + " " + changed + " ช่อง", undoEdits);
 
     if (touched.size > 0) persist([...touched.values()]);
     touch();
 
-    if (changed === 0 && refused === 0) { setToast("ค่าที่วางเหมือนเดิมทุกช่อง"); return; }
+    if (changed === 0 && refused === 0) {
+      setToast(how === "clear" ? "ช่องที่เลือกว่างอยู่แล้ว" : "ค่าที่วางเหมือนเดิมทุกช่อง");
+      return;
+    }
     setToast(
-      `วางแล้ว ${changed} ช่อง · ${touched.size} งาน`
+      `${doing}แล้ว ${changed} ช่อง · ${touched.size} งาน`
       + (fixed ? ` · จัดรูปแบบให้ ${fixed} ช่อง` : "")
-      + (refused ? ` · ข้าม ${refused} ช่องที่เป็นงานของผู้อื่น` : ""),
+      + (refused ? ` · ข้าม ${refused} ช่องที่เป็นงานของผู้อื่น` : "")
+      // Undo is a button on the toolbar, and a block emptied by one keystroke
+      // is the moment somebody most needs to be told it is there.
+      + (how === "clear" ? " · กด ↶ ย้อนกลับ เพื่อเรียกคืน" : ""),
     );
   }
 

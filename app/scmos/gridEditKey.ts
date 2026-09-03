@@ -8,7 +8,9 @@ export type GridEditKey = {
 
 export type GridEditIntent =
   | { mode: "keep" }
-  | { mode: "replace"; value: string };
+  | { mode: "replace"; value: string }
+  /** Empty every selected cell, the way Delete does over a block in Excel. */
+  | { mode: "clear" };
 
 export type GridPoint = { row: number; column: number };
 
@@ -54,12 +56,21 @@ export function gridArrowTarget(
  * so copy, paste, undo and browser shortcuts keep working. Shift is allowed for
  * printable keys because it is how uppercase letters and many symbols are
  * typed, but Shift+Enter remains available to the rest of the page.
+ *
+ * Delete and Backspace empty the selection instead of opening an editor, which
+ * is the third gesture a spreadsheet has and the one people reach for without
+ * thinking. Both keys, because Excel clears with either and nobody remembers
+ * which they pressed.
  */
 export function gridEditIntent(key: GridEditKey): GridEditIntent | null {
   if (key.ctrlKey || key.metaKey || key.altKey) return null;
 
   if ((key.key === "F2" || key.key === "Enter") && !key.shiftKey) {
     return { mode: "keep" };
+  }
+
+  if (key.key === "Delete" || key.key === "Backspace") {
+    return { mode: "clear" };
   }
 
   // `Array.from` counts Unicode code points, so a Thai character is treated as
