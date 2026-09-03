@@ -85,7 +85,7 @@ export const MOVEMENT_STAGE: Record<string, string> = {
   "Truck loading time": "Loading",
   // Added to the register's stage list for this report: one stage carries one
   // timestamp, so loading started and loading finished cannot be the same one.
-  "Truck loading comp": "LoadingComplete",
+  "Truck loading completed": "LoadingComplete",
   "Truck departure": "InTransit",
   "Return container": "ContainerReturned",
 };

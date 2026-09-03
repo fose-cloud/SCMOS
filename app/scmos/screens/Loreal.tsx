@@ -69,12 +69,22 @@ export const COLUMNS: Column[] = [
   { head: "CARD", source: "register", read: NONE },
   { head: "LICENCE", source: "register", read: (j) => j.licence, field: "licence" },
   { head: "DRIVER", source: "register", read: (j) => j.driver, field: "driver" },
-  { head: "Estimated Delivery", source: "register", read: (j) => joinDateTime(j.arrDate || j.date, j.arrTime) },
+  { head: "Estimated Delivery Time", source: "register", read: (j) => joinDateTime(j.arrDate || j.date, j.arrTime) },
   { head: "Leave base", source: "movement", read: NONE },
-  { head: "Pick up container", source: "register", read: (j) => j.pickupPlan, field: "pickupPlan" },
+  /*
+   * The register holds this as a sentence — `รับตู้ 31.07.26 08.00 น.` — and
+   * `standard.ts` already reads it, on every load, into a date and a time. So
+   * the two are joined here exactly as Estimated Delivery joins its own pair,
+   * rather than parsed a second time: a rule this codebase has written twice
+   * has always ended up disagreeing with itself.
+   */
+  {
+    head: "Pick up container", source: "register", field: "pickupPlan",
+    read: (j) => joinDateTime(j.pickupPlan, j.pickupTime),
+  },
   { head: "Truck arrival", source: "movement", read: NONE },
   { head: "Truck loading time", source: "movement", read: NONE },
-  { head: "Truck loading comp", source: "movement", read: NONE },
+  { head: "Truck loading completed", source: "movement", read: NONE },
   { head: "Truck departure", source: "movement", read: NONE },
   { head: "Return container", source: "movement", read: NONE },
   // Writes `remark`. `reason` is the delay note, filled from the delay screen,
@@ -206,7 +216,7 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   /** Whether this cell can be typed in at all, and why not when it cannot. */
   function why(job: Job, column: Column): string {
     if (column.source === "register" && !column.field) {
-      return column.head === "Estimated Delivery"
+      return column.head === "Estimated Delivery Time"
         ? "วันและเวลาที่รถถึง — แก้ที่หน้า My Job (เป็นสองช่อง)"
         : "ยังไม่มีช่องเก็บค่านี้ในระบบ";
     }

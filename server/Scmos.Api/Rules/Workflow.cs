@@ -32,7 +32,7 @@ public enum Stage
     /// Loading finished, as distinct from loading started.
     ///
     /// Added 2026-09-01 for the customer truck reports, which have asked for
-    /// both times all along — "Truck loading time" and "Truck loading comp" are
+    /// both times all along — "Truck loading time" and "Truck loading completed" are
     /// two columns of the workbook L'OREAL is sent every month, and one stage
     /// with one timestamp could only ever fill one of them. Safe to insert
     /// here: the stage is stored as its name, never its position.

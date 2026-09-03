@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -57,10 +58,16 @@ test("an empty instant reads as empty, not as an error", () => {
 });
 
 test("every movement column names a stage, and no two share one", () => {
-  const columns = [
-    "Leave base", "Truck arrival", "Truck loading time",
-    "Truck loading comp", "Truck departure", "Return container",
-  ];
+  // The report's columns are read out of the screen that draws them rather than
+  // copied here. Listed twice, the two lists drift — this test held
+  // "Truck loading comp" for a rename it knew nothing about — and a movement
+  // column with no stage behind it is a column that silently stops saving.
+  const source = readFileSync(new URL("../app/scmos/screens/Loreal.tsx", import.meta.url), "utf8");
+  const columns = [...source.matchAll(/head: "([^"]+)", source: "(\w+)"/g)]
+    .filter(([, , from]) => from === "movement")
+    .map(([, head]) => head);
+
+  assert.ok(columns.length >= 6, `only found ${columns.length} movement columns`);
   assert.deepEqual(Object.keys(MOVEMENT_STAGE).sort(), [...columns].sort());
 
   // One stage holds one timestamp, so two columns sharing a stage would mean
