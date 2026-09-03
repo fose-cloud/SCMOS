@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
 import { QuoteCalculator } from "./QuoteCalculator";
+import { RateSheet } from "./RateSheet";
 import { RateInquiry } from "./RateInquiry";
 
 /**
@@ -27,8 +28,19 @@ type Quote = {
 
 const VEHICLES = ["20F", "40F", "20F DG", "40F DG", "4W", "6W", "10W", "4W DG", "6W DG", "10W DG", "20RF", "40RF", "20TK"];
 
-export function Quotation({ diesel, onDiesel, onToast }: {
-  diesel: number; onDiesel: (v: number) => void; onToast: (m: string) => void;
+export function Quotation({ diesel, onDiesel, canEditRates, onToast }: {
+  diesel: number;
+  onDiesel: (v: number) => void;
+  /**
+   * Whether this account may change a rate.
+   *
+   * Shown rather than enforced: the API refuses a write from an account without
+   * it, and this only decides whether the sheet offers a cursor and a box. A
+   * screen that hid the refusal would be the whole of the protection, which is
+   * the arrangement this codebase has had to unpick before.
+   */
+  canEditRates: boolean;
+  onToast: (m: string) => void;
 }) {
   const [customer, setCustomer] = useState("");
   const [destination, setDestination] = useState("");
@@ -43,7 +55,7 @@ export function Quotation({ diesel, onDiesel, onToast }: {
    * opens on the question, because that is the one somebody arrives here to do
    * — the rate book answers itself.
    */
-  const [view, setView] = useState<"inquiry" | "compare" | "calculate">("inquiry");
+  const [view, setView] = useState<"inquiry" | "compare" | "calculate" | "sheet">("inquiry");
 
   async function ask() {
     if (busy) return;
@@ -72,9 +84,10 @@ export function Quotation({ diesel, onDiesel, onToast }: {
       <div style={css("display:flex;gap:7px;flex-wrap:wrap")}>
         {([
           ["calculate", "คำนวณราคา", "Rate Calculator"],
+          ["sheet", "ตารางอัตรา", "Rate Sheet"],
           ["inquiry", "ขอราคาใหม่", "Rate Inquiry"],
           ["compare", "เทียบราคาที่มีอยู่", "Rate Comparison"],
-        ] as ["inquiry" | "compare" | "calculate", string, string][]).map(([key, th, en]) => {
+        ] as ["inquiry" | "compare" | "calculate" | "sheet", string, string][]).map(([key, th, en]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => setView(key)}
@@ -89,6 +102,9 @@ export function Quotation({ diesel, onDiesel, onToast }: {
       </div>
 
       {view === "calculate" && <QuoteCalculator onToast={onToast} />}
+
+      {/* The register in the workbook's own shape, typed into like My Job. */}
+      {view === "sheet" && <RateSheet canEdit={canEditRates} onToast={onToast} />}
 
       {view === "inquiry" && <RateInquiry onToast={onToast} />}
 

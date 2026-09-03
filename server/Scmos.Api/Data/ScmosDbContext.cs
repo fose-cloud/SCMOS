@@ -401,6 +401,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.Carriers).HasColumnName("carriers").HasMaxLength(400).HasDefaultValue("");
             entry.Property(e => e.Fcl).HasColumnName("fcl").HasDefaultValue(false);
             entry.Property(e => e.Lcl).HasColumnName("lcl").HasDefaultValue(false);
+            entry.Property(e => e.Domestic).HasColumnName("domestic").HasDefaultValue(false);
             entry.Property(e => e.Remark).HasColumnName("remark").HasMaxLength(600).HasDefaultValue("");
             entry.HasIndex(e => e.InquiryId).HasDatabaseName("rate_inquiry_lane_inquiry_idx");
         });

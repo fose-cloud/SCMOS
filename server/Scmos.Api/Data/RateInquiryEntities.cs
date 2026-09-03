@@ -83,6 +83,16 @@ public class RateInquiryLane
     public bool Fcl { get; set; }
     public bool Lcl { get; set; }
 
+    /// <summary>
+    /// A domestic move — the workbook's third tick beside FCL and LCL.
+    ///
+    /// Read from the sheet since the importer was written and dropped on the
+    /// floor, because the lane had nowhere to put it. One row in the register
+    /// ticked Domestic and neither of the other two, and the register refused it
+    /// for naming no mode at all.
+    /// </summary>
+    public bool Domestic { get; set; }
+
     public string Remark { get; set; } = "";
 }
 

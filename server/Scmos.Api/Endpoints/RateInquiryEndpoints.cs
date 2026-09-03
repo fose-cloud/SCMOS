@@ -13,6 +13,9 @@ namespace Scmos.Api.Endpoints;
 /// that come back are the same commercial-in-confidence numbers the rate book
 /// holds. A Viewer sees neither.
 /// </summary>
+/// <summary>One cell of the rate sheet: which field, and what it becomes.</summary>
+public record CellBody(string? Field, string? Value);
+
 public static class RateInquiryEndpoints
 {
     public static void MapRateInquiries(this IEndpointRouteBuilder routes)
@@ -44,6 +47,44 @@ public static class RateInquiryEndpoints
                 mine == true ? user.OperatorId : null, customer, take ?? 50, token);
 
             return Results.Json(new { inquiries = rows, you = user.OperatorId });
+        });
+
+        /*
+         * The register laid out as the workbook lays it out — one row per lane,
+         * the request's own fields repeated down its rows.
+         *
+         * Paged here rather than in the browser: three thousand lanes with
+         * twenty-eight price columns is a quarter of a million cells.
+         */
+        group.MapGet("/sheet", async (string? q, string? customer, string? month,
+            int? page, int? per, HttpContext context, IUserAccessor users,
+            RateInquiryService inquiries, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await inquiries.SheetAsync(
+                q ?? "", customer ?? "", month ?? "", page ?? 1, per ?? 50, token));
+        });
+
+        // One cell, because that is how a grid is used — and because a
+        // whole-row save would overwrite whatever somebody else changed in the
+        // same second.
+        group.MapPost("/sheet/{laneId:long}", async (long laneId, [FromBody] CellBody body,
+            HttpContext context, IUserAccessor users, RateInquiryService inquiries,
+            AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง",
+                    StatusCodes.Status403Forbidden);
+
+            var result = await inquiries.SaveCellAsync(laneId, body.Field ?? "", body.Value ?? "", token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+            // A rate that moves is a rate somebody will ask about later.
+            await audit.RecordAsync(user, AuditActions.Update, "rate-inquiry",
+                result.Id.ToString(), result.Message, body.Field ?? "", "", body.Value ?? "", "", token);
+            return Results.Json(new { message = result.Message });
         });
 
         group.MapPost("", async ([FromBody] RateInquiryService.InquiryPost body, HttpContext context,

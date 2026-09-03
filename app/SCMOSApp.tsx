@@ -2716,7 +2716,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             )}
             {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
-            {screen === "quotation" && <Quotation diesel={diesel} onDiesel={setDiesel} onToast={setToast} />}
+            {screen === "quotation" && <Quotation diesel={diesel} onDiesel={setDiesel}
+              canEditRates={able("EditRates")} onToast={setToast} />}
 
             {screen === "postpone" && (
               <Postpone
