@@ -10,6 +10,7 @@ import { WorkflowPanel } from "./WorkflowPanel";
 import type { RateBook } from "../rates";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Truck Booking.
@@ -80,7 +81,7 @@ export function Booking({ jobs, book, diesel, canEdit, onAssign, onOpen, onToast
             />
           </div>
 
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
                 <tr>
@@ -131,7 +132,7 @@ export function Booking({ jobs, book, diesel, canEdit, onAssign, onOpen, onToast
                 )}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
 
           {pages > 1 && (
             <div style={css("padding:10px 16px;border-top:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;background:#FBFCFD")}>

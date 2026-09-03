@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import { chosenIn, matchesChosen, pickLabel } from "../app/scmos/filterChoices.ts";
@@ -37,8 +37,27 @@ test("period filters and their totals share the main filter bar", () => {
 
 test("table removes the horizontal helper bar and provides Excel-like zoom", () => {
   assert.doesNotMatch(table, /กลับคอลัมแรก|เลื่อนดูคอลัมทางขวา/);
-  assert.match(table, /type="range" min="50" max="150"/);
-  assert.match(table, /scmos\.table\.zoom/);
+  // The control itself moved to TableFrame when the plainer screens needed it
+  // too. What this asserts is that the grid still shows one, and takes it from
+  // there rather than keeping a second copy.
+  assert.match(table, /<ZoomBar zoom=\{zoom\}/);
+  assert.doesNotMatch(table, /type="range"/, "the grid must not carry its own slider");
+});
+
+test("every screen's zoom is the same control, remembered in one place", () => {
+  // Written twice it drifts: two sliders with different limits, or two keys, and
+  // the size of the type changes as you move between screens.
+  const frame = readFileSync(new URL("../app/scmos/TableFrame.tsx", import.meta.url), "utf8");
+  assert.match(frame, /type="range" min=\{LIMIT\.min\} max=\{LIMIT\.max\}/);
+  assert.match(frame, /scmos\.table\.zoom/);
+
+  // And nowhere else keeps a key or a slider of its own.
+  const screens = globSync("app/scmos/screens/*.tsx").concat(["app/scmos/DataTable.tsx"]);
+  for (const file of screens) {
+    const source = readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /scmos\.table\.zoom/, `${file} keeps its own zoom key`);
+    assert.doesNotMatch(source, /type="range" min="50"/, `${file} keeps its own slider`);
+  }
 });
 
 test("fullscreen table covers app chrome without hiding global overlays", () => {

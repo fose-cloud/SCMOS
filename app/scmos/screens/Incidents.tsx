@@ -7,6 +7,7 @@ import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import { STAGES, STAGE_TH } from "../incidentStages";
 
 /**
@@ -407,37 +408,39 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
 
       <div style={css("display:grid;grid-template-columns:" + (chosen ? "1fr 1.2fr" : "1fr") + ";gap:14px;align-items:start")}>
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
-          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-            <thead><tr>{["เลขที่", "หัวข้อ", "งาน", "หมวด", "ขั้นตอน", "กำหนด"].map((h) => (
-              <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
-            ))}</tr></thead>
-            <tbody>
-              {cases.map((c) => (
-                <tr key={c.id} onClick={() => setPicked(c.id === picked ? null : c.id)}
-                  style={css("cursor:pointer;border-bottom:1px solid #F1F5F9;background:" + (c.id === picked ? "#F2F7FC" : c.overdue ? "#FEF6F5" : "#fff"))}>
-                  <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;font-weight:600")}>{c.reference}</td>
-                  <td style={css(CELL + ";color:#0A2240")}>{c.title}</td>
-                  {/* Which shipment, not which key. A case with no job is a
-                      case about the operation rather than about a load, and
-                      says so instead of showing a blank. */}
-                  <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>
-                    {c.jobKey
-                      ? (() => {
-                        const job = byKey.get(c.jobKey);
-                        return job
-                          ? [job.jobCode || job.abs || job.container, job.customer].filter(Boolean).join(" · ")
-                          : c.jobKey;
-                      })()
-                      : "ไม่ผูกกับงาน"}
-                  </td>
-                  <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>{CATEGORY_TH[c.category] ?? c.category}</td>
-                  <td style={css(CELL + ";font-size:11.5px;color:" + (c.stage === "closed" ? "#16794C" : "#B45309"))}>{STAGE_TH[c.stage] ?? c.stage}</td>
-                  <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;color:" + (c.overdue ? "#B42318" : "#7B8CA0"))}>{c.dueDate || "—"}</td>
-                </tr>
-              ))}
-              {!cases.length && <tr><td colSpan={6} style={css("padding:28px;text-align:center;color:#94A3B8")}>ยังไม่มีเคส</td></tr>}
-            </tbody>
-          </table>
+          <ZoomBox>
+            <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
+              <thead><tr>{["เลขที่", "หัวข้อ", "งาน", "หมวด", "ขั้นตอน", "กำหนด"].map((h) => (
+                <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
+              ))}</tr></thead>
+              <tbody>
+                {cases.map((c) => (
+                  <tr key={c.id} onClick={() => setPicked(c.id === picked ? null : c.id)}
+                    style={css("cursor:pointer;border-bottom:1px solid #F1F5F9;background:" + (c.id === picked ? "#F2F7FC" : c.overdue ? "#FEF6F5" : "#fff"))}>
+                    <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;font-weight:600")}>{c.reference}</td>
+                    <td style={css(CELL + ";color:#0A2240")}>{c.title}</td>
+                    {/* Which shipment, not which key. A case with no job is a
+                        case about the operation rather than about a load, and
+                        says so instead of showing a blank. */}
+                    <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>
+                      {c.jobKey
+                        ? (() => {
+                          const job = byKey.get(c.jobKey);
+                          return job
+                            ? [job.jobCode || job.abs || job.container, job.customer].filter(Boolean).join(" · ")
+                            : c.jobKey;
+                        })()
+                        : "ไม่ผูกกับงาน"}
+                    </td>
+                    <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>{CATEGORY_TH[c.category] ?? c.category}</td>
+                    <td style={css(CELL + ";font-size:11.5px;color:" + (c.stage === "closed" ? "#16794C" : "#B45309"))}>{STAGE_TH[c.stage] ?? c.stage}</td>
+                    <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;color:" + (c.overdue ? "#B42318" : "#7B8CA0"))}>{c.dueDate || "—"}</td>
+                  </tr>
+                ))}
+                {!cases.length && <tr><td colSpan={6} style={css("padding:28px;text-align:center;color:#94A3B8")}>ยังไม่มีเคส</td></tr>}
+              </tbody>
+            </table>
+          </ZoomBox>
         </div>
 
         {chosen && (

@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { stageThai, stamp } from "./WorkflowPanel";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Audit.
@@ -172,7 +173,7 @@ function TrailTable({ rows, denied, query, onQuery }: {
             ยังไม่มีการบันทึก — ประวัติจะเริ่มสะสมเมื่อมีการแก้ไขข้อมูล
           </div>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead><tr>{["เวลา", "ผู้ใช้", "การกระทำ", "รายการ", "เดิม → ใหม่", "เหตุผล", "IP / Session"].map((h) => (
                 <th key={h} style={css("position:sticky;top:0;background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
@@ -218,7 +219,7 @@ function TrailTable({ rows, denied, query, onQuery }: {
                 })}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
     </div>
@@ -266,7 +267,7 @@ function WorkflowLog({ entries, kind, onKind, query, onQuery }: {
           </div>
         )}
         {entries.length > 0 && (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
                 <tr>{["เวลา", "ประเภท", "งาน", "จาก → ไป", "บันทึก", "โดย"].map((h) => (
@@ -293,7 +294,7 @@ function WorkflowLog({ entries, kind, onKind, query, onQuery }: {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
     </div>

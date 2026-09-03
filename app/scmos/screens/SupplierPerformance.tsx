@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
 import { ALL_PERIOD, monthLabel, periodLabel, type Period } from "../period";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * The carrier scorecard, one page for all of them.
@@ -161,7 +162,7 @@ export function SupplierPerformance({ onToast, onBack }: {
                 คะแนนถ่วงน้ำหนักคิดจากน้ำหนักที่วัดได้จริง ไม่ใช่ 100 เสมอ
               </div>
             </div>
-            <div style={css("overflow-x:auto")}>
+            <ZoomBox>
               <table style={css("width:100%;border-collapse:collapse;font-size:12px")}>
                 <thead>
                   <tr>
@@ -202,7 +203,7 @@ export function SupplierPerformance({ onToast, onBack }: {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ZoomBox>
             {shown.length === 0 && (
               <div style={css("padding:22px;text-align:center;font-size:12.5px;color:#16794C")}>
                 ไม่มีผู้ขนส่งที่ต่ำกว่าเป้าในช่วงนี้

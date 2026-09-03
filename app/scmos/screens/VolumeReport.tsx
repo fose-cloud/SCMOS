@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { isCancelled, type Job } from "../ops";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import {
   busiest, byField, byOperator, byPeriod, owner, type Grain, type Scope, type Tally,
 } from "../volumeReport";
@@ -244,7 +245,7 @@ function Section({ title, note, tallied, first, limit }: {
           ไม่มีงานในช่วงที่เลือก
         </div>
       ) : (
-        <div style={css("overflow-x:auto")}>
+        <ZoomBox>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead>
               <tr>
@@ -291,7 +292,7 @@ function Section({ title, note, tallied, first, limit }: {
               </tr>
             </tbody>
           </table>
-        </div>
+        </ZoomBox>
       )}
 
       {limit > 0 && tallied.rows.length > limit && (

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css, STATUS_RE } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import type { Period } from "../period";
 import type { Job } from "../ops";
 import { PeriodBar } from "../PeriodBar";
@@ -263,7 +264,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
               style={css("height:31px;padding:0 14px;border:1px solid #0A2240;background:" + (exporting ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
             >{exporting ? "กำลังสร้าง…" : "ดาวน์โหลด Excel"}</button>
           </div>
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
                 <tr>{["ตัวชี้วัด", "ค่า", "เป้า", "แนวโน้ม", "ฐานที่วัด", "รายละเอียด"].map((h, i) => (
@@ -328,7 +329,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                 })}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         </div>
       )}
 
@@ -350,7 +351,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                   : "")
           }
         >
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
                 <tr>
@@ -468,7 +469,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
 
           {/* What each column counts, said once under the table rather than in
               six tooltips nobody hovers over. */}
@@ -692,7 +693,7 @@ function Panel({ title, note, children }: { title: string; note: string; childre
         <div style={css("font-size:13px;font-weight:650;color:#0A2240")}>{title}</div>
         <div style={css("font-size:11.5px;color:#94A3B8;margin-top:1px")}>{note}</div>
       </div>
-      <div style={css("overflow-x:auto")}>{children}</div>
+      <ZoomBox>{children}</ZoomBox>
     </div>
   );
 }

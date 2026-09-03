@@ -8,6 +8,7 @@ import {
 import { parseIssueWorkbook } from "../issuesExcel";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import { apiFetch } from "../api";
 import { useCarriers } from "../carriers";
 
@@ -343,7 +344,7 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
               : "ไม่มีรายการที่ตรงกับตัวกรอง"}
           </Note>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             {/* One input for the whole table. A file input per row would be a
                 hundred of them on a busy month, all kept alive by the browser. */}
             <input
@@ -488,7 +489,7 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
 

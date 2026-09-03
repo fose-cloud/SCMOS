@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import { stamp } from "./WorkflowPanel";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Pre-run verification.
@@ -130,7 +131,7 @@ export function PreRun({ jobs, canEdit, onToast }: {
           </div>
 
           <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
-            <div style={css("overflow-x:auto")}>
+            <ZoomBox>
               <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
                 <thead>
                   <tr>{["ลูกค้า", "ผู้ขนส่ง", "ประเภท", "เวลาแผน", "สถานะ", "ตอบใน", ""].map((h) => (
@@ -152,7 +153,7 @@ export function PreRun({ jobs, canEdit, onToast }: {
                   )}
                 </tbody>
               </table>
-            </div>
+            </ZoomBox>
           </div>
         </>
       )}

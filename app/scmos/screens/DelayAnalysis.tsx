@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { delayCauses } from "../delayCauses";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import {
   appendTripDetail, buildDelayReport, delayReportName, delayReportWorkbook,
 } from "../delayReport";
@@ -205,32 +206,34 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
               {causes.total ? ` (${Math.round((causes.unexplained / causes.total) * 100)}% ของเที่ยวที่สาย)` : ""}
             </div>
           </div>
-          <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
-            <tbody>
-              {causes.rows.map((row) => (
-                <tr key={row.label}>
-                  <td style={css(TD + (row.kind === "cause" ? ";font-weight:600;color:#0A2240" : ";color:#94A3B8"))}>
-                    {row.label}
-                    {row.wordings.length > 0 && (
-                      <div style={css("font-weight:400;color:#94A3B8;font-size:10.5px;margin-top:2px")}>
-                        {row.wordings.slice(0, 3).map(([text, count]) => `${text} (${count})`).join(" · ")}
-                        {row.wordings.length > 3 ? ` · +${row.wordings.length - 3} แบบ` : ""}
-                      </div>
-                    )}
-                  </td>
-                  <td style={css(TD + ";width:100px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
-                    {row.trips} เที่ยว
-                  </td>
-                  <td style={css(TD + ";width:90px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#7B8CA0")}>
-                    {causes.total ? Math.round((row.trips / causes.total) * 100) + "%" : "—"}
-                  </td>
-                  <td style={css(TD + ";width:150px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#7B8CA0")}>
-                    รวม {lateLabel(row.minutes)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ZoomBox>
+            <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
+              <tbody>
+                {causes.rows.map((row) => (
+                  <tr key={row.label}>
+                    <td style={css(TD + (row.kind === "cause" ? ";font-weight:600;color:#0A2240" : ";color:#94A3B8"))}>
+                      {row.label}
+                      {row.wordings.length > 0 && (
+                        <div style={css("font-weight:400;color:#94A3B8;font-size:10.5px;margin-top:2px")}>
+                          {row.wordings.slice(0, 3).map(([text, count]) => `${text} (${count})`).join(" · ")}
+                          {row.wordings.length > 3 ? ` · +${row.wordings.length - 3} แบบ` : ""}
+                        </div>
+                      )}
+                    </td>
+                    <td style={css(TD + ";width:100px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
+                      {row.trips} เที่ยว
+                    </td>
+                    <td style={css(TD + ";width:90px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#7B8CA0")}>
+                      {causes.total ? Math.round((row.trips / causes.total) * 100) + "%" : "—"}
+                    </td>
+                    <td style={css(TD + ";width:150px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#7B8CA0")}>
+                      รวม {lateLabel(row.minutes)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ZoomBox>
           <div style={css("padding:10px 16px;border-top:1px solid #F1F5F9;font-size:10.5px;color:#94A3B8;line-height:1.6")}>
             แถวสีจางคือข้อความที่ไม่ใช่สาเหตุ — บันทึกสถานะ นัดรับตู้ที่ลงผิดช่อง หรือเวลาลอย ๆ
             แยกไว้ไม่ให้ปนกับสาเหตุจริง แต่แสดงจำนวนไว้ เพราะช่องเหตุผลที่เต็มไปด้วยบันทึกสถานะก็เป็นสิ่งที่ต้องรู้
@@ -246,7 +249,7 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
               : "ไม่มีเที่ยวที่สายในขอบเขตนี้"}
           </div>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
               <thead>
                 <tr>{COLUMNS.map((column) => <th key={column.head} style={TH}>{column.head}</th>)}</tr>
@@ -268,7 +271,7 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
 

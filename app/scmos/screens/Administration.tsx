@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
 import { clearOwnerJobs } from "../store";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Who may sign in, and what each of them may do.
@@ -367,7 +368,7 @@ export function Administration({ jobs, me, onToast }: {
           </div>
         )}
 
-        <div style={css("overflow-x:auto")}>
+        <ZoomBox>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead><tr>{["รหัส", "ชื่อ", "อีเมล", "บทบาท", "งาน", "สถานะ", ""].map((h, i) => (
               <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:" + (i === 4 ? "right" : "left") +
@@ -465,7 +466,7 @@ ${person.email}?`)) return;
               })}
             </tbody>
           </table>
-        </div>
+        </ZoomBox>
 
         <div style={css("padding:11px 16px;border-top:1px solid #E9EFF5;font-size:11.5px;color:#94A3B8;line-height:1.6")}>
           ไม่มีปุ่มลบ — คนที่ลาออกยังเป็นเจ้าของงานที่เคยทำ ลบแถวทิ้งจะทำให้งานเหล่านั้นไม่มีเจ้าของ
@@ -479,7 +480,7 @@ ${person.email}?`)) return;
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;font-size:12.5px;font-weight:650;color:#0A2240")}>
           สิทธิ์ตามบทบาท · {dir.roles.length} บทบาท
         </div>
-        <div style={css("overflow-x:auto")}>
+        <ZoomBox>
           <table style={css("border-collapse:collapse;font-size:12px;min-width:100%")}>
             <thead>
               <tr>
@@ -518,7 +519,7 @@ ${person.email}?`)) return;
               ))}
             </tbody>
           </table>
-        </div>
+        </ZoomBox>
         <div style={css("padding:11px 16px;border-top:1px solid #E9EFF5;font-size:11.5px;color:#94A3B8;line-height:1.6")}>
           บทบาทที่ระบบไม่รู้จักจะได้สิทธิ์เท่า Viewer ไม่ใช่ค่าเริ่มต้น — พิมพ์บทบาทผิดควรทำให้เสียสิทธิ์ตัวเอง ไม่ใช่ได้สิทธิ์คนอื่น
         </div>

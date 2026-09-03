@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { badge, css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import { readWorkbook, type ImportRead } from "../rateInquiryImport";
 
 /**
@@ -395,7 +396,7 @@ export function RateInquiry({ onToast }: { onToast: (message: string) => void })
             ยังไม่มีใบขอราคาในระบบ — ใบแรกที่สร้างจะขึ้นตรงนี้
           </div>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
               <thead>
                 <tr>
@@ -428,7 +429,7 @@ export function RateInquiry({ onToast }: { onToast: (message: string) => void })
                 })}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
     </div>

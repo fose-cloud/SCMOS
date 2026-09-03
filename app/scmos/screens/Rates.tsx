@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { bandForDiesel, priceFor, vehiclesIn, type RateBook, type RateLane } from "../rates";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Transportation rates, as the subcontractors actually quoted them.
@@ -192,7 +193,7 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
           </span>
         </div>
 
-        <div style={css("overflow-x:auto")}>
+        <ZoomBox>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead>
               <tr>
@@ -236,7 +237,7 @@ export function Rates({ book, error, diesel, onDiesel, onToast }: Props) {
               )}
             </tbody>
           </table>
-        </div>
+        </ZoomBox>
 
         {pages > 1 && (
           <div style={css("padding:10px 16px;border-top:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;background:#FBFCFD")}>

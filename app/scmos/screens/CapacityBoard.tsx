@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import { VehicleTypes } from "./VehicleTypes";
 
 /**
@@ -158,7 +159,7 @@ export function CapacityBoard({ canEdit, canAdmin, onToast }:
 
       {board.cells.length > 0 && (
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead><tr>{["ผู้ขนส่ง", "วันที่", "ประเภทรถ", "มี", "รับไว้", "ว่าง", "งานตามแผน", "แจ้งโดย"].map((h, i) => (
                 <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:" + (i >= 3 && i <= 6 ? "right" : "left") + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
@@ -179,7 +180,7 @@ export function CapacityBoard({ canEdit, canAdmin, onToast }:
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         </div>
       )}
     </div>

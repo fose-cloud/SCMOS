@@ -9,6 +9,7 @@ import { stamp } from "./WorkflowPanel";
 import { byLoadingDate, filled } from "../booking";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import { MonitorBoard } from "./MonitorBoard";
 
 /**
@@ -152,7 +153,7 @@ function Journey({ jobs, canEdit, onToast, focus }: {
             style={css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;min-width:220px")}
           />
         </div>
-        <div style={css("max-height:calc(100vh - 220px);overflow-y:auto")}>
+        <ZoomBox height="calc(100vh - 220px)">
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead>
               <tr>{["วันที่", "ลูกค้า", "ผู้ขนส่ง", "ทะเบียน"].map((h) => (
@@ -177,7 +178,7 @@ function Journey({ jobs, canEdit, onToast, focus }: {
               )}
             </tbody>
           </table>
-        </div>
+        </ZoomBox>
       </div>
 
       {job && track && (

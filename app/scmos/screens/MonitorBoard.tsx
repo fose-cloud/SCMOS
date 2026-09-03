@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * The supervisor's three questions.
@@ -211,7 +212,7 @@ function Card({ title, note, children }: { title: string; note: string; children
         <div style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>{title}</div>
         <div style={css("font-size:11.5px;color:#7B8CA0;margin-top:2px")}>{note}</div>
       </div>
-      <div style={css("overflow-x:auto")}>{children}</div>
+      <ZoomBox>{children}</ZoomBox>
     </div>
   );
 }

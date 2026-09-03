@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { css, STATUS_LADDER, STATUS_TH } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import { useRemembered } from "../pageCache";
 import type { Ship } from "../demo";
 import type { WsTarget } from "../alerts";
@@ -697,7 +698,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
         </button>
       }>
         {delayedList.length ? (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
               <thead>
                 <tr>
@@ -720,7 +721,7 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         ) : (
           <span style={css("font-size:11.5px;color:#94A3B8")}>ไม่มีงานล่าช้าในแผนนี้</span>
         )}

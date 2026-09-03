@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { isCancelled, prep, wasMoved, type Job } from "../ops";
 import { loadChangedJobs } from "../store";
 import { badge, css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Jobs whose plan changed: moved to another day, or called off.
@@ -166,7 +167,7 @@ export function Postpone({ me, onOpenJob }: {
               : "ไม่มีงานที่ตรงกับตัวกรองนี้"}
           </div>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12px")}>
               <thead>
                 <tr>
@@ -212,7 +213,7 @@ export function Postpone({ me, onOpenJob }: {
                 })}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
 

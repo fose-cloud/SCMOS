@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { css } from "./theme";
+import { ZoomBar, useTableZoom } from "./TableFrame";
 import type { Cell, Col } from "./util";
 
 export type TableRow = {
@@ -94,28 +95,10 @@ export function DataTable(p: Props) {
   const box = useRef<HTMLDivElement | null>(null);
   const shell = useRef<HTMLDivElement | null>(null);
   const [native, setNative] = useState(false);
-  const [zoom, setZoom] = useState(100);
+  const [zoom, changeZoom] = useTableZoom();
   const activeCell = model.rows
     .flatMap((row) => row.cells.map((cell, column) => cell.active ? row.key + ":" + column : ""))
     .find(Boolean) ?? "";
-
-  // Keep the Excel-like zoom level when a filter swaps one category grid for
-  // another. sessionStorage deliberately forgets it when the browser tab ends.
-  useEffect(() => {
-    const read = window.setTimeout(() => {
-      try {
-        const remembered = Number(window.sessionStorage.getItem("scmos.table.zoom"));
-        if (remembered >= 50 && remembered <= 150) setZoom(remembered);
-      } catch { /* Storage may be blocked; zoom still works for this grid. */ }
-    }, 0);
-    return () => window.clearTimeout(read);
-  }, []);
-
-  const changeZoom = (next: number) => {
-    const value = Math.max(50, Math.min(150, Math.round(next / 5) * 5));
-    setZoom(value);
-    try { window.sessionStorage.setItem("scmos.table.zoom", String(value)); } catch { /* optional */ }
-  };
 
   // Arrow navigation can move beyond the part of a wide grid that is visible.
   // Keep its active cell in view just as a spreadsheet does; the surrounding
@@ -379,21 +362,7 @@ export function DataTable(p: Props) {
             Next ›
           </button>
           <span style={css("width:1px;height:22px;background:#D8E0E8;margin:0 5px")} />
-          <button type="button" aria-label="ย่อตาราง" title="ย่อตาราง"
-            disabled={zoom <= 50} onClick={() => changeZoom(zoom - 5)}
-            style={css("width:24px;height:24px;border:0;background:transparent;color:" + (zoom <= 50 ? "#CBD5E1" : "#64748B") + ";font-size:17px;cursor:" + (zoom <= 50 ? "default" : "pointer"))}>
-            −
-          </button>
-          <input type="range" min="50" max="150" step="5" value={zoom}
-            onChange={(e) => changeZoom(Number(e.target.value))}
-            aria-label="ขนาดตาราง" title={`ขนาดตาราง ${zoom}%`}
-            style={css("width:105px;height:4px;accent-color:#2E7DD1;cursor:pointer")} />
-          <button type="button" aria-label="ขยายตาราง" title="ขยายตาราง"
-            disabled={zoom >= 150} onClick={() => changeZoom(zoom + 5)}
-            style={css("width:24px;height:24px;border:0;background:transparent;color:" + (zoom >= 150 ? "#CBD5E1" : "#64748B") + ";font-size:17px;cursor:" + (zoom >= 150 ? "default" : "pointer"))}>
-            +
-          </button>
-          <span style={css("width:38px;text-align:right;font-size:11.5px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>{zoom}%</span>
+          <ZoomBar zoom={zoom} onZoom={changeZoom} />
         </div>
       </div>
     </div>

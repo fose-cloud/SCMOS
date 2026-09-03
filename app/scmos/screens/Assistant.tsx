@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * What the assistant may do, and what is waiting for a person.
@@ -143,7 +144,7 @@ export function Assistant({ canApprove, onToast, onOpenJob }: {
             ยังไม่มีรายการ — ผู้ช่วยยังไม่ได้เสนอการเปลี่ยนแปลงใด
           </div>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead><tr>{["เครื่องมือ", "เรื่อง", "ผู้ขอ", "เมื่อ", "สถานะ", ""].map((h) => (
                 <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
@@ -185,7 +186,7 @@ export function Assistant({ canApprove, onToast, onOpenJob }: {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
 

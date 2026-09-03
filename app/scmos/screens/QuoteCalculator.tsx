@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 import {
   BASIS_TH, type OptionBasis, type QuoteOption, type VehicleRate, quote,
 } from "../quoteRate";
@@ -170,40 +171,42 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
             {card.vehicles.find((one) => one.code === vehicle)?.label} ·
             {" "}{Number(km.replace(/,/g, "")).toLocaleString()} กม.{dg ? " · DG" : ""}
           </div>
-          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-            <tbody>
-              {answer.lines.map((line, at) => (
-                <tr key={at} style={css("border-bottom:1px solid #F4F7FA")}>
-                  <td style={css("padding:7px 16px;color:#31465C;width:190px")}>{line.label}</td>
-                  <td style={css("padding:7px 8px;color:#94A3B8;font-size:11.5px")}>{line.detail}</td>
-                  <td style={css("padding:7px 16px;text-align:right;font-family:ui-monospace,monospace;color:#0A2240")}>
-                    {baht(line.amount)}
+          <ZoomBox>
+            <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
+              <tbody>
+                {answer.lines.map((line, at) => (
+                  <tr key={at} style={css("border-bottom:1px solid #F4F7FA")}>
+                    <td style={css("padding:7px 16px;color:#31465C;width:190px")}>{line.label}</td>
+                    <td style={css("padding:7px 8px;color:#94A3B8;font-size:11.5px")}>{line.detail}</td>
+                    <td style={css("padding:7px 16px;text-align:right;font-family:ui-monospace,monospace;color:#0A2240")}>
+                      {baht(line.amount)}
+                    </td>
+                  </tr>
+                ))}
+                <tr style={css("border-top:1px solid #E2E8F0;background:#F8FAFC")}>
+                  <td style={css("padding:8px 16px;font-weight:600;color:#31465C")}>ต้นทุนรวม</td>
+                  <td />
+                  <td style={css("padding:8px 16px;text-align:right;font-family:ui-monospace,monospace;font-weight:600;color:#0A2240")}>
+                    {baht(answer.cost)}
                   </td>
                 </tr>
-              ))}
-              <tr style={css("border-top:1px solid #E2E8F0;background:#F8FAFC")}>
-                <td style={css("padding:8px 16px;font-weight:600;color:#31465C")}>ต้นทุนรวม</td>
-                <td />
-                <td style={css("padding:8px 16px;text-align:right;font-family:ui-monospace,monospace;font-weight:600;color:#0A2240")}>
-                  {baht(answer.cost)}
-                </td>
-              </tr>
-              <tr style={css("background:#F8FAFC")}>
-                <td style={css("padding:7px 16px;color:#31465C")}>กำไร {margin || 0}%</td>
-                <td />
-                <td style={css("padding:7px 16px;text-align:right;font-family:ui-monospace,monospace;color:#16794C")}>
-                  {baht(answer.margin)}
-                </td>
-              </tr>
-              <tr style={css("background:#0A2240")}>
-                <td style={css("padding:10px 16px;font-weight:650;color:#fff;font-size:13px")}>ราคาเสนอลูกค้า</td>
-                <td />
-                <td style={css("padding:10px 16px;text-align:right;font-family:ui-monospace,monospace;font-weight:650;color:#fff;font-size:15px")}>
-                  {baht(answer.total)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                <tr style={css("background:#F8FAFC")}>
+                  <td style={css("padding:7px 16px;color:#31465C")}>กำไร {margin || 0}%</td>
+                  <td />
+                  <td style={css("padding:7px 16px;text-align:right;font-family:ui-monospace,monospace;color:#16794C")}>
+                    {baht(answer.margin)}
+                  </td>
+                </tr>
+                <tr style={css("background:#0A2240")}>
+                  <td style={css("padding:10px 16px;font-weight:650;color:#fff;font-size:13px")}>ราคาเสนอลูกค้า</td>
+                  <td />
+                  <td style={css("padding:10px 16px;text-align:right;font-family:ui-monospace,monospace;font-weight:650;color:#fff;font-size:15px")}>
+                    {baht(answer.total)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </ZoomBox>
         </div>
       )}
 
@@ -254,7 +257,7 @@ function CardEditor({ card, busy, onSave }: {
             ตารางนี้ใช้ร่วมกันทั้งทีม — แก้แล้วมีผลกับทุกคนที่เสนอราคาหลังจากนี้ และทุกการแก้ไขถูกบันทึกไว้ใน Audit
           </div>
 
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12px;min-width:560px")}>
               <thead>
                 <tr style={css("background:#F8FAFC")}>
@@ -311,7 +314,7 @@ function CardEditor({ card, busy, onSave }: {
                 })}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
 
           <ExtrasEditor card={card} busy={busy} onSave={onSave} />
           <MarginEditor card={card} busy={busy} onSave={onSave} />

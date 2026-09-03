@@ -10,6 +10,7 @@ import {
 } from "../rotation";
 import { parseRotationWorkbook } from "../rotationExcel";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Who is responsible for which customer.
@@ -252,7 +253,7 @@ export function JobRotation({ me, canManage, onToast }: {
                 : "ไม่มีลูกค้าที่ตรงกับคำค้น"}
           </Note>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
               <thead>
                 <tr>
@@ -308,7 +309,7 @@ export function JobRotation({ me, canManage, onToast }: {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
 

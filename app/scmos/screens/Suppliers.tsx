@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * The supplier register.
@@ -378,7 +379,7 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
             </div>
           </div>
         )}
-        <div style={css("overflow-x:auto")}>
+        <ZoomBox>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead><tr>{["รหัส", "ชื่อ", "สถานะ", "งาน", "เส้นทางราคา", "คะแนนล่าสุด", "ชื่อที่สะกดต่างกัน"].map((h, i) => (
               <th key={h} style={css("position:sticky;top:0;background:#F8FAFC;padding:8px 12px;text-align:" + (i >= 3 && i <= 5 ? "right" : "left") + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
@@ -402,7 +403,7 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
               ))}
             </tbody>
           </table>
-        </div>
+        </ZoomBox>
       </div>
 
       {picked !== null && canManage && (

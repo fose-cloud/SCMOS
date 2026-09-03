@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
+import { ZoomBox } from "../TableFrame";
 
 /**
  * Every file the system holds, and where each one is in its ten-year life.
@@ -121,7 +122,7 @@ export function Documents({ canReview }: { canReview: boolean }) {
             ยังไม่มีไฟล์ — อัปโหลดได้จากหน้า CAR/PAR, Supplier หรือ Document Verification
           </div>
         ) : (
-          <div style={css("overflow-x:auto")}>
+          <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead><tr>{["ไฟล์", "ที่เก็บ", "ผูกกับ", "ขนาด", "อายุ / ชั้น", "หมดอายุ", "อัปโหลดโดย"].map((h) => (
                 <th key={h} style={css("position:sticky;top:0;background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
@@ -169,7 +170,7 @@ export function Documents({ canReview }: { canReview: boolean }) {
                 })}
               </tbody>
             </table>
-          </div>
+          </ZoomBox>
         )}
       </div>
     </div>
