@@ -397,8 +397,13 @@ function Receipt({ form, lines, onField, onLine }: {
 
     {/* The mark, where the paper form carries it. Absolute so it sits beside
         the two title lines without pushing them off centre — they are centred
-        on the sheet, not on the space left over next to a logo. */}
-    <img src="/cargo-logo.png" alt="Leschaco"
+        on the sheet, not on the space left over next to a logo.
+
+        Its own file, not the one in the app's header. That one is drawn white
+        for the navy band it sits on, which on a white sheet prints as a navy
+        block and costs a cartridge to say what a letterhead says with ink on
+        the letters. This one is the mark itself, dark on nothing. */}
+    <img src="/cargo-receipt-logo.png" alt="Leschaco"
       style={css("position:absolute;top:6px;right:10px;height:26px;width:auto")} />
 
     <div style={css("display:flex;gap:6px;font-size:10.5px;margin-top:2px")}>
