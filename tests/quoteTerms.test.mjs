@@ -108,3 +108,29 @@ test("labour is excluded on both halves", () => {
       `${block.key} does not say labour is excluded`);
   }
 });
+
+test("the file's five disagreements are settled the team's way", () => {
+  // The ruling of 3 September 2026: what the team supplied is the schedule and
+  // the workbook is corrected to match. Written as tests because the file is
+  // the older artefact and looks like the source — somebody reconciling the
+  // two later would reasonably assume the spreadsheet won.
+  const fcl = QUOTE_TERMS.find((block) => block.key === "FCL");
+  const lcl = QUOTE_TERMS.find((block) => block.key === "LCL");
+
+  const axles = fcl.charges.find((one) => /หาง 3 เพลา/.test(one.what));
+  assert.match(axles.what, /25 ตัน/, "the file says 23 tonnes; 25 is the rule");
+
+  const bmt = fcl.charges.find((one) => /BMT/.test(one.what));
+  assert.match(bmt.what, /Siam River/, "the file's return list is missing Siam River");
+
+  const overnight = fcl.charges.find((one) => one.what === "Trailer head overnight charge");
+  assert.equal(overnight.basis, "percent", "the file writes this as 1 /NIGHT/TRIP");
+  assert.equal(overnight.amount, 100);
+
+  // Two the file does not carry at all.
+  assert.ok(fcl.charges.some((one) => /Cargo handling alongside vessel/.test(one.what)));
+  assert.ok(fcl.charges.some((one) => /reefer genset/i.test(one.what)));
+
+  // And a block it does not carry at all.
+  assert.equal(lcl.charges.length, 10, "the file has no LCL block; these ten live only here");
+});

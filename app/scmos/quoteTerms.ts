@@ -7,20 +7,25 @@
  * anywhere in this app. It lived in the workbook's Remarks sheet and in the
  * heads of the people who quote.
  *
- * <h3>Which copy this is</h3>
+ * <h3>Which copy is right</h3>
  *
- * The workbook has a Remarks sheet and it does not agree with the schedule the
- * team is working to. Taken line by line on 3 September 2026, the file is
- * behind in five places: the three-axle chassis threshold is 23 tonnes there
- * and 25 here; the BMT return list is missing Siam River; the trailer-head
- * overnight charge reads "1 /NIGHT/TRIP" where it is a percentage of the truck
- * rate; and two charges are absent altogether — cargo handling alongside vessel
- * and the reefer genset idling charge on FCL. The file has no LCL block at all.
+ * This one. Asked directly on 3 September 2026, the team ruled that what they
+ * supplied is the schedule and that `Rate Inquiry.xlsx` is to be corrected to
+ * match it — not the other way round. That is worth writing down, because the
+ * file is the older artefact and looks like the source: the next person to
+ * find the two disagreeing would reasonably assume the spreadsheet won.
  *
- * So this is the newer copy, and it is written down here rather than left as a
- * third one somebody remembers. The file needs correcting; until it is, this is
- * what the screen shows, and the differences are listed above so nobody has to
- * diff them again.
+ * It is behind in five places, taken line by line on the same day. The
+ * three-axle chassis threshold is 23 tonnes in the file and 25 here; the BMT
+ * return list is missing Siam River; the trailer-head overnight charge reads
+ * "1 /NIGHT/TRIP" where it is a percentage of the truck rate; and two charges
+ * are absent altogether — cargo handling alongside vessel, and the reefer
+ * genset idling charge on FCL. The file has no LCL block at all, so all ten of
+ * those conditions are here and nowhere else.
+ *
+ * `exportQuoteTerms` in excel.ts writes this back out in the Remarks sheet's
+ * own shape, so the file can be brought up to date by pasting rather than by
+ * retyping twenty-nine rows — which is how the next disagreement would start.
  *
  * <h3>Wording</h3>
  *

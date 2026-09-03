@@ -5,6 +5,7 @@ import type { RateBook } from "./rates";
 import { DEFAULT_STATUS, legacyStatus, normaliseJob, validateJob, clean, type Fix, type Issue } from "./standard";
 import { inferImportCategory, sheetImportCategory, type ImportCategory } from "./excelImportCategory";
 import { SHEET_COLUMNS, cellText, type SheetRow } from "./rateSheetColumns";
+import { QUOTE_TERMS, chargeText } from "./quoteTerms";
 import { STATUS_LADDER, STATUS_TH } from "./theme";
 import { dowOf, pad } from "./util";
 
@@ -893,6 +894,52 @@ export function exportRateSheet(rows: SheetRow[], scopeLabel: string): string {
   XLSX.utils.book_append_sheet(book, sheet, "Rate Inquiry");
 
   const filename = `SCMOS_Rate_Inquiry_${scopeLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(book, filename);
+  return filename;
+}
+
+/**
+ * The quotation's conditions, in the shape the workbook's Remarks sheet has.
+ *
+ * The app holds the schedule the team actually quotes to and the file is
+ * behind it — the customer settled that on 3 September 2026 — so the file has
+ * to be brought up to date, and twenty-nine rows retyped by hand is how a
+ * fresh disagreement gets introduced while fixing the old one. Four columns,
+ * spelled the way the sheet spells them, so a block can be pasted straight in.
+ *
+ * The amount and its unit stay in separate columns rather than being joined,
+ * for the same reason they are separate on screen: the file already holds the
+ * cancellation charges as 1 and 0.8 because somebody read a percentage as a
+ * number, and a single "80% OF TRUCK RATE" cell invites the next person to
+ * store 0.8 again.
+ */
+export function exportQuoteTerms(): string {
+  const headers = ["BLOCK", "CONDITION", "AMOUNT", "PER"];
+  const out: Record<string, string>[] = [];
+
+  for (const block of QUOTE_TERMS) {
+    for (const charge of block.charges) {
+      out.push({
+        BLOCK: block.key,
+        CONDITION: charge.what,
+        AMOUNT: chargeText(charge),
+        PER: charge.per,
+      });
+    }
+    // The stars carried through as they are written, on their own rows. They
+    // qualify the block rather than charging for anything, and folding them
+    // into a charge row would make each one look like a price.
+    for (const note of block.notes) {
+      out.push({ BLOCK: block.key, CONDITION: "*** " + note, AMOUNT: "", PER: "" });
+    }
+  }
+
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(out, { header: headers });
+  sheet["!cols"] = autoWidth(out, headers);
+  XLSX.utils.book_append_sheet(book, sheet, "Remarks");
+
+  const filename = `SCMOS_Quotation_Terms_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(book, filename);
   return filename;
 }

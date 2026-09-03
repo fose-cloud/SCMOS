@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { exportQuoteTerms } from "../excel";
 import { QUOTE_TERMS, chargeText, type Charge, type TermBlock } from "../quoteTerms";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
@@ -22,7 +23,7 @@ import { css } from "../theme";
  * other; the search box narrows both at once for the same reason.
  */
 
-export function QuoteTerms() {
+export function QuoteTerms({ onToast }: { onToast: (message: string) => void }) {
   const [find, setFind] = useState("");
   const wanted = find.trim().toLowerCase();
 
@@ -59,6 +60,18 @@ export function QuoteTerms() {
         <span style={css("font-size:11.5px;color:" + (wanted && !found ? "#B42318" : "#94A3B8"))}>
           {wanted ? `พบ ${found} จาก ${total} เงื่อนไข` : `${total} เงื่อนไข · LCL และ FCL`}
         </span>
+        {/*
+          Always the whole schedule, never what the search left. The file this
+          feeds is the one being corrected, and a Remarks sheet replaced with
+          the five rows somebody had filtered to would be a worse file than the
+          out-of-date one it replaced.
+        */}
+        <button onClick={() => onToast("บันทึกไฟล์ " + exportQuoteTerms() + " แล้ว")}
+          title="ดาวน์โหลดทั้ง 29 เงื่อนไขในรูปแบบชีท Remarks เพื่อนำไปวางทับในไฟล์ Rate Inquiry.xlsx"
+          style={css("height:31px;padding:0 13px;border:1px solid #0A2240;background:#0A2240;color:#fff;"
+            + "border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap")}>
+          Export Excel
+        </button>
       </div>
 
       {blocks.map(({ block, charges }) => (
@@ -66,18 +79,25 @@ export function QuoteTerms() {
       ))}
 
       {/*
-        Where the numbers come from, said on the screen rather than only in the
-        code. Somebody quoting from this page is entitled to know whether it is
-        the same schedule as the workbook they used to read — and right now it
-        is not, because the workbook is behind.
+        Which copy is right, said on the screen and not only in the code.
+        Somebody quoting from this page will also have the workbook open, and
+        the two do not agree — so the page has to say which of them to believe
+        rather than leaving them to guess from which one looks older.
       */}
-      <div style={css("background:#FFF9EC;border:1px solid #F0DCB4;border-left:3px solid #E0A33A;border-radius:5px;"
-        + "padding:11px 14px;font-size:11.5px;color:#6B5424;line-height:1.75")}>
-        <b>ที่มาของตัวเลข</b> — ชุดนี้คือฉบับที่ทีมใช้จริง ยังไม่ตรงกับชีท Remarks ในไฟล์ Rate Inquiry.xlsx
-        ซึ่งเก่ากว่าอยู่ 5 จุด: น้ำหนักที่ต้องใช้หาง 3 เพลาในไฟล์เป็น 23 ตัน (ที่นี่ 25 ตัน) ·
-        รายชื่อท่าคืนตู้ในไฟล์ไม่มี Siam River · ค่าค้างคืนหัวลากในไฟล์เขียนเป็น 1 /NIGHT/TRIP ·
-        และไฟล์ไม่มี 2 รายการนี้เลย คือ Cargo handling alongside vessel กับค่าเดินเครื่องทำความเย็นฝั่ง FCL ·
-        ในไฟล์ยังไม่มีบล็อก LCL เลย — <b>ควรแก้ไฟล์ให้ตรงกับหน้านี้</b>
+      <div style={css("background:#F2F8F4;border:1px solid #C6E0CF;border-left:3px solid #16794C;border-radius:5px;"
+        + "padding:11px 14px;font-size:11.5px;color:#2F4A3A;line-height:1.75")}>
+        <b>หน้านี้คือฉบับจริง</b> — ยึดตามชุดที่ทีมยืนยันเมื่อ 3 ก.ย. 2026 ·
+        ชีท <b>Remarks</b> ในไฟล์ Rate Inquiry.xlsx <b>เก่ากว่า และต้องแก้ให้ตรงกับหน้านี้</b>
+        <div style={css("margin-top:6px;color:#5A6B60")}>
+          ไฟล์ต่างอยู่ 5 จุด — น้ำหนักที่ต้องใช้หาง 3 เพลาในไฟล์เป็น 23 ตัน (ที่ถูกคือ 25 ตัน) ·
+          รายชื่อท่าคืนตู้ในไฟล์ไม่มี Siam River · ค่าค้างคืนหัวลากในไฟล์เขียนเป็น 1 /NIGHT/TRIP
+          (ที่ถูกคือ 100% ของค่าเที่ยว) · ไฟล์ไม่มี Cargo handling alongside vessel และ
+          ค่าเดินเครื่องทำความเย็นฝั่ง FCL · ไฟล์ไม่มีบล็อก LCL เลยทั้งบล็อก
+        </div>
+        <div style={css("margin-top:6px")}>
+          กด <b>Export Excel</b> ด้านบนเพื่อดาวน์โหลดทั้ง 29 เงื่อนไขในรูปแบบชีท Remarks
+          แล้วนำไปวางทับในไฟล์ได้เลย — ไม่ต้องพิมพ์ใหม่
+        </div>
       </div>
     </div>
   );

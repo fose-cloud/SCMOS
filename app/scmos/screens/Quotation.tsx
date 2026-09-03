@@ -77,7 +77,7 @@ export function Quotation({ view, onView, canEditRates, onToast }: {
       {view === "sheet" && <RateSheet canEdit={canEditRates} onToast={onToast} />}
 
       {/* What is charged on top of the rate — a page to read, not to type in. */}
-      {view === "terms" && <QuoteTerms />}
+      {view === "terms" && <QuoteTerms onToast={onToast} />}
     </div>
   );
 }
