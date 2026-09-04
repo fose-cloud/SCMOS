@@ -1691,6 +1691,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   function pasteCells(
     edits: { job: Job; field: keyof Job; value: string }[],
     how: "paste" | "clear" = "paste",
+    /**
+     * Cells a dropdown column already refused, counted by the screen that knows
+     * its options. Folded into this message rather than announced separately.
+     */
+    refusedChoices = 0,
   ) {
     const doing = how === "clear" ? "ล้าง" : "วาง";
     const touched = new Map<string, Job>();
@@ -1715,7 +1720,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     if (touched.size > 0) persist([...touched.values()]);
     touch();
 
-    if (changed === 0 && refused === 0) {
+    if (changed === 0 && refused === 0 && refusedChoices === 0) {
       setToast(how === "clear" ? "ช่องที่เลือกว่างอยู่แล้ว" : "ค่าที่วางเหมือนเดิมทุกช่อง");
       return;
     }
@@ -1723,6 +1728,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       `${doing}แล้ว ${changed} ช่อง · ${touched.size} งาน`
       + (fixed ? ` · จัดรูปแบบให้ ${fixed} ช่อง` : "")
       + (refused ? ` · ข้าม ${refused} ช่องที่เป็นงานของผู้อื่น` : "")
+      // Named separately from the ownership skip, because the fix is different:
+      // one needs somebody else to make the change, the other needs the value
+      // to be added to the register first.
+      + (refusedChoices ? ` · ข้าม ${refusedChoices} ค่าที่ไม่มีในรายการให้เลือก` : "")
       // Undo is a button on the toolbar, and a block emptied by one keystroke
       // is the moment somebody most needs to be told it is there.
       + (how === "clear" ? " · กด ↶ ย้อนกลับ เพื่อเรียกคืน" : ""),

@@ -21,7 +21,13 @@ test("My Job customer choices come from the distinct Job Rotation customer maste
 
 test("Import and Export customer cells are dropdowns and preserve off-master values", () => {
   assert.match(workspace, /useRotationCustomers\(\)/);
-  assert.match(workspace, /edChoice\(j, "customer", \["", \.\.\.customers\.names\]/);
+  // The cell still gets its options from the rotation master and still offers
+  // the empty one — that list moved into `choicesFor`, which the dropdown and
+  // a pasted value now both read, so the column cannot accept a name its own
+  // dropdown does not show. Asserted through that function rather than as the
+  // literal expression it used to be written as.
+  assert.match(workspace, /edChoice\(j, "customer", choicesFor\("customer", j\)!/);
+  assert.match(workspace, /case "customer": return \["", \.\.\.customers\.names\];/);
   assert.equal((workspace.match(/edCustomer\(j, \{ bold: true, w: 150 \}\)/g) ?? []).length, 2);
   assert.match(workspace, /ไม่มีใน Job Rotation/);
 });

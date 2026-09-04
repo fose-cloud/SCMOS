@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { resolveBlock } from "../choiceCell";
 import { badge, css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
 import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
@@ -67,6 +68,16 @@ type Props = {
     edits: { job: Job; field: keyof Job; value: string }[],
     /** What to call it in the toast and in the undo list. */
     how?: "paste" | "clear",
+    /**
+     * Cells a dropdown column refused because the pasted value is not one of
+     * its options.
+     *
+     * Counted here rather than by the writer, which cannot know: the lists come
+     * from the carrier, customer and vehicle registers and live on the screen.
+     * Passed through so one message covers the whole block — a paste reporting
+     * its skips in two toasts is a paste nobody reads the second half of.
+     */
+    refusedChoices?: number,
   ) => void;
   onToast: (message: string) => void;
   /**
@@ -917,6 +928,29 @@ export function Workspace(p: Props) {
     return c;
   };
 
+  /**
+   * What each dropdown column will accept, in one place.
+   *
+   * Read twice on purpose — once to build the cell's list of options, once to
+   * judge a pasted value against it — and defined once, because a column whose
+   * dropdown offers one set and whose paste checks another is a column that
+   * accepts values it will not show.
+   *
+   * Null means the column is not a dropdown and anything may be typed into it.
+   * Status is the reason this takes the job as well as the field: its ladder
+   * depends on the job's category.
+   */
+  const choicesFor = (field: keyof Job, job: Job): string[] | null => {
+    switch (field) {
+      case "customer": return ["", ...customers.names];
+      case "trucker": return carriers.names;
+      case "type": return vehicles.codes;
+      case "cat": return ["IMPORT", "EXPORT", "DELIVERY"];
+      case "status": return STATUS_LADDER[job.cat] || STATUS_LADDER.IMPORT;
+      default: return null;
+    }
+  };
+
   /** A cell whose value is one of a fixed set — category, priority. */
   const edChoice = (j: Job, field: keyof Job, options: string[], opts: CellOpts = {}): Cell => {
     const current = (j[field] as string) || "";
@@ -1010,7 +1044,7 @@ export function Workspace(p: Props) {
     const current = j.trucker || "";
     const known = current.length === 0 || carriers.companyOf(current) !== null;
 
-    const cellOut = edChoice(j, "trucker", carriers.names, opts);
+    const cellOut = edChoice(j, "trucker", choicesFor("trucker", j)!, opts);
     if (known || current.length === 0) return cellOut;
 
     // Off the register: say so on the cell rather than only in a report
@@ -1027,7 +1061,7 @@ export function Workspace(p: Props) {
    */
   const edCustomer = (j: Job, opts: CellOpts = {}): Cell => {
     const current = j.customer || "";
-    const cellOut = edChoice(j, "customer", ["", ...customers.names], opts);
+    const cellOut = edChoice(j, "customer", choicesFor("customer", j)!, opts);
     if (!customers.ready || current.length === 0 || customers.knows(current)) return cellOut;
 
     cellOut.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
@@ -1045,7 +1079,7 @@ export function Workspace(p: Props) {
    */
   const edVehicle = (j: Job, opts: CellOpts = {}): Cell => {
     const current = j.type || "";
-    const cellOut = edChoice(j, "type", vehicles.codes, opts);
+    const cellOut = edChoice(j, "type", choicesFor("type", j)!, opts);
     if (!vehicles.ready || current.length === 0 || vehicles.knows(current)) return cellOut;
 
     cellOut.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
@@ -1136,10 +1170,23 @@ export function Workspace(p: Props) {
     headsOf: (layout) => headsByLayout[layout] ?? [],
     read: (job, field) => (job[field] as string) || "",
     canEdit: canEditJob,
-    // Through the app's save queue, which skips cells on somebody else's job,
-    // counts them, and records the block as one undo step.
-    write: (edits, how) => p.onPasteCells(
-      edits.map(({ row, field, value }) => ({ job: row, field, value })), how),
+    /*
+     * Through the app's save queue, which skips cells on somebody else's job,
+     * counts them, and records the block as one undo step.
+     *
+     * A dropdown column is judged first. Customer, Trucker, Type, Category and
+     * Status hold values the register has to recognise, and the reason they are
+     * dropdowns is that a job against a carrier nobody can bill is worse than
+     * an empty one. Paste is welcome — forty rows of carrier come off a
+     * spreadsheet in one gesture — but it lands only if the value is on the
+     * list, written the way the list writes it, so "sangja " becomes SANGJA and
+     * "SANGJAA" becomes nothing at all.
+     */
+    write: (edits, how) => {
+      const { allowed, refused } = resolveBlock(edits, choicesFor);
+      p.onPasteCells(
+        allowed.map(({ row, field, value }) => ({ job: row, field, value })), how, refused);
+    },
     openEditor: (job, field, seed) => p.set({
       edit: { key: job.key, field: String(field) },
       editVal: seed ?? ((job[field] as string) || ""),
