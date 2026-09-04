@@ -26,9 +26,15 @@ import { css } from "../theme";
  *
  * <b>No figures.</b> A login screen is exactly where a made-up "98.7% on time"
  * would go, and this codebase has a rule about that: a number nobody can
- * reconcile is worse than no number. The three lines on the right say what the
- * system is for. They are claims about the software, which are ours to make —
- * not measurements, which are not.
+ * reconcile is worse than no number. The lines on the right say what the system
+ * is for. They are claims about the software, which are ours to make — not
+ * measurements, which are not.
+ *
+ * They are in English, and they are capabilities rather than sentiment. The
+ * first pass was written in Thai and read as advertising: "every trip has
+ * someone looking after it" is a pleasant thing to say and tells a freight
+ * forwarder nothing about the software. The form is one, and the interface
+ * around it stays Thai, because that is the language the team works in.
  *
  * Motion stops entirely under `prefers-reduced-motion`.
  *
@@ -122,14 +128,24 @@ const RUNNING: [number, number, number][] = [
 /**
  * What the system is for, in three lines.
  *
- * Claims about the software, not measurements of the operation. "Every trip has
- * a source" is a design promise this app keeps; "98% on time" would be a number
- * nobody could reconcile against anything.
+ * English, and stated as capabilities rather than as sentiment. The first pass
+ * was written in Thai and read as advertising — "every trip has someone looking
+ * after it" is a nice thing to say and tells a freight forwarder nothing. Each
+ * line here names something the software actually does, in the words the trade
+ * already uses.
+ *
+ * Still no figures. "98% on time" is what would go here if the page were
+ * selling, and it would be a number nobody could reconcile against anything.
+ * These are claims about the software, which are ours to make; measurements of
+ * the operation are not.
  */
 const PROMISES: [string, string][] = [
-  ["ทุกเที่ยวมีที่มา", "งานทุกใบสาวกลับไปถึงคนสั่ง คนรับ และเวลาที่แก้ล่าสุดได้"],
-  ["ราคาตรวจสอบได้", "อัตราค่าขนส่งทุกช่องมีที่มา ไล่ตามช่วงราคาน้ำมันได้ทั้งแถว"],
-  ["ทีมเดียว เห็นภาพเดียวกัน", "แผนงาน ตู้ รถ และผู้รับเหมา อยู่บนหน้าจอเดียวกันทั้งทีม"],
+  ["Traceable by design",
+    "Every job traces back to who raised it, who carried it, and when it last changed."],
+  ["Auditable rates",
+    "Every price steps through the contract's fuel clause, band by band."],
+  ["One team, one view",
+    "Plans, containers, trucks and subcontractors on a single screen."],
 ];
 
 const FIELD = "display:flex;align-items:center;gap:11px;height:46px;padding:0 13px;box-sizing:border-box;"
@@ -325,16 +341,24 @@ export function Login(p: Props) {
             style={css("height:38px;width:auto;opacity:.96;align-self:flex-start")} />
 
           <div style={css("max-width:520px")}>
-            <div style={css("font-size:11px;font-weight:700;letter-spacing:.2em;color:" + SKY + ";opacity:.9")}>
-              การขนส่งที่วัดผลได้
+            <div style={css("font-size:11px;font-weight:700;letter-spacing:.22em;color:" + SKY + ";opacity:.9")}>
+              TRANSPORT, ACCOUNTED FOR
             </div>
-            <h2 style={css("margin:12px 0 0;font-size:33px;line-height:1.32;font-weight:600;color:#fff;"
-              + "letter-spacing:-.01em;text-wrap:balance")}>
-              ทุกเที่ยวมีคนดูแล<br />ทุกตัวเลขมีที่มา
+            {/*
+              Two clauses, deliberately parallel, and both true of the system
+              rather than of the operation. "Owner" and "source" are the words
+              the app itself uses — a job carries an owner, a rate carries the
+              band it was quoted at — so the promise is checkable on the first
+              screen somebody opens.
+            */}
+            <h2 style={css("margin:12px 0 0;font-size:34px;line-height:1.28;font-weight:600;color:#fff;"
+              + "letter-spacing:-.015em;text-wrap:balance")}>
+              Every job has an owner.<br />Every figure has a source.
             </h2>
-            <p style={css("margin:14px 0 0;font-size:13.5px;line-height:1.85;color:#B9CFE5;max-width:430px")}>
-              งานขนส่งไม่ได้จบที่รถออกจากลาน SCMOS ทำให้ทั้งทีมเห็นแผนเดียวกัน
-              ตั้งแต่ใบจองจนถึงใบวางบิล และทุกอย่างที่แก้ไว้ยังตามกลับไปหาได้เสมอ
+            <p style={css("margin:15px 0 0;font-size:13.5px;line-height:1.8;color:#B9CFE5;max-width:440px")}>
+              Transport does not end when the truck leaves the yard. SCMOS keeps the
+              whole team on one plan, from booking through to invoice, and every
+              change stays traceable to the person who made it.
             </p>
 
             <div style={css("margin-top:30px;display:flex;flex-direction:column;gap:15px")}>

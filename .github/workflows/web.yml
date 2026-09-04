@@ -53,11 +53,15 @@ jobs:
           # driver phone numbers — handed to anyone App Service Login lets past
           # the door, without passing the API that decides who may read it.
           rm -f .next/standalone/public/data/ops.json
-          # Nothing references this file — no screen, no component, no server
-          # route — and it is somebody's signature. It has been shipped and
-          # protected only by the front door being shut; with the login screen
-          # reachable without signing in, the front door is open to static
-          # files. Kept in the repo, kept out of the package.
+          # Signature.png is gone from the repo now, so this removes nothing —
+          # it is a guard against it coming back. It was somebody's signature,
+          # referenced by no screen, no component and no route, and it was
+          # downloadable without signing in the moment the front door opened.
+          #
+          # Note what that episode showed: this deployment merges into wwwroot
+          # rather than replacing it, so a file dropped from the package stays
+          # on the server. Stripping a file here does not remove one already
+          # deployed — that has to be deleted from the site itself.
           rm -f .next/standalone/public/Signature.png
           echo "$GITHUB_SHA" > .next/standalone/deployment-version.txt
           test -f .next/standalone/.next/BUILD_ID
