@@ -53,6 +53,20 @@ public enum Capability
     /// <summary>Read the audit trail.</summary>
     ViewAudit = 1 << 11,
 
+    /// <summary>
+    /// Read the staff directory and the document retention list.
+    ///
+    /// Split out of <see cref="ViewAudit"/>, which was gating three unrelated
+    /// things because it happened to be the flag nearest to hand — the comment
+    /// on /api/staff says as much: "needs ViewAudit rather than AdministerData".
+    /// One flag over three doors means opening one opens all of them, and the
+    /// day somebody was to be given the audit trail they would have been handed
+    /// the user register with it.
+    ///
+    /// The supervisory roles hold both, so nothing they could do has changed.
+    /// </summary>
+    ViewDirectory = 1 << 15,
+
     /// <summary>Agree that a document past its retention may be destroyed.</summary>
     ApproveRetention = 1 << 12,
 
@@ -102,13 +116,23 @@ public static class Roles
 
     private const Capability Read = Capability.ViewDashboard | Capability.ViewTeam;
 
+    /*
+     * The audit trail is here rather than with the supervisory grants.
+     *
+     * It was a supervisory act — "an operator seeing the whole team's edit
+     * history is a different system from one where they see their own work" —
+     * and the department asked for it on 4 September 2026. The reasoning holds
+     * either way; it is a decision about how the team works, and the team made
+     * it. What it does not carry with it is the user register or the retention
+     * list, which is why those moved to a flag of their own.
+     */
     private const Capability OperationGrants =
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
-        | Capability.ManageTraining;
+        | Capability.ManageTraining | Capability.ViewAudit;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar
-        | Capability.ApproveAi | Capability.ManageSuppliers | Capability.ViewAudit;
+        | Capability.ApproveAi | Capability.ManageSuppliers | Capability.ViewDirectory;
 
     private const Capability ManagerGrants =
         SupervisorGrants | Capability.EditRates | Capability.ApproveRetention;

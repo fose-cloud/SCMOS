@@ -27,15 +27,20 @@ public static class StaffEndpoints
     {
         var group = routes.MapGroup("/api/staff").WithTags("Administration");
 
-        // Reading the directory needs ViewAudit rather than AdministerData: a
-        // supervisor may need to see who holds what, and the list carries no
-        // secret. Changing it is the administrator's alone.
+        // Reading the directory is supervisory: a supervisor may need to see who
+        // holds what, and the list carries no secret. Changing it is the
+        // administrator's alone.
+        //
+        // It used to ask for ViewAudit, which was the flag nearest to hand
+        // rather than the one that meant this. When the audit trail was opened
+        // to operators, that borrowing would have handed them the user register
+        // too.
         group.MapGet("", async (HttpContext context, IUserAccessor users, StaffService staff,
             SignInAccountService accounts, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!user.Can(Capability.ViewAudit))
+            if (!user.Can(Capability.ViewDirectory))
                 return ApiResults.Error("ดูทะเบียนผู้ใช้ได้เฉพาะระดับหัวหน้างานขึ้นไป",
                     StatusCodes.Status403Forbidden);
 

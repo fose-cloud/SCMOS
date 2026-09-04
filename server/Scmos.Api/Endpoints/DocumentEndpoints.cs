@@ -100,7 +100,7 @@ public static class DocumentEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!user.Can(Capability.ViewAudit))
+            if (!user.Can(Capability.ViewDirectory))
                 return ApiResults.Error("ดูรายการเก็บรักษาเอกสารได้เฉพาะระดับหัวหน้างานขึ้นไป",
                     StatusCodes.Status403Forbidden);
 

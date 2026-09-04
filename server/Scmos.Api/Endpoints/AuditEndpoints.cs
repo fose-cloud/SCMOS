@@ -23,9 +23,15 @@ public static class AuditEndpoints
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
 
-            // Reading who changed what is a supervisory act. An operator seeing
-            // the whole team's edit history is a different system from one where
-            // they see their own work.
+            // Open to operators since 4 September 2026, at the department's
+            // request. It was supervisory, and the argument for that still
+            // stands — an operator seeing the whole team's edit history is a
+            // different system from one where they see their own work — but
+            // which of those two systems this is was never the API's call.
+            //
+            // Still gated: this reads who changed what, and a carrier signing in
+            // to work their own jobs is not part of the team whose history it
+            // is.
             if (!user.Can(Capability.ViewAudit))
                 return ApiResults.Error("ดูประวัติการใช้งานได้เฉพาะระดับหัวหน้างานขึ้นไป",
                     StatusCodes.Status403Forbidden);

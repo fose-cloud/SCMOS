@@ -2140,13 +2140,23 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     // the person is looking at rather than a different one.
     const cat = ws.cat !== "ALL" ? ws.cat : "IMPORT";
     const key = "N" + Date.now();
-    // Today, because a row keyed today is nearly always for today or later, and
-    // a blank date sorts to the end of the list where nobody can see it.
-    const now = new Date();
-    const today = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+    /*
+     * No date, and every other field blank with it.
+     *
+     * It used to be today's, on the reasoning that a blank date sorts to the
+     * end of the list where nobody can see it. The row is pinned to the top
+     * while it is being filled, so that has not been true since; what was left
+     * was a date nobody typed sitting in a column somebody has to notice is
+     * wrong. A plan keyed from a booking list is rarely for today, and a value
+     * that is right by accident is worse than an empty cell, which at least
+     * says what it is.
+     *
+     * The row is flagged incomplete either way, which is what the grid already
+     * shows for a job missing its carrier or its plate.
+     */
     const job: Job = {
       key, id: key, cat, op: me.name, opId: me.opId,
-      date: today, customer: "", trucker: cat === "DELIVERY" ? "LESCHACO DTT" : "",
+      date: "", customer: "", trucker: cat === "DELIVERY" ? "LESCHACO DTT" : "",
       jobCode: "", abs: "", booking: "", product: "", fclLcl: "", agent: "", destination: "",
       plant: "", planTime: "", type: "", cyYard: "", returnLoc: "", emptyReturn: "", weight: "",
       container: "", seal: "", tare: "", licence: "", driver: "", contact: "",
@@ -2155,7 +2165,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       cs: "", incident: "", freightType: "",
       origDate: "", moveReason: "", moveBy: "", cancelReason: "",
       status: DEFAULT_STATUS,
-      hist: [{ ts: nowHM(), user: me.name, field: "แทรกแถวใหม่", old: "—", neu: today }],
+      hist: [{ ts: nowHM(), user: me.name, field: "แทรกแถวใหม่", old: "—", neu: "—" }],
       flags: [], action: true, prio: "MEDIUM", issues: [], fixes: [],
     };
     flagJob(job);
@@ -2761,7 +2771,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 already do and what is missing, rather than showing invented
                 figures — a screen full of plausible demo numbers is how a
                 system starts being trusted for things it cannot do. */}
-            {screen === "audit" && <Audit canView={isSupervisor} />}
+            {/*
+              The capability itself, not `isSupervisor`. That was ApproveAi
+              standing in for "senior enough", which stopped being true the
+              moment the audit trail was opened to operators — the screen would
+              have gone on refusing what the API had started allowing.
+            */}
+            {screen === "audit" && <Audit canView={able("ViewAudit")} />}
 
             {/* Supplier register, CAR/PAR and the assistant all read the API
                 rather than the demo file. Incident and CAR/PAR are one register
