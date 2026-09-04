@@ -62,7 +62,7 @@ test("the screen asks the capability rather than a stand-in for seniority", () =
  * A row inserted into the grid starts empty.
  */
 test("an inserted row carries no date", () => {
-  const insert = app.match(/function insertRow\(\)[\s\S]*?\n  \}/)[0];
+  const insert = app.match(/function insertRow\(\)[\s\S]*?\n {2}\}/)[0];
   assert.match(insert, /date: "",/, "the row is created with a date already in it");
   assert.doesNotMatch(insert, /const today = /,
     "today's date is still being worked out for the new row");
