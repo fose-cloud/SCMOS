@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { gridArrowTarget, gridEditIntent } from "./gridEditKey";
+import { planPaste, readClipboardGrid } from "./pasteBlock";
 
 /**
  * A spreadsheet's rectangle, and everything that hangs off it.
@@ -70,6 +71,14 @@ export type GridRangeOptions<TRow, TField> = {
   onCopied?: (rows: number, columns: number) => void;
   /** Told when a clear found nothing to do. */
   onNothingToClear?: () => void;
+  /**
+   * Told when a pasted block did not fit — rows past the end of the page,
+   * columns past the last one, or values landing on a column with no field.
+   *
+   * Reported because a paste of sixty rows onto a page of fifty looks exactly
+   * like a paste that worked.
+   */
+  onClipped?: (clipped: { rows: number; columns: number; unwritable: number }) => void;
 };
 
 const TAB = "\t";
@@ -232,7 +241,12 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
   });
 
   /*
-   * Copy and paste over the rectangle.
+   * Copy and paste.
+   *
+   * Copy reads the rectangle that was dragged — that is what was selected, and
+   * what a person expects on their clipboard. Paste spreads from the corner it
+   * starts at instead, because that is what a spreadsheet does and what the
+   * clipboard's own shape asks for.
    *
    * Tab-separated, which is what a spreadsheet reads and writes, so a block
    * copied here opens in Excel as columns and a block copied from Excel lands
@@ -267,34 +281,42 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
 
     const onPaste = (event: ClipboardEvent) => {
       if (typing(event.target)) return;
-      const selection = resolve();
-      if (!selection.cells.length) return;
+      if (!range) return;
       const text = event.clipboardData?.getData("text/plain") ?? "";
       if (!text) return;
+
+      const rows = options.rowsOf(range.grid);
+      const fields = options.fieldsOf(range.grid);
+      if (rows.length === 0 || fields.length === 0) return;
       event.preventDefault();
 
-      // A spreadsheet ends its last row with a newline; that is punctuation,
-      // not an empty row.
-      const lines = text.replace(/\r\n?/g, NEWLINE).replace(/\n$/, "").split(NEWLINE);
+      /*
+       * Spread from the corner the selection starts at, the way Excel does.
+       *
+       * Not clamped to the rectangle that was dragged. Nobody selects the exact
+       * shape of what is on their clipboard first — they click the cell it
+       * should start at and paste, and five columns of it arrive. Clamped, four
+       * of those five were dropped without a word.
+       */
+      const plan = planPaste(
+        readClipboardGrid(text),
+        { row: Math.min(range.r1, range.r2), column: Math.min(range.c1, range.c2) },
+        { row: Math.max(range.r1, range.r2), column: Math.max(range.c1, range.c2) },
+        { rows: rows.length, columns: fields.length },
+        (column) => fields[column],
+      );
 
-      // One value fills the whole rectangle. Putting a carrier on forty rows is
-      // most of what this gets used for, and asking for forty copies of it
-      // would be the wrong answer.
-      const single = lines.length === 1 && !lines[0].includes(TAB);
+      const edits: GridEdit<TRow, TField>[] = plan.cells
+        .filter((cell) => options.canEdit(rows[cell.row]))
+        .map((cell) => ({ row: rows[cell.row], field: cell.field, value: cell.value }));
 
-      const edits: GridEdit<TRow, TField>[] = [];
-      selection.cells.forEach((line, r) => {
-        const parts = single ? null : (lines[r] ?? "").split(TAB);
-        line.forEach(({ row, field }, c) => {
-          const value = single ? lines[0] : parts?.[c];
-          // The copied block is smaller than the rectangle: it ends here, and
-          // the cells past it keep what they had rather than being emptied by a
-          // paste that never mentioned them.
-          if (value === undefined) return;
-          edits.push({ row, field, value: value.trim() });
+      if (plan.rowsClipped || plan.columnsClipped || plan.cellsUnwritable) {
+        options.onClipped?.({
+          rows: plan.rowsClipped,
+          columns: plan.columnsClipped,
+          unwritable: plan.cellsUnwritable,
         });
-      });
-
+      }
       if (edits.length) options.write(edits, "paste");
     };
 

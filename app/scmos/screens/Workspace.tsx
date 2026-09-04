@@ -1195,6 +1195,21 @@ export function Workspace(p: Props) {
     onCopied: (lines, columns) =>
       p.onToast(`คัดลอกแล้ว ${lines} แถว · ${columns} คอลัมน์`),
     onNothingToClear: () => p.onToast("ช่องที่เลือกว่างอยู่แล้ว"),
+    /*
+     * What the block could not reach, said out loud.
+     *
+     * A paste that ran off the bottom of the page looks exactly like one that
+     * worked — the rows you can see all changed. Told here rather than folded
+     * into the save's own message, because it happens before anything is
+     * written and is about the clipboard rather than about the register.
+     */
+    onClipped: ({ rows, columns, unwritable }) => p.onToast(
+      "วางไม่ครบ — "
+      + [
+        rows ? `เกินหน้านี้ ${rows} แถว` : "",
+        columns ? `เกินคอลัมน์สุดท้าย ${columns} คอลัมน์` : "",
+        unwritable ? `${unwritable} ช่องเป็นคอลัมน์ที่แก้ไม่ได้` : "",
+      ].filter(Boolean).join(" · ")),
   });
 
   // ---- selection --------------------------------------------------------
