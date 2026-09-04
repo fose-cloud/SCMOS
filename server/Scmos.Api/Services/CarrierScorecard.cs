@@ -91,8 +91,14 @@ public static class CarrierScorecard
     private const int AccidentReportMinutes = 5;
     private const int ReportMinutes = 30;
 
-    /// <summary>Late by more than this and the shipment is not on time.</summary>
-    private const int LateMinutes = 30;
+    /// <summary>
+    /// Late by more than this and the shipment is not on time.
+    ///
+    /// Kept as a name here because the sentence below reads with it, but the
+    /// figure is JobRules': the supervisor monitor asks the same question and
+    /// must get the same answer.
+    /// </summary>
+    private const int LateMinutes = JobRules.LateMinutes;
 
     public static IReadOnlyList<CarrierScore> Build(
         IReadOnlyList<(string Key, string Carrier, JobRecord Record)> jobs,
@@ -184,7 +190,7 @@ public static class CarrierScorecard
 
             // Late, full stop — read off the job register, the same rows My Job
             // shows. Whether anybody complained is not part of it.
-            var late = group.Count(job => LateBeyond(job.Record, LateMinutes));
+            var late = group.Count(job => JobRules.LateBeyond(job.Record, LateMinutes));
 
             var lines = new List<ScoreLine>
             {
@@ -370,17 +376,6 @@ public static class CarrierScorecard
         // fast report; it counts as inside the window rather than being read as
         // a negative delay somebody could game.
         return minutes <= allowed;
-    }
-
-    /// <summary>
-    /// Whether the shipment arrived more than the allowed minutes after its
-    /// plan, using the register's own reading of lateness rather than a second
-    /// one written here.
-    /// </summary>
-    private static bool LateBeyond(JobRecord record, int minutes)
-    {
-        var late = JobRules.MinutesLate(record);
-        return late is not null && late > minutes;
     }
 
     private static bool Same(string a, string b) =>

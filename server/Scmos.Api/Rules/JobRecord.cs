@@ -41,6 +41,16 @@ public class JobRecord
     [JsonPropertyName("type")] public string Type { get; set; } = "";
     [JsonPropertyName("weight")] public string Weight { get; set; } = "";
     [JsonPropertyName("reason")] public string Reason { get; set; } = "";
+
+    /// <summary>
+    /// The INCIDENT REPORT column, in the operator's own words.
+    ///
+    /// Read rather than parsed. Anything written here is an incident because
+    /// that is what the column is for — the supervisor monitor lists it as a
+    /// problem on the strength of somebody having typed it, and shows the text
+    /// unchanged rather than deciding what it means.
+    /// </summary>
+    [JsonPropertyName("incident")] public string Incident { get; set; } = "";
     [JsonPropertyName("seal")] public string Seal { get; set; } = "";
 
     /// <summary>The job's own key, falling back to the id older rows were saved with.</summary>

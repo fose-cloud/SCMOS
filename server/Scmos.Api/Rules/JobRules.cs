@@ -240,6 +240,28 @@ public static partial class JobRules
         return (arrived.Value - planned.Value).TotalMinutes;
     }
 
+    /// <summary>
+    /// Late by more than this many minutes and the shipment is not on time.
+    ///
+    /// Thirty, which is the figure the carrier scorecard has always used — it
+    /// lived there as a private constant, and the supervisor monitor needed the
+    /// same judgement. Two copies of "late" is the shape of bug this codebase
+    /// keeps finding, so there is one, here, beside the measurement it applies
+    /// to.
+    /// </summary>
+    public const int LateMinutes = 30;
+
+    /// <summary>
+    /// Whether the shipment arrived more than <paramref name="minutes"/> after
+    /// its plan. False when it cannot be measured — which is not the same as on
+    /// time, and no caller may read it as such.
+    /// </summary>
+    public static bool LateBeyond(JobRecord job, int minutes = LateMinutes)
+    {
+        var late = MinutesLate(job);
+        return late is not null && late > minutes;
+    }
+
     public static bool IsOnTime(JobRecord job)
     {
         if (!IsMeasurable(job)) return false;

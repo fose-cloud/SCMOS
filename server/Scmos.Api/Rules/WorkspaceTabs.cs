@@ -51,8 +51,15 @@ public static class WorkspaceTabs
     /// Not happening. One reading of the status, in one place, because the
     /// question is now asked by four tab rules and the grid's colouring.
     /// </summary>
-    public static bool IsCancelled(JobView job) =>
-        string.Equals(job.Status.Trim(), JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase);
+    public static bool IsCancelled(JobView job) => IsCancelled(job.Status);
+
+    /// <summary>
+    /// The same test for callers holding a <see cref="JobRecord"/> rather than a
+    /// view. One reading, so a job cannot be cancelled on one screen and live on
+    /// another.
+    /// </summary>
+    public static bool IsCancelled(string status) =>
+        string.Equals(status.Trim(), JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Moved at least once from the date it was first planned for.
