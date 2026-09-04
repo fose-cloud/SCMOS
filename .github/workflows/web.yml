@@ -53,6 +53,12 @@ jobs:
           # driver phone numbers — handed to anyone App Service Login lets past
           # the door, without passing the API that decides who may read it.
           rm -f .next/standalone/public/data/ops.json
+          # Nothing references this file — no screen, no component, no server
+          # route — and it is somebody's signature. It has been shipped and
+          # protected only by the front door being shut; with the login screen
+          # reachable without signing in, the front door is open to static
+          # files. Kept in the repo, kept out of the package.
+          rm -f .next/standalone/public/Signature.png
           echo "$GITHUB_SHA" > .next/standalone/deployment-version.txt
           test -f .next/standalone/.next/BUILD_ID
 

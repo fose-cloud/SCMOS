@@ -204,6 +204,23 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const [auth, setAuth] = useState<Account | null>(initialUser ?? (demo ? ACCOUNTS[0] : null));
 
+  /**
+   * Whether anybody is actually signed in.
+   *
+   * Not the same question as `signedInAs` below, which falls back to the first
+   * demo account and so is never empty — that one answers "whose settings do I
+   * load", not "is there a session".
+   *
+   * Everything that fetches is gated on this. It mattered the moment the login
+   * screen became a page an anonymous visitor can reach: the register load and
+   * the paged job read both fired on mount regardless, so opening the sign-in
+   * page sent seven requests for the job register before anybody had said who
+   * they were. The API refuses them — that is what it is for — but a screen
+   * that asks is a screen relying on the far side to say no, and the far side
+   * saying no is the last line of the defence, not the only one.
+   */
+  const isSignedIn = auth !== null;
+
   // Set during render rather than from an effect: the first load fires from an
   // effect declared further down, and it has to carry the account with it. The
   // call is idempotent and touches no React state. Deployed, it does nothing —
@@ -405,7 +422,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!registerNeeded || registerLoadStarted.current) return;
+    if (!isSignedIn || !registerNeeded || registerLoadStarted.current) return;
     registerLoadStarted.current = true;
 
     (async () => {
@@ -468,7 +485,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         ? { state: "saved", at: nowHM(), message: "seeded" }
         : { state: "error", at: "", message: seeded.message });
     })();
-  }, [registerNeeded]);
+  }, [isSignedIn, registerNeeded]);
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
@@ -547,6 +564,15 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [identityRefresh, setIdentityRefresh] = useState(0);
 
   useEffect(() => {
+    // Nobody is signed in yet, so there is no identity to ask for.
+    //
+    // This mattered the moment the login screen became a page anonymous
+    // visitors can reach: the effect fired on mount regardless, and the timer
+    // below asked again every minute, so a login screen left open all morning
+    // was a request a minute that could only ever be refused. Gated here rather
+    // than in the fetch, so the retry ladder and the timer stop with it.
+    if (!isSignedIn) return;
+
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
 
@@ -594,7 +620,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     })();
 
     return () => { cancelled = true; if (retry) clearTimeout(retry); };
-  }, [signedInAs, identityAttempt, identityRefresh]);
+  }, [isSignedIn, signedInAs, identityAttempt, identityRefresh]);
 
   /**
    * A delegation can be scheduled days ahead, and becomes live from the
@@ -605,6 +631,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    * cover.
    */
   useEffect(() => {
+    if (!isSignedIn) return;
+
     const refresh = () => setIdentityRefresh((revision) => revision + 1);
     const refreshVisible = () => {
       if (document.visibilityState === "visible") refresh();
@@ -617,7 +645,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [signedInAs]);
+  }, [isSignedIn, signedInAs]);
 
   const base = auth ?? ACCOUNTS[0];
   // The API's answer wins over whatever the page render guessed. In development
@@ -1056,7 +1084,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [fromCache, setFromCache] = useState(false);
 
   useEffect(() => {
-    if (!isWorkspace) return;
+    if (!isSignedIn || !isWorkspace) return;
     let cancelled = false;
 
     (async () => {
@@ -1142,7 +1170,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     return () => { cancelled = true; };
     // `me.opId` keys the saved pages, so a change of account must re-read them
     // rather than show this person the last one's rows.
-  }, [isWorkspace, lockedCat, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
+  }, [isSignedIn, isWorkspace, lockedCat, activeTab, ws.cat, ws.year, ws.month, ws.date, ws.cust, ws.trucker,
       ws.type, ws.status, ws.assignee, ws.kpi, ws.only, ws.sort?.key, ws.sort?.dir, q,
       sectionPages, prefs.perPage, revision, me.opId]);
 
@@ -2340,17 +2368,27 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     );
   }
 
-  // Production has no SCMOS password: Entra is the only way in, and this is
-  // the screen almost everybody sees. It used to be a grey card with one
-  // button while the designed one was reachable only in demo builds.
+  /*
+   * Production has no SCMOS password: Entra is the only way in, and this is the
+   * screen almost everybody sees.
+   *
+   * No error on it. It carried "the system did not receive your details from
+   * Microsoft — try again", which was written when reaching this state meant
+   * something had gone wrong: App Service redirected every anonymous request to
+   * Entra, so arriving here without an identity was a fault. With the sign-in
+   * page reachable on its own, this is simply what a visitor sees before they
+   * have signed in, and greeting them with a red box about a failure they have
+   * not had is worse than saying nothing.
+   */
   if (!auth && !demo) {
     return (
       <Login
         mode="microsoft"
-        signInHref="/.auth/login/aad"
+        // Explicit, so a link shared into the app returns to the page it named
+        // rather than to the dashboard. App Service defaults to "/" when this
+        // is left off, which quietly loses wherever somebody was headed.
+        signInHref="/.auth/login/aad?post_login_redirect_uri=%2F"
         version={APP_VERSION}
-        error={"ระบบยังไม่ได้รับข้อมูลผู้ใช้จาก Microsoft — ลองเข้าใหม่อีกครั้ง "
-          + "ถ้ายังไม่ได้ ให้แจ้งผู้ดูแลระบบ"}
       />
     );
   }

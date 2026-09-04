@@ -19,5 +19,21 @@ test("an open workspace refreshes delegated owners without requiring sign-out", 
   assert.match(app, /setInterval\(refreshVisible, 60_000\)/);
   assert.match(app, /addEventListener\("focus", refresh\)/);
   assert.match(app, /addEventListener\("visibilitychange", refreshVisible\)/);
-  assert.match(app, /\[signedInAs, identityAttempt, identityRefresh\]/);
+  // Each trigger by name, rather than the dependency array as written.
+  //
+  // The list gained `isSignedIn` when the sign-in page became reachable without
+  // a session: the identity fetch must not run before there is one. That kept
+  // every refresh trigger this test guards and still failed it, because the
+  // assertion was on the exact text of the array rather than on what has to be
+  // in it.
+  const deps = app.match(/\}, \[[^\]]*identityRefresh\]\);/g) ?? [];
+  assert.equal(deps.length, 1, "the identity effect's dependency list");
+  for (const trigger of ["signedInAs", "identityAttempt", "identityRefresh"]) {
+    assert.ok(deps[0].includes(trigger),
+      `the identity effect no longer refreshes on ${trigger}: ${deps[0]}`);
+  }
+
+  // And it does not run at all before somebody is signed in — an anonymous
+  // visitor on the login page has no identity to fetch.
+  assert.match(app, /if \(!isSignedIn\) return;/);
 });
