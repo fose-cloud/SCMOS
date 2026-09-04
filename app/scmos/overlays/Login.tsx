@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BRAND_LOGO_DATA_URI } from "../brandLogo";
 import { css } from "../theme";
 
 /**
@@ -30,6 +31,22 @@ import { css } from "../theme";
  * not measurements, which are not.
  *
  * Motion stops entirely under `prefers-reduced-motion`.
+ *
+ * <h3>It has to work with no JavaScript at all</h3>
+ *
+ * App Service opens exactly one path to anonymous visitors — this one. Every
+ * other path, `/_next/...` included, still redirects to Entra, so the stylesheet
+ * and the bundle this page would normally load are answered with a redirect to
+ * Microsoft. The page therefore carries everything it needs: styles inline, the
+ * few base rules it would have taken from globals.css in its own `<style>`, and
+ * nothing that only works once React has hydrated.
+ *
+ * The one control that mattered was "forgot password", which was a button
+ * holding a `useState` message. It is a `<details>` now, which opens on click in
+ * the browser itself. The way in is an `<a href>` for the same reason.
+ *
+ * The fonts come from Google's CDN rather than from the bundle, so they load
+ * regardless.
  */
 
 type Props = {
@@ -123,13 +140,11 @@ const INPUT = "flex:1;min-width:0;border:0;outline:0;background:transparent;font
 export function Login(p: Props) {
   const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (busy || !p.onSignIn) return;
     setBusy(true);
-    setNotice("");
     // A brief hold so the button's state is legible before the app swaps in.
     window.setTimeout(() => { setBusy(false); p.onSignIn?.(); }, 300);
   }
@@ -254,15 +269,22 @@ export function Login(p: Props) {
             : "โหมดทดสอบ · บัญชีจริงให้เข้าผ่าน Microsoft"}
         </div>
 
-        <button type="button"
-          onClick={() => setNotice("รหัสผ่านบัญชีบริษัทรีเซ็ตที่ฝ่าย IT — ระบบนี้ไม่ได้เก็บรหัสผ่านไว้")}
-          style={css("margin-top:6px;align-self:flex-start;border:0;background:transparent;padding:0;"
-            + "cursor:pointer;font-family:inherit;font-size:12.5px;color:#2E7DD1")}>
-          ลืมรหัสผ่าน?
-        </button>
-        {notice && (
-          <div style={css("margin-top:8px;font-size:12px;color:#5A6B7D;line-height:1.6")}>{notice}</div>
-        )}
+        {/*
+          A `details`, not a button holding state.
+
+          The browser opens it on its own, so it still answers on the anonymous
+          page where nothing has hydrated — which is the page most people will
+          be looking at when they wonder about their password.
+        */}
+        <details style={css("margin-top:8px")}>
+          <summary style={css("cursor:pointer;font-size:12.5px;color:#2E7DD1;width:fit-content")}>
+            ลืมรหัสผ่าน?
+          </summary>
+          <div style={css("margin-top:7px;font-size:12px;color:#5A6B7D;line-height:1.7")}>
+            รหัสผ่านเป็นของบัญชีบริษัท ไม่ใช่ของ SCMOS — รีเซ็ตที่ฝ่าย IT
+            <span style={css("display:block")}>ระบบนี้ไม่ได้เก็บรหัสผ่านของคุณไว้เลย</span>
+          </div>
+        </details>
 
         <div style={css("margin-top:auto;padding-top:34px;font-size:11px;color:#B6C2CE;line-height:1.7")}>
           © {new Date().getFullYear()} Leschaco (Thailand) Ltd.
@@ -287,12 +309,19 @@ export function Login(p: Props) {
           + "justify-content:space-between;padding:52px 56px;box-sizing:border-box")}>
 
           {/*
-            `cargo-logo.png`, not `brand-leschaco.png`. The latter is a fully
-            transparent PNG — max alpha 0, nothing in it at all — which is why
-            the sidebar stopped using it too. It looks like a logo in a file
-            listing and renders as a gap.
+            Carried in the page, not fetched.
+
+            Only this path is open to an anonymous visitor, so a request for
+            `/cargo-logo.png` comes back as a redirect to Entra and the mark
+            draws as a broken image on the first screen anybody sees. Inline, it
+            arrives with the HTML.
+
+            It is `cargo-logo.png` and not `brand-leschaco.png`: the latter is a
+            fully transparent PNG — max alpha 0, nothing in it at all — which is
+            why the sidebar stopped using it too.
           */}
-          <img src="/cargo-logo.png" alt="Leschaco (Thailand)"
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={BRAND_LOGO_DATA_URI} alt="Leschaco (Thailand)"
             style={css("height:38px;width:auto;opacity:.96;align-self:flex-start")} />
 
           <div style={css("max-width:520px")}>
@@ -429,6 +458,14 @@ function Glyph({ d }: { d: string }) {
  * they simply stop moving.
  */
 const KEYFRAMES = `
+/*
+  The three rules this page would have taken from globals.css, which lives
+  under /_next and is not served to an anonymous visitor. Everything else there
+  is either irrelevant behind a fixed full-screen overlay or already inline.
+*/
+* { box-sizing: border-box }
+body { margin: 0; background: #fff }
+a { text-decoration: none }
 @keyframes ls-run { from { stroke-dashoffset: 100 } to { stroke-dashoffset: 0 } }
 @keyframes ls-ping {
   0%   { transform: scale(1);   opacity: .75 }

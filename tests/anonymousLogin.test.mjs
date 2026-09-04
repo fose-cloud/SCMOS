@@ -5,6 +5,7 @@ import test from "node:test";
 const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
 const login = readFileSync(
   new URL("../app/scmos/overlays/Login.tsx", import.meta.url), "utf8");
+const { BRAND_LOGO_DATA_URI: logo } = await import("../app/scmos/brandLogo.ts");
 const deploy = readFileSync(
   new URL("../.github/workflows/web.yml", import.meta.url), "utf8");
 
@@ -62,4 +63,41 @@ test("nothing sensitive is served to an anonymous visitor as a static file", () 
     "the delivered register would be customer names, drivers and phone numbers");
   assert.match(deploy, /rm -f \.next\/standalone\/public\/Signature\.png/,
     "an unreferenced signature image would be downloadable by anyone");
+});
+
+/**
+ * The sign-in page is the only path App Service opens to anonymous visitors.
+ *
+ * Everything else — `/_next/static/...`, the images under `/public` — still
+ * redirects to Entra, so the stylesheet and the bundle come back as a redirect
+ * to Microsoft rather than as CSS and JavaScript. Rendered from its own HTML
+ * and nothing else, the page still has to be right.
+ *
+ * Verified by serving the built HTML on its own with every other path missing:
+ * no broken images, React never hydrated, and the page indistinguishable from
+ * the full one.
+ */
+
+test("the page needs no stylesheet of its own", () => {
+  // globals.css lives under /_next. The handful of rules that actually reach
+  // this screen are carried in its own <style> instead.
+  assert.match(login, /\* \{ box-sizing: border-box \}/);
+  assert.match(login, /body \{ margin: 0/);
+});
+
+test("the wordmark travels with the page rather than being fetched", () => {
+  // A request for /cargo-logo.png is answered with a redirect, and the mark
+  // draws as a broken image on the first screen anybody sees.
+  assert.match(login, /BRAND_LOGO_DATA_URI/);
+  assert.doesNotMatch(login, /src="\/cargo-logo\.png"/);
+  assert.match(logo, /^data:image\/png;base64,/,
+    "the inlined logo is not a PNG data URI");
+  assert.ok(logo.length > 2000, "the inlined logo is too small to be the wordmark");
+});
+
+test("nothing on it depends on React having hydrated", () => {
+  // The way in is a link, and the one disclosure is a <details> the browser
+  // opens by itself. A button holding useState would do nothing here.
+  assert.match(login, /<details/);
+  assert.doesNotMatch(login, /onClick=\{\(\) => setNotice/);
 });
