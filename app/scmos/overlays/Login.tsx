@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { BRAND_LOGO_DATA_URI } from "../brandLogo";
 import { css } from "../theme";
 
@@ -123,29 +123,6 @@ const STOPS: [number, number, number][] = [
 const RUNNING: [number, number, number][] = [
   [0, 7.5, 0], [3, 9, 1.4], [6, 11, 0.6], [4, 8, 3.1],
   [1, 8.5, 2.2], [9, 6.5, 4.2], [12, 10, 1.9],
-];
-
-/**
- * What the system is for, in three lines.
- *
- * English, and stated as capabilities rather than as sentiment. The first pass
- * was written in Thai and read as advertising — "every trip has someone looking
- * after it" is a nice thing to say and tells a freight forwarder nothing. Each
- * line here names something the software actually does, in the words the trade
- * already uses.
- *
- * Still no figures. "98% on time" is what would go here if the page were
- * selling, and it would be a number nobody could reconcile against anything.
- * These are claims about the software, which are ours to make; measurements of
- * the operation are not.
- */
-const PROMISES: [string, string][] = [
-  ["Traceable by design",
-    "Every job traces back to who raised it, who carried it, and when it last changed."],
-  ["Auditable rates",
-    "Every price steps through the contract's fuel clause, band by band."],
-  ["One team, one view",
-    "Plans, containers, trucks and subcontractors on a single screen."],
 ];
 
 const FIELD = "display:flex;align-items:center;gap:11px;height:46px;padding:0 13px;box-sizing:border-box;"
@@ -340,43 +317,52 @@ export function Login(p: Props) {
           <img src={BRAND_LOGO_DATA_URI} alt="Leschaco (Thailand)"
             style={css("height:38px;width:auto;opacity:.96;align-self:flex-start")} />
 
-          <div style={css("max-width:520px")}>
-            <div style={css("font-size:11px;font-weight:700;letter-spacing:.22em;color:" + SKY + ";opacity:.9")}>
-              TRANSPORT, ACCOUNTED FOR
-            </div>
+          <div style={css("max-width:680px")}>
             {/*
-              Two clauses, deliberately parallel, and both true of the system
-              rather than of the operation. "Owner" and "source" are the words
-              the app itself uses — a job carries an owner, a rate carries the
-              band it was quoted at — so the promise is checkable on the first
-              screen somebody opens.
-            */}
-            <h2 style={css("margin:12px 0 0;font-size:34px;line-height:1.28;font-weight:600;color:#fff;"
-              + "letter-spacing:-.015em;text-wrap:balance")}>
-              Every job has an owner.<br />Every figure has a source.
-            </h2>
-            <p style={css("margin:15px 0 0;font-size:13.5px;line-height:1.8;color:#B9CFE5;max-width:440px")}>
-              Transport does not end when the truck leaves the yard. SCMOS keeps the
-              whole team on one plan, from booking through to invoice, and every
-              change stays traceable to the person who made it.
-            </p>
+              The whole panel, in one line.
 
-            <div style={css("margin-top:30px;display:flex;flex-direction:column;gap:15px")}>
-              {PROMISES.map(([title, detail]) => (
-                <div key={title} style={css("display:flex;gap:12px;align-items:flex-start")}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={SKY}
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    style={css("flex:none;margin-top:2px")}>
-                    <circle cx="12" cy="12" r="9.2" opacity=".45" />
-                    <path d="M8 12.4l2.7 2.7L16.2 9.6" />
-                  </svg>
-                  <div>
-                    <div style={css("font-size:13.5px;font-weight:600;color:#EAF3FB")}>{title}</div>
-                    <div style={css("font-size:12px;color:#8FB4DC;line-height:1.7;margin-top:2px")}>{detail}</div>
-                  </div>
-                </div>
+              It was an eyebrow, a two-clause headline, a paragraph and three
+              captioned promises — five blocks saying what one says better. The
+              network behind it does the rest of the work, and a confident claim
+              with space around it reads as a company that knows what it does;
+              the same claim buried in supporting copy reads as one arguing for
+              itself.
+
+              Set in two lines rather than one so the three "Right"s carry their
+              own rhythm and the fourth clause lands on its own. The rule under
+              it is the only ornament, and it is there to stop the last line
+              floating.
+            */}
+            {/*
+              Scaled to the panel rather than fixed. The panel is shown from
+              900px up and is not much more than a column at that end, where
+              36px is three cramped lines; on a wide screen the same type is
+              the only thing on the panel and can afford the size.
+            */}
+            <h2 style={css("margin:0;font-size:clamp(25px,2.6vw,36px);line-height:1.3;"
+              + "font-weight:600;color:#fff;letter-spacing:-.018em")}>
+              {/*
+                Each phrase is unbreakable, and the line breaks only between
+                them. Left to itself the browser split "Right / Time" across two
+                lines, which reads as two words rather than as one of the three
+                things being claimed. The panel narrows a long way before it is
+                hidden, so the breaks have to be right at every width rather
+                than at the one they were looked at.
+              */}
+              {["Right Truck,", "Right Time,", "Right Cost,"].map((phrase) => (
+                // The space sits outside the span on purpose. Inside it, the
+                // whole line became one unbreakable run and ran off the edge of
+                // a narrow panel — nowrap was doing its job and there was
+                // nowhere left to break.
+                <Fragment key={phrase}>
+                  <span style={css("white-space:nowrap")}>{phrase}</span>{" "}
+                </Fragment>
               ))}
-            </div>
+              <span style={css("display:block;color:" + SKY + ";white-space:nowrap")}>
+                Full Accountability.
+              </span>
+            </h2>
+            <div style={css("margin-top:26px;width:64px;height:2px;background:" + SKY + ";opacity:.55")} />
           </div>
 
           <div style={css("display:flex;align-items:flex-end;justify-content:space-between;gap:20px")}>
