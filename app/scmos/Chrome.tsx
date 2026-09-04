@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { badge, css } from "./theme";
+import { APP_ENVIRONMENT, APP_VERSION } from "./version";
 import { onFetching } from "./api";
 import { HEADINGS, NAV, SUB_NAV, type Screen } from "./nav";
 import type { SearchGroup, SearchHit } from "./search";
@@ -477,7 +478,7 @@ export function Chrome(p: Props) {
           {!p.collapsed && (
             <div style={css("flex:none;border-top:1px solid #143254;padding:12px 18px;display:flex;flex-direction:column;gap:3px")}>
               <span style={css("font-size:10px;color:#5D82A8;letter-spacing:.08em")}>ENVIRONMENT</span>
-              <span style={css("font-size:11.5px;color:#B9CFE5")}>Production · TH-BKK · v2.4.1</span>
+              <span style={css("font-size:11.5px;color:#B9CFE5")}>{APP_ENVIRONMENT} · {APP_VERSION}</span>
             </div>
           )}
         </nav>

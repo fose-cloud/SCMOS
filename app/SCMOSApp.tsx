@@ -84,6 +84,7 @@ import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
 import { Training } from "./scmos/screens/Training";
 import { Login } from "./scmos/overlays/Login";
+import { APP_VERSION } from "./scmos/version";
 import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toast, type Field, type StoredDoc } from "./scmos/overlays/Overlays";
 import type { Alert, WsTarget } from "./scmos/alerts";
 import { globalSearch, type SearchHit } from "./scmos/search";
@@ -2339,27 +2340,27 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     );
   }
 
+  // Production has no SCMOS password: Entra is the only way in, and this is
+  // the screen almost everybody sees. It used to be a grey card with one
+  // button while the designed one was reachable only in demo builds.
   if (!auth && !demo) {
     return (
-      <div style={css("min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F4F6F8;padding:24px")}>
-        <div style={css("max-width:420px;background:#fff;border:1px solid #E3E8EE;border-radius:8px;padding:28px 30px")}>
-          <div style={css("font-size:15px;font-weight:700;color:#0F2B46;margin-bottom:10px")}>ยังไม่ได้ลงชื่อเข้าใช้</div>
-          <div style={css("font-size:13px;color:#5A6B7D;line-height:1.75")}>
-            ระบบยังไม่ได้รับข้อมูลผู้ใช้จาก Microsoft ลองเข้าใหม่อีกครั้ง
-            ถ้ายังไม่ได้ ให้แจ้งผู้ดูแลระบบ
-          </div>
-          <a href="/.auth/login/aad"
-            style={css("display:inline-flex;align-items:center;height:34px;padding:0 16px;margin-top:18px;border:1px solid #0F2B46;background:#0F2B46;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;text-decoration:none")}>
-            เข้าสู่ระบบด้วย Microsoft
-          </a>
-        </div>
-      </div>
+      <Login
+        mode="microsoft"
+        signInHref="/.auth/login/aad"
+        version={APP_VERSION}
+        error={"ระบบยังไม่ได้รับข้อมูลผู้ใช้จาก Microsoft — ลองเข้าใหม่อีกครั้ง "
+          + "ถ้ายังไม่ได้ ให้แจ้งผู้ดูแลระบบ"}
+      />
     );
   }
 
   if (!auth) {
     return (
       <Login
+        mode="demo"
+        signInHref="/.auth/login/aad"
+        version={APP_VERSION}
         username={loginU}
         password={loginP}
         error={loginErr}
