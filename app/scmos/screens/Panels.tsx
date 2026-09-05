@@ -8,6 +8,7 @@ import { money, pad, rng } from "../util";
 import { DelayAnalysis } from "./DelayAnalysis";
 import { VolumeReport } from "./VolumeReport";
 import { SupplierPerformance } from "./SupplierPerformance";
+import { VendorReport } from "./VendorReport";
 import { CarParReport } from "./CarParReport";
 
 
@@ -202,6 +203,12 @@ const REPORT_DEFS: [string, string, string, string][] = [
   ["Supplier Performance", "ผลงานผู้ขนส่ง",
     "ใบคะแนนผู้ขนส่งทุกรายในหน้าเดียว เรียงจากคะแนนต่ำสุด · เกณฑ์ที่ยังคิดคะแนนไม่ได้บอกว่าคิดไม่ได้ ไม่ใช่ 0",
     "Supplier"],
+  // The scorecard grades a haulier as one number and Delay Analysis cuts one
+  // customer by month. Neither crosses the two, which is where "this carrier is
+  // fine except on that customer" lives — and that is the question asked here.
+  ["Vendor Performance", "ผลงานผู้ขนส่งรายลูกค้า",
+    "ผู้ขนส่งแต่ละรายวิ่งให้ลูกค้าอะไรบ้าง กี่เที่ยว ตรงเวลากี่เที่ยว สายกี่เที่ยว คิดเป็นกี่เปอร์เซ็นต์ · กรองตามลูกค้าและผู้ขนส่งได้",
+    "Supplier"],
   ["Delay Analysis", "วิเคราะห์ความล่าช้า", "Delay reasons, frequency and responsible party.", "Operations"],
   ["Billing KPI", "รายงาน KPI การวางบิล", "4-day compliance and aging distribution.", "Finance"],
   ["Safety Report", "รายงานความปลอดภัย", "Checklist compliance, incidents and PPE.", "Safety"],
@@ -211,7 +218,10 @@ const REPORT_DEFS: [string, string, string, string][] = [
 ];
 
 /** Reports that open something real rather than a message saying they would. */
-const BUILT = new Set(["Delay Analysis", "Volume Report", "Supplier Performance", "CAR / PAR Report"]);
+const BUILT = new Set([
+  "Delay Analysis", "Volume Report", "Supplier Performance", "CAR / PAR Report",
+  "Vendor Performance",
+]);
 
 const REPORT_TONES: Record<string, "blue" | "green" | "teal" | "amber" | "red" | "gray"> = {
   Operations: "blue", Finance: "green", Supplier: "teal", Safety: "amber", Quality: "red", Commercial: "gray",
@@ -237,6 +247,9 @@ export function Reports({ jobs, toast }: { jobs: Job[]; toast: (message: string)
   }
   if (open === "Supplier Performance") {
     return <SupplierPerformance onToast={toast} onBack={() => setOpen("")} />;
+  }
+  if (open === "Vendor Performance") {
+    return <VendorReport jobs={jobs} onToast={toast} onBack={() => setOpen("")} />;
   }
   if (open === "CAR / PAR Report") {
     return <CarParReport onToast={toast} onBack={() => setOpen("")} />;
