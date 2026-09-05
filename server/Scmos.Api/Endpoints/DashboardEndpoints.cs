@@ -50,6 +50,43 @@ public static class DashboardEndpoints
             return Results.Json(await monitor.ReadAsync(token));
         }).WithTags("Monitor");
 
+        /*
+         * The front page, read into sentences.
+         *
+         * ViewDashboard, not IsSupervisor — this is the dashboard everyone
+         * already has, saying what its own figures mean. What it will not say to
+         * a reader without ViewTeam is whose backlog is worst, which is the one
+         * part of it that is somebody else's business.
+         *
+         * Its own call, fetched after the board has painted, because it reads
+         * the whole register and the front page must not wait for it. The board
+         * stands perfectly well without a briefing; it just says less.
+         */
+        routes.MapGet("/api/dashboard/briefing", async (HttpContext context, IUserAccessor users,
+            MonitorService monitor, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewDashboard))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูแดชบอร์ด", StatusCodes.Status403Forbidden);
+
+            var (findings, quiet, today) = await monitor.BriefAsync(user.Can(Capability.ViewTeam), token);
+            return Results.Json(new
+            {
+                today,
+                quiet,
+                findings = findings.Select(one => new
+                {
+                    urgency = one.Urgency.ToString(),
+                    kind = one.Kind,
+                    headline = one.Headline,
+                    detail = one.Detail,
+                    count = one.Count,
+                    screen = one.Screen,
+                }),
+            });
+        }).WithTags("Dashboard");
+
         var alerts = routes.MapGroup("/api/notifications").WithTags("Notifications");
 
         alerts.MapGet("", async (bool? mine, HttpContext context, IUserAccessor users,

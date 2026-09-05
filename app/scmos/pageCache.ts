@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { JobPage, PageQuery } from "./store";
 
 /**
@@ -130,6 +130,28 @@ export function writeCached<T>(key: string, value: T): void {
  * Setting it back to null forgets the screen, which is what a sign-out or a
  * wholesale replacement of the data wants.
  */
+
+/**
+ * Whether the browser has taken over from the server-rendered HTML.
+ *
+ * The server has no sessionStorage. A remembered screen that is part of the
+ * first paint therefore draws nothing on the server and last visit's answer on
+ * the browser's first render — different markup for the same render, which
+ * React reports as a hydration failure and recovers from by throwing the
+ * server's HTML away and starting again.
+ *
+ * This is React's own answer to the question, and the reason it is not a
+ * `useState` flipped in an effect: that is a second render scheduled from
+ * inside the first, which the lint rules reject and which would cost every
+ * cached screen an extra pass. The server snapshot is false, hydration uses it,
+ * and every render after that is true.
+ */
+function useHydrated(): boolean {
+  return useSyncExternalStore(subscribeNever, () => true, () => false);
+}
+
+/** Nothing to subscribe to: hydration happens once and never unhappens. */
+const subscribeNever = () => () => {};
 export function useRemembered<T>(key: string): [
   T | null,
   (next: T | null | ((current: T | null) => T | null)) => void,
@@ -144,11 +166,19 @@ export function useRemembered<T>(key: string): [
   // back out of the store. Only the former is written, so returning to a
   // screen does not keep pushing the twenty-minute clock forward on figures
   // that have not been refreshed since.
+  const hydrated = useHydrated();
+
   const [state, setState] = useState<{ key: string; value: T | null; dirty: boolean }>(
     () => ({ key, value: readCached<T>(key), dirty: false }));
 
-  const fresh = state.key === key ? state.value : readCached<T>(key);
-  if (state.key !== key) setState({ key, value: fresh, dirty: false });
+  const held = state.key === key ? state.value : readCached<T>(key);
+  if (state.key !== key) setState({ key, value: held, dirty: false });
+
+  // Null until the browser has taken over, so this render matches the one the
+  // server produced. Only the screens on the first paint ever wait; anything
+  // reached by navigating is already hydrated and reads the cache at once,
+  // which is where it earns its keep.
+  const fresh = hydrated ? held : null;
 
   const keep = useCallback((next: T | null | ((current: T | null) => T | null)) => {
     setState((current) => ({

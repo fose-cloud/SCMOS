@@ -155,6 +155,7 @@ if (TypeCheck.Run(args) is int typeExit) return typeExit;
 if (DelegationCheck.Run(args) is int delegationExit) return delegationExit;
 if (MonitorCheck.Run(args) is int monitorExit) return monitorExit;
 if (RouteCheck.Run(args) is int routeExit) return routeExit;
+if (BriefingCheck.Run(args) is int briefingExit) return briefingExit;
 if (ProblemCheck.Run(args) is int problemExit) return problemExit;
 if (InlineCheck.Run(args) is int inlineExit) return inlineExit;
 if (JourneyCheck.Run(args) is int journeyExit) return journeyExit;

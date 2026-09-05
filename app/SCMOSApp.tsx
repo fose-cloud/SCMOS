@@ -44,6 +44,7 @@ import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
 import { JobRotation } from "./scmos/screens/JobRotation";
 import { Today } from "./scmos/screens/Today";
+import { BriefingBand } from "./scmos/screens/BriefingBand";
 import { CapacityBoard } from "./scmos/screens/CapacityBoard";
 import { PreRun } from "./scmos/screens/PreRun";
 import { Documents } from "./scmos/screens/Documents";
@@ -2560,6 +2561,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   ตั้งบทบาทใน <code style={css("font-family:ui-monospace,monospace")}>Auth:Roles</code> ของ API
                 </div>
               </div>
+            )}
+
+            {/* Above every dashboard tab, because what is wrong this morning
+                does not change depending on which view of it you chose. It
+                arrives after the board and draws nothing until it has something
+                to say, so the front page is never held waiting for it. */}
+            {screen === "dashboard" && (
+              <BriefingBand onOpen={(next) => go(next as Screen)} />
             )}
 
             {/* TODAY comes from the API rather than the in-browser jobs, so it

@@ -257,6 +257,52 @@ public class MonitorService(ScmosDbContext db, JobRegisterCache register)
     }
 
     /// <summary>
+    /// The morning, read into sentences for the dashboard.
+    ///
+    /// Built from the board this service already produces rather than from a
+    /// second pass over the register: the briefing must never be able to
+    /// disagree with the monitor it summarises, and the only way to guarantee
+    /// that is for it to have counted nothing of its own.
+    /// </summary>
+    /// <param name="showTeam">
+    /// Whether this reader may see whose backlog is whose. A briefing is still a
+    /// view of the register, and naming who is carrying most of the risk list is
+    /// team information.
+    /// </param>
+    public async Task<(IReadOnlyList<Briefing.Finding> Findings, string Quiet, string Today)>
+        BriefAsync(bool showTeam, CancellationToken token)
+    {
+        var board = await ReadAsync(token);
+
+        // The heaviest load, which is the only name the briefing ever uses.
+        // Loads arrive already sorted with the most flagged first.
+        var overdue = board.Risks.Count(risk => risk.Why == nameof(MonitorRules.Risk.Overdue));
+        var busiest = board.Loads.FirstOrDefault();
+        var worstParty = board.Blames.FirstOrDefault();
+
+        var facts = new Briefing.Facts(
+            Live: board.Tally.Live,
+            // Split so the briefing cannot count the same job twice: on this
+            // register every one of the 123 flagged jobs was overdue, and told
+            // both figures it said 123 twice in two different sentences.
+            Overdue: overdue,
+            MissingBeforeRun: board.Risks.Count - overdue,
+            WithProblem: board.Tally.WithProblem,
+            ArrivedLate: board.Tally.ArrivedLate,
+            LateMinutes: board.Tally.LateMinutes,
+            Incidents: board.Problems.Count(row => row.Problems.Contains(nameof(ProblemRules.Problem.Incident))),
+            OpenDelays: board.Problems.Count(row => row.Problems.Contains(nameof(ProblemRules.Problem.DelayOpen))),
+            Unmeasurable: board.Tally.Unmeasurable,
+            BusiestOwner: busiest?.Owner ?? "",
+            BusiestOwnerFlagged: busiest?.Flagged ?? 0,
+            TopDelayParty: worstParty?.Thai ?? "",
+            TopDelayCases: worstParty?.Cases ?? 0,
+            ShowTeam: showTeam);
+
+        return (Briefing.Read(facts), Briefing.Quiet(facts), board.Today);
+    }
+
+    /// <summary>
     /// The party in Thai, through the rules that already name them, so the
     /// monitor and the delay screen call the same people the same thing.
     /// </summary>
