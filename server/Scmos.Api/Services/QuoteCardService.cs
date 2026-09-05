@@ -90,6 +90,8 @@ public class QuoteCardService(ScmosDbContext db)
             await db.SaveChangesAsync(token);
         }
 
+        await OfferEveryVehicleAsync(token);
+
         var setting = await db.QuoteSettings.FirstOrDefaultAsync(one => one.Id == 1, token);
         var vehicles = await db.QuoteVehicleRates.AsNoTracking()
             .OrderBy(one => one.Position).ThenBy(one => one.Id).ToListAsync(token);
@@ -104,6 +106,68 @@ public class QuoteCardService(ScmosDbContext db)
             setting?.MarginPercent ?? 10m,
             setting?.UpdatedBy ?? "",
             setting?.UpdatedAt.ToString("dd/MM/yyyy HH:mm") ?? "");
+    }
+
+    /// <summary>
+    /// Every vehicle the sheet has a column for gets a line on the card.
+    ///
+    /// The card was seeded with the eleven rates the team had written down, and
+    /// stopped there. The sheet prices eighteen vehicles before the DG variants
+    /// — side curtain, flat-bed, open top, the two Hiabs, the 6-wheel flatbed
+    /// and the 40' tank were all columns somebody could type a figure into and
+    /// nothing the calculator would offer. So a quotation for one of them was
+    /// worked out on paper and typed straight into the sheet, which is the
+    /// arrangement this screen exists to replace.
+    ///
+    /// The new lines arrive <b>unpriced</b>, and that is the whole point. A rate
+    /// is agreed with a carrier; nothing here may invent one. What this does is
+    /// put the vehicle on the card so somebody who may change a rate can see it
+    /// is missing and type it — and until they do, <c>quoteRate</c> refuses to
+    /// price it rather than quietly charging the base fare.
+    ///
+    /// Only the non-DG vehicles. Dangerous goods is a surcharge on the card's
+    /// row and a tick on the form, not a second row: one card line per vehicle
+    /// is what keeps the DG column and the plain column the same journey.
+    /// </summary>
+    private async Task OfferEveryVehicleAsync(CancellationToken token)
+    {
+        var held = await db.QuoteVehicleRates.Select(one => one.Code).ToListAsync(token);
+        var known = new HashSet<string>(held, StringComparer.OrdinalIgnoreCase);
+
+        var missing = RateVehicles.All
+            .Where(vehicle => !vehicle.Dg && !known.Contains(vehicle.Code))
+            .ToList();
+        if (missing.Count == 0) return;
+
+        // After what is there, in the register's own order — which is the
+        // workbook's, so the card reads down in the order the sheet reads across.
+        var last = await db.QuoteVehicleRates.MaxAsync(one => (int?)one.Position, token) ?? -1;
+        foreach (var vehicle in missing)
+        {
+            db.QuoteVehicleRates.Add(new QuoteVehicleRate
+            {
+                Code = vehicle.Code,
+                Label = vehicle.Label,
+                // Nought means "nobody has priced this yet". SaveVehicleAsync
+                // refuses a nought, so this is the one way a row can hold one,
+                // and the calculator reads it as the refusal it is.
+                PerKm = 0, BaseCharge = 0, Chill = 1m, DangerousGoods = 0,
+                Position = ++last,
+            });
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(token);
+        }
+        catch (DbUpdateException)
+        {
+            // Two readers can arrive here at once on a cold environment. The
+            // unique index on `code` settles it; the loser drops its copy and
+            // reads what the winner wrote, because this is a GET and a card is
+            // more use than an error.
+            db.ChangeTracker.Clear();
+        }
     }
 
     /// <summary>

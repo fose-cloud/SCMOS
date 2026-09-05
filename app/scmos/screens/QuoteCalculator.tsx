@@ -15,7 +15,7 @@ type Measured = {
 };
 import { ZoomBox } from "../TableFrame";
 import {
-  BASIS_TH, type OptionBasis, type QuoteOption, type VehicleRate,
+  BASIS_TH, isUnpriced, type OptionBasis, type QuoteOption, type VehicleRate,
 } from "../quoteRate";
 
 /**
@@ -516,18 +516,32 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
               </summary>
               <div style={css("position:absolute;left:0;top:100%;z-index:60;width:280px;max-width:80vw;max-height:340px;overflow:auto;background:#fff;border:1px solid #C9D6E2;border-radius:4px;box-shadow:0 8px 24px #0A224022;padding:8px")}>
                 <div style={css("display:flex;gap:8px;padding:4px 3px 8px;border-bottom:1px solid #E9EFF5")}>
-                  <button type="button" onClick={() => setVehicles(card.vehicles.map((one) => one.code))} style={css("font:inherit;font-size:12px;cursor:pointer")}>เลือกทั้งหมด</button>
+                  {/* The priced ones only. "All" that quietly includes four
+                      vehicles nobody has a rate for produces a set that cannot
+                      be quoted or saved, and no clue as to which of them did it. */}
+                  <button type="button" title="เลือกเฉพาะประเภทที่ตั้งราคาไว้แล้ว"
+                    onClick={() => setVehicles(card.vehicles.filter((one) => !isUnpriced(one)).map((one) => one.code))}
+                    style={css("font:inherit;font-size:12px;cursor:pointer")}>เลือกทั้งหมด</button>
                   <button type="button" onClick={() => setVehicles([])} style={css("font:inherit;font-size:12px;cursor:pointer")}>ล้างที่เลือก</button>
                 </div>
-                {card.vehicles.map((one) => (
-                  <label key={one.code} style={css("display:flex;gap:8px;padding:7px 4px;font-size:12.5px;cursor:pointer")}>
+                {card.vehicles.map((one) => {
+                  // Said before it is chosen. Discovering afterwards that one of
+                  // four trucks cannot be quoted — and that it is the reason the
+                  // whole set will not save — is the worse order to learn it in.
+                  const unpriced = isUnpriced(one);
+                  return (
+                  <label key={one.code} title={unpriced ? "ยังไม่ได้ตั้งอัตรา — ตั้งราคาในตารางอัตราด้านล่างก่อน" : undefined}
+                    style={css("display:flex;gap:8px;align-items:baseline;padding:7px 4px;font-size:12.5px;cursor:pointer;"
+                      + (unpriced ? "color:#94A3B8" : ""))}>
                     <input type="checkbox" checked={vehicles.includes(one.code)} onChange={(event) => {
                       const checked = event.target.checked;
                       setVehicles((was) => checked ? [...was, one.code] : was.filter((code) => code !== one.code));
                     }} />
-                    {one.label}
+                    <span style={css("flex:1")}>{one.label}</span>
+                    {unpriced && <span style={css("font-size:10.5px;color:#B45309;white-space:nowrap")}>ยังไม่ตั้งราคา</span>}
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </details>
           </Field>
@@ -908,6 +922,7 @@ function CardEditor({ card, busy, onSave }: {
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Record<number, Partial<VehicleRate>>>({});
+  const waitingCount = card.vehicles.filter(isUnpriced).length;
 
   const value = (row: Card["vehicles"][number], field: keyof VehicleRate) => {
     const held = draft[row.id]?.[field];
@@ -924,7 +939,11 @@ function CardEditor({ card, busy, onSave }: {
           ตารางอัตรา {open ? "▾" : "▸"}
         </span>
         <span style={css("font-size:11.5px;color:#7B8CA0")}>
-          {card.vehicles.length} ประเภทรถ · กำไรตั้งต้น {card.marginPercent}%
+          {card.vehicles.length} ประเภทรถ
+          {/* Named on the closed panel, because that is where somebody is when
+              they wonder why a truck they can see cannot be quoted. */}
+          {waitingCount > 0 && <b style={css("color:#B45309;font-weight:600")}> · ยังไม่ตั้งราคา {waitingCount}</b>}
+          {" · "}กำไรตั้งต้น {card.marginPercent}%
           {card.updatedAt && ` · แก้ล่าสุด ${card.updatedAt}`}
         </span>
       </button>
@@ -949,9 +968,14 @@ function CardEditor({ card, busy, onSave }: {
               <tbody>
                 {card.vehicles.map((row) => {
                   const touched = draft[row.id] !== undefined;
+                  const waiting = isUnpriced(row);
                   return (
-                    <tr key={row.id} style={css("border-bottom:1px solid #F4F7FA")}>
-                      <td style={css("padding:5px 10px;color:#0A2240;font-weight:600;white-space:nowrap")}>{row.label}</td>
+                    <tr key={row.id} style={css("border-bottom:1px solid #F4F7FA"
+                      + (waiting ? ";background:#FFFCF4" : ""))}>
+                      <td style={css("padding:5px 10px;color:#0A2240;font-weight:600;white-space:nowrap")}>
+                        {row.label}
+                        {waiting && <span style={css("display:block;font-size:10px;font-weight:500;color:#B45309")}>ยังไม่ตั้งราคา</span>}
+                      </td>
                       <td style={css("padding:5px 10px")}>
                         <input value={value(row, "perKm")} inputMode="decimal" style={NUM}
                           onChange={(e) => edit(row.id, "perKm", e.target.value)} />

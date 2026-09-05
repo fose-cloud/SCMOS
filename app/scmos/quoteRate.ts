@@ -123,6 +123,17 @@ export const BASIS_TH: Record<OptionBasis, string> = {
 /** Whole baht. A quotation with satang on it has never helped anybody. */
 const baht = (value: number) => Math.round(value);
 
+/**
+ * A card line that is waiting for a rate rather than holding one.
+ *
+ * Exported because the screen asks it too — the picker marks these before they
+ * are chosen, which is kinder than letting somebody select four trucks and
+ * discover afterwards that one of them cannot be quoted. One rule, asked in two
+ * places, rather than two rules that will eventually disagree about what "no
+ * rate" means.
+ */
+export const isUnpriced = (rate: VehicleRate) => !(rate.perKm > 0);
+
 export type QuoteRequest = {
   vehicle: string;
   /** The outbound journey, in kilometres. */
@@ -166,6 +177,26 @@ export function quote(card: VehicleRate[], ask: QuoteRequest): Quote {
     if (typeof value !== "number" || !Number.isFinite(value)) {
       refusals.push(`อัตราของ ${rate.label || ask.vehicle} ไม่สมบูรณ์ — ${field} ไม่มีค่า`);
     }
+  }
+
+  /*
+   * A vehicle on the card that nobody has priced yet.
+   *
+   * The card now carries a line for every vehicle the sheet has a column for,
+   * so that a rate which has never been agreed is visible as missing rather
+   * than absent. Those lines hold nought, and nought is not a price: worked
+   * through, it would quote the base charge alone — or nothing at all — and
+   * hand somebody a figure to send a customer. The rate editor refuses to save
+   * a nought, so this is the only way one can be here, and it means exactly one
+   * thing.
+   */
+  // Only when the card row is otherwise whole. A field that is missing entirely
+  // is a different fault with a better message, and the loop above already
+  // named it — saying "nobody has priced this" on top of it would send somebody
+  // to type a rate into a card that cannot hold one.
+  if (refusals.length === 0 && isUnpriced(rate)) {
+    refusals.push(
+      `ยังไม่ได้ตั้งอัตราของ ${rate.label || ask.vehicle} — ตั้งราคาในตารางอัตราก่อนจึงจะเสนอราคาได้`);
   }
 
   // Zero kilometres is a question nobody asked, not a journey that is free.

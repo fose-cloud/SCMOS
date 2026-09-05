@@ -49,3 +49,31 @@ test("every column says what it writes", () => {
     else assert.ok(column.field, `${column.head} writes no field`);
   }
 });
+
+/**
+ * And the third relationship, which is the one that was not being kept.
+ *
+ * The sheet and the register agreed. The calculator's card did not: it held the
+ * eleven rates the team had written down, so seven columns of the sheet — side
+ * curtain, flat-bed, open top, both Hiabs, the 6-wheel flatbed and the 40' tank
+ * — were places to type a price and nothing the calculator would quote. The
+ * card is now topped up from the register, and this says so.
+ */
+test("the calculator offers every vehicle the sheet can hold a price for", () => {
+  const service = readFileSync(
+    "server/Scmos.Api/Services/QuoteCardService.cs", "utf8");
+  assert.match(service, /RateVehicles\.All[\s\S]{0,200}?!vehicle\.Dg && !known\.Contains\(vehicle\.Code\)/,
+    "the card no longer fills itself from the register");
+});
+
+test("dangerous goods is a surcharge on a row, not a row of its own", () => {
+  // The card carries one line per vehicle and the form carries a DG tick, so
+  // "4W" plus the tick writes the "4W DG" column. A DG line on the card would
+  // double the picker and give one journey two prices.
+  const dgOnSheet = SHEET_VEHICLES.filter((code) => / DG$/.test(code));
+  for (const code of dgOnSheet) {
+    const base = code.replace(/ DG$/, "");
+    assert.ok(SHEET_VEHICLES.includes(base),
+      `the sheet prices "${code}" with no plain "${base}" for the tick to start from`);
+  }
+});
