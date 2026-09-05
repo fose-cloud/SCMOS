@@ -115,8 +115,11 @@ public static class RouteCheck
         /* ---- what a refusal is called ---- */
         Console.WriteLine();
         // Two refusals, two entirely different people to go and see.
-        failed += Say("a rejected key names the setting to check",
-            RouteReading.Refusal(403).Contains("ApiKey"), true);
+        // The double underscore, not the colon. Somebody reading this is in the
+        // Azure portal with the box open, and "OpenRouteService:ApiKey" is a
+        // name they cannot type there — App Service maps __ onto the colon.
+        failed += Say("a rejected key names the setting as Azure takes it",
+            RouteReading.Refusal(403).Contains("OpenRouteService__ApiKey"), true);
         failed += Say("a spent quota says to type the distance instead",
             RouteReading.Refusal(429).Contains("กรอกระยะทางเอง"), true);
         failed += Say("an outage says the same, without blaming the key",

@@ -90,8 +90,13 @@ public class RoutingService(
             return RouteEstimate.No("ต้องมีทั้งต้นทางและปลายทางก่อนจึงจะวัดระยะทางได้");
 
         if (!Configured)
+            // Named the way Azure takes it, not the way .NET reads it. The
+            // person seeing this is standing in the portal with the box open,
+            // and "OpenRouteService:ApiKey" is a key they cannot type there —
+            // App Service maps a double underscore onto the colon.
             return RouteEstimate.No(
-                "ยังไม่ได้ตั้งค่า OpenRouteService — ตั้ง OpenRouteService:ApiKey ที่ App Service แล้วรีสตาร์ท");
+                "ยังไม่ได้ตั้งค่า OpenRouteService — เพิ่ม OpenRouteService__ApiKey "
+                + "(ขีดล่างสองอัน) ที่ App Service ของ API แล้วรีสตาร์ท");
 
         var cacheKey = $"route::{JourneyKey.Of(origin, destination)}";
         if (cache.TryGetValue(cacheKey, out RouteEstimate? held) && held is not null) return held;

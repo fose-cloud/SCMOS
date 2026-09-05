@@ -137,7 +137,8 @@ public static class RouteReading
     /// </summary>
     public static string Refusal(int status) => status switch
     {
-        401 or 403 => "OpenRouteService ปฏิเสธคีย์ — ตรวจสอบ OpenRouteService:ApiKey",
+        401 or 403 => "OpenRouteService ปฏิเสธคีย์ — ตรวจสอบ OpenRouteService__ApiKey "
+                      + "ที่ App Service ของ API",
         429 => "ใช้โควตา OpenRouteService ครบแล้วสำหรับช่วงนี้ — พรุ่งนี้ลองใหม่ หรือกรอกระยะทางเอง",
         >= 500 => "OpenRouteService ขัดข้องชั่วคราว — กรอกระยะทางเองไปก่อนได้",
         _ => $"OpenRouteService ตอบกลับไม่สำเร็จ (HTTP {status})",
