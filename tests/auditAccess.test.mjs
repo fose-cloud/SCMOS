@@ -21,8 +21,15 @@ const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8"
  * granting the first would have handed over the other two as well.
  */
 
+/** Everything Operation User is granted, however the list is ordered. */
+const operationGrants = () =>
+  roles.match(/private const Capability OperationGrants =[\s\S]*?;/)[0];
+
 test("an operator may read the audit trail", () => {
-  assert.match(roles, /private const Capability OperationGrants =[\s\S]*?Capability\.ViewAudit;/,
+  // Against the block rather than against "…ViewAudit;", which only held while
+  // the audit trail happened to be the last grant on the list. Adding one after
+  // it failed this test without taking anything away from anybody.
+  assert.match(operationGrants(), /Capability\.ViewAudit\b/,
     "Operation User no longer holds ViewAudit");
 });
 
@@ -36,10 +43,25 @@ test("that did not hand them the user register or the retention list", () => {
 
   assert.match(roles, /private const Capability SupervisorGrants =[\s\S]*?Capability\.ViewDirectory;/,
     "supervisors lost the directory they always had");
-  const operationBlock = roles.match(
-    /private const Capability OperationGrants =[\s\S]*?;/)[0];
-  assert.doesNotMatch(operationBlock, /ViewDirectory/,
+  assert.doesNotMatch(operationGrants(), /ViewDirectory/,
     "the directory must not travel with the audit trail");
+});
+
+/**
+ * Recording a quotation and changing a rate became two capabilities on
+ * 5 September 2026. The point of the split is that the second did not follow
+ * the first down to Operation User, and the edit that would merge them again is
+ * one word on this list.
+ */
+test("an operator may record a quotation and still not edit the rate book", () => {
+  assert.match(operationGrants(), /Capability\.QuoteToSheet\b/);
+  assert.doesNotMatch(operationGrants(), /Capability\.EditRates\b/);
+  assert.match(roles, /private const Capability ManagerGrants =[\s\S]*?Capability\.EditRates/,
+    "changing a rate must stay with the roles that negotiate them");
+  // The carrier's own account holds neither: one subcontractor writing into a
+  // sheet seventeen others are read from is what the separation exists for.
+  const carrier = roles.match(/new\(Subcontractor,[\s\S]*?\),/)[0];
+  assert.doesNotMatch(carrier, /QuoteToSheet|EditRates|ViewRates/);
 });
 
 test("the trail is still gated — a carrier is not part of the team whose history it is", () => {
