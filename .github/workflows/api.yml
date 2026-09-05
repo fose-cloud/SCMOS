@@ -60,9 +60,17 @@ jobs:
       # vehicle is called across seven thousand jobs; the duplicate rule decides
       # which carrier spellings are one company; the scorecard decides what a
       # haulier is scored on. None of those should reach production unchecked.
+      #
+      # Four more were written and never listed here, so they only ever ran on
+      # somebody's laptop. Capability is the one that matters most: it is the
+      # check that catches a permission arriving by accident, which is the bug
+      # this codebase has actually shipped. Problems, route and briefing decide
+      # what a supervisor is told is wrong, how a distance is read, and what the
+      # dashboard says the day's figures mean. All four run in a second and
+      # need nothing but the binary.
       - name: Rule checks
         run: |
-          for check in monitor delegation types duplicates scorecard; do
+          for check in monitor delegation types duplicates scorecard capability problems route briefing; do
             echo "::group::--check-$check"
             dotnet run --project ${{ env.PROJECT }} --configuration Release --no-build               --no-launch-profile -- "--check-$check"
             echo "::endgroup::"
