@@ -43,6 +43,16 @@ export type MilestoneView = {
   carrier: string; truckNo: string; driver: string;
   remark: string; delayReason: string; photoKey: string;
   updatedBy: string; updatedAt: string | null;
+  /**
+   * Where this stage's time came from: "recorded" when somebody entered it
+   * here, "register" when the job's own row already carried it, "" when
+   * nothing has happened yet.
+   */
+  source: string;
+  /** Minutes past plan. Negative when early, null when the pair cannot be compared. */
+  lateMinutes: number | null;
+  /** The register's own wording of the time, when that is where it came from. */
+  actualText: string;
 };
 
 export type DelayView = {

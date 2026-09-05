@@ -46,6 +46,28 @@ const STATUS_THAI: Record<string, string> = {
   pending: "ยังไม่บันทึก", done: "เสร็จ", delayed: "ล่าช้า", skipped: "ข้าม",
 };
 
+/**
+ * How far off the plan a stage ran, in words.
+ *
+ * A stage seeded from the register is never called "delayed" — that word is
+ * reserved for a person judging it so and saying why, which is what the form
+ * below asks for. This says how late it was without making that judgement.
+ */
+function gap(minutes: number): string {
+  if (minutes < 0) return `เร็วกว่าแผน ${label(-minutes)}`;
+  if (minutes === 0) return "ตรงเวลาพอดี";
+  return `ช้ากว่าแผน ${label(minutes)}`;
+}
+
+function label(minutes: number): string {
+  if (minutes < 60) return `${minutes} นาที`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours < 24) return rest ? `${hours} ชม. ${rest} น.` : `${hours} ชม.`;
+  const days = Math.floor(hours / 24);
+  return hours % 24 ? `${days} วัน ${hours % 24} ชม.` : `${days} วัน`;
+}
+
 export function Monitoring({ jobs, canEdit, onToast, isSupervisor, onOpenJob, focus }: Props) {
   // The team's view or one journey's. An operator has no team view to switch
   // to, so they are not shown a switch — a control that only ever refuses is
@@ -79,14 +101,29 @@ export function Monitoring({ jobs, canEdit, onToast, isSupervisor, onOpenJob, fo
   );
 }
 
+/**
+ * The two views, and what each is for.
+ *
+ * They were two words with no explanation, and the second read as a worse copy
+ * of the first — asked outright what it was even for. It is not the same screen
+ * at all: the board reads the whole team's work and cannot be written to, and
+ * this is the one place a person records what actually happened on one
+ * shipment, stage by stage, and logs a delay against a cause and an owner.
+ * A sentence each, because a control nobody can tell apart is one nobody uses.
+ */
 function ViewSwitch({ view, onView }: { view: string; onView: (v: "board" | "journey") => void }) {
   const pill = (on: boolean) =>
     "height:30px;padding:0 14px;border-radius:4px;font-size:12px;font-weight:600;font-family:inherit;"
     + "cursor:pointer;border:1px solid " + (on ? "#0A2240;background:#0A2240;color:#fff" : "#C9D6E2;background:#fff;color:#0A2240");
   return (
-    <div style={css("display:flex;gap:8px;align-items:center")}>
+    <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap")}>
       <button onClick={() => onView("board")} style={css(pill(view === "board"))}>ภาพรวมทีม</button>
       <button onClick={() => onView("journey")} style={css(pill(view === "journey"))}>ติดตามรายเที่ยว</button>
+      <span style={css("font-size:11.5px;color:#7B8CA0")}>
+        {view === "board"
+          ? "อ่านอย่างเดียว — งานทั้งทีม ปัญหาที่เกิดขึ้น และภาระงานรายคน"
+          : "เลือกงาน 1 เที่ยว เพื่อบันทึกว่าแต่ละขั้นตอนเกิดอะไรขึ้น และลงสาเหตุความล่าช้า"}
+      </span>
     </div>
   );
 }
@@ -307,9 +344,31 @@ function Milestone({ jobKey, milestone, canEdit, open, onOpen, onToast, onSaved 
         <span style={css("font-size:12.5px;font-weight:600;color:#0A2240;flex:1")}>{milestone.thai}</span>
         <span style={css(`font-size:11px;color:${tone};font-weight:600`)}>{STATUS_THAI[milestone.status] ?? milestone.status}</span>
         <span style={css("font-family:ui-monospace,monospace;font-size:11.5px;color:#7B8CA0;min-width:74px;text-align:right")}>
-          {milestone.actualAt ? stamp(milestone.actualAt).slice(-5) : (milestone.plannedAt || "—")}
+          {milestone.actualAt
+            ? stamp(milestone.actualAt).slice(-5)
+            : (milestone.actualText || milestone.plannedAt || "—")}
         </span>
       </button>
+
+      {/*
+        What the register already knew.
+
+        Every stage of every shipment read "not recorded" — one job of two
+        thousand has anything entered here — while the job's own row had the
+        arrival written down the whole time. Shown as what it is: the register's
+        record, not somebody's on the bay, and the gap against the plan beside
+        it so the stage says whether it ran late rather than only when.
+      */}
+      {milestone.source === "register" && !open && (
+        <div style={css("padding:0 16px 8px 34px;font-size:11.5px;color:#7B8CA0")}>
+          จากทะเบียนงาน · แผน {milestone.plannedAt || "ไม่ระบุ"} → ถึง {milestone.actualText}
+          {milestone.lateMinutes !== null && (
+            <span style={css(";color:" + (milestone.lateMinutes > 30 ? "#B42318" : "#16794C"))}>
+              {" · "}{gap(milestone.lateMinutes)}
+            </span>
+          )}
+        </div>
+      )}
 
       {(milestone.remark || milestone.delayReason) && !open && (
         <div style={css("padding:0 16px 8px 34px;font-size:11.5px;color:#7B8CA0")}>
@@ -322,8 +381,14 @@ function Milestone({ jobKey, milestone, canEdit, open, onOpen, onToast, onSaved 
         <div style={css("padding:4px 16px 13px 34px")}>
           <div style={css("font-size:11px;color:#94A3B8;margin-bottom:8px")}>
             แผน {milestone.plannedAt || "ไม่ระบุ"}
+            {milestone.source === "register" && ` · ทะเบียนงานบันทึกว่าถึง ${milestone.actualText}`}
             {milestone.updatedBy && ` · แก้ล่าสุดโดย ${milestone.updatedBy} ${milestone.updatedAt ? stamp(milestone.updatedAt) : ""}`}
           </div>
+          {milestone.source === "register" && (
+            <div style={css("font-size:11.5px;color:#1D5FA8;margin-bottom:8px")}>
+              บันทึกที่นี่จะละเอียดกว่า — ระบุรถ คนขับ และสาเหตุได้ และจะแทนที่ค่าจากทะเบียนงาน
+            </div>
+          )}
 
           {!canEdit && <div style={css("font-size:12px;color:#B45309")}>ดูได้อย่างเดียว</div>}
 

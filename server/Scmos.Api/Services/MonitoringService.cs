@@ -4,10 +4,25 @@ using Scmos.Api.Rules;
 
 namespace Scmos.Api.Services;
 
+/// <param name="Source">
+/// Where this stage's actual time came from: <c>recorded</c> when somebody
+/// entered it on the monitor, <c>register</c> when the job's own row already
+/// carried it, empty when nothing has happened yet.
+///
+/// Said out loud rather than blended in. A time the team keyed into My Job and
+/// a time somebody stood on a loading bay and recorded are both facts, and they
+/// are not the same fact — the second says a person was watching.
+/// </param>
+/// <param name="LateMinutes">
+/// Minutes past plan, when both are known. Negative when it ran early, null
+/// when the pair cannot be compared. From <see cref="JobRules.MinutesLate"/>,
+/// which is the one reading of this in the system.
+/// </param>
 public record MilestoneView(
     string Stage, string English, string Thai, string PlannedAt, DateTimeOffset? ActualAt,
     string Status, string Carrier, string TruckNo, string Driver, string Remark,
-    string DelayReason, string PhotoKey, string UpdatedBy, DateTimeOffset? UpdatedAt);
+    string DelayReason, string PhotoKey, string UpdatedBy, DateTimeOffset? UpdatedAt,
+    string Source, int? LateMinutes, string ActualText);
 
 public record DelayView(
     long Id, string Stage, string Category, string CategoryThai, string Detail,
@@ -91,11 +106,28 @@ public class MonitoringService(ScmosDbContext db)
         {
             var info = Workflow.Info(stage);
             var row = rows.FirstOrDefault(m => m.Stage == stage.ToString());
+
+            /*
+             * What the job's own row already says happened at this stage.
+             *
+             * Every stage read "ยังไม่บันทึก" on all but one job of two
+             * thousand, because nothing has been recorded through this screen
+             * yet — while the register beside it had the arrival written down
+             * all along. A monitor that shows a blank track for a shipment its
+             * own database knows arrived is a monitor nobody opens twice.
+             *
+             * Only where the register genuinely holds the fact, and always
+             * labelled as coming from there rather than from somebody watching.
+             */
+            var known = row is null ? RegisterActual(stage, record) : "";
+            var status = row?.Status ?? (known.Length > 0 ? "done" : "pending");
+            var source = row is not null ? "recorded" : known.Length > 0 ? "register" : "";
+
             return new MilestoneView(
                 stage.ToString(), info.English, info.Thai,
                 row?.PlannedAt ?? PlannedFor(stage, record),
                 row?.ActualAt,
-                row?.Status ?? "pending",
+                status,
                 row?.Carrier ?? record?.Trucker ?? "",
                 row?.TruckNo ?? record?.Licence ?? "",
                 row?.Driver ?? record?.Driver ?? "",
@@ -103,7 +135,10 @@ public class MonitoringService(ScmosDbContext db)
                 row?.DelayReason ?? "",
                 row?.PhotoKey ?? "",
                 row?.UpdatedBy ?? "",
-                row?.UpdatedAt);
+                row?.UpdatedAt,
+                source,
+                LateFor(stage, record),
+                known);
         }).ToList();
 
         return new ShipmentTrack(jobKey, record?.Reference ?? job.JobCode, job.Customer, milestones,
@@ -256,10 +291,38 @@ public class MonitoringService(ScmosDbContext db)
         return stage switch
         {
             Stage.Loading => Join(job.Date, job.PlanTime),
-            Stage.Delivered => Join(job.ArrDate, job.ArrTime),
+            // Delivered used to read the arrival columns here, which put an
+            // actual time under a heading that says "plan" — the one place this
+            // screen showed the register at all, and it showed it as the wrong
+            // thing. The register carries no planned delivery time, so the
+            // honest answer is that it does not say.
             Stage.ContainerReturned => Join(job.ClosingDate, job.ClosingTime),
             _ => "",
         };
+    }
+
+    /// <summary>
+    /// What the register already records as having happened at this stage.
+    ///
+    /// Only loading. The arrival columns are headed ARRIVAL DATE / TIME LOANDING
+    /// / ACTUAL TIME on the plans the team imports, and the plan columns beside
+    /// them are PLAN LOADING TIME — the pair describes one event, the lorry
+    /// reaching the loading point, and it is the pair every on-time figure in
+    /// the system is measured from. Nothing in the register says when a delivery
+    /// or a container return actually happened, so nothing is claimed for them.
+    /// </summary>
+    private static string RegisterActual(Stage stage, JobRecord? job) =>
+        job is not null && stage == Stage.Loading ? Join(job.ArrDate, job.ArrTime) : "";
+
+    /// <summary>
+    /// How late the loading arrival ran, through the reading the carrier
+    /// scorecard and the supervisor monitor both use.
+    /// </summary>
+    private static int? LateFor(Stage stage, JobRecord? job)
+    {
+        if (job is null || stage != Stage.Loading) return null;
+        var late = JobRules.MinutesLate(job);
+        return late is null ? null : (int)Math.Round(late.Value);
     }
 
     private static string Join(string date, string time) =>
