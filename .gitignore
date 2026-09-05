@@ -45,6 +45,8 @@ yarn-error.log*
 # .NET
 /server/**/bin/
 /server/**/obj/
+/tests/**/bin/
+/tests/**/obj/
 /server/**/appsettings.Local.json
 
 # Build artefacts

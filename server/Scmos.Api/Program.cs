@@ -69,6 +69,7 @@ builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();
 builder.Services.AddScoped<RateInquiryService>();
 builder.Services.AddScoped<QuoteCardService>();
+builder.Services.AddScoped<QuoteSheetService>();
 builder.Services.AddScoped<JourneyService>();
 builder.Services.AddScoped<VerificationService>();
 builder.Services.AddScoped<AiGateway>();

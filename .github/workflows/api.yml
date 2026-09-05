@@ -68,6 +68,9 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Calculated quotation checks
+        run: dotnet run --project tests/Scmos.QuoteSave.Checks/Scmos.QuoteSave.Checks.csproj --configuration Release
+
       - name: Publish
         run: dotnet publish ${{ env.PROJECT }} --configuration Release --no-build --output publish
 

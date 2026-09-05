@@ -71,7 +71,8 @@ export function Quotation({ view, onView, canEditRates, onToast }: {
         })}
       </div>
 
-      {view === "calculate" && <QuoteCalculator onToast={onToast} />}
+      {view === "calculate" && <QuoteCalculator canEditRates={canEditRates}
+        onOpenSheet={() => onView("sheet")} onToast={onToast} />}
 
       {/* The register in the workbook's own shape, typed into like My Job. */}
       {view === "sheet" && <RateSheet canEdit={canEditRates} onToast={onToast} />}

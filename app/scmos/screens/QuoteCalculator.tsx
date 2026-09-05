@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
+import { quoteMany, quoteSheetVehicle } from "../quoteBatch";
 import { css } from "../theme";
 import { directionsLink, hasRoute } from "../mapsLink";
 import { ATTRIBUTION, TILE, pointsFrom, tileUrl, view } from "../slippyMap";
@@ -14,7 +15,7 @@ type Measured = {
 };
 import { ZoomBox } from "../TableFrame";
 import {
-  BASIS_TH, type OptionBasis, type QuoteOption, type VehicleRate, quote,
+  BASIS_TH, type OptionBasis, type QuoteOption, type VehicleRate,
 } from "../quoteRate";
 
 /**
@@ -59,6 +60,8 @@ type Card = {
   updatedBy: string;
   updatedAt: string;
 };
+
+type DraftRoute = { key: string; from: string; to: string; km: string };
 
 const INPUT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff;width:100%;font-family:inherit");
 const NUM = css("height:28px;width:80px;border:1px solid #C9D6E2;border-radius:3px;padding:0 7px;font-size:12px;font-family:ui-monospace,monospace;text-align:right");
@@ -202,12 +205,35 @@ function RouteMap({ from, to, path }: { from: string; to: string; path: number[]
 const WIDTH = 900;
 const HEIGHT = 380;
 
-export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
+export function QuoteCalculator({ canEditRates, onOpenSheet, onToast }: {
+  canEditRates: boolean; onOpenSheet: () => void; onToast: (m: string) => void;
+}) {
   const [card, setCard] = useState<Card | null>(null);
-  const [vehicle, setVehicle] = useState("4W");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [km, setKm] = useState("");
+  const [vehicles, setVehicles] = useState<string[]>(["4W"]);
+  const [detailVehicle, setDetailVehicle] = useState("4W");
+  const vehicle = vehicles.includes(detailVehicle) ? detailVehicle : vehicles[0] ?? "";
+  const [customer, setCustomer] = useState("");
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [loadTypes, setLoadTypes] = useState({ fcl: true, lcl: false, domestic: false });
+  const [remark, setRemark] = useState("");
+  const [savingQuote, setSavingQuote] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedQuote, setSavedQuote] = useState<{ key: string; number: number; date: string; count: number; routeCount: number } | null>(null);
+  // Reuse the token on uncertain retries, but not after the quotation changes.
+  const saveTicket = useRef<{ key: string; id: string } | null>(null);
+  const saveInFlight = useRef(false);
+  const [routeRows, setRouteRows] = useState<DraftRoute[]>([{ key: "first", from: "", to: "", km: "" }]);
+  const [routeKey, setRouteKey] = useState("first");
+  const activeRoute = routeRows.find((one) => one.key === routeKey) ?? routeRows[0];
+  const { from, to, km } = activeRoute;
+  const setRouteValue = (field: "from" | "to" | "km", value: string) => {
+    setRouteRows((was) => was.map((one) => one.key === activeRoute.key ? { ...one, [field]: value } : one));
+    if (field !== "km") setMeasured(null);
+  };
+  const setFrom = (value: string) => setRouteValue("from", value);
+  const setTo = (value: string) => setRouteValue("to", value);
+  const setKm = (value: string) => setRouteValue("km", value);
+  const chooseRoute = (key: string) => { setRouteKey(key); setMeasured(null); };
   const [mapOpen, setMapOpen] = useState(false);
   /**
    * What OpenRouteService makes of the distance, once somebody asks.
@@ -260,6 +286,7 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
    */
   const [fetched, setFetched] = useState<{ journey: string; look: Look } | null>(null);
   const [dg, setDg] = useState(false);
+  const historyVehicle = quoteSheetVehicle(vehicle, dg);
   const [margin, setMargin] = useState("");
   /** Which extras are ticked, and how many hours or trips of each. */
   const [picked, setPicked] = useState<Record<number, number>>({});
@@ -280,6 +307,17 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch("/api/rate-inquiries/form", { headers: { accept: "application/json" } })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = await response.json() as { customers?: string[] };
+        if (!cancelled) setCustomers(body.customers ?? []);
+      }).catch(() => { /* Suggestions are optional; typing a name still works. */ });
+    return () => { cancelled = true; };
+  }, []);
+
   /*
    * Both questions about a journey, asked together.
    *
@@ -287,24 +325,31 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
    * characters and the history search reads two rate tables.
    */
   useEffect(() => {
-    if (!from.trim() || !to.trim()) return;
+    if (!from.trim() || !to.trim() || !historyVehicle) return;
+    let cancelled = false;
     const wait = window.setTimeout(async () => {
-      const query = new URLSearchParams({ from: from.trim(), to: to.trim(), vehicle });
+      const query = new URLSearchParams({ from: from.trim(), to: to.trim(), vehicle: historyVehicle });
+      try {
       const response = await apiFetch(`/api/journeys/look?${query}`, { headers: { accept: "application/json" } });
-      if (!response.ok) return;
+      if (!response.ok || cancelled) return;
       const answer = await response.json() as Look;
-      setFetched({ journey: `${from.trim()}→${to.trim()}|${vehicle}`, look: answer });
+      if (cancelled) return;
+      setFetched({ journey: `${from.trim()}→${to.trim()}|${historyVehicle}`, look: answer });
       // A distance already agreed fills the box, so nobody types it twice and
       // the two typings differ. Anything already typed is left alone.
-      if (answer.known && !km.trim()) setKm(String(answer.known.km));
+      if (answer.known) setRouteRows((was) => was.map((one) =>
+        one.key === routeKey && !one.km.trim() ? { ...one, km: String(answer.known!.km) } : one));
+      } catch { /* History is optional for a new quotation. */ }
     }, 450);
-    return () => window.clearTimeout(wait);
-    // `km` is deliberately absent: filling the box must not re-run the lookup.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, vehicle]);
+    return () => { cancelled = true; window.clearTimeout(wait); };
+    // The distance is filled only when that particular route is still blank.
+  }, [from, to, historyVehicle, routeKey]);
 
   /** Records the distance for this journey so the next quotation starts with it. */
   async function remember() {
+    if (!canEditRates) return;
+    const journey = `${from.trim()}→${to.trim()}|${historyVehicle}`;
+    try {
     const wanted = Number(km.replace(/,/g, ""));
     const response = await apiFetch("/api/journeys", {
       method: "POST",
@@ -315,8 +360,9 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
       { message?: string; error?: string; journey?: Look["known"] };
     onToast(reply.message ?? reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`);
     if (response.ok && reply.journey) {
-      setFetched((was) => was ? { ...was, look: { ...was.look, known: reply.journey! } } : was);
+      setFetched((was) => was?.journey === journey ? { ...was, look: { ...was.look, known: reply.journey! } } : was);
     }
+    } catch { onToast("ยังยืนยันการจำระยะทางไม่ได้ กรุณาลองใหม่"); }
   }
 
   async function save(path: string, payload: unknown) {
@@ -347,27 +393,113 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
       quantity: one.basis === "perHour" ? (picked[one.id] || 0) : 1,
     }));
 
-  const look = fetched?.journey === `${from.trim()}→${to.trim()}|${vehicle}` ? fetched.look : null;
+  const look = fetched?.journey === `${from.trim()}→${to.trim()}|${historyVehicle}` ? fetched.look : null;
 
-  const answer = quote(card.vehicles, {
-    vehicle,
-    km: Number(km.replace(/,/g, "")),
-    dangerousGoods: dg,
-    marginPercent: Number(margin) || 0,
-    options,
-  });
+  const calculations = routeRows.map((route) => ({ route, batch: quoteMany(card.vehicles, {
+    vehicles, km: Number(route.km.replace(/,/g, "")), dangerousGoods: dg,
+    marginPercent: Number(margin), options,
+  }) }));
+  const batch = calculations.find((one) => one.route.key === activeRoute.key)!.batch;
+  const focused = batch.results.find((one) => one.vehicle === vehicle);
+  const answer = focused?.quote ?? { lines: [], cost: 0, margin: 0, total: 0, refusals: batch.refusals };
+  const payload = {
+    fromPlace: "", toPlace: "", customer: customer.trim(),
+    ...loadTypes, remark: remark.trim(), km: 0,
+    dangerousGoods: dg, marginPercent: Number(margin), vehicles,
+    options: options.map((one) => ({ id: Number(one.id), quantity: one.quantity })),
+    expectedTotals: {},
+    routes: calculations.map(({ route, batch: result }) => ({
+      fromPlace: route.from.trim(), toPlace: route.to.trim(), km: Number(route.km.replace(/,/g, "")),
+      expectedTotals: Object.fromEntries(result.results.map((one) => [one.vehicle, one.quote.total])),
+    })),
+  };
+  const quoteKey = JSON.stringify(payload);
+  const alreadySaved = savedQuote?.key === quoteKey;
+  const saveRefusals = [
+    ...calculations.flatMap(({ route, batch: result }, index) => [
+      ...result.refusals, ...result.sheetRefusals,
+      ...(!route.from.trim() || !route.to.trim() ? ["ระบุต้นทางและปลายทางก่อนบันทึก"] : []),
+    ].map((reason) => `เส้นทาง ${index + 1}: ${reason}`)),
+    ...(!customer.trim() ? ["ระบุชื่อลูกค้าก่อนบันทึก"] : []),
+    ...(!Object.values(loadTypes).some(Boolean) ? ["เลือกประเภทงานอย่างน้อย 1 แบบ"] : []),
+  ];
+  const canSave = canEditRates && !savingQuote && !alreadySaved && saveRefusals.length === 0;
+
+  async function saveToSheet() {
+    if (!canSave || saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSavingQuote(true);
+    setSaveError("");
+    try {
+      if (saveTicket.current?.key !== quoteKey) {
+        saveTicket.current = { key: quoteKey, id: crypto.randomUUID() };
+      }
+      const response = await apiFetch("/api/quote-card/save-to-sheet", {
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ ...payload, requestId: saveTicket.current.id }),
+      });
+      const reply = await response.json().catch(() => ({})) as {
+        message?: string; error?: string; number?: number; date?: string; count?: number; routeCount?: number;
+      };
+      if (!response.ok) {
+        const message = reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`;
+        setSaveError(message); onToast(message);
+        if (response.status === 409) await load();
+        return;
+      }
+      if (reply.number === undefined || !reply.date || reply.count === undefined) {
+        throw new Error("Incomplete save receipt");
+      }
+      setSavedQuote({ key: quoteKey, number: reply.number, date: reply.date, count: reply.count, routeCount: reply.routeCount ?? 1 });
+      onToast(reply.message ?? `บันทึกลงตารางอัตราแล้ว · NO. ${reply.number}`);
+    } catch {
+      setSaveError("ยังยืนยันผลบันทึกไม่ได้ กรุณากดบันทึกอีกครั้ง ระบบจะตรวจคำขอเดิมเพื่อไม่เพิ่มแถวซ้ำ");
+    } finally {
+      saveInFlight.current = false;
+      setSavingQuote(false);
+    }
+  }
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
       {/* ------------------------------------------------ the question */}
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
+      <fieldset disabled={savingQuote || measuring} style={css("min-width:0;margin:0;background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
+        <div style={css("display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #E9EFF5")}>
+          {routeRows.map((one, index) => <button type="button" key={one.key} onClick={() => chooseRoute(one.key)} aria-pressed={one.key === activeRoute.key}
+            style={css("padding:7px 11px;border:1px solid #C9D6E2;border-radius:4px;font:inherit;font-size:12px;cursor:pointer;background:" + (one.key === activeRoute.key ? "#0A2240;color:#fff" : "#fff;color:#31465C"))}>เส้นทาง {index + 1}{one.to ? ` · ${one.to}` : ""}</button>)}
+          <button type="button" disabled={routeRows.length >= 20 || measuring} onClick={() => {
+            const key = crypto.randomUUID();
+            setRouteRows((was) => [...was, { key, from: "", to: "", km: "" }]);
+            chooseRoute(key);
+          }} style={css("padding:7px 11px;border:1px solid #2D7BB6;border-radius:4px;background:#fff;color:#2D7BB6;font:inherit;font-size:12px;cursor:pointer")}>+ เพิ่มเส้นทาง</button>
+          {routeRows.length > 1 && <button type="button" disabled={measuring} onClick={() => {
+            const remaining = routeRows.filter((one) => one.key !== activeRoute.key);
+            setRouteRows(remaining); chooseRoute(remaining[0].key);
+          }} style={css("padding:7px 11px;border:1px solid #E4B4AF;border-radius:4px;background:#fff;color:#B42318;font:inherit;font-size:12px;cursor:pointer")}>นำเส้นทางนี้ออกจากชุด</button>}
+          <span style={css("font-size:11.5px;color:#7B8CA0")}>สูงสุด 20 เส้นทาง · ประเภทรถ กำไร และรายการเพิ่มเติมใช้ร่วมกันทั้งชุด</span>
+        </div>
         <div style={css("display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end")}>
-          <Field label="ประเภทรถ" width="150px">
-            <select value={vehicle} onChange={(e) => setVehicle(e.target.value)} style={INPUT}>
-              {card.vehicles.map((one) => (
-                <option key={one.code} value={one.code}>{one.label}</option>
-              ))}
-            </select>
+          <Field label="ประเภทรถ · เลือกได้หลายแบบ" width="240px">
+            <details style={css("position:relative")}>
+              <summary style={{ ...INPUT, height: "auto", minHeight: 30, padding: "6px 8px", cursor: "pointer" }}>
+                {vehicles.length ? `${vehicles.length} ประเภท · ${card.vehicles.filter((one) => vehicles.includes(one.code)).map((one) => one.label).join(", ")}` : "เลือกประเภทรถ"}
+              </summary>
+              <div style={css("position:absolute;left:0;top:100%;z-index:60;width:280px;max-width:80vw;max-height:340px;overflow:auto;background:#fff;border:1px solid #C9D6E2;border-radius:4px;box-shadow:0 8px 24px #0A224022;padding:8px")}>
+                <div style={css("display:flex;gap:8px;padding:4px 3px 8px;border-bottom:1px solid #E9EFF5")}>
+                  <button type="button" onClick={() => setVehicles(card.vehicles.map((one) => one.code))} style={css("font:inherit;font-size:12px;cursor:pointer")}>เลือกทั้งหมด</button>
+                  <button type="button" onClick={() => setVehicles([])} style={css("font:inherit;font-size:12px;cursor:pointer")}>ล้างที่เลือก</button>
+                </div>
+                {card.vehicles.map((one) => (
+                  <label key={one.code} style={css("display:flex;gap:8px;padding:7px 4px;font-size:12.5px;cursor:pointer")}>
+                    <input type="checkbox" checked={vehicles.includes(one.code)} onChange={(event) => {
+                      const checked = event.target.checked;
+                      setVehicles((was) => checked ? [...was, one.code] : was.filter((code) => code !== one.code));
+                    }} />
+                    {one.label}
+                  </label>
+                ))}
+              </div>
+            </details>
           </Field>
           <Field label="ต้นทาง" width="180px">
             <input value={from} autoComplete="off" placeholder="เช่น LCB Port"
@@ -408,7 +540,7 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
                   {look.known.usedCount > 0 && ` · ใช้มาแล้ว ${look.known.usedCount} ครั้ง`}
                   <span style={css("color:#94A3B8")}> · {look.known.setBy} {look.known.setAt}</span>
                 </span>
-                {Number(km.replace(/,/g, "")) > 0 && Number(km.replace(/,/g, "")) !== look.known.km && (
+                {canEditRates && Number(km.replace(/,/g, "")) > 0 && Number(km.replace(/,/g, "")) !== look.known.km && (
                   <button type="button" onClick={() => void remember()}
                     style={css("height:24px;padding:0 10px;border:1px solid #B45309;background:#fff;color:#B45309;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
                     แก้เป็น {Number(km.replace(/,/g, "")).toLocaleString()} กม.
@@ -516,7 +648,56 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
             </div>
           </div>
         )}
+      </fieldset>
+
+      {/* Each selected truck is an alternative quote, not an amount to sum. */}
+      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
+        <div style={css("padding:12px 16px;font-size:13px;font-weight:650;color:#0A2240")}>
+          ผลคำนวณพร้อมกัน · {routeRows.length} เส้นทาง × {batch.results.length} ประเภทรถ
+          <span style={css("display:block;margin-top:4px;font-size:11.5px;font-weight:400;color:#7B8CA0")}>ราคาต่อเที่ยว แยกตามประเภทรถ · กดดูรายละเอียดเพื่อดูสูตรและเทียบราคาย้อนหลัง</span>
+        </div>
+        {batch.refusals.length > 0 && <div role="status" style={css("padding:10px 16px;background:#FFF8F5;color:#9A3412;font-size:12px")}>{batch.refusals.join(" · ")}</div>}
+        {batch.results.length > 0 && <ZoomBox>
+          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap")}>
+            <thead style={css("background:#F2F6FA;color:#31465C;text-align:left")}>
+              <tr>{["TRUCK TYPE", "ต้นทุน (บาท)", "กำไร (บาท)", "ราคาเสนอลูกค้า (บาท)", "คอลัมน์ในตารางอัตรา", ""].map((head) => <th key={head} scope="col" style={css("padding:9px 16px")}>{head}</th>)}</tr>
+            </thead>
+            {calculations.map(({ route, batch: result }, index) => <tbody key={route.key}>
+              <tr><th colSpan={6} scope="rowgroup" style={css("padding:10px 16px;background:#E5EDF5;text-align:left")}>เส้นทาง {index + 1}: {route.from || "ยังไม่ระบุต้นทาง"} → {route.to || "ยังไม่ระบุปลายทาง"} · {route.km || "—"} กม.</th></tr>
+              {result.results.map((one) => <tr key={one.vehicle} style={css("border-top:1px solid #E9EFF5;background:" + (route.key === activeRoute.key && one.vehicle === vehicle ? "#EDF5FF" : "#fff"))}>
+              <th scope="row" style={css("padding:9px 16px;text-align:left")}>{one.label}{dg ? " · DG" : ""}</th>
+              {[one.quote.cost, one.quote.margin, one.quote.total].map((amount, index) => <td key={index} style={css("padding:9px 16px;font-family:ui-monospace,monospace;font-weight:" + (index === 2 ? "700" : "400"))}>{one.quote.refusals.length ? "—" : baht(amount)}</td>)}
+              <td style={css("padding:9px 16px;color:" + (one.sheetVehicle ? "#31465C" : "#B45309"))}>{one.sheetVehicle ?? "ยังไม่มีคอลัมน์รองรับ"}</td>
+              <td style={css("padding:9px 16px")}><button type="button" disabled={savingQuote || measuring} onClick={() => { setDetailVehicle(one.vehicle); chooseRoute(route.key); }} aria-pressed={route.key === activeRoute.key && one.vehicle === vehicle} style={css("font:inherit;font-size:11.5px;cursor:pointer")}>ดูรายละเอียด {one.label}</button></td>
+            </tr>)}</tbody>)}
+          </table>
+        </ZoomBox>}
       </div>
+
+      <fieldset disabled={savingQuote} style={css("margin:0;min-width:0;background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
+        <div style={css("font-size:13px;font-weight:650;color:#0A2240;margin-bottom:10px")}>บันทึกผลลงตารางอัตรา</div>
+        <div style={css("display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap")}>
+          <Field label="ลูกค้า *" width="240px"><input aria-label="ลูกค้าสำหรับบันทึกอัตรา" list="quote-sheet-customers" value={customer} maxLength={200} onChange={(event) => setCustomer(event.target.value)} placeholder="เลือกหรือพิมพ์ชื่อลูกค้า" style={INPUT} /></Field>
+          <datalist id="quote-sheet-customers">{customers.map((name) => <option key={name} value={name} />)}</datalist>
+          <Field label="ประเภทงาน *" width="220px"><div style={css("display:flex;align-items:center;gap:12px;height:30px")}>
+            {(["fcl", "lcl", "domestic"] as const).map((key) => <label key={key} style={css("display:flex;align-items:center;gap:5px;font-size:12px")}><input type="checkbox" checked={loadTypes[key]} onChange={(event) => setLoadTypes((was) => ({ ...was, [key]: event.target.checked }))} />{key.toUpperCase()}</label>)}
+          </div></Field>
+          <Field label="หมายเหตุ (ถ้ามี)" width="240px"><input aria-label="หมายเหตุสำหรับบันทึกอัตรา" value={remark} maxLength={600} onChange={(event) => setRemark(event.target.value)} style={INPUT} /></Field>
+          <button type="button" onClick={() => void saveToSheet()} disabled={!canSave} style={css("height:34px;padding:0 16px;background:" + (canSave ? "#0A2240" : "#8FA3B8") + ";color:#fff;border:0;border-radius:4px;font:inherit;font-size:12.5px;font-weight:650;cursor:" + (canSave ? "pointer" : "default"))}>
+            {savingQuote ? "กำลังบันทึก…" : alreadySaved ? "บันทึกแล้ว" : `บันทึก ${routeRows.length} เส้นทาง · ${batch.results.length} ประเภทรถ`}
+          </button>
+        </div>
+        <p style={css("font-size:11.5px;color:#7B8CA0;margin:10px 0 0;line-height:1.6")}>
+          แต่ละเส้นทางบันทึกคนละแถว พร้อมราคาเสนอลูกค้าของรถที่เลือก (รวมกำไรและรายการเพิ่มเติม) · DATE ใช้วันบันทึกตามเวลาประเทศไทย · NO. รันต่อในเดือนนั้นและใช้ร่วมกันทั้งชุด · ผู้ขอเป็นบัญชีที่เข้าสู่ระบบ
+        </p>
+        {!canEditRates ? <p role="status" style={css("font-size:12px;color:#B45309")}>บัญชีนี้คำนวณราคาได้ แต่ไม่มีสิทธิ์บันทึกตารางอัตรา</p>
+          : !alreadySaved && saveRefusals.length > 0 && <p role="status" style={css("font-size:12px;color:#B45309;margin-bottom:0")}>{[...new Set(saveRefusals)].join(" · ")}</p>}
+        {saveError && <p role="alert" style={css("font-size:12px;color:#B42318")}>{saveError}</p>}
+        {savedQuote && <div role="status" style={css("margin-top:12px;padding:10px;background:#F1FAF5;color:#16794C;font-size:12.5px;display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>
+          <span>{alreadySaved ? "บันทึกแล้ว" : "รายการที่บันทึกล่าสุด"} · DATE {savedQuote.date} · NO. {savedQuote.number} · {savedQuote.routeCount} เส้นทาง · {savedQuote.count} ช่องราคา</span>
+          <button type="button" onClick={onOpenSheet} style={css("font:inherit;cursor:pointer;padding:5px 10px")}>เปิดตารางอัตรา</button>
+        </div>}
+      </fieldset>
 
       {/* ------------------------------------------------- the working */}
       {answer.refusals.length > 0 ? (
@@ -526,7 +707,7 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
       ) : (
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
           <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;font-size:12.5px;font-weight:650;color:#0A2240")}>
-            {card.vehicles.find((one) => one.code === vehicle)?.label} ·
+            รายละเอียดเส้นทาง {routeRows.findIndex((one) => one.key === activeRoute.key) + 1}: {from || "—"} → {to || "—"} · {card.vehicles.find((one) => one.code === vehicle)?.label} ·
             {" "}{Number(km.replace(/,/g, "")).toLocaleString()} กม.{dg ? " · DG" : ""}
           </div>
           <ZoomBox>
@@ -570,7 +751,7 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
 
       {look && answer.refusals.length === 0 && <History look={look} total={answer.total} />}
 
-      <CardEditor card={card} busy={busy} onSave={save} />
+      {canEditRates && <CardEditor card={card} busy={busy || savingQuote} onSave={save} />}
     </div>
   );
 }

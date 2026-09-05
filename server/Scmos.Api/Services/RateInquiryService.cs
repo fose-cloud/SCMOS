@@ -19,7 +19,7 @@ public class RateInquiryService(ScmosDbContext db)
     public record LanePost(
         string? FromPlace, string? ToPlace, string? County, string? Carriers,
         bool Fcl, bool Lcl, string? Remark,
-        Dictionary<string, int>? Prices);
+        Dictionary<string, int>? Prices, bool Domestic = false);
 
     public record InquiryPost(
         string? InquiredOn, string? Customer, string? FuelBand, List<LanePost>? Lanes);
@@ -477,6 +477,22 @@ public class RateInquiryService(ScmosDbContext db)
 
     public async Task<Result> CreateAsync(AppUser user, InquiryPost post, CancellationToken token)
     {
+        // A calculator save already owns a transaction containing its receipt.
+        if (db.Database.CurrentTransaction is not null)
+            return await CreateLockedAsync(user, post, token);
+
+        return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(token);
+            var result = await CreateLockedAsync(user, post, token);
+            if (result.Ok) await transaction.CommitAsync(token);
+            return result;
+        });
+    }
+
+    private async Task<Result> CreateLockedAsync(AppUser user, InquiryPost post, CancellationToken token)
+    {
         var customer = (post.Customer ?? "").Trim();
         if (customer.Length == 0) return new Result(false, "ต้องระบุชื่อลูกค้า");
 
@@ -494,8 +510,8 @@ public class RateInquiryService(ScmosDbContext db)
             var position = index + 1;
             if ((lane.FromPlace ?? "").Trim().Length == 0 || (lane.ToPlace ?? "").Trim().Length == 0)
                 return new Result(false, $"เส้นทางที่ {position}: ต้องระบุทั้งต้นทางและปลายทาง");
-            if (!lane.Fcl && !lane.Lcl)
-                return new Result(false, $"เส้นทางที่ {position}: ต้องเลือก FCL หรือ LCL อย่างน้อยหนึ่งอย่าง");
+            if (!lane.Fcl && !lane.Lcl && !lane.Domestic)
+                return new Result(false, $"เส้นทางที่ {position}: ต้องเลือก FCL, LCL หรือ Domestic อย่างน้อยหนึ่งอย่าง");
 
             foreach (var (code, price) in lane.Prices ?? [])
             {
@@ -507,6 +523,9 @@ public class RateInquiryService(ScmosDbContext db)
         }
 
         var written = TrainingRules.Write(date.Value);
+        // All create paths share this lock, including Excel import. Two callers
+        // must not both read the same max(number) before either has committed.
+        await RateWriteLock.TakeAsync(db, "scmos-rate-inquiry-number", token);
         var inquiry = new RateInquiry
         {
             Number = await NextNumberAsync(written, token),
@@ -536,6 +555,7 @@ public class RateInquiryService(ScmosDbContext db)
                 Carriers = (posted.Carriers ?? "").Trim(),
                 Fcl = posted.Fcl,
                 Lcl = posted.Lcl,
+                Domestic = posted.Domestic,
                 Remark = (posted.Remark ?? "").Trim(),
             };
             db.RateInquiryLanes.Add(lane);

@@ -23,6 +23,20 @@ public static class QuoteCardEndpoints
     {
         var group = routes.MapGroup("/api/quote-card").WithTags("QuoteCard");
 
+        group.MapPost("/save-to-sheet", async ([FromBody] QuoteSaveBody body,
+            HttpContext context, IUserAccessor users, QuoteSheetService sheet, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์บันทึกตารางอัตรา", StatusCodes.Status403Forbidden);
+            var result = await sheet.SaveAsync(user, body, token);
+            if (result.Status != 200) return ApiResults.Error(result.Message, result.Status);
+            var saved = result.Receipt!;
+            return Results.Json(new { saved.Id, saved.Number, saved.Date, saved.Count, saved.RouteCount,
+                result.Message, result.Replayed });
+        });
+
         group.MapGet("", async (HttpContext context, IUserAccessor users,
             QuoteCardService card, CancellationToken token) =>
         {
