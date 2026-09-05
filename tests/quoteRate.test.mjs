@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DEFAULT_CARD, DEFAULT_MARGIN, quote } from "../app/scmos/quoteRate.ts";
+import { DEFAULT_CARD, DEFAULT_MARGIN, isUnpriced, quote } from "../app/scmos/quoteRate.ts";
 
 const ask = (over = {}) => ({
   vehicle: "4W", km: 100, dangerousGoods: false,
@@ -165,4 +165,39 @@ test("no quotation can ever contain NaN", () => {
   assert.ok(answer.refusals.length > 0);
   for (const line of answer.lines) assert.ok(Number.isFinite(line.amount));
   assert.ok(Number.isFinite(answer.total));
+});
+
+/*
+ * A vehicle the card carries but nobody has priced.
+ *
+ * The card now holds a line for every vehicle the sheet has a column for, so a
+ * missing rate is visible rather than absent. Those lines hold nought, and the
+ * one thing that must never happen is nought being treated as a price.
+ */
+test("a vehicle with no rate yet is refused, not quoted at the base fare", () => {
+  const waiting = DEFAULT_CARD.map((one) =>
+    one.code === "4W" ? { ...one, perKm: 0, baseCharge: 0 } : one);
+  const answer = quote(waiting, ask());
+  assert.equal(answer.total, 0);
+  assert.equal(answer.lines.length, 0);
+  assert.ok(answer.refusals.some((one) => one.includes("ยังไม่ได้ตั้งอัตรา")),
+    "the refusal must say the rate is missing, not that something is broken");
+});
+
+test("a base charge on its own is still not a price", () => {
+  // The shape that would otherwise slip through: somebody types the fixed part
+  // and not the per-kilometre one, and every journey quotes the same figure
+  // whether it is nine kilometres or nine hundred.
+  const half = DEFAULT_CARD.map((one) =>
+    one.code === "4W" ? { ...one, perKm: 0, baseCharge: 1500 } : one);
+  assert.equal(quote(half, ask()).total, 0);
+  assert.equal(quote(half, ask({ km: 900 })).total, 0);
+});
+
+test("isUnpriced answers the same question the quote does", () => {
+  // Two rules for "has this been priced" is how the picker ends up greying a
+  // row the calculator is happy to quote, or the other way about.
+  for (const rate of DEFAULT_CARD) assert.equal(isUnpriced(rate), false);
+  assert.equal(isUnpriced({ ...DEFAULT_CARD[0], perKm: 0 }), true);
+  assert.equal(isUnpriced({ ...DEFAULT_CARD[0], perKm: Number.NaN }), true);
 });
