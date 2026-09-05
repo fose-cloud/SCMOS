@@ -39,6 +39,26 @@ public static class JourneyEndpoints
             return Results.Json(await journeys.LookAsync(from ?? "", to ?? "", vehicle ?? "", token));
         });
 
+        /*
+         * What a routing engine makes of the distance.
+         *
+         * Reading, so it needs only a signed-in account — the same as looking
+         * one up. Accepting it is a different act and still goes through the
+         * POST below, which needs EditRates and records who agreed: a routing
+         * engine has not seen the gate the lorry actually uses, and the register
+         * has always held a person's name against every distance in it.
+         */
+        group.MapGet("/measure", async (string? from, string? to, HttpContext context,
+            IUserAccessor users, RoutingService routing, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var estimate = await routing.MeasureAsync(from ?? "", to ?? "", token);
+            // 200 either way. "No distance" is an ordinary answer here — no key
+            // set, a place the map does not know, a spent quota — and a screen
+            // that has to tell errors apart from answers tells neither well.
+            return Results.Json(estimate);
+        });
+
         group.MapPost("", async ([FromBody] JourneyBody body, HttpContext context,
             IUserAccessor users, JourneyService journeys, AuditService audit,
             CancellationToken token) =>

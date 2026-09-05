@@ -79,6 +79,12 @@ builder.Services.Configure<PreRunOptions>(builder.Configuration.GetSection(PreRu
 builder.Services.AddScoped<IUserAccessor, UserAccessor>();
 builder.Services.AddScoped<StaffService>();
 builder.Services.AddHttpClient("graph");
+// A short timeout on purpose. This sits behind a button somebody presses while
+// typing a quotation; ten seconds of nothing and they should be told to type
+// the distance themselves rather than watch a spinner.
+builder.Services.AddHttpClient(RoutingService.ClientName,
+    client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddScoped<RoutingService>();
 builder.Services.AddScoped<SignInAccountService>();
 builder.Services.AddSingleton<IFileStore, BlobFileStore>();
 builder.Services.AddSingleton<IDocumentExtractor, DocumentExtractor>();
@@ -148,6 +154,7 @@ if (DuplicateCheck.Run(args) is int duplicateExit) return duplicateExit;
 if (TypeCheck.Run(args) is int typeExit) return typeExit;
 if (DelegationCheck.Run(args) is int delegationExit) return delegationExit;
 if (MonitorCheck.Run(args) is int monitorExit) return monitorExit;
+if (RouteCheck.Run(args) is int routeExit) return routeExit;
 if (ProblemCheck.Run(args) is int problemExit) return problemExit;
 if (InlineCheck.Run(args) is int inlineExit) return inlineExit;
 if (JourneyCheck.Run(args) is int journeyExit) return journeyExit;

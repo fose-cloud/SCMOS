@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
 import { directionsEmbed, directionsLink, hasRoute } from "../mapsEmbed";
+
+/** What the routing engine answered, or why it did not. */
+type Measured = {
+  ok: boolean; km: number; message: string; fromLabel: string; toLabel: string;
+};
 import { ZoomBox } from "../TableFrame";
 import {
   BASIS_TH, type OptionBasis, type QuoteOption, type VehicleRate, quote,
@@ -134,6 +139,33 @@ export function QuoteCalculator({ onToast, mapsKey }: {
   const [to, setTo] = useState("");
   const [km, setKm] = useState("");
   const [mapOpen, setMapOpen] = useState(false);
+  /**
+   * What OpenRouteService makes of the distance, once somebody asks.
+   *
+   * Never asked for on its own — a keystroke in the origin box would spend a
+   * shared daily quota on a half-typed place name — and never written into the
+   * box. It is offered, and a person presses a button to take it.
+   */
+  const [measured, setMeasured] = useState<Measured | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+
+  async function measure() {
+    if (measuring) return;
+    setMeasuring(true);
+    setMeasured(null);
+    try {
+      const reply = await apiFetch(
+        `/api/journeys/measure?from=${encodeURIComponent(from.trim())}&to=${encodeURIComponent(to.trim())}`,
+        { headers: { accept: "application/json" } });
+      setMeasured(reply.ok
+        ? await reply.json() as Measured
+        : { ok: false, km: 0, message: "อ่านระยะทางไม่สำเร็จ", fromLabel: "", toLabel: "" });
+    } catch {
+      setMeasured({ ok: false, km: 0, message: "ติดต่อระบบไม่ได้", fromLabel: "", toLabel: "" });
+    } finally {
+      setMeasuring(false);
+    }
+  }
   /*
    * What the register knows about this journey: how far, and what it has cost.
    *
@@ -314,12 +346,53 @@ export function QuoteCalculator({ onToast, mapsKey }: {
             {/* Beside the distance rather than at the foot of the screen. It is
                 the only thing on the page that can contradict the number in the
                 box, so it belongs where somebody typing that number is looking. */}
+            <button type="button" onClick={() => void measure()} disabled={measuring}
+              style={css("height:24px;padding:0 10px;border:1px solid #16794C;background:"
+                + (measuring ? "#C3CFDB" : "#fff") + ";color:" + (measuring ? "#fff" : "#16794C")
+                + ";border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
+              {measuring ? "กำลังวัด…" : "วัดระยะทางจากถนนจริง"}
+            </button>
             <button type="button" onClick={() => setMapOpen((was) => !was)}
               style={css("height:24px;padding:0 10px;border:1px solid #1D5FA8;background:"
                 + (mapOpen ? "#1D5FA8" : "#fff") + ";color:" + (mapOpen ? "#fff" : "#1D5FA8")
                 + ";border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
               {mapOpen ? "ซ่อนแผนที่" : "ดูเส้นทางบนแผนที่"}
             </button>
+          </div>
+        )}
+
+        {measured && (
+          <div style={css("margin-top:8px;font-size:11.5px;border:1px solid "
+            + (measured.ok ? "#CDE6DA" : "#F0DCB4") + ";background:"
+            + (measured.ok ? "#F3FAF6" : "#FFF8EC") + ";border-radius:4px;padding:8px 11px")}>
+            {measured.ok ? (
+              <div style={css("display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
+                <span style={css("color:#16794C;font-weight:600")}>
+                  ถนนจริงวัดได้ {measured.km.toLocaleString()} กม.
+                </span>
+                {/* What the geocoder decided the two ends were. The commonest
+                    wrong answer here is not a broken call — it is a confident
+                    distance to the wrong town, and this is the only way to see
+                    it before the number goes into a price. */}
+                {(measured.fromLabel || measured.toLabel) && (
+                  <span style={css("color:#7B8CA0")}>
+                    {measured.fromLabel || "—"} → {measured.toLabel || "—"}
+                  </span>
+                )}
+                {Number(km.replace(/,/g, "")) !== measured.km && (
+                  <button type="button" onClick={() => setKm(String(measured.km))}
+                    style={css("height:24px;padding:0 10px;border:1px solid #16794C;background:#16794C;"
+                      + "color:#fff;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                    ใช้ค่านี้
+                  </button>
+                )}
+                <span style={css("color:#94A3B8")}>
+                  เส้นทางรถบรรทุก · เป็นค่าที่เสนอ ยังต้องกด “จำระยะทางนี้ไว้” เอง
+                </span>
+              </div>
+            ) : (
+              <span style={css("color:#8A6D1F")}>{measured.message}</span>
+            )}
           </div>
         )}
 
