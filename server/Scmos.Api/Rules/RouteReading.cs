@@ -161,6 +161,103 @@ public static class RouteReading
             },
             units = "km",
             instructions = false,
-            geometry = false,
+            // Asked for now: it is the road the 119 kilometres were counted
+            // along, and drawing it is the only way a person can see that the
+            // number belongs to a route their lorry could actually take.
+            geometry = true,
         });
+
+    /// <summary>
+    /// The road itself, as longitude/latitude pairs.
+    ///
+    /// Two shapes are accepted because only one of them has ever been seen from
+    /// here. The documented reply carries <c>geometry</c> as an encoded
+    /// polyline — a string — and the GeoJSON variant of the same endpoint
+    /// carries it as an array of pairs. Reading both costs a dozen lines and
+    /// means the map does not go blank the day the shape is not the one guessed.
+    ///
+    /// An empty list is a normal answer, never an error: the caller has the two
+    /// endpoints from geocoding and draws those, so a route that cannot be read
+    /// costs the shape of the road and nothing else.
+    /// </summary>
+    public static IReadOnlyList<(double Lon, double Lat)> Geometry(string json)
+    {
+        try
+        {
+            using var reply = JsonDocument.Parse(json);
+            if (!reply.RootElement.TryGetProperty("routes", out var routes)
+                || routes.ValueKind != JsonValueKind.Array
+                || routes.GetArrayLength() == 0) return [];
+
+            if (!routes[0].TryGetProperty("geometry", out var geometry)) return [];
+
+            if (geometry.ValueKind == JsonValueKind.String)
+                return DecodePolyline(geometry.GetString() ?? "");
+
+            if (geometry.ValueKind == JsonValueKind.Object
+                && geometry.TryGetProperty("coordinates", out var pairs))
+                return ReadPairs(pairs);
+
+            return geometry.ValueKind == JsonValueKind.Array ? ReadPairs(geometry) : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static IReadOnlyList<(double Lon, double Lat)> ReadPairs(JsonElement pairs)
+    {
+        if (pairs.ValueKind != JsonValueKind.Array) return [];
+        var road = new List<(double, double)>(pairs.GetArrayLength());
+        foreach (var pair in pairs.EnumerateArray())
+        {
+            if (pair.ValueKind != JsonValueKind.Array || pair.GetArrayLength() < 2) continue;
+            road.Add((pair[0].GetDouble(), pair[1].GetDouble()));
+        }
+        return road;
+    }
+
+    /// <summary>
+    /// Google's encoded polyline, which is what OpenRouteService sends.
+    ///
+    /// Five decimal places, deltas, zig-zag encoded, six bits to a character.
+    /// Written out rather than pulled in because it is thirty lines and the
+    /// alternative is a dependency on this codebase's fifth runtime package for
+    /// one function.
+    ///
+    /// A malformed string yields whatever decoded before it went wrong rather
+    /// than throwing: half a road drawn is better than a blank panel, and the
+    /// distance beside it never came from here.
+    /// </summary>
+    public static IReadOnlyList<(double Lon, double Lat)> DecodePolyline(string encoded)
+    {
+        var road = new List<(double, double)>();
+        int index = 0, lat = 0, lon = 0;
+
+        while (index < encoded.Length)
+        {
+            if (!Step(encoded, ref index, out var dLat)) break;
+            if (!Step(encoded, ref index, out var dLon)) break;
+            lat += dLat;
+            lon += dLon;
+            road.Add((lon / 1e5, lat / 1e5));
+        }
+        return road;
+
+        static bool Step(string text, ref int at, out int value)
+        {
+            int result = 0, shift = 0, b;
+            do
+            {
+                if (at >= text.Length) { value = 0; return false; }
+                b = text[at++] - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            // The low bit is the sign, and the rest is the magnitude.
+            value = (result & 1) != 0 ? ~(result >> 1) : result >> 1;
+            return true;
+        }
+    }
 }

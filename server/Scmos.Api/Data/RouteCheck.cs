@@ -109,8 +109,14 @@ public static class RouteCheck
             body.Contains("[100.8833,13.0827]"), true);
         failed += Say("kilometres are asked for, so nothing converts metres by hand",
             body.Contains("\"units\":\"km\""), true);
-        failed += Say("the road's shape is not requested — it is not the question",
-            body.Contains("\"geometry\":false"), true);
+        // Was false, to keep the reply small when the question was one number.
+        // The map asks a second question — "along which road?" — and only the
+        // shape can answer it, so it is requested and the turn-by-turn
+        // instructions, which nothing reads, still are not.
+        failed += Say("the road's shape is requested, so the map can draw it",
+            body.Contains("\"geometry\":true"), true);
+        failed += Say("turn-by-turn instructions still are not — nothing reads them",
+            body.Contains("\"instructions\":false"), true);
 
         /* ---- what a refusal is called ---- */
         Console.WriteLine();
@@ -124,6 +130,36 @@ public static class RouteCheck
             RouteReading.Refusal(429).Contains("กรอกระยะทางเอง"), true);
         failed += Say("an outage says the same, without blaming the key",
             RouteReading.Refusal(503).Contains("ApiKey"), false);
+
+        /* ---- the road itself ---- */
+        Console.WriteLine();
+        /*
+         * "_p~iF~ps|U_ulLnnqC_mqNvxq`@" is the polyline algorithm's own worked
+         * example, and it decodes to (-120.2, 38.5), (-120.95, 40.7),
+         * (-126.453, 43.252). If this passes, the decoder agrees with the
+         * specification rather than with itself.
+         */
+        var road = RouteReading.DecodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
+        failed += Say("the specification's own example decodes to three points", road.Count, 3);
+        failed += Say("longitude first, as the rest of this file passes them",
+            $"{road[0].Lon:0.###},{road[0].Lat:0.###}", "-120.2,38.5");
+        failed += Say("deltas accumulate along the road",
+            $"{road[2].Lon:0.###},{road[2].Lat:0.###}", "-126.453,43.252");
+
+        failed += Say("a route read from the documented reply has a shape",
+            RouteReading.Geometry("""{"routes":[{"summary":{"distance":1},"geometry":"_p~iF~ps|U"}]}""").Count, 1);
+        // The GeoJSON variant of the same endpoint sends pairs instead. Both are
+        // read, because only one of the two has ever been seen from here.
+        failed += Say("and so does one sent as coordinates",
+            RouteReading.Geometry("""{"routes":[{"geometry":{"coordinates":[[100.1,13.1],[100.2,13.2]]}}]}""").Count, 2);
+
+        // Every one of these must be an empty road, never an exception: the
+        // caller still has both endpoints and draws those.
+        failed += Say("no geometry is an empty road, not a failure",
+            RouteReading.Geometry("""{"routes":[{"summary":{"distance":1}}]}""").Count, 0);
+        failed += Say("nor does junk throw", RouteReading.Geometry("not json").Count, 0);
+        failed += Say("a truncated polyline keeps what decoded",
+            RouteReading.DecodePolyline("_p~iF~ps|U_ulL").Count, 1);
 
         /* ---- the key goes on the request at all ---- */
         Console.WriteLine();

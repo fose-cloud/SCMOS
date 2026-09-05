@@ -24,7 +24,7 @@ import { RateSheet } from "./RateSheet";
 
 type View = "calculate" | "sheet" | "terms";
 
-export function Quotation({ view, onView, canEditRates, onToast, mapsKey }: {
+export function Quotation({ view, onView, canEditRates, onToast }: {
   /**
    * Which half is showing, owned above this screen.
    *
@@ -45,8 +45,6 @@ export function Quotation({ view, onView, canEditRates, onToast, mapsKey }: {
    */
   canEditRates: boolean;
   onToast: (m: string) => void;
-  /** Google Maps embed key, or empty. Passed through to the calculator. */
-  mapsKey: string;
 }) {
   return (
     <div style={css("display:flex;flex-direction:column;gap:"
@@ -73,7 +71,7 @@ export function Quotation({ view, onView, canEditRates, onToast, mapsKey }: {
         })}
       </div>
 
-      {view === "calculate" && <QuoteCalculator onToast={onToast} mapsKey={mapsKey} />}
+      {view === "calculate" && <QuoteCalculator onToast={onToast} />}
 
       {/* The register in the workbook's own shape, typed into like My Job. */}
       {view === "sheet" && <RateSheet canEdit={canEditRates} onToast={onToast} />}

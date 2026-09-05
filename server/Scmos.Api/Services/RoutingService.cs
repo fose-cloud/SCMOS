@@ -12,9 +12,17 @@ namespace Scmos.Api.Services;
 /// <param name="FromLabel">What the geocoder decided the origin was.</param>
 /// <param name="ToLabel">Likewise the destination. Both shown, because the
 /// commonest wrong answer is a confident distance to the wrong town.</param>
-public record RouteEstimate(bool Ok, int Km, string Message, string FromLabel, string ToLabel)
+/// <param name="Path">
+/// The road, as flat [lon, lat, lon, lat, …].
+///
+/// Flat rather than nested pairs because it halves the JSON: a hundred-mile
+/// route is hundreds of points and every one of them would otherwise carry two
+/// brackets. Empty is normal — the screen draws the two ends instead.
+/// </param>
+public record RouteEstimate(bool Ok, int Km, string Message, string FromLabel, string ToLabel,
+    IReadOnlyList<double> Path)
 {
-    public static RouteEstimate No(string why) => new(false, 0, why, "", "");
+    public static RouteEstimate No(string why) => new(false, 0, why, "", "", []);
 }
 
 /// <summary>
@@ -76,6 +84,15 @@ public class RoutingService(
     /// four times spends one unit of a shared daily quota rather than twelve.
     /// </summary>
     private static readonly TimeSpan Remember = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// How many points of the road are worth sending.
+    ///
+    /// The panel it is drawn in is a few hundred pixels across, so past this
+    /// every extra point lands on a pixel already covered — it costs payload
+    /// and draws nothing.
+    /// </summary>
+    private const int MaxPathPoints = 200;
 
     private string Key => (config[KeySetting] ?? "").Trim();
 
@@ -141,11 +158,37 @@ public class RoutingService(
             if (!reply.IsSuccessStatusCode)
                 return RouteEstimate.No(RouteReading.Refusal((int)reply.StatusCode));
 
-            var measured = RouteReading.Distance(await reply.Content.ReadAsStringAsync(token));
+            var reply2 = await reply.Content.ReadAsStringAsync(token);
+            var measured = RouteReading.Distance(reply2);
             if (!measured.Ok)
                 return RouteEstimate.No("OpenRouteService หาเส้นทางรถบรรทุกระหว่างสองจุดนี้ไม่ได้");
 
-            var answer = new RouteEstimate(true, measured.Km, "", start.Place.Label, end.Place.Label);
+            /*
+             * The road, thinned.
+             *
+             * A hundred-kilometre route comes back as hundreds of points, and
+             * the map it is drawn on is a few hundred pixels wide — past a
+             * couple of hundred points every extra one lands on a pixel already
+             * covered. Both ends are always kept, because a route that stops
+             * short of the place it was measured to would be the map saying
+             * something the distance does not.
+             */
+            var road = RouteReading.Geometry(reply2);
+            var path = new List<double>();
+            var step = Math.Max(1, road.Count / MaxPathPoints);
+            for (var at = 0; at < road.Count; at += step)
+            {
+                path.Add(road[at].Lon);
+                path.Add(road[at].Lat);
+            }
+            if (road.Count > 0 && step > 1)
+            {
+                path.Add(road[^1].Lon);
+                path.Add(road[^1].Lat);
+            }
+
+            var answer = new RouteEstimate(true, measured.Km, "",
+                start.Place.Label, end.Place.Label, path);
             cache.Set(cacheKey, answer, Remember);
             return answer;
         }

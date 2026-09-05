@@ -169,16 +169,9 @@ type Props = {
   signOutHref: string | null;
   /** Whether the passwordless demo gate is available. Never true in a deployed build. */
   demo: boolean;
-  /**
-   * Google Maps embed key, or empty when none is configured.
-   *
-   * Empty is a supported state, not a broken one: every screen works without
-   * it and the quotation calculator says so rather than drawing a blank map.
-   */
-  mapsKey: string;
 };
 
-export function SCMOSApp({ initialUser, signOutHref, demo, mapsKey }: Props) {
+export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // ---- chrome / navigation -----------------------------------------------
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
@@ -2813,7 +2806,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, mapsKey }: Props) {
             {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
-              canEditRates={able("EditRates")} onToast={setToast} mapsKey={mapsKey} />}
+              canEditRates={able("EditRates")} onToast={setToast} />}
 
             {screen === "postpone" && (
               <Postpone

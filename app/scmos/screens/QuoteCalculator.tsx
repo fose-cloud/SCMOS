@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
-import { directionsEmbed, directionsLink, hasRoute } from "../mapsEmbed";
+import { directionsLink, hasRoute } from "../mapsLink";
+import { ATTRIBUTION, TILE, pointsFrom, tileUrl, view } from "../slippyMap";
 
 /** What the routing engine answered, or why it did not. */
 type Measured = {
   ok: boolean; km: number; message: string; fromLabel: string; toLabel: string;
+  /** The road, flat [lon, lat, lon, lat, …]. Empty when it could not be read. */
+  path: number[];
 };
 import { ZoomBox } from "../TableFrame";
 import {
@@ -62,30 +65,71 @@ const NUM = css("height:28px;width:80px;border:1px solid #C9D6E2;border-radius:3
 const baht = (n: number) => n.toLocaleString("en-US");
 
 /**
- * The route on a map, beside the distance it exists to check.
+ * The road, drawn.
  *
- * The calculator asks for kilometres and has never had anything to check them
- * against — the first person to price a lane types a number from memory, and
- * everybody after that starts from theirs. Google will not be asked what the
- * distance is: it draws the two ends and the road between them, and a person
- * still decides what to put in the box and whether to record it. A distance is
- * a judgement, which is why the stored one carries the name of whoever made it.
+ * Not Google's embed, which this replaced. That needed a key behind a billing
+ * account nobody here wanted to open, and it drew a route Google had worked out
+ * for itself — beside a distance that came from somewhere else. This draws the
+ * road OpenRouteService actually measured, so the picture and the number are
+ * the same journey.
  *
- * The plain Google Maps link is offered whether or not a key is configured,
- * because it needs none — and on a site with no key it is the whole feature.
+ * Tiles from OpenStreetMap, which asks for no key and no account. The
+ * projection is in slippyMap, without imports, and tested there.
  */
-function RouteMap({ mapsKey, from, to }: { mapsKey: string; from: string; to: string }) {
-  const embed = directionsEmbed(mapsKey, from, to);
+function RouteMap({ from, to, path }: { from: string; to: string; path: number[] }) {
   const link = directionsLink(from, to);
+  const road = pointsFrom(path);
+
+  /*
+   * The picture is laid out for the width it actually has.
+   *
+   * The zoom is chosen so the whole journey fits, which means it has to be
+   * chosen against a real number of pixels. Computed against a fixed 900 and
+   * then drawn into a narrower panel, the tiles and the road are positioned for
+   * a picture nobody is looking at — and the end of the route is simply clipped
+   * off, which is the one thing a map of a journey must not do.
+   */
+  const [width, setWidth] = useState(WIDTH);
+  const box = useRef<HTMLDivElement | null>(null);
+
+  const remeasure = useCallback(() => {
+    const seen = Math.round(box.current?.getBoundingClientRect().width ?? 0);
+    if (seen > 0) setWidth(seen);
+  }, []);
+
+  /*
+   * A callback ref that measures on the spot, and a window listener after that.
+   *
+   * Two things ruled out the obvious answers. An effect with an empty
+   * dependency list ran while the box did not exist — it only appears once
+   * there is a road to draw in it — so it found a null ref and never ran again.
+   * And a ResizeObserver attached to the real, sized element never delivered a
+   * single callback in the browser this was checked in, so it could not be
+   * shown to work; measuring the node the moment it arrives can be.
+   *
+   * Between them these cover what actually changes the panel's width: the first
+   * time it appears, and the window being resized. Nothing else on this screen
+   * moves it.
+   */
+  const attach = useCallback((node: HTMLDivElement | null) => {
+    box.current = node;
+    if (node) setWidth(Math.round(node.getBoundingClientRect().width) || WIDTH);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("resize", remeasure);
+    return () => window.removeEventListener("resize", remeasure);
+  }, [remeasure]);
+
+  const drawn = view(road, width, HEIGHT);
 
   return (
     <div style={css("margin-top:10px;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden;background:#fff")}>
       <div style={css("padding:8px 12px;border-bottom:1px solid #E9EFF5;display:flex;"
         + "align-items:center;gap:10px;flex-wrap:wrap;font-size:11.5px;color:#7B8CA0")}>
         <span><b style={css("color:#0A2240")}>{from.trim()}</b> → <b style={css("color:#0A2240")}>{to.trim()}</b></span>
-        {/* Google's own reading of the road, for checking the box against —
-            never written into it. Opening it is a person's decision and so is
-            what they do with what they see. */}
+        {/* Needs no key either, and is the way to drag the route around, read an
+            alternative, or check the picture against somebody else's map. */}
         {link && (
           <a href={link} target="_blank" rel="noreferrer noopener"
             style={css("margin-left:auto;color:#1D5FA8;font-weight:600;text-decoration:none")}>
@@ -94,28 +138,53 @@ function RouteMap({ mapsKey, from, to }: { mapsKey: string; from: string; to: st
         )}
       </div>
 
-      {embed ? (
-        <iframe
-          title={`เส้นทาง ${from.trim()} ถึง ${to.trim()}`}
-          src={embed}
-          width="100%"
-          height="360"
-          style={css("border:0;display:block")}
-          loading="lazy"
-          allowFullScreen
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
+      {drawn ? (
+        <div ref={attach}
+          style={css(`position:relative;width:100%;max-width:${WIDTH}px;height:${HEIGHT}px;`
+            + "overflow:hidden;background:#E9EFF5;margin:0 auto")}>
+          {drawn.tiles.map((tile) => (
+            /* Not `loading="lazy"`. Absolutely positioned inside a clipped box,
+               the browser never resolved these as visible and never requested a
+               single one — the panel drew its road over an empty grey square.
+               There is nothing to defer anyway: the tiles are the panel, and
+               the panel only exists once somebody has asked for the map. */
+            /* A plain img, not next/image, which would proxy every tile through
+               this app's optimiser — a bill and a cache for pictures
+               OpenStreetMap already serves ready-sized. */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={`${tile.z}/${tile.x}/${tile.y}`} src={tileUrl(tile)} alt=""
+              width={TILE} height={TILE} draggable={false}
+              style={css(`position:absolute;left:${tile.left}px;top:${tile.top}px;`
+                + `width:${TILE}px;height:${TILE}px;user-select:none`)} />
+          ))}
+
+          <svg width={width} height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`}
+            style={css("position:absolute;inset:0;pointer-events:none")} aria-hidden="true">
+            {/* Twice: a pale casing under a solid line, so the road stays
+                readable over both a dark motorway and a white sea. */}
+            <polyline points={drawn.line.map((at) => `${at.x},${at.y}`).join(" ")}
+              fill="none" stroke="#ffffff" strokeWidth="7"
+              strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+            <polyline points={drawn.line.map((at) => `${at.x},${at.y}`).join(" ")}
+              fill="none" stroke="#1D5FA8" strokeWidth="3.5"
+              strokeLinecap="round" strokeLinejoin="round" />
+            {[drawn.line[0], drawn.line[drawn.line.length - 1]].map((at, which) => at && (
+              <circle key={which} cx={at.x} cy={at.y} r="6"
+                fill={which === 0 ? "#16794C" : "#B3261E"} stroke="#fff" strokeWidth="2.5" />
+            ))}
+          </svg>
+
+          {/* Their licence asks for this, and so do manners. */}
+          <span style={css("position:absolute;right:0;bottom:0;background:rgba(255,255,255,.78);"
+            + "font-size:10px;color:#5A6B7D;padding:1px 5px;border-top-left-radius:3px")}>
+            {ATTRIBUTION}
+          </span>
+        </div>
       ) : (
-        /*
-         * Said plainly rather than drawn as an empty box. A blank map on a
-         * pricing screen reads as "Google has nothing for this route", which
-         * would be a statement about the journey instead of about the setting.
-         */
-        <div style={css("padding:22px 16px;font-size:12px;color:#7B8CA0;line-height:1.7")}>
-          ยังไม่ได้ตั้งค่า Google Maps สำหรับระบบนี้ — แผนที่ในหน้าจึงยังไม่แสดง
+        <div style={css("padding:22px 16px;font-size:12px;color:#7B8CA0")}>
+          กด “วัดระยะทางจากถนนจริง” ก่อน แล้วเส้นทางจะขึ้นบนแผนที่
           <div style={css("color:#94A3B8;font-size:11.5px;margin-top:4px")}>
-            ตั้งค่า <code style={css("font-family:ui-monospace,monospace")}>GOOGLE_MAPS_EMBED_KEY</code>
-            {" "}ที่ App Service application settings แล้วรีสตาร์ท · ปุ่ม “เปิดใน Google Maps” ด้านบนใช้ได้อยู่แล้วโดยไม่ต้องตั้งค่า
+            แผนที่วาดจากเส้นทางที่ระบบวัดระยะทางได้จริง — ไม่ใช่เส้นทางที่คำนวณแยกต่างหาก
           </div>
         </div>
       )}
@@ -123,16 +192,17 @@ function RouteMap({ mapsKey, from, to }: { mapsKey: string; from: string; to: st
   );
 }
 
-export function QuoteCalculator({ onToast, mapsKey }: {
-  onToast: (m: string) => void;
-  /**
-   * Google Maps embed key, or empty when none is configured.
-   *
-   * From a server-rendered prop rather than NEXT_PUBLIC_, so it is an
-   * application setting that takes effect without a rebuild — see app/page.tsx.
-   */
-  mapsKey: string;
-}) {
+/**
+ * The widest the panel is allowed to be, and how tall it always is.
+ *
+ * The width is a ceiling rather than a fixed size — what the picture is laid
+ * out against is whatever the panel really measures, which is the only way the
+ * chosen zoom fits the journey on a narrow screen as well as a wide one.
+ */
+const WIDTH = 900;
+const HEIGHT = 380;
+
+export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
   const [card, setCard] = useState<Card | null>(null);
   const [vehicle, setVehicle] = useState("4W");
   const [from, setFrom] = useState("");
@@ -171,11 +241,11 @@ export function QuoteCalculator({ onToast, mapsKey }: {
       const body = await reply.json().catch(() => null) as Measured | null;
       if (body && typeof body.ok === "boolean") setMeasured(body);
       else setMeasured({
-        ok: false, km: 0, fromLabel: "", toLabel: "",
+        ok: false, km: 0, fromLabel: "", toLabel: "", path: [],
         message: `อ่านระยะทางไม่สำเร็จ (HTTP ${reply.status})`,
       });
     } catch {
-      setMeasured({ ok: false, km: 0, message: "ติดต่อระบบไม่ได้", fromLabel: "", toLabel: "" });
+      setMeasured({ ok: false, km: 0, message: "ติดต่อระบบไม่ได้", fromLabel: "", toLabel: "", path: [] });
     } finally {
       setMeasuring(false);
     }
@@ -411,7 +481,7 @@ export function QuoteCalculator({ onToast, mapsKey }: {
         )}
 
         {mapOpen && hasRoute(from, to) && (
-          <RouteMap mapsKey={mapsKey} from={from} to={to} />
+          <RouteMap from={from} to={to} path={measured?.ok ? measured.path : []} />
         )}
 
         {card.extras.some((one) => one.active) && (
