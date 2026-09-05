@@ -157,9 +157,23 @@ export function QuoteCalculator({ onToast, mapsKey }: {
       const reply = await apiFetch(
         `/api/journeys/measure?from=${encodeURIComponent(from.trim())}&to=${encodeURIComponent(to.trim())}`,
         { headers: { accept: "application/json" } });
-      setMeasured(reply.ok
-        ? await reply.json() as Measured
-        : { ok: false, km: 0, message: "อ่านระยะทางไม่สำเร็จ", fromLabel: "", toLabel: "" });
+
+      /*
+       * The body is read whatever the status says.
+       *
+       * This used to throw the answer away on anything but 200 and show "could
+       * not read the distance" — which is what it said the first time somebody
+       * pressed the button on a real key, hiding a FormatException the server
+       * had already named. When the server has an explanation it is the
+       * explanation shown; when it has none, the status is, because a number
+       * somebody can quote back is worth more than a sentence that fits.
+       */
+      const body = await reply.json().catch(() => null) as Measured | null;
+      if (body && typeof body.ok === "boolean") setMeasured(body);
+      else setMeasured({
+        ok: false, km: 0, fromLabel: "", toLabel: "",
+        message: `อ่านระยะทางไม่สำเร็จ (HTTP ${reply.status})`,
+      });
     } catch {
       setMeasured({ ok: false, km: 0, message: "ติดต่อระบบไม่ได้", fromLabel: "", toLabel: "" });
     } finally {

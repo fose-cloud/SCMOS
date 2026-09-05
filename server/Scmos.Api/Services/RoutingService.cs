@@ -82,6 +82,22 @@ public class RoutingService(
     /// <summary>Whether the screen should offer the button at all.</summary>
     public bool Configured => Key.Length > 0;
 
+    /// <summary>
+    /// Puts the key on a request, without asking whether it is a legal scheme.
+    ///
+    /// <c>new AuthenticationHeaderValue(key)</c> reads its one argument as the
+    /// authentication <b>scheme</b> — "Bearer", "Basic" — and a scheme has to be
+    /// an HTTP token, which excludes "=" and "/". OpenRouteService now issues
+    /// JWT keys, which are base64 and contain both, so that constructor threw a
+    /// FormatException on the real key and the endpoint answered 500. Nothing in
+    /// the fixture caught it, because the fixtures never held a key.
+    ///
+    /// The header goes on unvalidated: it is not a scheme and a parameter, it is
+    /// the whole value, exactly as OpenRouteService expects to read it.
+    /// </summary>
+    public static void Authorise(System.Net.Http.Headers.HttpRequestHeaders headers, string key) =>
+        headers.TryAddWithoutValidation("Authorization", key);
+
     public async Task<RouteEstimate> MeasureAsync(string from, string to, CancellationToken token)
     {
         var origin = Formats.Clean(from);
@@ -115,7 +131,7 @@ public class RoutingService(
             if (!end.Place.Found) return RouteEstimate.No($"หาปลายทางไม่พบบนแผนที่: {destination}");
 
             var client = factory.CreateClient(ClientName);
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(Key);
+            Authorise(client.DefaultRequestHeaders, Key);
 
             var body = new StringContent(
                 RouteReading.DirectionsBody(start.Place, end.Place), Encoding.UTF8, "application/json");
@@ -145,6 +161,24 @@ public class RoutingService(
             // carries it as a query parameter on the geocoding call.
             log.LogWarning(problem, "Could not reach OpenRouteService.");
             return RouteEstimate.No("ติดต่อ OpenRouteService ไม่ได้ — กรอกระยะทางเองไปก่อนได้");
+        }
+        catch (Exception problem)
+        {
+            /*
+             * Nothing from a suggested distance may reach the browser as a 500.
+             *
+             * One did: a FormatException from building the Authorization header,
+             * thrown before any request went out, which the screen could only
+             * report as "could not read the distance" — the least useful thing
+             * it could have said about the most findable bug in this file.
+             *
+             * A quotation screen has a working answer without this service at
+             * all, so every failure here is a sentence and a person typing the
+             * number, never a stack trace.
+             */
+            log.LogError(problem, "OpenRouteService lookup failed unexpectedly.");
+            return RouteEstimate.No(
+                "วัดระยะทางไม่สำเร็จ (ระบบภายใน) — กรอกระยะทางเองไปก่อนได้ · " + problem.GetType().Name);
         }
     }
 
@@ -176,7 +210,7 @@ public class RoutingService(
         // taken a key; the header is how the router takes one. Sending both
         // means the first real call works whichever the moved host reads, which
         // matters more than tidiness for a request that has never been made.
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(Key);
+        Authorise(client.DefaultRequestHeaders, Key);
 
         var reply = await client.GetAsync(url, token);
         if (!reply.IsSuccessStatusCode) return (RouteReading.Place.Missing, (int)reply.StatusCode);

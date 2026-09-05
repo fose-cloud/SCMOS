@@ -125,6 +125,29 @@ public static class RouteCheck
         failed += Say("an outage says the same, without blaming the key",
             RouteReading.Refusal(503).Contains("ApiKey"), false);
 
+        /* ---- the key goes on the request at all ---- */
+        Console.WriteLine();
+        /*
+         * The bug this check was written after.
+         *
+         * `new AuthenticationHeaderValue(key)` reads its argument as the auth
+         * scheme, and a scheme must be an HTTP token — no "=", no "/".
+         * OpenRouteService issues JWT keys, which are base64 and contain both,
+         * so the real key threw a FormatException before any request went out
+         * and the endpoint answered 500. Every fixture passed, because no
+         * fixture had ever held a key.
+         */
+        var jwt = "eyJvcmciOiJhYmMiLCJpZCI6IjEyMy80NTYifQ.ZGI20=";
+        using var request = new HttpRequestMessage();
+        var threw = "";
+        try { RoutingService.Authorise(request.Headers, jwt); }
+        catch (Exception problem) { threw = problem.GetType().Name; }
+
+        failed += Say("a JWT key with '=' and '/' goes on the header without throwing", threw, "");
+        failed += Say("and goes on whole, not split into a scheme and a parameter",
+            request.Headers.TryGetValues("Authorization", out var sent)
+                ? string.Join("", sent) : "(absent)", jwt);
+
         /* ---- the host that moved ---- */
         Console.WriteLine();
         // api.openrouteservice.org was deprecated on 28 April 2026 and still
