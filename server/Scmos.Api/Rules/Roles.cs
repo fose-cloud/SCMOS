@@ -41,6 +41,26 @@ public enum Capability
     /// <summary>Change a quoted rate.</summary>
     EditRates = 1 << 7,
 
+    /// <summary>
+    /// Write a calculated quotation into the rate sheet as a new row.
+    ///
+    /// Split from <see cref="EditRates"/> on 5 September 2026, at the
+    /// department's request, so the operator who works out a price for a lane
+    /// can record it without also being handed every negotiated rate in the
+    /// book. The two are different acts: this one adds a line that did not
+    /// exist and signs it with the account that added it, while EditRates
+    /// changes a figure somebody has already agreed with a carrier.
+    ///
+    /// Nothing this grants is silent. Every save is an audit row naming who
+    /// saved it, and the row it writes carries the same account as the
+    /// requester — which is the reason it is safe to hold lower down.
+    ///
+    /// Deliberately not held by <see cref="Roles.Subcontractor"/>, for the same
+    /// reason they cannot read the book: one carrier must not put a price into
+    /// a sheet that seventeen others are read from.
+    /// </summary>
+    QuoteToSheet = 1 << 16,
+
     /// <summary>Register a vendor and move them through onboarding.</summary>
     ManageSuppliers = 1 << 8,
 
@@ -128,7 +148,7 @@ public static class Roles
      */
     private const Capability OperationGrants =
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
-        | Capability.ManageTraining | Capability.ViewAudit;
+        | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar

@@ -205,8 +205,12 @@ function RouteMap({ from, to, path }: { from: string; to: string; path: number[]
 const WIDTH = 900;
 const HEIGHT = 380;
 
-export function QuoteCalculator({ canEditRates, onOpenSheet, onToast }: {
-  canEditRates: boolean; onOpenSheet: () => void; onToast: (m: string) => void;
+export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToast }: {
+  /** May change the card the price is worked out from, and the journey register. */
+  canEditRates: boolean;
+  /** May write the finished quotation into the sheet. Held from Operation up. */
+  canSaveQuote: boolean;
+  onOpenSheet: () => void; onToast: (m: string) => void;
 }) {
   const [card, setCard] = useState<Card | null>(null);
   const [vehicles, setVehicles] = useState<string[]>(["4W"]);
@@ -423,7 +427,7 @@ export function QuoteCalculator({ canEditRates, onOpenSheet, onToast }: {
     ...(!customer.trim() ? ["ระบุชื่อลูกค้าก่อนบันทึก"] : []),
     ...(!Object.values(loadTypes).some(Boolean) ? ["เลือกประเภทงานอย่างน้อย 1 แบบ"] : []),
   ];
-  const canSave = canEditRates && !savingQuote && !alreadySaved && saveRefusals.length === 0;
+  const canSave = canSaveQuote && !savingQuote && !alreadySaved && saveRefusals.length === 0;
 
   async function saveToSheet() {
     if (!canSave || saveInFlight.current) return;
@@ -690,7 +694,7 @@ export function QuoteCalculator({ canEditRates, onOpenSheet, onToast }: {
         <p style={css("font-size:11.5px;color:#7B8CA0;margin:10px 0 0;line-height:1.6")}>
           แต่ละเส้นทางบันทึกคนละแถว พร้อมราคาเสนอลูกค้าของรถที่เลือก (รวมกำไรและรายการเพิ่มเติม) · DATE ใช้วันบันทึกตามเวลาประเทศไทย · NO. รันต่อในเดือนนั้นและใช้ร่วมกันทั้งชุด · ผู้ขอเป็นบัญชีที่เข้าสู่ระบบ
         </p>
-        {!canEditRates ? <p role="status" style={css("font-size:12px;color:#B45309")}>บัญชีนี้คำนวณราคาได้ แต่ไม่มีสิทธิ์บันทึกตารางอัตรา</p>
+        {!canSaveQuote ? <p role="status" style={css("font-size:12px;color:#B45309")}>บัญชีนี้คำนวณราคาได้ แต่ไม่มีสิทธิ์บันทึกตารางอัตรา</p>
           : !alreadySaved && saveRefusals.length > 0 && <p role="status" style={css("font-size:12px;color:#B45309;margin-bottom:0")}>{[...new Set(saveRefusals)].join(" · ")}</p>}
         {saveError && <p role="alert" style={css("font-size:12px;color:#B42318")}>{saveError}</p>}
         {savedQuote && <div role="status" style={css("margin-top:12px;padding:10px;background:#F1FAF5;color:#16794C;font-size:12.5px;display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>

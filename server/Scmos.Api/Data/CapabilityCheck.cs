@@ -69,10 +69,45 @@ public static class CapabilityCheck
         }
         Console.WriteLine($"  {names_.Length - 1} capabilities, {byValue.Count} distinct bits");
 
+        /*
+         * Where the rate book's two doors are, now that they are two.
+         *
+         * Recording a quotation moved down to Operation User on 5 September
+         * 2026; changing an agreed rate did not. The whole point of splitting
+         * them is that the second did not follow the first, and the arithmetic
+         * that would let it — one more flag in OperationGrants — is a one-word
+         * edit nothing else would notice.
+         */
+        Console.WriteLine();
+        Console.WriteLine("Recording a quotation and changing a rate are different doors.");
+        Console.WriteLine();
+        failed += Holds(Roles.Operation, Capability.QuoteToSheet, true);
+        failed += Holds(Roles.Operation, Capability.EditRates, false);
+        failed += Holds(Roles.Supervisor, Capability.QuoteToSheet, true);
+        failed += Holds(Roles.Supervisor, Capability.EditRates, false);
+        failed += Holds(Roles.Manager, Capability.QuoteToSheet, true);
+        failed += Holds(Roles.Manager, Capability.EditRates, true);
+        // A carrier holding either would be putting a price into a sheet that
+        // seventeen of their competitors are read from.
+        failed += Holds(Roles.Subcontractor, Capability.QuoteToSheet, false);
+        failed += Holds(Roles.Subcontractor, Capability.ViewRates, false);
+        failed += Holds(Roles.CustomerService, Capability.QuoteToSheet, false);
+        failed += Holds(Roles.Viewer, Capability.QuoteToSheet, false);
+        // An unrecognised role must not pick up the new flag either.
+        failed += Holds("Operation Users", Capability.QuoteToSheet, false);
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "No capability is granted by accident."
             : $"{failed} problem(s) — a permission is being granted by accident.");
         return failed == 0 ? 0 : 1;
+    }
+
+    private static int Holds(string role, Capability capability, bool want)
+    {
+        var got = Roles.Can(role, capability);
+        var ok = got == want;
+        Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {role,-22} {(want ? "holds    " : "does not hold")} {capability}");
+        return ok ? 0 : 1;
     }
 }

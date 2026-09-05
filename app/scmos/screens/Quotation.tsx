@@ -24,7 +24,7 @@ import { RateSheet } from "./RateSheet";
 
 type View = "calculate" | "sheet" | "terms";
 
-export function Quotation({ view, onView, canEditRates, onToast }: {
+export function Quotation({ view, onView, canEditRates, canSaveQuote, onToast }: {
   /**
    * Which half is showing, owned above this screen.
    *
@@ -44,6 +44,14 @@ export function Quotation({ view, onView, canEditRates, onToast }: {
    * the arrangement this codebase has had to unpick before.
    */
   canEditRates: boolean;
+  /**
+   * Whether this account may write a finished quotation into the sheet.
+   *
+   * A lower bar than changing a rate, and deliberately a separate answer: the
+   * operator who prices a lane records it, while the figures already agreed
+   * with a carrier stay with the people who agreed them.
+   */
+  canSaveQuote: boolean;
   onToast: (m: string) => void;
 }) {
   return (
@@ -72,7 +80,7 @@ export function Quotation({ view, onView, canEditRates, onToast }: {
       </div>
 
       {view === "calculate" && <QuoteCalculator canEditRates={canEditRates}
-        onOpenSheet={() => onView("sheet")} onToast={onToast} />}
+        canSaveQuote={canSaveQuote} onOpenSheet={() => onView("sheet")} onToast={onToast} />}
 
       {/* The register in the workbook's own shape, typed into like My Job. */}
       {view === "sheet" && <RateSheet canEdit={canEditRates} onToast={onToast} />}

@@ -16,6 +16,10 @@ public record MarginBody(decimal Percent);
 /// they are quoting from. Changing it needs the same permission as changing a
 /// rate anywhere else, because that is what it is: one edit here moves the price
 /// of every journey quoted afterwards.
+///
+/// Writing a finished quotation into the sheet is the one thing here that is
+/// not that. It adds a row rather than moving a figure, and it is held from
+/// Operation User upward — see <see cref="Capability.QuoteToSheet"/>.
 /// </summary>
 public static class QuoteCardEndpoints
 {
@@ -28,7 +32,7 @@ public static class QuoteCardEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!user.Can(Capability.EditRates))
+            if (!user.Can(Capability.QuoteToSheet))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์บันทึกตารางอัตรา", StatusCodes.Status403Forbidden);
             var result = await sheet.SaveAsync(user, body, token);
             if (result.Status != 200) return ApiResults.Error(result.Message, result.Status);

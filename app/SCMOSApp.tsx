@@ -2828,7 +2828,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
-              canEditRates={able("EditRates")} onToast={setToast} />}
+              canEditRates={able("EditRates")} canSaveQuote={able("QuoteToSheet")}
+              onToast={setToast} />}
 
             {screen === "postpone" && (
               <Postpone

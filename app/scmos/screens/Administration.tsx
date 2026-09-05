@@ -64,11 +64,17 @@ const CAPABILITY_TH: Record<string, string> = {
   AssignJobs: "มอบหมายงาน",
   UploadDocuments: "อัปโหลดเอกสาร",
   ViewRates: "ดูตารางราคา",
+  QuoteToSheet: "บันทึกใบเสนอราคาลงตารางอัตรา",
   EditRates: "แก้ราคา",
   ManageSuppliers: "จัดการผู้ขนส่ง",
   CloseCarPar: "ปิด CAR/PAR",
   ApproveAi: "อนุมัติข้อเสนอ AI",
   ViewAudit: "อ่านประวัติการแก้ไข",
+  // These two were held by roles and shown by nothing: the matrix below lists
+  // the keys of this map, so a capability missing from it is a permission the
+  // screen quietly denies having granted.
+  ViewDirectory: "ดูทะเบียนผู้ใช้และรายการเก็บเอกสาร",
+  ManageTraining: "จัดการทะเบียนอบรมคนขับ",
   ApproveRetention: "อนุมัติการเก็บ/ทำลายเอกสาร",
   AdministerData: "จัดการผู้ใช้และข้อมูลทั้งระบบ",
 };
