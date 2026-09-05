@@ -42,10 +42,31 @@ public class RoutingService(
     ILogger<RoutingService> log)
 {
     public const string ClientName = "openrouteservice";
-    private const string Host = "https://api.openrouteservice.org";
+
+    /// <summary>
+    /// Where the service lives.
+    ///
+    /// api.openrouteservice.org was deprecated on 28 April 2026 in favour of
+    /// api.heigit.org, which is where the two paths below now hang: the router
+    /// under /openrouteservice and the geocoder under /pelias. The old host
+    /// still answers on a reduced quota, which is the worst kind of deprecation
+    /// — it works until it quietly does not.
+    ///
+    /// Settable, so a host that moves again does not need a deploy.
+    /// </summary>
+    private const string HostSetting = "OpenRouteService:BaseUrl";
+    private const string DefaultHost = "https://api.heigit.org";
+
+    /// <summary>The paths, exposed so `--check-route` can pin them.</summary>
+    public const string DefaultHostFor = DefaultHost;
+    public const string GeocodePath = "/pelias/v1/search";
+    public static string DirectionsPath => $"/openrouteservice/v2/directions/{RouteReading.Profile}";
 
     /// <summary>Where the key lives. An App Service setting, or a Key Vault reference.</summary>
     private const string KeySetting = "OpenRouteService:ApiKey";
+
+    private string Host => (config[HostSetting] ?? "").Trim().TrimEnd('/') is { Length: > 0 } set
+        ? set : DefaultHost;
 
     /// <summary>
     /// How long a measured route is held.
@@ -77,19 +98,24 @@ public class RoutingService(
 
         try
         {
+            // Which half failed, said separately. "No distance" covers a place
+            // the map does not know and a geocoder that refused the key, and
+            // those need completely different things done about them.
             var start = await GeocodeAsync(origin, token);
-            if (!start.Found) return RouteEstimate.No($"หาต้นทางไม่พบบนแผนที่: {origin}");
+            if (start.Refused != 0) return RouteEstimate.No("ค้นหาสถานที่: " + RouteReading.Refusal(start.Refused));
+            if (!start.Place.Found) return RouteEstimate.No($"หาต้นทางไม่พบบนแผนที่: {origin}");
 
             var end = await GeocodeAsync(destination, token);
-            if (!end.Found) return RouteEstimate.No($"หาปลายทางไม่พบบนแผนที่: {destination}");
+            if (end.Refused != 0) return RouteEstimate.No("ค้นหาสถานที่: " + RouteReading.Refusal(end.Refused));
+            if (!end.Place.Found) return RouteEstimate.No($"หาปลายทางไม่พบบนแผนที่: {destination}");
 
             var client = factory.CreateClient(ClientName);
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(Key);
 
             var body = new StringContent(
-                RouteReading.DirectionsBody(start, end), Encoding.UTF8, "application/json");
+                RouteReading.DirectionsBody(start.Place, end.Place), Encoding.UTF8, "application/json");
             var reply = await client.PostAsync(
-                $"{Host}/v2/directions/{RouteReading.Profile}", body, token);
+                $"{Host}{DirectionsPath}", body, token);
 
             if (!reply.IsSuccessStatusCode)
                 return RouteEstimate.No(RouteReading.Refusal((int)reply.StatusCode));
@@ -98,7 +124,7 @@ public class RoutingService(
             if (!measured.Ok)
                 return RouteEstimate.No("OpenRouteService หาเส้นทางรถบรรทุกระหว่างสองจุดนี้ไม่ได้");
 
-            var answer = new RouteEstimate(true, measured.Km, "", start.Label, end.Label);
+            var answer = new RouteEstimate(true, measured.Km, "", start.Place.Label, end.Place.Label);
             cache.Set(cacheKey, answer, Remember);
             return answer;
         }
@@ -124,7 +150,8 @@ public class RoutingService(
     /// choice of places — and the label travels back so a person can see it
     /// looked up the wrong town before trusting the number.
     /// </summary>
-    private async Task<RouteReading.Place> GeocodeAsync(string place, CancellationToken token)
+    private async Task<(RouteReading.Place Place, int Refused)> GeocodeAsync(
+        string place, CancellationToken token)
     {
         // Built rather than concatenated: the register holds places like
         // "W/H OPTIDUR" and "Frasers Property, Bangpakong", and an unescaped
@@ -137,10 +164,17 @@ public class RoutingService(
             ["boundary.country"] = RouteReading.Country,
             ["size"] = "1",
         };
-        var url = QueryHelpers.AddQueryString($"{Host}/geocode/search", query);
+        var url = QueryHelpers.AddQueryString($"{Host}{GeocodePath}", query);
+
         var client = factory.CreateClient(ClientName);
+        // Both ways at once. The query parameter is how the geocoder has always
+        // taken a key; the header is how the router takes one. Sending both
+        // means the first real call works whichever the moved host reads, which
+        // matters more than tidiness for a request that has never been made.
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(Key);
+
         var reply = await client.GetAsync(url, token);
-        if (!reply.IsSuccessStatusCode) return RouteReading.Place.Missing;
-        return RouteReading.FirstPlace(await reply.Content.ReadAsStringAsync(token));
+        if (!reply.IsSuccessStatusCode) return (RouteReading.Place.Missing, (int)reply.StatusCode);
+        return (RouteReading.FirstPlace(await reply.Content.ReadAsStringAsync(token)), 0);
     }
 }

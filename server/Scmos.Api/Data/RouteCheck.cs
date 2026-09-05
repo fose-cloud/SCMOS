@@ -1,4 +1,5 @@
 using Scmos.Api.Rules;
+using Scmos.Api.Services;
 
 namespace Scmos.Api.Data;
 
@@ -120,6 +121,18 @@ public static class RouteCheck
             RouteReading.Refusal(429).Contains("กรอกระยะทางเอง"), true);
         failed += Say("an outage says the same, without blaming the key",
             RouteReading.Refusal(503).Contains("ApiKey"), false);
+
+        /* ---- the host that moved ---- */
+        Console.WriteLine();
+        // api.openrouteservice.org was deprecated on 28 April 2026 and still
+        // answers on a reduced quota, which is the worst kind of deprecation:
+        // it works until it quietly does not. Pinned so a revert is loud.
+        failed += Say("the router hangs under /openrouteservice on the new host",
+            RoutingService.DirectionsPath.StartsWith("/openrouteservice/v2/directions"), true);
+        failed += Say("and the geocoder under /pelias",
+            RoutingService.GeocodePath, "/pelias/v1/search");
+        failed += Say("the default host is heigit, not the deprecated one",
+            RoutingService.DefaultHostFor, "https://api.heigit.org");
 
         Console.WriteLine();
         Console.WriteLine(failed == 0
