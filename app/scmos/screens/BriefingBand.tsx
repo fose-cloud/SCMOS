@@ -74,10 +74,12 @@ export function BriefingBand({ onOpen }: { onOpen: (screen: string) => void }) {
   const findings = brief.findings ?? [];
 
   return (
-    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:6px;overflow:hidden")}>
-      <div style={css("padding:10px 16px;border-bottom:1px solid #EEF3F8;display:flex;"
+    <div className="sc-card sc-rise" style={css("overflow:hidden")}>
+      <div style={css("padding:12px 18px;border-bottom:1px solid #EEF3F8;display:flex;"
         + "align-items:baseline;gap:10px;flex-wrap:wrap")}>
-        <span style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>สรุปสถานการณ์</span>
+        <span style={css("font-size:13px;font-weight:650;color:#0A2240;letter-spacing:-.01em")}>
+          สรุปสถานการณ์
+        </span>
         <span style={css("font-size:11px;color:#94A3B8")}>
           อ่านจากทะเบียนงานทั้งหมด · นับ ณ {brief.today}
         </span>
@@ -92,29 +94,34 @@ export function BriefingBand({ onOpen }: { onOpen: (screen: string) => void }) {
         /* One line, and it is careful about which claim it is making — see
            Briefing.Quiet on the API, which distinguishes "nothing is wrong"
            from "nothing can be seen to be wrong". */
-        <div style={css("padding:16px;font-size:12.5px;color:#16794C")}>{brief.quiet}</div>
+        <div style={css("padding:18px;font-size:12.5px;color:#16794C")}>{brief.quiet}</div>
       ) : (
         <div>
-          {findings.map((one) => {
+          {findings.map((one, at) => {
             const tone = TONE[one.urgency] ?? TONE.Watch;
             return (
               <button key={one.kind} type="button" onClick={() => onOpen(one.screen)}
-                className="row-hover"
-                style={css("width:100%;display:flex;align-items:flex-start;gap:11px;text-align:left;"
-                  + "padding:11px 16px;background:none;border:none;border-top:1px solid #F4F7FA;"
-                  + `border-left:3px solid ${tone.line};cursor:pointer;font-family:inherit`)}>
+                className="row-hover sc-rise"
+                style={css("width:100%;display:flex;align-items:flex-start;gap:12px;text-align:left;"
+                  + "padding:13px 18px;background:none;border:none;border-top:1px solid #F4F7FA;"
+                  // Read in order, arriving in order. The band is the first
+                  // thing on the page and the delays are short enough that the
+                  // last line lands well inside the first half-second.
+                  + `border-left:3px solid ${tone.line};cursor:pointer;font-family:inherit;`
+                  + `animation-delay:${60 + at * 55}ms`)}>
                 <span style={css(`width:7px;height:7px;border-radius:50%;background:${tone.dot};`
                   + "flex:none;margin-top:6px")} />
                 <span style={css("flex:1;min-width:0")}>
-                  <span style={css("display:block;font-size:13px;font-weight:600;color:#0A2240")}>
+                  <span style={css("display:block;font-size:13.5px;font-weight:600;color:#0A2240;"
+                    + "letter-spacing:-.01em")}>
                     {one.headline}
                   </span>
-                  <span style={css("display:block;font-size:11.5px;color:#7B8CA0;margin-top:2px")}>
+                  <span style={css("display:block;font-size:11.5px;color:#7B8CA0;margin-top:3px;line-height:1.5")}>
                     {one.detail}
                   </span>
                 </span>
-                <span style={css(`font-size:10px;font-weight:700;letter-spacing:.05em;color:${tone.dot};`
-                  + "flex:none;margin-top:3px;white-space:nowrap")}>
+                <span style={css(`font-size:9.5px;font-weight:700;letter-spacing:.09em;color:${tone.dot};`
+                  + "flex:none;margin-top:4px;white-space:nowrap;text-transform:uppercase")}>
                   {tone.label}
                 </span>
               </button>

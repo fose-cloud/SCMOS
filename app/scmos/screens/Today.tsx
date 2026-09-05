@@ -108,33 +108,68 @@ export function Today({ onDrill, onSettled }: {
 
 function Row({ figures, onDrill, percent }: { figures: Figure[]; onDrill: () => void; percent?: boolean }) {
   return (
-    <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:11px")}>
-      {figures.map((figure) => {
-        const tone = TONE[figure.id] ?? "#0A2240";
-        const unmeasured = figure.value === null;
-        return (
-          <button key={figure.id} onClick={onDrill}
-            style={css(`text-align:left;background:#fff;border-top:3px solid ${unmeasured ? "#C3CFDB" : tone};border-right:1px solid #D8E0E8;border-bottom:1px solid #D8E0E8;border-left:1px solid #D8E0E8;border-radius:4px;padding:11px 14px 13px;cursor:pointer;font-family:inherit`)}>
-            <div style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>
-              {figure.english}
-            </div>
-            <div style={css("font-size:11.5px;color:#94A3B8")}>{figure.thai}</div>
-            <div style={css(`font-family:ui-monospace,monospace;font-weight:600;line-height:1.25;margin-top:3px;` +
-              (unmeasured
-                // Same slot, different weight: an unmeasured figure must not
-                // read as a number at a glance.
-                ? "font-size:13px;color:#94A3B8"
-                : `font-size:25px;color:${tone}`))}>
-              {unmeasured
-                ? "ยังวัดไม่ได้"
-                : percent ? `${figure.value!.toFixed(1)}%` : figure.value!.toLocaleString()}
-            </div>
-            {figure.note && (
-              <div style={css("font-size:11px;color:#94A3B8;margin-top:3px;line-height:1.45")}>{figure.note}</div>
-            )}
-          </button>
-        );
-      })}
+    <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(184px,1fr));gap:12px")}>
+      {figures.map((figure, at) => (
+        <Tile key={figure.id} figure={figure} onDrill={onDrill} percent={percent} at={at} />
+      ))}
     </div>
+  );
+}
+
+/**
+ * One figure.
+ *
+ * The number carries the tile and everything else gets out of its way — that is
+ * the whole of the redesign. Eleven boxes of equal weight with a 25px number and
+ * three lines of 11px label around it is a page you read left to right like a
+ * table; a page you glance at has one thing per card.
+ */
+function Tile({ figure, onDrill, percent, at }: {
+  figure: Figure; onDrill: () => void; percent?: boolean; at: number;
+}) {
+  const tone = TONE[figure.id] ?? "#0A2240";
+  const unmeasured = figure.value === null;
+
+  /*
+   * The figure does not animate, and that was a decision rather than an
+   * omission.
+   *
+   * A count settling from zero is the flourish this kind of page is known for,
+   * and every way of building it put a wrong number on screen for a moment:
+   * rendered on the server it ships a literal 0 in the HTML, and derived after
+   * mount it jumps backwards before it climbs. On a page whose whole worth is
+   * that its numbers can be quoted, half a second of 0 where 125 belongs costs
+   * more than the animation is worth. The cards arrive; the figures do not
+   * count.
+   */
+
+  return (
+    <button onClick={onDrill}
+      className="sc-card sc-card-tap sc-rise"
+      style={css("text-align:left;padding:14px 16px 16px;cursor:pointer;font-family:inherit;"
+        // Staggered by position, briefly. Long enough to read as the page
+        // arriving in order, short enough that nobody waits for the last tile.
+        + `animation-delay:${at * 45}ms;`
+        + `border-top:3px solid ${unmeasured ? "#C3CFDB" : tone}`)}>
+      <div style={css("font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#8A9AAB;font-weight:700")}>
+        {figure.english}
+      </div>
+
+      <div className="sc-figure" style={css("font-weight:650;line-height:1.1;margin-top:8px;"
+        + (unmeasured
+          // Same slot, different weight. An unmeasured figure must not read as
+          // a number at a glance, and at this size it would.
+          ? "font-size:14px;color:#94A3B8;padding:9px 0 8px"
+          : `font-size:34px;color:${tone}`))}>
+        {unmeasured
+          ? "ยังวัดไม่ได้"
+          : percent ? `${figure.value!.toFixed(1)}%` : figure.value!.toLocaleString()}
+      </div>
+
+      <div style={css("font-size:11.5px;color:#7B8CA0;margin-top:4px")}>{figure.thai}</div>
+      {figure.note && (
+        <div style={css("font-size:11px;color:#A3B0BF;margin-top:2px;line-height:1.45")}>{figure.note}</div>
+      )}
+    </button>
   );
 }

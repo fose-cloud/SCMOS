@@ -40,8 +40,51 @@ button { cursor: pointer; }
 .ls-submit:hover { background: #143a68 !important; }
 .ls-submit:active { transform: translateY(1px); }
 
+/*
+ * The dashboard's surface.
+ *
+ * A hard 1px border on every box is what made the front page read as older than
+ * it is: eleven rectangles of equal weight, and nothing to say which of them is
+ * the thing to look at. A soft shadow does the same job of separating a card
+ * from the page while letting the numbers inside carry the hierarchy.
+ *
+ * The border is kept as a hairline for the case the shadow cannot cover — a
+ * card on a white background, or a browser that renders shadows away.
+ */
+.sc-card {
+  background: #fff;
+  border: 1px solid #E8EEF4;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(10, 34, 64, .04), 0 4px 16px rgba(10, 34, 64, .05);
+}
+
+.sc-card-tap { transition: box-shadow .16s ease, transform .16s ease; }
+.sc-card-tap:hover {
+  box-shadow: 0 2px 4px rgba(10, 34, 64, .07), 0 10px 26px rgba(10, 34, 64, .10);
+  transform: translateY(-1px);
+}
+.sc-card-tap:active { transform: translateY(0); }
+
+/*
+ * Arriving, in the order the eye should read them.
+ *
+ * The delay is set per item from the markup. It is deliberately short — a
+ * dashboard that takes a second to assemble itself is a dashboard somebody
+ * waits for, and the whole point of this page is the first two seconds.
+ */
+.sc-rise {
+  animation: tin .34s cubic-bezier(.22, .61, .36, 1) both;
+}
+
+/* Figures line up under each other whatever digits they happen to be. */
+.sc-figure { font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+
 @media (prefers-reduced-motion: reduce) {
   .ls-anim { animation: none !important; }
+  /* Everything arrives at once, already in place. */
+  .sc-rise { animation: none !important; }
+  .sc-card-tap { transition: none !important; }
+  .sc-card-tap:hover { transform: none !important; }
 }
 
 /* Below this the card eats the middle of the screen and the badges start
