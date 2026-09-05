@@ -373,9 +373,9 @@ export function Dashboard({ filtered: fl, jobs, allJobs, period, onPeriod, loade
   return (
     <div style={css("display:flex;flex-direction:column;gap:16px")}>
       {bar}
-      {tab === "Wall Board" ? <WallBoard s={s} period={period} />
-        : tab === "Operational" ? <Operational s={s} onDrill={onDrill} />
-          : <Executive s={s} fl={fl} total={total} pct={pct} onDrill={onDrill} />}
+      {tab === "Operational"
+        ? <Operational s={s} period={period} onDrill={onDrill} />
+        : <Executive s={s} fl={fl} total={total} pct={pct} onDrill={onDrill} />}
 
       {/* Only on the executive view, and only once the request answers. That is
           the view already asking "how are we doing"; the wall board is for a
@@ -563,7 +563,22 @@ function Executive(p: {
 
 /* ----------------------------------------------------------- operational */
 
-function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => void }) {
+function Operational({ s, period, onDrill }: {
+  s: OpsStats; period: Period; onDrill: (patch: Drill) => void;
+}) {
+  /*
+   * The same figures, on a wall.
+   *
+   * This was a tab of its own, showing open, running, delayed and
+   * action-required, the team load and the delayed list — every one of which is
+   * already below. What it actually is is a presentation: dark, large enough to
+   * read across a room, and nothing to click because nobody is standing at it.
+   *
+   * As a mode it stops being a second place the same counts have to be kept
+   * right, and the switch is where somebody already looking at those counts
+   * would think to put the room's screen.
+   */
+  const [wall, setWall] = useState(false);
   // The plan runs on its own calendar, so "the day" is the busiest day in the
   // data rather than the wall-clock date, which would usually be outside it.
   const busiest = s.dates.reduce((a, b) => (s.dateCount[b] > (s.dateCount[a] ?? 0) ? b : a), s.dates[0] ?? "");
@@ -589,8 +604,34 @@ function Operational({ s, onDrill }: { s: OpsStats; onDrill: (patch: Drill) => v
 
   const delayedList = s.delayed.slice(0, 10);
 
+  const modeSwitch = (
+    <div style={css("display:flex;align-items:center;gap:9px;flex-wrap:wrap")}>
+      <button type="button" onClick={() => setWall((was) => !was)}
+        style={css("height:30px;padding:0 13px;border-radius:5px;font-size:12px;font-weight:600;"
+          + "font-family:inherit;cursor:pointer;border:1px solid "
+          + (wall ? "#0A2240;background:#0A2240;color:#fff" : "#C9D6E2;background:#fff;color:#0A2240"))}>
+        {wall ? "← กลับไปมุมมองปกติ" : "จอแสดงผลหน้างาน · Wall display"}
+      </button>
+      <span style={css("font-size:11.5px;color:#94A3B8")}>
+        {wall
+          ? "ตัวเลขชุดเดียวกัน ขยายให้อ่านจากไกล — กดอะไรไม่ได้ตั้งใจ"
+          : "ตัวเลขชุดเดียวกัน แบบขยายสำหรับจอติดผนัง"}
+      </span>
+    </div>
+  );
+
+  if (wall) {
+    return (
+      <div style={css("display:flex;flex-direction:column;gap:12px")}>
+        {modeSwitch}
+        <WallBoard s={s} period={period} />
+      </div>
+    );
+  }
+
   return (
     <div style={css("display:flex;flex-direction:column;gap:16px")}>
+      {modeSwitch}
       <Tiles items={[
         { label: "Open Jobs", th: "งานที่ยังไม่ปิด", value: String(open.length), note: "จาก " + s.jobs.length, colour: "#2E7DD1", go: () => onDrill({ tab: "PENDING" }) },
         { label: "Waiting Truck", th: "รอรถ", value: String(s.waiting.length), colour: "#475569", go: () => onDrill({ tab: "PENDING", kpi: "Wait" }) },

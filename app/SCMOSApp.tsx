@@ -2563,11 +2563,20 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
               </div>
             )}
 
-            {/* Above every dashboard tab, because what is wrong this morning
-                does not change depending on which view of it you chose. It
-                arrives after the board and draws nothing until it has something
-                to say, so the front page is never held waiting for it. */}
-            {screen === "dashboard" && (
+            {/*
+              TODAY only.
+
+              It was above all four tabs, on the reasoning that what is wrong
+              this morning does not depend on which view you chose. That was
+              wrong about the scope: the briefing counts the whole register as
+              of today, while Executive and Operational are showing whatever
+              period the bar has selected — two different spans of time stacked
+              on one page, with nothing to say which figure belonged to which.
+
+              TODAY is the tab that is already about now, and the only one whose
+              own figures are counted the same way.
+            */}
+            {screen === "dashboard" && activeTab === "TODAY" && (
               <BriefingBand onOpen={(next) => go(next as Screen)} />
             )}
 
