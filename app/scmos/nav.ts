@@ -166,7 +166,11 @@ export const META: Record<string, [string, string, string]> = {
   evaluation: ["Annual Evaluation", "ประเมินผู้ขนส่งประจำปี", "คะแนนตรงเวลา ตอบยืนยัน และความล่าช้า ดึงจาก KPI Engine ส่วนความปลอดภัยและเอกสารเป็นดุลพินิจของผู้ประเมิน"],
   quotation: ["Rate Quotation", "ขอใบเสนอราคา", "เทียบราคาผู้ขนส่งสำหรับเส้นทางและประเภทรถที่ต้องการ ตามราคาน้ำมันปัจจุบัน — อ่านจากตารางราคาใน Azure SQL"],
   documents: ["Document Register", "ทะเบียนเอกสาร", "Controlled operational and compliance documents with expiry monitoring."],
-  reports: ["Management Reports", "รายงานผู้บริหาร", "Standard report catalogue with daily, weekly, monthly, yearly and custom periods."],
+  // Was "with daily, weekly, monthly, yearly and custom periods", which the
+  // catalogue has never offered — the period belongs to each report, beside the
+  // filters that decide what it covers.
+  reports: ["Management Reports", "รายงานผู้บริหาร",
+    "รายงานที่อ่านจากทะเบียนงานจริง — ปริมาณงาน ผลงานผู้ขนส่ง ความล่าช้า และ CAR/PAR · แต่ละใบมีช่วงเวลาและตัวกรองของตัวเอง"],
   partners: ["Subcontractor", "ผู้รับเหมาช่วง", "ทะเบียนผู้ขนส่ง การอบรม กำลังรถ และการประเมิน"],
   commercial: ["Rate & Billing", "ราคาและการวางบิล", "อัตราค่าขนส่ง ใบเสนอราคา และการควบคุมการวางบิล"],
   quality: ["Incident & CAR/PAR", "คุณภาพและข้อบกพร่อง", "เหตุผิดปกติที่เกิดขึ้นจริง และการแก้ไขป้องกันที่ตามมา"],
@@ -205,9 +209,14 @@ export const TAB_DEFS: Record<string, string[]> = {
   // the customer signs.
   chemours: ["งาน Domestic", "ค่าขนส่ง", "Cargo Receipt"],
   billing: ["Aging", "Invoices", "Advance Receipts"],
-  // Capacity, Document Center and Administration carry their own controls now
-  // that they read the API; tabs that narrowed a demo table would do nothing.
-  reports: ["Catalogue", "Scheduled"],
+  // Capacity, Document Center, Administration and Reports carry their own
+  // controls now that they read the API; tabs that narrowed a demo table would
+  // do nothing.
+  //
+  // Reports had "Catalogue" and "Scheduled". Nothing scheduled a report and
+  // nothing ever would from there — the tab narrowed a table that no longer
+  // exists. The catalogue is the screen, and each card opens its own report and
+  // comes back.
 };
 
 // The dashboard is off this list on purpose: it reads the real operation jobs,

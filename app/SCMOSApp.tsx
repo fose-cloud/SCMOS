@@ -71,6 +71,10 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
   subcontractors: true, carpar: true, incident: true, assistant: true,
   vendor: true, evaluation: true, quotation: true,
+  // Reports offered the fallback Export Excel, which raises a toast and exports
+  // nothing. Every report inside the catalogue carries its own export, next to
+  // the period and filters that decide what should be in it.
+  reports: true,
   capacity: true, documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true, training: true,
 };
 import type { RateBook } from "./scmos/rates";

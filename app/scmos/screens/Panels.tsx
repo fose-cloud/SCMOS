@@ -197,9 +197,6 @@ const REPORT_DEFS: [string, string, string, string][] = [
   ["Volume Report", "รายงานปริมาณงาน",
     "เที่ยวรายวัน/สัปดาห์/เดือน แยกนำเข้า-ส่งออก พร้อมยอดตามลูกค้า ผู้ขนส่ง ประเภทรถ ลานตู้ ปลายทาง โรงงานต้นทาง และจุดคืนตู้",
     "Operations"],
-  ["Transportation Cost", "ต้นทุนค่าขนส่ง", "Total cost with fuel adjustment breakdown.", "Finance"],
-  ["Cost by Customer", "ต้นทุนตามลูกค้า", "Cost, selling rate and margin per customer.", "Finance"],
-  ["Cost by Supplier", "ต้นทุนตามผู้ขนส่ง", "Spend concentration and rate variance.", "Finance"],
   ["Supplier Performance", "ผลงานผู้ขนส่ง",
     "ใบคะแนนผู้ขนส่งทุกรายในหน้าเดียว เรียงจากคะแนนต่ำสุด · เกณฑ์ที่ยังคิดคะแนนไม่ได้บอกว่าคิดไม่ได้ ไม่ใช่ 0",
     "Supplier"],
@@ -210,31 +207,43 @@ const REPORT_DEFS: [string, string, string, string][] = [
     "ผู้ขนส่งแต่ละรายวิ่งให้ลูกค้าอะไรบ้าง กี่เที่ยว ตรงเวลากี่เที่ยว สายกี่เที่ยว คิดเป็นกี่เปอร์เซ็นต์ · กรองตามลูกค้าและผู้ขนส่งได้",
     "Supplier"],
   ["Delay Analysis", "วิเคราะห์ความล่าช้า", "Delay reasons, frequency and responsible party.", "Operations"],
-  ["Billing KPI", "รายงาน KPI การวางบิล", "4-day compliance and aging distribution.", "Finance"],
-  ["Safety Report", "รายงานความปลอดภัย", "Checklist compliance, incidents and PPE.", "Safety"],
   ["CAR / PAR Report", "รายงาน CAR/PAR",
     "อายุของเคสที่ยังเปิด อัตราการปิด และหมวดที่เกิดซ้ำ — อ่านจากทะเบียนเคสเดียวกับเมนู Incident & CAR/PAR",
     "Quality"],
 ];
 
-/** Reports that open something real rather than a message saying they would. */
-const BUILT = new Set([
-  "Delay Analysis", "Volume Report", "Supplier Performance", "CAR / PAR Report",
-  "Vendor Performance",
-]);
-
-const REPORT_TONES: Record<string, "blue" | "green" | "teal" | "amber" | "red" | "gray"> = {
-  Operations: "blue", Finance: "green", Supplier: "teal", Safety: "amber", Quality: "red", Commercial: "gray",
+/*
+ * There is no BUILT set any more, because there is nothing to distinguish:
+ * every card in the catalogue opens a real report over the real register.
+ *
+ * Five did not. Transportation Cost, Cost by Customer and Cost by Supplier
+ * would have totalled 41% of the work and called it the total — the rate sheets
+ * cover 845 of 2,076 trips, and 196 carrier-and-customer combinations run 1,298
+ * trips with no rate filed at all. Billing KPI had no invoice table behind it
+ * of any kind. Safety Report had three empty tables. They were removed rather
+ * than left showing a Run button, because a catalogue whose entries mostly do
+ * nothing teaches people that the ones which work probably do not either.
+ *
+ * They come back when the data does, and the measurements above say what would
+ * have to be true first.
+ */
+const REPORT_TONES: Record<string, "blue" | "teal" | "red"> = {
+  Operations: "blue", Supplier: "teal", Quality: "red",
 };
 
 /**
  * The report catalogue.
  *
- * Most of these are still cards: a name, a description and buttons that say so.
- * Delay Analysis is not — management asked a question it had to answer, so it
- * opens a real report over the real register. The others keep their toast
- * rather than pretending, because a Run button that produces a plausible
- * nothing is worse than one that admits it has not been built.
+ * Every card here opens a real report over the real register. That was not true
+ * until the five that could not be built were taken out — see the note above
+ * REPORT_TONES for what each of them was missing and what would have to become
+ * true for it to come back.
+ *
+ * The rule they were removed under is the one this file was already written
+ * around: a Run button that produces a plausible nothing is worse than no
+ * button. Taking it further, a catalogue of ten where five do nothing teaches
+ * people that the other five probably do not work either — so the honest length
+ * of this list is however many reports actually exist.
  */
 export function Reports({ jobs, toast }: { jobs: Job[]; toast: (message: string) => void }) {
   const [open, setOpen] = useState("");
@@ -267,10 +276,17 @@ export function Reports({ jobs, toast }: { jobs: Job[]; toast: (message: string)
             <span style={css(badge(d[3], REPORT_TONES[d[3]]))}>{d[3]}</span>
           </div>
           <div style={css("font-size:11.5px;color:#64748B;line-height:1.5;text-wrap:pretty")}>{d[2]}</div>
+          {/* One button, and it opens the report. The Excel and PDF buttons
+              that stood beside it only ever raised a toast saying they would —
+              every report that exists carries its own Export Excel inside,
+              where the period and filters it should export are, and no PDF was
+              ever produced anywhere in this app. */}
           <div style={css("display:flex;gap:6px;margin-top:auto;padding-top:6px;border-top:1px solid #F1F5F9")}>
-            <button className="dark-btn" onClick={() => (BUILT.has(d[0]) ? setOpen(d[0]) : toast("Generating " + d[0] + "…"))} style={css("flex:1;height:30px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:11.5px;font-weight:500;cursor:pointer")}>Run</button>
-            <button className="ghost-btn" onClick={() => toast(d[0] + " → Excel")} style={css("height:30px;padding:0 11px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:11.5px;cursor:pointer")}>Excel</button>
-            <button className="ghost-btn" onClick={() => toast(d[0] + " → PDF")} style={css("height:30px;padding:0 11px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:11.5px;cursor:pointer")}>PDF</button>
+            <button className="dark-btn" onClick={() => setOpen(d[0])}
+              style={css("flex:1;height:30px;border:1px solid #0A2240;background:#0A2240;color:#fff;"
+                + "border-radius:4px;font-size:11.5px;font-weight:500;cursor:pointer")}>
+              เปิดรายงาน
+            </button>
           </div>
         </div>
       ))}
