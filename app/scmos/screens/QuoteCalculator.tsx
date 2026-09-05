@@ -61,7 +61,20 @@ type Card = {
   updatedAt: string;
 };
 
-type DraftRoute = { key: string; from: string; to: string; km: string };
+/**
+ * One journey in the set.
+ *
+ * `county` and `carriers` are here rather than beside the customer because the
+ * sheet keeps them on the lane: one request can cover Rayong and Chonburi, and
+ * ask different carriers about each. Shared, a two-route save would write one
+ * province onto both rows.
+ */
+type DraftRoute = {
+  key: string; from: string; to: string; km: string; county: string; carriers: string;
+};
+
+const NEW_ROUTE = (key: string): DraftRoute =>
+  ({ key, from: "", to: "", km: "", county: "", carriers: "" });
 
 const INPUT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff;width:100%;font-family:inherit");
 const NUM = css("height:28px;width:80px;border:1px solid #C9D6E2;border-radius:3px;padding:0 7px;font-size:12px;font-family:ui-monospace,monospace;text-align:right");
@@ -218,6 +231,10 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   const vehicle = vehicles.includes(detailVehicle) ? detailVehicle : vehicles[0] ?? "";
   const [customer, setCustomer] = useState("");
   const [customers, setCustomers] = useState<string[]>([]);
+  /** The registered subcontractors, for the TRUCK picker. Names, as the sheet writes them. */
+  const [carriers, setCarriers] = useState<string[]>([]);
+  /** Provinces the sheet already uses, offered as suggestions rather than enforced. */
+  const [counties, setCounties] = useState<string[]>([]);
   const [loadTypes, setLoadTypes] = useState({ fcl: true, lcl: false, domestic: false });
   const [remark, setRemark] = useState("");
   const [savingQuote, setSavingQuote] = useState(false);
@@ -226,13 +243,15 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   // Reuse the token on uncertain retries, but not after the quotation changes.
   const saveTicket = useRef<{ key: string; id: string } | null>(null);
   const saveInFlight = useRef(false);
-  const [routeRows, setRouteRows] = useState<DraftRoute[]>([{ key: "first", from: "", to: "", km: "" }]);
+  const [routeRows, setRouteRows] = useState<DraftRoute[]>([NEW_ROUTE("first")]);
   const [routeKey, setRouteKey] = useState("first");
   const activeRoute = routeRows.find((one) => one.key === routeKey) ?? routeRows[0];
   const { from, to, km } = activeRoute;
-  const setRouteValue = (field: "from" | "to" | "km", value: string) => {
+  const setRouteValue = (field: keyof Omit<DraftRoute, "key">, value: string) => {
     setRouteRows((was) => was.map((one) => one.key === activeRoute.key ? { ...one, [field]: value } : one));
-    if (field !== "km") setMeasured(null);
+    // Only the two ends make the measurement wrong. A province or a carrier
+    // written afterwards describes the same road.
+    if (field === "from" || field === "to") setMeasured(null);
   };
   const setFrom = (value: string) => setRouteValue("from", value);
   const setTo = (value: string) => setRouteValue("to", value);
@@ -316,8 +335,14 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
     void apiFetch("/api/rate-inquiries/form", { headers: { accept: "application/json" } })
       .then(async (response) => {
         if (!response.ok) return;
-        const body = await response.json() as { customers?: string[] };
-        if (!cancelled) setCustomers(body.customers ?? []);
+        const body = await response.json() as
+          { customers?: string[]; carriers?: string[]; counties?: string[] };
+        if (cancelled) return;
+        setCustomers(body.customers ?? []);
+        // The register's own list — approved and under audit — so a name chosen
+        // here is a supplier the system knows, spelled the way it spells it.
+        setCarriers(body.carriers ?? []);
+        setCounties(body.counties ?? []);
       }).catch(() => { /* Suggestions are optional; typing a name still works. */ });
     return () => { cancelled = true; };
   }, []);
@@ -414,6 +439,7 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
     expectedTotals: {},
     routes: calculations.map(({ route, batch: result }) => ({
       fromPlace: route.from.trim(), toPlace: route.to.trim(), km: Number(route.km.replace(/,/g, "")),
+      county: route.county.trim(), carriers: route.carriers.trim(),
       expectedTotals: Object.fromEntries(result.results.map((one) => [one.vehicle, one.quote.total])),
     })),
   };
@@ -473,7 +499,7 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
             style={css("padding:7px 11px;border:1px solid #C9D6E2;border-radius:4px;font:inherit;font-size:12px;cursor:pointer;background:" + (one.key === activeRoute.key ? "#0A2240;color:#fff" : "#fff;color:#31465C"))}>เส้นทาง {index + 1}{one.to ? ` · ${one.to}` : ""}</button>)}
           <button type="button" disabled={routeRows.length >= 20 || measuring} onClick={() => {
             const key = crypto.randomUUID();
-            setRouteRows((was) => [...was, { key, from: "", to: "", km: "" }]);
+            setRouteRows((was) => [...was, NEW_ROUTE(key)]);
             chooseRoute(key);
           }} style={css("padding:7px 11px;border:1px solid #2D7BB6;border-radius:4px;background:#fff;color:#2D7BB6;font:inherit;font-size:12px;cursor:pointer")}>+ เพิ่มเส้นทาง</button>
           {routeRows.length > 1 && <button type="button" disabled={measuring} onClick={() => {
@@ -516,6 +542,24 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
           <Field label="ระยะทางไป (กม.)" width="130px">
             <input value={km} inputMode="decimal" autoComplete="off" placeholder="เช่น 120"
               onChange={(e) => setKm(e.target.value)} style={INPUT} />
+          </Field>
+          {/* County and TRUCK belong to this journey, not to the quotation —
+              see DraftRoute. They fill the sheet's own two columns, which every
+              quotation saved before this left empty. */}
+          <Field label="จังหวัด (County)" width="150px">
+            <input value={activeRoute.county} autoComplete="off" placeholder="เช่น ชลบุรี"
+              list="quote-counties" maxLength={120}
+              onChange={(e) => setRouteValue("county", e.target.value)} style={INPUT} />
+          </Field>
+          <datalist id="quote-counties">{counties.map((name) => <option key={name} value={name} />)}</datalist>
+          <Field label="TRUCK · ผู้ขนส่ง" width="190px">
+            <select value={carriers.includes(activeRoute.carriers) ? activeRoute.carriers : ""}
+              aria-label="ผู้ขนส่งสำหรับเส้นทางนี้"
+              onChange={(e) => setRouteValue("carriers", e.target.value)}
+              style={{ ...INPUT, cursor: "pointer" }}>
+              <option value="">— ยังไม่ระบุ —</option>
+              {carriers.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
           </Field>
           <Field label="กำไร (%)" width="100px">
             <input value={margin} inputMode="decimal"
@@ -652,6 +696,47 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
             </div>
           </div>
         )}
+
+        {/*
+         * What the quotation is called, and the press that files it.
+         *
+         * This was a card of its own, below the price table. Which meant the
+         * things a person types were in two places with the answer between
+         * them: fill in the journey at the top, scroll past twenty prices,
+         * fill in the customer at the bottom. Everything typed is now typed
+         * here, in the order it is asked for, and the table below is the
+         * answer rather than a divider.
+         *
+         * The customer, the load type and the remark stay shared across the
+         * set — one quotation, one customer — which is why they are on this
+         * row and not on the journey's.
+         */}
+        <div style={css("margin-top:14px;padding-top:12px;border-top:1px solid #EEF3F8")}>
+          <div style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:8px")}>
+            บันทึกผลลงตารางอัตรา · ใช้ร่วมกันทั้งชุด
+          </div>
+          <div style={css("display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap")}>
+            <Field label="ลูกค้า *" width="240px"><input aria-label="ลูกค้าสำหรับบันทึกอัตรา" list="quote-sheet-customers" value={customer} maxLength={200} onChange={(event) => setCustomer(event.target.value)} placeholder="เลือกหรือพิมพ์ชื่อลูกค้า" style={INPUT} /></Field>
+            <datalist id="quote-sheet-customers">{customers.map((name) => <option key={name} value={name} />)}</datalist>
+            <Field label="ประเภทงาน *" width="220px"><div style={css("display:flex;align-items:center;gap:12px;height:30px")}>
+              {(["fcl", "lcl", "domestic"] as const).map((key) => <label key={key} style={css("display:flex;align-items:center;gap:5px;font-size:12px")}><input type="checkbox" checked={loadTypes[key]} onChange={(event) => setLoadTypes((was) => ({ ...was, [key]: event.target.checked }))} />{key.toUpperCase()}</label>)}
+            </div></Field>
+            <Field label="หมายเหตุ (ถ้ามี)" width="240px"><input aria-label="หมายเหตุสำหรับบันทึกอัตรา" value={remark} maxLength={600} onChange={(event) => setRemark(event.target.value)} style={INPUT} /></Field>
+            <button type="button" onClick={() => void saveToSheet()} disabled={!canSave} style={css("height:34px;padding:0 16px;background:" + (canSave ? "#0A2240" : "#8FA3B8") + ";color:#fff;border:0;border-radius:4px;font:inherit;font-size:12.5px;font-weight:650;cursor:" + (canSave ? "pointer" : "default"))}>
+              {savingQuote ? "กำลังบันทึก…" : alreadySaved ? "บันทึกแล้ว" : `บันทึก ${routeRows.length} เส้นทาง · ${batch.results.length} ประเภทรถ`}
+            </button>
+          </div>
+          <p style={css("font-size:11.5px;color:#7B8CA0;margin:10px 0 0;line-height:1.6")}>
+            แต่ละเส้นทางบันทึกคนละแถว พร้อมจังหวัดและผู้ขนส่งของเส้นทางนั้น และราคาเสนอลูกค้าของรถที่เลือก (รวมกำไรและรายการเพิ่มเติม) · DATE ใช้วันบันทึกตามเวลาประเทศไทย · NO. รันต่อในเดือนนั้นและใช้ร่วมกันทั้งชุด · ผู้ขอเป็นบัญชีที่เข้าสู่ระบบ
+          </p>
+          {!canSaveQuote ? <p role="status" style={css("font-size:12px;color:#B45309;margin-bottom:0")}>บัญชีนี้คำนวณราคาได้ แต่ไม่มีสิทธิ์บันทึกตารางอัตรา</p>
+            : !alreadySaved && saveRefusals.length > 0 && <p role="status" style={css("font-size:12px;color:#B45309;margin-bottom:0")}>{[...new Set(saveRefusals)].join(" · ")}</p>}
+          {saveError && <p role="alert" style={css("font-size:12px;color:#B42318;margin-bottom:0")}>{saveError}</p>}
+          {savedQuote && <div role="status" style={css("margin-top:12px;padding:10px;background:#F1FAF5;color:#16794C;font-size:12.5px;display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>
+            <span>{alreadySaved ? "บันทึกแล้ว" : "รายการที่บันทึกล่าสุด"} · DATE {savedQuote.date} · NO. {savedQuote.number} · {savedQuote.routeCount} เส้นทาง · {savedQuote.count} ช่องราคา</span>
+            <button type="button" onClick={onOpenSheet} style={css("font:inherit;cursor:pointer;padding:5px 10px")}>เปิดตารางอัตรา</button>
+          </div>}
+        </div>
       </fieldset>
 
       {/* Each selected truck is an alternative quote, not an amount to sum. */}
@@ -677,31 +762,6 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
           </table>
         </ZoomBox>}
       </div>
-
-      <fieldset disabled={savingQuote} style={css("margin:0;min-width:0;background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
-        <div style={css("font-size:13px;font-weight:650;color:#0A2240;margin-bottom:10px")}>บันทึกผลลงตารางอัตรา</div>
-        <div style={css("display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap")}>
-          <Field label="ลูกค้า *" width="240px"><input aria-label="ลูกค้าสำหรับบันทึกอัตรา" list="quote-sheet-customers" value={customer} maxLength={200} onChange={(event) => setCustomer(event.target.value)} placeholder="เลือกหรือพิมพ์ชื่อลูกค้า" style={INPUT} /></Field>
-          <datalist id="quote-sheet-customers">{customers.map((name) => <option key={name} value={name} />)}</datalist>
-          <Field label="ประเภทงาน *" width="220px"><div style={css("display:flex;align-items:center;gap:12px;height:30px")}>
-            {(["fcl", "lcl", "domestic"] as const).map((key) => <label key={key} style={css("display:flex;align-items:center;gap:5px;font-size:12px")}><input type="checkbox" checked={loadTypes[key]} onChange={(event) => setLoadTypes((was) => ({ ...was, [key]: event.target.checked }))} />{key.toUpperCase()}</label>)}
-          </div></Field>
-          <Field label="หมายเหตุ (ถ้ามี)" width="240px"><input aria-label="หมายเหตุสำหรับบันทึกอัตรา" value={remark} maxLength={600} onChange={(event) => setRemark(event.target.value)} style={INPUT} /></Field>
-          <button type="button" onClick={() => void saveToSheet()} disabled={!canSave} style={css("height:34px;padding:0 16px;background:" + (canSave ? "#0A2240" : "#8FA3B8") + ";color:#fff;border:0;border-radius:4px;font:inherit;font-size:12.5px;font-weight:650;cursor:" + (canSave ? "pointer" : "default"))}>
-            {savingQuote ? "กำลังบันทึก…" : alreadySaved ? "บันทึกแล้ว" : `บันทึก ${routeRows.length} เส้นทาง · ${batch.results.length} ประเภทรถ`}
-          </button>
-        </div>
-        <p style={css("font-size:11.5px;color:#7B8CA0;margin:10px 0 0;line-height:1.6")}>
-          แต่ละเส้นทางบันทึกคนละแถว พร้อมราคาเสนอลูกค้าของรถที่เลือก (รวมกำไรและรายการเพิ่มเติม) · DATE ใช้วันบันทึกตามเวลาประเทศไทย · NO. รันต่อในเดือนนั้นและใช้ร่วมกันทั้งชุด · ผู้ขอเป็นบัญชีที่เข้าสู่ระบบ
-        </p>
-        {!canSaveQuote ? <p role="status" style={css("font-size:12px;color:#B45309")}>บัญชีนี้คำนวณราคาได้ แต่ไม่มีสิทธิ์บันทึกตารางอัตรา</p>
-          : !alreadySaved && saveRefusals.length > 0 && <p role="status" style={css("font-size:12px;color:#B45309;margin-bottom:0")}>{[...new Set(saveRefusals)].join(" · ")}</p>}
-        {saveError && <p role="alert" style={css("font-size:12px;color:#B42318")}>{saveError}</p>}
-        {savedQuote && <div role="status" style={css("margin-top:12px;padding:10px;background:#F1FAF5;color:#16794C;font-size:12.5px;display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>
-          <span>{alreadySaved ? "บันทึกแล้ว" : "รายการที่บันทึกล่าสุด"} · DATE {savedQuote.date} · NO. {savedQuote.number} · {savedQuote.routeCount} เส้นทาง · {savedQuote.count} ช่องราคา</span>
-          <button type="button" onClick={onOpenSheet} style={css("font:inherit;cursor:pointer;padding:5px 10px")}>เปิดตารางอัตรา</button>
-        </div>}
-      </fieldset>
 
       {/* ------------------------------------------------- the working */}
       {answer.refusals.length > 0 ? (

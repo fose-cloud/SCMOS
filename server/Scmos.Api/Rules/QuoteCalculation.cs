@@ -4,11 +4,21 @@ using Scmos.Api.Services;
 namespace Scmos.Api.Rules;
 
 public record QuoteSelection(int Id, decimal Quantity);
-public record QuoteJourney(string? FromPlace, string? ToPlace, decimal Km, Dictionary<string, int>? ExpectedTotals);
+/*
+ * County and Carriers belong to the journey, not to the quotation.
+ *
+ * The sheet is a row per lane and keeps the province and the carriers asked on
+ * that row — the same request can cover Rayong and Chonburi, and different
+ * carriers for each. Held on the quotation instead, a two-lane save would put
+ * one province on both.
+ */
+public record QuoteJourney(string? FromPlace, string? ToPlace, decimal Km,
+    Dictionary<string, int>? ExpectedTotals, string? County = null, string? Carriers = null);
 public record QuoteSaveBody(string? RequestId, string? FromPlace, string? ToPlace,
     string? Customer, bool Fcl, bool Lcl, bool Domestic, string? Remark,
     decimal Km, bool DangerousGoods, decimal MarginPercent, List<string>? Vehicles,
-    List<QuoteSelection>? Options, Dictionary<string, int>? ExpectedTotals, List<QuoteJourney>? Routes = null);
+    List<QuoteSelection>? Options, Dictionary<string, int>? ExpectedTotals, List<QuoteJourney>? Routes = null,
+    string? County = null, string? Carriers = null);
 public record CalculatedQuote(string Error, Dictionary<string, int> Prices,
     Dictionary<string, int> Totals, string Remark);
 
@@ -18,7 +28,8 @@ public static class QuoteCalculation
     public static List<QuoteSaveBody> Journeys(QuoteSaveBody body) => body.Routes is null
         ? [body]
         : body.Routes.Select(route => body with { FromPlace = route.FromPlace, ToPlace = route.ToPlace,
-            Km = route.Km, ExpectedTotals = route.ExpectedTotals, Routes = null }).ToList();
+            Km = route.Km, ExpectedTotals = route.ExpectedTotals, Routes = null,
+            County = route.County, Carriers = route.Carriers }).ToList();
 
     public static string DateAt(DateTimeOffset now) =>
         now.ToOffset(TimeSpan.FromHours(7)).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);

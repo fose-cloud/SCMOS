@@ -31,6 +31,11 @@ public class QuoteSheetService(ScmosDbContext db, QuoteCardService card,
             if (string.IsNullOrWhiteSpace(journey.FromPlace) || journey.FromPlace.Trim().Length > 300 ||
                 string.IsNullOrWhiteSpace(journey.ToPlace) || journey.ToPlace.Trim().Length > 300)
                 return new(400, "ต้องระบุต้นทางและปลายทางของทุกเส้นทางไม่เกิน 300 ตัวอักษร");
+        // Both optional — the sheet has rows with neither — but bounded, because
+        // they land in columns the register sizes.
+        foreach (var journey in journeys)
+            if ((journey.County ?? "").Trim().Length > 120 || (journey.Carriers ?? "").Trim().Length > 300)
+                return new(400, "จังหวัดต้องไม่เกิน 120 ตัวอักษร และผู้ขนส่งไม่เกิน 300 ตัวอักษร");
         if (!body.Fcl && !body.Lcl && !body.Domestic)
             return new(400, "เลือก FCL, LCL หรือ Domestic อย่างน้อยหนึ่งอย่าง");
 
@@ -64,7 +69,8 @@ public class QuoteSheetService(ScmosDbContext db, QuoteCardService card,
                 if (calculated.Error.Length > 0) return new QuoteSaveOutcome(400, $"เส้นทาง {index + 1}: {calculated.Error}");
                 if (!QuoteCalculation.MatchesPreview(calculated, journey.ExpectedTotals))
                     return new QuoteSaveOutcome(409, "สูตรหรืออัตรามีการเปลี่ยนแปลง กรุณาตรวจราคาล่าสุดของทุกเส้นทางและกดบันทึกอีกครั้ง");
-                lanes.Add(new(journey.FromPlace!.Trim(), journey.ToPlace!.Trim(), "", "", body.Fcl, body.Lcl,
+                lanes.Add(new(journey.FromPlace!.Trim(), journey.ToPlace!.Trim(),
+                    (journey.County ?? "").Trim(), (journey.Carriers ?? "").Trim(), body.Fcl, body.Lcl,
                     calculated.Remark, calculated.Prices, body.Domestic));
                 priceCount += calculated.Prices.Count;
             }

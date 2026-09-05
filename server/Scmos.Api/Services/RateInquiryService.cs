@@ -75,6 +75,16 @@ public class RateInquiryService(ScmosDbContext db)
             .Select(supplier => supplier.Name)
             .ToListAsync(token);
 
+        // The provinces the sheet already uses, rather than a list of Thailand's
+        // seventy-seven. Offering all of them would suggest the register knows
+        // about provinces it has never seen a lane in, and the spelling that
+        // matters here is the one the existing rows are written with.
+        var counties = await db.RateInquiryLanes.AsNoTracking()
+            .Where(lane => lane.County != "")
+            .Select(lane => lane.County)
+            .Distinct().OrderBy(name => name).Take(200)
+            .ToListAsync(token);
+
         // The customers already asked about, so the same name is not typed three
         // ways across three months.
         var customers = await db.RateInquiries.AsNoTracking()
@@ -99,6 +109,7 @@ public class RateInquiryService(ScmosDbContext db)
             },
             bands,
             carriers,
+            counties,
             customers,
             statuses = RateInquiryStatus.All,
         };
