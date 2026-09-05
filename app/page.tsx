@@ -17,6 +17,14 @@ export default async function Home() {
       // one, so it must not exist: a build that offers both has a second door,
       // and the second door is the one without a lock.
       demo={process.env.NODE_ENV !== "production"}
+      // Read here, per request, rather than through NEXT_PUBLIC_ — that form is
+      // inlined at build time, so a key set on the App Service afterwards would
+      // do nothing and the map would stay blank with no way to tell why.
+      //
+      // It reaches the browser, because an embed key is a thing browsers use.
+      // Google's answer to that is an HTTP referrer restriction on the key, not
+      // secrecy; see .env.example.
+      mapsKey={process.env.GOOGLE_MAPS_EMBED_KEY ?? ""}
     />
   );
 }

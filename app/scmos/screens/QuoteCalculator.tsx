@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
+import { directionsEmbed, directionsLink, hasRoute } from "../mapsEmbed";
 import { ZoomBox } from "../TableFrame";
 import {
   BASIS_TH, type OptionBasis, type QuoteOption, type VehicleRate, quote,
@@ -55,12 +56,84 @@ const INPUT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;paddin
 const NUM = css("height:28px;width:80px;border:1px solid #C9D6E2;border-radius:3px;padding:0 7px;font-size:12px;font-family:ui-monospace,monospace;text-align:right");
 const baht = (n: number) => n.toLocaleString("en-US");
 
-export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
+/**
+ * The route on a map, beside the distance it exists to check.
+ *
+ * The calculator asks for kilometres and has never had anything to check them
+ * against — the first person to price a lane types a number from memory, and
+ * everybody after that starts from theirs. Google will not be asked what the
+ * distance is: it draws the two ends and the road between them, and a person
+ * still decides what to put in the box and whether to record it. A distance is
+ * a judgement, which is why the stored one carries the name of whoever made it.
+ *
+ * The plain Google Maps link is offered whether or not a key is configured,
+ * because it needs none — and on a site with no key it is the whole feature.
+ */
+function RouteMap({ mapsKey, from, to }: { mapsKey: string; from: string; to: string }) {
+  const embed = directionsEmbed(mapsKey, from, to);
+  const link = directionsLink(from, to);
+
+  return (
+    <div style={css("margin-top:10px;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden;background:#fff")}>
+      <div style={css("padding:8px 12px;border-bottom:1px solid #E9EFF5;display:flex;"
+        + "align-items:center;gap:10px;flex-wrap:wrap;font-size:11.5px;color:#7B8CA0")}>
+        <span><b style={css("color:#0A2240")}>{from.trim()}</b> → <b style={css("color:#0A2240")}>{to.trim()}</b></span>
+        {/* Google's own reading of the road, for checking the box against —
+            never written into it. Opening it is a person's decision and so is
+            what they do with what they see. */}
+        {link && (
+          <a href={link} target="_blank" rel="noreferrer noopener"
+            style={css("margin-left:auto;color:#1D5FA8;font-weight:600;text-decoration:none")}>
+            เปิดใน Google Maps ↗
+          </a>
+        )}
+      </div>
+
+      {embed ? (
+        <iframe
+          title={`เส้นทาง ${from.trim()} ถึง ${to.trim()}`}
+          src={embed}
+          width="100%"
+          height="360"
+          style={css("border:0;display:block")}
+          loading="lazy"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      ) : (
+        /*
+         * Said plainly rather than drawn as an empty box. A blank map on a
+         * pricing screen reads as "Google has nothing for this route", which
+         * would be a statement about the journey instead of about the setting.
+         */
+        <div style={css("padding:22px 16px;font-size:12px;color:#7B8CA0;line-height:1.7")}>
+          ยังไม่ได้ตั้งค่า Google Maps สำหรับระบบนี้ — แผนที่ในหน้าจึงยังไม่แสดง
+          <div style={css("color:#94A3B8;font-size:11.5px;margin-top:4px")}>
+            ตั้งค่า <code style={css("font-family:ui-monospace,monospace")}>GOOGLE_MAPS_EMBED_KEY</code>
+            {" "}ที่ App Service application settings แล้วรีสตาร์ท · ปุ่ม “เปิดใน Google Maps” ด้านบนใช้ได้อยู่แล้วโดยไม่ต้องตั้งค่า
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function QuoteCalculator({ onToast, mapsKey }: {
+  onToast: (m: string) => void;
+  /**
+   * Google Maps embed key, or empty when none is configured.
+   *
+   * From a server-rendered prop rather than NEXT_PUBLIC_, so it is an
+   * application setting that takes effect without a rebuild — see app/page.tsx.
+   */
+  mapsKey: string;
+}) {
   const [card, setCard] = useState<Card | null>(null);
   const [vehicle, setVehicle] = useState("4W");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [km, setKm] = useState("");
+  const [mapOpen, setMapOpen] = useState(false);
   /*
    * What the register knows about this journey: how far, and what it has cost.
    *
@@ -237,7 +310,21 @@ export function QuoteCalculator({ onToast }: { onToast: (m: string) => void }) {
             ) : (
               <span style={css("color:#94A3B8")}>ยังไม่เคยบันทึกระยะทางของเส้นทางนี้ — กรอกแล้วกดจำไว้ได้</span>
             )}
+
+            {/* Beside the distance rather than at the foot of the screen. It is
+                the only thing on the page that can contradict the number in the
+                box, so it belongs where somebody typing that number is looking. */}
+            <button type="button" onClick={() => setMapOpen((was) => !was)}
+              style={css("height:24px;padding:0 10px;border:1px solid #1D5FA8;background:"
+                + (mapOpen ? "#1D5FA8" : "#fff") + ";color:" + (mapOpen ? "#fff" : "#1D5FA8")
+                + ";border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
+              {mapOpen ? "ซ่อนแผนที่" : "ดูเส้นทางบนแผนที่"}
+            </button>
           </div>
+        )}
+
+        {mapOpen && hasRoute(from, to) && (
+          <RouteMap mapsKey={mapsKey} from={from} to={to} />
         )}
 
         {card.extras.some((one) => one.active) && (
