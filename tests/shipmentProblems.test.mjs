@@ -77,6 +77,37 @@ test("finished and cancelled work is not something to do this morning", () => {
     /if \(JobRules\.IsDone\(job\.Status\) \|\| WorkspaceTabs\.IsCancelled\(job\.Status\)\) return null;/);
 });
 
+test("the list can be narrowed, over all of it rather than the page on screen", () => {
+  // 290 rows in worst-first order is a list somebody reads the top of and
+  // abandons. Filtering is only honest here because `problems` is every problem
+  // in the register — the API sends the complete list, not a page — so a count
+  // taken in the browser is the register's count.
+  assert.match(board, /const shown = useMemo\(/);
+  assert.match(board, /if \(kind && !row\.problems\.includes\(kind\)\) return false;/);
+  // The note is part of the search: "รถติดในท่า" is how somebody looks for every
+  // job held up in the port, and thirty of them said exactly that.
+  assert.match(board, /row\.customer, row\.trucker, row\.owner, row\.jobCode, row\.note, row\.status/);
+  // The row cap follows the filter. Reading "200 of 290" while looking at seven
+  // filtered rows is the screen describing a list it is not showing.
+  assert.match(board, /แสดง 200 แถวแรกจาก \{shown\.length\}/);
+  assert.doesNotMatch(board, /\{problems\.slice\(0, 200\)/);
+});
+
+test("an empty filter says the list is not empty", () => {
+  // Otherwise a filter that matches nothing looks exactly like a morning with
+  // nothing wrong, which is the one thing this screen must never say by
+  // accident.
+  assert.match(board, /ไม่มีงานที่ตรงกับตัวกรอง — จาก \{problems\.length\} รายการ/);
+});
+
+test("the filter buttons are labelled by the API, not by a copy of its words", () => {
+  // Each row carries the Thai beside the machine name; the buttons are built
+  // from that. A kind reworded on the server is reworded here with it, and the
+  // only thing kept locally is a sort key that cannot hide an unknown name.
+  assert.match(board, /seen\.set\(name, \{ thai: row\.problemsThai\[at\] \?\? name, count: 1 \}\)/);
+  assert.match(board, /const ORDER = \["Incident", "DelayOpen", "StageDelayed", "ArrivedLate", "DelayNoted"\]/);
+});
+
 test("the risk list was left as narrow as it was", () => {
   // The list of what needs somebody today is worth reading because it is short.
   // The new question is a second list, not four more reasons bolted onto that

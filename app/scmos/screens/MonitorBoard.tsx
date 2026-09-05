@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
@@ -59,6 +59,17 @@ const PROBLEM: Record<string, string> = {
   DelayNoted: "#8A6D1F",
 };
 
+/**
+ * The order the API sorts by, so the filter buttons read in the same direction
+ * the rows do.
+ *
+ * A copy of an order that lives in ProblemRules, which is a thing this codebase
+ * has been bitten by before — so it is only ever a sort key for buttons. Every
+ * label, count and row order comes from the API; a name added there and missing
+ * here sorts to the front rather than disappearing.
+ */
+const ORDER = ["Incident", "DelayOpen", "StageDelayed", "ArrivedLate", "DelayNoted"];
+
 /** What put a job on the list, and how loudly to say it. */
 const RISK: Record<string, { th: string; tone: string }> = {
   Overdue: { th: "เลยกำหนดแล้ว", tone: "#B42318" },
@@ -104,6 +115,58 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
 
   const refresh = () => { setBusy(true); setReload((turn) => turn + 1); };
 
+  // The cache holds whatever the API last said, including from before this
+  // screen learned to ask about problems — a board saved twenty minutes ago has
+  // no `problems` and no `tally` at all, and reading straight through either
+  // would blank the screen rather than draw the three lists it does have.
+  const problems = useMemo(() => board?.problems ?? [], [board]);
+  const tally = board?.tally;
+
+  /*
+   * Narrowing the problem list.
+   *
+   * Two hundred and ninety rows in worst-first order is a list somebody reads
+   * the top of and abandons. A supervisor's actual morning is "show me the
+   * incidents" — seven rows, which is a morning's work — or "everything on
+   * SHPP", and neither was reachable.
+   *
+   * Both run over the whole list the API sent, not a page of it. That is the
+   * one thing that makes counting in the browser honest here: `problems` is
+   * every problem in the register, so a count taken from it is the register's.
+   */
+  const [kind, setKind] = useState("");
+  const [query, setQuery] = useState("");
+
+  // The Thai for each kind comes back beside the machine name on every row, so
+  // the buttons are labelled in the API's words rather than a second copy of
+  // them kept here that would drift the day a name is reworded.
+  const kinds = useMemo(() => {
+    const seen = new Map<string, { thai: string; count: number }>();
+    for (const row of problems) {
+      row.problems.forEach((name, at) => {
+        const found = seen.get(name);
+        if (found) found.count += 1;
+        else seen.set(name, { thai: row.problemsThai[at] ?? name, count: 1 });
+      });
+    }
+    // In the API's order of seriousness, not the order they happened to appear.
+    return [...seen.entries()]
+      .map(([name, one]) => ({ name, ...one }))
+      .sort((a, b) => ORDER.indexOf(a.name) - ORDER.indexOf(b.name));
+  }, [problems]);
+
+  const shown = useMemo(() => {
+    const wanted = query.trim().toLowerCase();
+    return problems.filter((row) => {
+      if (kind && !row.problems.includes(kind)) return false;
+      if (!wanted) return true;
+      // The note is searched too: "รถติดในท่า" is how somebody would look for
+      // every job held up in the port, and it is the only place that says so.
+      return [row.customer, row.trucker, row.owner, row.jobCode, row.note, row.status]
+        .some((field) => (field ?? "").toLowerCase().includes(wanted));
+    });
+  }, [problems, kind, query]);
+
   if (denied) {
     return (
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:30px;text-align:center;font-size:12.5px;color:#7B8CA0")}>
@@ -111,13 +174,6 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
       </div>
     );
   }
-
-  // The cache holds whatever the API last said, including from before this
-  // screen learned to ask about problems — a board saved twenty minutes ago has
-  // no `problems` and no `tally` at all, and reading straight through either
-  // would blank the screen rather than draw the three lists it does have.
-  const problems = board?.problems ?? [];
-  const tally = board?.tally;
 
   const tabs: [typeof tab, string, number | null][] = [
     ["problem", "ปัญหาที่เกิดขึ้น", board ? problems.length : null],
@@ -159,12 +215,40 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
         <Card title="ปัญหาที่เกิดขึ้นกับงานที่กำลังวิ่ง"
           note={"เรียงจากร้ายแรงที่สุด — เหตุผิดปกติ · ความล่าช้าที่ยังไม่ปิด · ขั้นตอนล่าช้า"
             + (tally ? ` · ถึงช้ากว่าแผนเกิน ${tally.lateMinutes} นาที` : "")
-            + " · มีบันทึกความล่าช้า"}>
+            + " · มีบันทึกความล่าช้า"}
+          tools={
+            <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px")}>
+              <Pick on={kind === ""} tone="#0A2240" onClick={() => setKind("")}>
+                ทั้งหมด {problems.length}
+              </Pick>
+              {/* Only kinds that have something behind them. A button that can
+                  only ever come back empty is a button people stop trusting. */}
+              {kinds.map((one) => (
+                <Pick key={one.name} on={kind === one.name} tone={PROBLEM[one.name] ?? "#0A2240"}
+                  onClick={() => setKind(kind === one.name ? "" : one.name)}>
+                  {one.thai} {one.count}
+                </Pick>
+              ))}
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="ค้นหา ลูกค้า / ผู้ขนส่ง / เจ้าของงาน / ข้อความ"
+                style={css("margin-left:auto;height:27px;border:1px solid #C9D6E2;border-radius:4px;"
+                  + "padding:0 9px;font-size:12px;font-family:inherit;min-width:250px")}
+              />
+            </div>
+          }>
           {problems.length === 0
             ? <Empty>ยังไม่พบปัญหากับงานที่กำลังวิ่ง</Empty>
+            : shown.length === 0
+            ? (
+              <div style={css("padding:26px;text-align:center;font-size:12.5px;color:#7B8CA0")}>
+                ไม่มีงานที่ตรงกับตัวกรอง — จาก {problems.length} รายการ
+              </div>
+            )
             : (
               <Table heads={["ปัญหา", "ช้ากว่าแผน", "วันที่", "ลูกค้า", "ผู้ขนส่ง", "เจ้าของงาน", "สิ่งที่บันทึกไว้"]}>
-                {problems.slice(0, 200).map((row) => (
+                {shown.slice(0, 200).map((row) => (
                   <tr key={row.key} className="row-hover" style={css("cursor:pointer")}
                     onClick={() => onOpenJob(row.key)}>
                     <td style={css(CELL)}>
@@ -222,9 +306,9 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
                 ))}
               </Table>
             )}
-          {problems.length > 200 && (
+          {shown.length > 200 && (
             <div style={css("padding:9px 12px;font-size:11.5px;color:#94A3B8")}>
-              แสดง 200 แถวแรกจาก {problems.length} — เรียงจากร้ายแรงที่สุดแล้ว
+              แสดง 200 แถวแรกจาก {shown.length} — เรียงจากร้ายแรงที่สุดแล้ว
             </div>
           )}
         </Card>
@@ -368,15 +452,34 @@ function lateness(minutes: number): string {
   return spare === 0 ? `${days} วัน` : `${days} วัน ${spare} ชม.`;
 }
 
-function Card({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
+function Card({ title, note, tools, children }: {
+  title: string; note: string; tools?: React.ReactNode; children: React.ReactNode;
+}) {
   return (
     <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
       <div style={css("padding:11px 14px;border-bottom:1px solid #E9EFF5")}>
         <div style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>{title}</div>
         <div style={css("font-size:11.5px;color:#7B8CA0;margin-top:2px")}>{note}</div>
+        {/* Above the scroll box rather than inside it: a filter that scrolls
+            away is one nobody remembers is set. */}
+        {tools}
       </div>
       <ZoomBox>{children}</ZoomBox>
     </div>
+  );
+}
+
+/** One filter button: a kind and how many rows carry it. */
+function Pick({ on, tone, onClick, children }: {
+  on: boolean; tone: string; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button type="button" onClick={onClick}
+      style={css("height:26px;padding:0 10px;border-radius:4px;font-size:11.5px;font-weight:600;"
+        + "font-family:inherit;cursor:pointer;white-space:nowrap;border:1px solid " + tone
+        + ";background:" + (on ? tone : "#fff") + ";color:" + (on ? "#fff" : tone))}>
+      {children}
+    </button>
   );
 }
 
