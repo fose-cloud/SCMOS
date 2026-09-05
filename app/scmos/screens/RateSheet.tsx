@@ -76,6 +76,23 @@ const NO_FILTERS: Filters = {
 
 const PER = 50;
 
+/**
+ * Columns drawn before the workbook's own — just the tick box.
+ *
+ * The rectangle addresses cells by drawn position, so everything that hands it
+ * a column index adds this. Named rather than written as `+ 1`, because the day
+ * a second leading column appears the `1`s are unfindable.
+ */
+const LEAD = 1;
+
+/** What one press may remove. The API refuses more; this is so the screen says so first. */
+const MAX_DELETE = 100;
+
+/** The heading cell, shared by the tick box and the workbook's own columns. */
+const HEAD = "padding:7px 9px;background:#F4F7FA;font-size:10.5px;letter-spacing:.04em;"
+  + "text-transform:uppercase;color:#465A6E;border-bottom:1px solid #D8E0E8;"
+  + "white-space:nowrap;user-select:none;position:sticky;top:0;z-index:1;";
+
 /** What one request may fetch when the whole filtered set is wanted, for the export. */
 const BULK = 500;
 
@@ -109,6 +126,15 @@ export function RateSheet({ canEdit, onToast }: {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * Rows ticked for a bulk action, by lane id.
+   *
+   * Kept across paging on purpose — ticking a row, filtering to find the next
+   * one and losing the first is the behaviour that makes a select-and-act bar
+   * not worth using. What it costs is that the bar can name more rows than are
+   * on screen, so it says how many and offers to clear them.
+   */
+  const [picked, setPicked] = useState<Set<number>>(new Set());
   const rows = page?.rows ?? [];
 
   /*
@@ -120,8 +146,10 @@ export function RateSheet({ canEdit, onToast }: {
    */
   const grid = useGridRange<SheetRow, string>({
     rowsOf: () => rows,
-    fieldsOf: () => SHEET_COLUMNS.map((column) => (canEdit ? fieldOf(column) : undefined)),
-    headsOf: () => SHEET_COLUMNS.map((column) => column.head),
+    // The tick box leads with no field of its own, which is what keeps a
+    // dragged rectangle, a paste and a Delete off it.
+    fieldsOf: () => [undefined, ...SHEET_COLUMNS.map((column) => (canEdit ? fieldOf(column) : undefined))],
+    headsOf: () => ["", ...SHEET_COLUMNS.map((column) => column.head)],
     read: (row, field) => String(readCell(row, columnFor(field)) ?? ""),
     canEdit: () => canEdit,
     write: (edits, how) => void writeBlock(edits, how),
@@ -233,6 +261,77 @@ export function RateSheet({ canEdit, onToast }: {
       // moves every lane under it, and only the server knows which those are.
       if (response.ok) await load();
     } finally { setSaving(false); }
+  }
+
+  /* ---- selection ------------------------------------------------------- */
+
+  const togglePick = (laneId: number) => setPicked((was) => {
+    const next = new Set(was);
+    if (next.has(laneId)) next.delete(laneId); else next.add(laneId);
+    return next;
+  });
+
+  /** Ticks or clears every row of the page being looked at. */
+  const togglePage = (allPicked: boolean) => setPicked((was) => {
+    const next = new Set(was);
+    rows.forEach((row) => { if (allPicked) next.delete(row.laneId); else next.add(row.laneId); });
+    return next;
+  });
+
+  const allPagePicked = rows.length > 0 && rows.every((row) => picked.has(row.laneId));
+  /**
+   * The ticked rows this page is actually holding.
+   *
+   * Deleting works from these rather than from the ticks, because the row is
+   * what the confirmation has to name — a lane id says nothing to the person
+   * being asked whether to destroy it.
+   */
+  const onPage = rows.filter((row) => picked.has(row.laneId));
+  const onPagePicked = onPage.length;
+
+  /**
+   * Removes the ticked rows, once somebody has read what they are.
+   *
+   * The confirmation names them rather than counting them. There is no history
+   * table behind the rate book, so this is the last moment the figures exist —
+   * and "ลบ 12 แถว?" is a question nobody can actually answer, while three
+   * journeys and a customer is.
+   */
+  async function removePicked() {
+    const chosen = onPage;
+    if (chosen.length === 0) { onToast("แถวที่เลือกไม่ได้อยู่ในหน้านี้ · เปิดหน้าที่มีแถวนั้นก่อน"); return; }
+    if (chosen.length > MAX_DELETE) { onToast(`ลบได้ครั้งละไม่เกิน ${MAX_DELETE} แถว`); return; }
+
+    const sample = chosen.slice(0, 3)
+      .map((row) => `${row.customer || "—"} · ${row.fromPlace || "—"} → ${row.toPlace || "—"}`)
+      .join("\n");
+    if (!window.confirm(
+      `ลบ ${chosen.length} แถวออกจากตารางอัตรา?\n\n${sample}`
+      + (chosen.length > 3 ? `\nและอีก ${chosen.length - 3} แถว` : "")
+      + "\n\nราคาที่บันทึกไว้ในแถวนี้จะหายไปด้วย และกู้คืนไม่ได้",
+    )) return;
+
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/rate-inquiries/sheet/lanes", {
+        method: "DELETE",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ laneIds: chosen.map((row) => row.laneId) }),
+      });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? `ลบไม่สำเร็จ (${response.status})`);
+      if (!response.ok) return;
+
+      // Only what actually went, so a row that was refused stays ticked and
+      // visible rather than quietly disappearing from the selection.
+      const gone = new Set(chosen.map((row) => row.laneId));
+      setPicked((was) => new Set([...was].filter((id) => !gone.has(id))));
+      setEditing(null);
+      await load();
+      // A deleted lane may have taken the last row of a customer or a carrier
+      // with it, and the pickers would go on offering it.
+      void loadChoices();
+    } finally { setBusy(false); }
   }
 
   /**
@@ -403,7 +502,7 @@ export function RateSheet({ canEdit, onToast }: {
         </span>
         <span style={css("font-size:11.5px;color:#CFE2F7")}>เส้นทาง</span>
         {canEdit
-          ? <span style={css("font-size:11px;color:#8FB4DC")}>· คลิกช่องเพื่อแก้ไข · Enter บันทึก · Esc ยกเลิก</span>
+          ? <span style={css("font-size:11px;color:#8FB4DC")}>· ดับเบิลคลิกช่องเพื่อแก้ไข · Enter บันทึก · Esc ยกเลิก</span>
           : <span style={css("font-size:11px;color:#E0A33A")}>· อ่านอย่างเดียว</span>}
       </span>
     </div>
@@ -446,7 +545,36 @@ export function RateSheet({ canEdit, onToast }: {
      * — so the one place you would want to import from is not the one place it
      * disappears from.
      */
-    banner: panel === "none" ? null : (
+    banner: (picked.size === 0 && panel === "none") ? null : (
+      <>
+        {picked.size > 0 && (
+          <div style={css("padding:10px 16px;background:#FFF7DE;border-bottom:1px solid #EADFC8;"
+            + "display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
+            <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>
+              เลือกไว้ {picked.size} แถว
+            </span>
+            <span style={css("font-size:11px;color:#7B6A45")}>
+              {onPagePicked === picked.size
+                ? "ลบพร้อมกันได้ทั้งชุด · ราคาในแถวจะหายไปด้วย"
+                : `อยู่ในหน้านี้ ${onPagePicked} แถว · ลบได้เฉพาะแถวที่เห็นอยู่`}
+            </span>
+            <button type="button" disabled={busy || onPagePicked === 0}
+              onClick={() => void removePicked()}
+              style={css("margin-left:auto;height:30px;padding:0 12px;border-radius:4px;font:inherit;"
+                + "font-size:12px;font-weight:600;"
+                + (busy || onPagePicked === 0
+                  ? "border:1px solid #E3E8EE;background:#F4F6F8;color:#9AA7B4;cursor:default"
+                  : "border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;cursor:pointer"))}>
+              {busy ? "กำลังลบ…" : `ลบ ${onPagePicked} แถวที่เลือก`}
+            </button>
+            <button type="button" onClick={() => setPicked(new Set())}
+              style={css("height:30px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;"
+                + "border-radius:4px;font:inherit;font-size:12px;color:#475569;cursor:pointer")}>
+              ล้างการเลือก
+            </button>
+          </div>
+        )}
+        {panel !== "none" && (
       <div style={css("padding:10px 16px;background:#F4F8FC;border-bottom:1px solid #D8E0E8")}>
         {panel === "import" ? (
           <ImportWorkbook onToast={onToast} onDone={() => {
@@ -467,37 +595,65 @@ export function RateSheet({ canEdit, onToast }: {
           }} />
         )}
       </div>
+        )}
+      </>
     ),
     search: {
       value: search,
       onChange: (value: string) => { setSearch(value); setAt(1); },
       placeholder: "ค้นหา — ลูกค้า, ผู้ขอ, ต้นทาง, ปลายทาง, จังหวัด, ผู้ขนส่ง, หมายเหตุ",
     },
-    cols: SHEET_COLUMNS.map((column) => ({
-      label: column.head,
-      style: "padding:7px 9px;background:#F4F7FA;font-size:10.5px;letter-spacing:.04em;"
-        + "text-transform:uppercase;color:#465A6E;border-bottom:1px solid #D8E0E8;"
-        + "white-space:nowrap;user-select:none;position:sticky;top:0;z-index:1;"
-        + `min-width:${column.width ?? 110}px;`
-        + (column.kind === "price" ? "text-align:right;" : ""),
-      sort: () => undefined,
-    })),
+    cols: [
+      {
+        // The same header the workspace uses to tick a page: a box that is
+        // drawn full when the page is, and empties it when it is pressed again.
+        label: allPagePicked ? "☑" : "☐",
+        style: HEAD + "text-align:center;min-width:34px;width:34px;cursor:pointer;",
+        sort: () => togglePage(allPagePicked),
+      },
+      ...SHEET_COLUMNS.map((column) => ({
+        label: column.head,
+        style: HEAD + `min-width:${column.width ?? 110}px;`
+          + (column.kind === "price" ? "text-align:right;" : ""),
+        sort: () => undefined,
+      })),
+    ],
     noSelect: grid.dragSelecting,
     rows: page.rows.map((row, r) => ({
       key: String(row.laneId),
-      style: "",
-      cells: SHEET_COLUMNS.map((column, index) => ({
-        ...toCell(row, column, index),
-        // A tick box is not part of a rectangle: dragging across one selects
-        // nothing there, and a paste cannot land in it.
-        ...grid.cellProps("sheet", r, index, canEdit && column.kind !== "tick"),
-      })),
+      // A ticked row is coloured and edged, as it is in My Job — the bar acts
+      // on rows, so which rows it will act on has to be visible.
+      style: picked.has(row.laneId)
+        ? "background:#FFF7DE;border-left:3px solid #D89614"
+        : "border-left:3px solid transparent",
+      cells: [
+        pickCell(row),
+        ...SHEET_COLUMNS.map((column, index) => ({
+          ...toCell(row, column, index),
+          // A tick box is not part of a rectangle: dragging across one selects
+          // nothing there, and a paste cannot land in it. Nor is the selection
+          // box, which is why the sheet's columns start at LEAD.
+          ...grid.cellProps("sheet", r, index + LEAD, canEdit && column.kind !== "tick"),
+        })),
+      ],
     })),
     total: page.total,
     pageCount: Math.max(1, Math.ceil(page.total / page.per)),
     page: page.page,
     per: page.per,
   };
+
+  /** The leading tick box, so a row can be chosen without opening anything. */
+  function pickCell(row: SheetRow): Cell {
+    const c = cell("", {});
+    c.kind = "check";
+    c.checked = picked.has(row.laneId);
+    c.disabled = !canEdit || busy;
+    c.td = "padding:4px 6px 4px 10px;border-bottom:1px solid #EDF1F5;text-align:center;vertical-align:middle;width:34px;";
+    c.title = canEdit ? "เลือกแถวนี้" : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง";
+    c.onCheck = () => togglePick(row.laneId);
+    return c;
+  }
 
   function toCell(row: SheetRow, column: SheetColumn, index: number): Cell {
     const value = readCell(row, column);
@@ -551,8 +707,17 @@ export function RateSheet({ canEdit, onToast }: {
     });
     if (canEdit) {
       c.td += "cursor:cell;";
-      c.go = () => setEditing({ laneId: row.laneId, column: index, value: String(value ?? "") });
-      c.title = "คลิกเพื่อแก้ไข";
+      // One click selects — the rectangle does that on mousedown. Two clicks
+      // edit. The same gesture My Job settled on, and for the same reason: a
+      // single click put a text box under the pointer every time somebody
+      // touched a cell to read it, and fought the drag, because the anchor
+      // turned into an input halfway through the gesture.
+      c.go = (event) => event.stopPropagation();
+      c.onDouble = (event) => {
+        event.stopPropagation();
+        setEditing({ laneId: row.laneId, column: index, value: String(value ?? "") });
+      };
+      c.title = "คลิกเลือก · ใช้ลูกศรเพื่อย้าย · พิมพ์เพื่อแทนค่า · ดับเบิลคลิกเพื่อแก้ไขค่าเดิม";
     } else {
       c.title = "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง";
     }

@@ -475,6 +475,94 @@ public class RateInquiryService(ScmosDbContext db)
         return new Result(true, "บันทึกแล้ว", inquiry.Id, inquiry.Number);
     }
 
+    /* ------------------------------------------------------------ removing */
+
+    /// <summary>
+    /// What each of these rows says, written out before it is taken away.
+    ///
+    /// There is no history table behind the rate book. A deleted lane is gone
+    /// the moment the transaction commits, and the audit row is the only thing
+    /// that will still know it existed — so the audit row has to carry enough
+    /// to type it back in, not just the id of something nobody can look up.
+    /// </summary>
+    public async Task<Dictionary<long, string>> SnapshotLanesAsync(
+        IReadOnlyList<long> laneIds, CancellationToken token)
+    {
+        var lanes = await db.RateInquiryLanes.AsNoTracking()
+            .Where(lane => laneIds.Contains(lane.Id)).ToListAsync(token);
+        var inquiryIds = lanes.Select(lane => lane.InquiryId).Distinct().ToList();
+        var inquiries = await db.RateInquiries.AsNoTracking()
+            .Where(one => inquiryIds.Contains(one.Id))
+            .ToDictionaryAsync(one => one.Id, token);
+        var prices = await db.RateInquiryPrices.AsNoTracking()
+            .Where(price => laneIds.Contains(price.LaneId)).ToListAsync(token);
+
+        return lanes.ToDictionary(lane => lane.Id, lane =>
+        {
+            var head = inquiries.GetValueOrDefault(lane.InquiryId);
+            var quoted = prices.Where(price => price.LaneId == lane.Id)
+                .OrderBy(price => price.Vehicle)
+                .Select(price => $"{price.Vehicle} {price.Price}");
+            var modes = new[] { lane.Fcl ? "FCL" : "", lane.Lcl ? "LCL" : "", lane.Domestic ? "Domestic" : "" }
+                .Where(one => one.Length > 0);
+            return string.Join(" · ", new[]
+            {
+                head is null ? "" : $"{head.InquiredOn} NO.{head.Number}",
+                head?.Customer ?? "",
+                head?.Requestor ?? "",
+                $"{lane.FromPlace} → {lane.ToPlace}",
+                lane.County,
+                lane.Carriers,
+                string.Join("/", modes),
+                string.Join(" ", quoted),
+                lane.Remark,
+            }.Where(part => part.Length > 0));
+        });
+    }
+
+    /// <summary>
+    /// Takes these lanes out, with their prices, and any request left empty.
+    ///
+    /// An inquiry whose last lane goes has nothing left to show: the sheet is a
+    /// row per lane, so it would disappear from the screen while staying in the
+    /// register, counted by the totals and offered by the pickers, for ever. It
+    /// goes with the lane that was holding it up.
+    ///
+    /// The whole set in one transaction, because a half-deleted request is a
+    /// worse state than either end of this.
+    /// </summary>
+    public async Task<(int Lanes, int Inquiries)> DeleteLanesAsync(
+        IReadOnlyList<long> laneIds, CancellationToken token) =>
+        await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(token);
+
+            var lanes = await db.RateInquiryLanes
+                .Where(lane => laneIds.Contains(lane.Id)).ToListAsync(token);
+            if (lanes.Count == 0) return (0, 0);
+
+            var touched = lanes.Select(lane => lane.InquiryId).Distinct().ToList();
+            var going = lanes.Select(lane => lane.Id).ToList();
+
+            db.RateInquiryPrices.RemoveRange(
+                await db.RateInquiryPrices.Where(price => going.Contains(price.LaneId)).ToListAsync(token));
+            db.RateInquiryLanes.RemoveRange(lanes);
+            await db.SaveChangesAsync(token);
+
+            // Asked after the lanes are gone rather than counted before, so a
+            // request that already had other lanes is left exactly alone.
+            var emptied = await db.RateInquiries
+                .Where(one => touched.Contains(one.Id)
+                    && !db.RateInquiryLanes.Any(lane => lane.InquiryId == one.Id))
+                .ToListAsync(token);
+            db.RateInquiries.RemoveRange(emptied);
+            await db.SaveChangesAsync(token);
+
+            await transaction.CommitAsync(token);
+            return (lanes.Count, emptied.Count);
+        });
+
     public async Task<Result> CreateAsync(AppUser user, InquiryPost post, CancellationToken token)
     {
         // A calculator save already owns a transaction containing its receipt.

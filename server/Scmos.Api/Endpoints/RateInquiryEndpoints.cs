@@ -22,8 +22,20 @@ public record CellEdit(long LaneId, string? Field, string? Value);
 /// <summary>One cell of the rate sheet: which field, and what it becomes.</summary>
 public record CellBody(string? Field, string? Value);
 
+/// <summary>The rows a person has ticked and wants gone.</summary>
+public record LaneDeleteBody(List<long>? LaneIds, string? Reason);
+
 public static class RateInquiryEndpoints
 {
+    /// <summary>
+    /// How many rows one delete may carry.
+    ///
+    /// A page of the sheet is fifty and select-all ticks a page, so this is
+    /// that with room to spare. It is not a performance limit — it is the
+    /// distance between "I meant these rows" and "I have emptied the book".
+    /// </summary>
+    private const int MaxDelete = 100;
+
     public static void MapRateInquiries(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/rate-inquiries").WithTags("RateInquiry");
@@ -141,6 +153,66 @@ public static class RateInquiryEndpoints
                     $"แก้ {saved} ช่อง", "หลายช่อง", "", $"{saved} ช่อง", "", token);
             }
             return Results.Json(new { saved, refused = refused.Take(10) });
+        });
+
+        /*
+         * Taking rows out of the sheet.
+         *
+         * The heaviest thing this screen can do, and the only one with nothing
+         * behind it: the rate book has no history table, so a lane removed here
+         * is a negotiated price that no longer exists anywhere. Three things
+         * stand between a tick box and that.
+         *
+         * It needs EditRates — the same permission as changing a figure, not
+         * the lower one that lets an operator record a new quotation. Adding a
+         * row you worked out and deleting one somebody negotiated are not the
+         * same act.
+         *
+         * Every row is written into the audit trail in full before it goes, so
+         * "what was on that line" is answerable afterwards.
+         *
+         * And the batch is capped. A tick box with a select-all above it can
+         * carry a page; it cannot carry the register.
+         */
+        group.MapDelete("/sheet/lanes", async ([FromBody] LaneDeleteBody? body, HttpContext context,
+            IUserAccessor users, RateInquiryService inquiries, AuditService audit,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ลบแถวในตารางอัตรา",
+                    StatusCodes.Status403Forbidden);
+
+            var wanted = (body?.LaneIds ?? []).Distinct().ToList();
+            if (wanted.Count == 0)
+                return ApiResults.Error("ยังไม่ได้เลือกแถวที่จะลบ", StatusCodes.Status400BadRequest);
+            if (wanted.Count > MaxDelete)
+                return ApiResults.Error($"ลบได้ครั้งละไม่เกิน {MaxDelete} แถว",
+                    StatusCodes.Status413PayloadTooLarge);
+
+            // Read while the rows still exist. Afterwards there is nowhere left
+            // to read them from, which is the whole reason this line is here.
+            var was = await inquiries.SnapshotLanesAsync(wanted, token);
+            var (lanes, emptied) = await inquiries.DeleteLanesAsync(wanted, token);
+            if (lanes == 0) return ApiResults.Error("ไม่พบแถวที่เลือก", StatusCodes.Status404NotFound);
+
+            await audit.RecordManyAsync(user, was.Select(row => (
+                Action: "delete",
+                Entity: "rate-inquiry",
+                EntityId: row.Key.ToString(),
+                EntityLabel: row.Value,
+                Field: "",
+                OldValue: row.Value,
+                NewValue: "")), (body?.Reason ?? "").Trim(), token);
+
+            return Results.Json(new
+            {
+                deleted = lanes,
+                emptiedInquiries = emptied,
+                message = $"ลบ {lanes} แถวแล้ว"
+                    + (emptied > 0 ? $" · ปิดใบขอราคาที่ไม่เหลือเส้นทาง {emptied} ใบ" : ""),
+            });
         });
 
         group.MapPost("", async ([FromBody] RateInquiryService.InquiryPost body, HttpContext context,
