@@ -226,6 +226,16 @@ function ReportPage({ report, include, onToast }: {
   report: Report; include: Include; onToast: (m: string) => void;
 }) {
   const { summary, target } = report;
+  /*
+   * The management summary lives here rather than inside Commentary.
+   *
+   * The deck needs it too, and a copy held in the child would mean the slide
+   * carried whatever the box said when the component last mounted rather than
+   * what is in it now — the sort of divergence nobody notices until a customer
+   * has the deck.
+   */
+  const [summaryText, setSummaryText] = useState("");
+  const [building, setBuilding] = useState(false);
   // Two points is the fewest that can show a direction. One is a dot, and a
   // chart of one dot invites a reader to see a trend that was never measured.
   const trend = report.trend.filter((one) => one.otd !== null);
@@ -441,7 +451,8 @@ function ReportPage({ report, include, onToast }: {
         )}
 
         {include.commentary && (
-          <Commentary customer={report.customer} month={report.month} onToast={onToast} />
+          <Commentary customer={report.customer} month={report.month} onToast={onToast}
+            text={summaryText} onText={setSummaryText} />
         )}
 
         <footer className="report-block border-t border-[var(--border)] pt-3 text-[10.5px] leading-relaxed text-[var(--muted-foreground)]">
@@ -459,6 +470,19 @@ function ReportPage({ report, include, onToast }: {
         <button type="button" onClick={() => downloadCsv(report, onToast)}
           className="h-[34px] rounded-md border border-[var(--input)] bg-white px-4 text-[12.5px] font-semibold text-[var(--primary)]">
           ดาวน์โหลด Excel
+        </button>
+        <button type="button" disabled={building}
+          onClick={async () => {
+            setBuilding(true);
+            try {
+              const { downloadDeck } = await import("../reportDeck");
+              onToast(`สร้างไฟล์ ${await downloadDeck(report, summaryText)} แล้ว`);
+            } catch {
+              onToast("สร้างไฟล์ PowerPoint ไม่สำเร็จ");
+            } finally { setBuilding(false); }
+          }}
+          className="h-[34px] rounded-md border border-[var(--input)] bg-white px-4 text-[12.5px] font-semibold text-[var(--primary)] disabled:text-[var(--muted-foreground)]">
+          {building ? "กำลังสร้าง…" : "ดาวน์โหลด PowerPoint"}
         </button>
       </div>
     </>
@@ -479,10 +503,11 @@ function ReportPage({ report, include, onToast }: {
  * the text in this box is either something a person wrote or something whose
  * every number was checked against the page it sits on.
  */
-function Commentary({ customer, month, onToast }: {
+function Commentary({ customer, month, onToast, text, onText }: {
   customer: string; month: string; onToast: (m: string) => void;
+  /** Held by the page, because the deck exports the same words. */
+  text: string; onText: (next: string) => void;
 }) {
-  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [drafted, setDrafted] = useState(false);
 
@@ -498,7 +523,7 @@ function Commentary({ customer, month, onToast }: {
         onToast(body.error ?? `ขอบทสรุปไม่สำเร็จ (${response.status})`);
         return;
       }
-      setText(body.text);
+      onText(body.text);
       setDrafted(true);
     } finally { setBusy(false); }
   }
@@ -521,7 +546,7 @@ function Commentary({ customer, month, onToast }: {
 
       <textarea
         value={text}
-        onChange={(event) => { setText(event.target.value); setDrafted(false); }}
+        onChange={(event) => { onText(event.target.value); setDrafted(false); }}
         rows={5}
         placeholder="เขียนบทสรุปสำหรับผู้บริหาร หรือกดปุ่มด้านบนให้ผู้ช่วยร่างให้แล้วแก้ต่อ"
         className="w-full resize-y rounded-md border border-[var(--input)] bg-white p-3 text-[12.5px] leading-relaxed outline-none focus:border-[var(--ring)] print:border-0 print:p-0" />
