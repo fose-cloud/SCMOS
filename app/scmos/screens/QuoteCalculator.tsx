@@ -14,9 +14,7 @@ type Measured = {
   path: number[];
 };
 import { ZoomBox } from "../TableFrame";
-import {
-  BASIS_TH, isUnpriced, type OptionBasis, type QuoteOption, type VehicleRate,
-} from "../quoteRate";
+import { isUnpriced, type QuoteOption, type VehicleRate } from "../quoteRate";
 
 /**
  * What to charge for a journey, from the distance it covers.
@@ -31,11 +29,6 @@ import {
  * somewhere else, because the person who notices a rate is wrong is the person
  * quoting with it.
  */
-
-type Extra = {
-  id: number; label: string; basis: OptionBasis;
-  rate: number; active: boolean; position: number;
-};
 
 /** What a set of past prices looked like. */
 type Band = { count: number; low: number; mid: number; high: number };
@@ -55,7 +48,6 @@ type Look = {
 
 type Card = {
   vehicles: (VehicleRate & { id: number; position: number })[];
-  extras: Extra[];
   marginPercent: number;
   updatedBy: string;
   updatedAt: string;
@@ -75,6 +67,22 @@ type DraftRoute = {
 
 const NEW_ROUTE = (key: string): DraftRoute =>
   ({ key, from: "", to: "", km: "", county: "", carriers: "" });
+
+/*
+ * The Subcon column is one field holding a list.
+ *
+ * The register keeps it as the workbook writes it — comma separated, in the
+ * team's own shorthand — rather than as rows against the supplier register,
+ * because those names are working shorthand and forcing each to resolve before
+ * an inquiry could be saved would mean refusing to record a real question over
+ * a spelling. So the screen splits and rejoins the same string rather than
+ * holding a second, better-shaped copy that would have to be kept in step.
+ */
+const splitCarriers = (text: string) =>
+  text.split(",").map((one) => one.trim()).filter(Boolean);
+
+/** Rejoined the way the sheet writes it, with no duplicates and no empty gaps. */
+const joinCarriers = (names: string[]) => [...new Set(names)].join(",");
 
 const INPUT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff;width:100%;font-family:inherit");
 const NUM = css("height:28px;width:80px;border:1px solid #C9D6E2;border-radius:3px;padding:0 7px;font-size:12px;font-family:ui-monospace,monospace;text-align:right");
@@ -247,6 +255,8 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   const [routeKey, setRouteKey] = useState("first");
   const activeRoute = routeRows.find((one) => one.key === routeKey) ?? routeRows[0];
   const { from, to, km } = activeRoute;
+  /** This journey's carriers, read back out of the one field that holds them. */
+  const chosenCarriers = splitCarriers(activeRoute.carriers);
   const setRouteValue = (field: keyof Omit<DraftRoute, "key">, value: string) => {
     setRouteRows((was) => was.map((one) => one.key === activeRoute.key ? { ...one, [field]: value } : one));
     // Only the two ends make the measurement wrong. A province or a carrier
@@ -311,8 +321,6 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   const [dg, setDg] = useState(false);
   const historyVehicle = quoteSheetVehicle(vehicle, dg);
   const [margin, setMargin] = useState("");
-  /** Which extras are ticked, and how many hours or trips of each. */
-  const [picked, setPicked] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -413,14 +421,28 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>กำลังโหลดตารางอัตรา…</div>;
   }
 
-  const options: QuoteOption[] = card.extras
-    .filter((one) => one.active && picked[one.id] !== undefined)
-    .map((one) => ({
-      id: String(one.id), label: one.label, basis: one.basis,
-      rate: one.rate,
-      // A flat or percentage charge applies once; the others are counted.
-      quantity: one.basis === "perHour" ? (picked[one.id] || 0) : 1,
-    }));
+  /*
+   * No surcharges are added here any more.
+   *
+   * This screen used to carry five tick boxes — waiting, overnight, a fuel
+   * percentage, tolls and port charges — and they were a second, shorter answer
+   * to a question the Surcharges & Terms tab already answers properly. The two
+   * disagreed, which is what a rule written twice in this repository always
+   * ends up doing: waiting time was one flat 250 an hour here, where the agreed
+   * conditions are 400 an hour on LCL and 500 on FCL, both after three free
+   * hours, and 250 is only the reefer genset idling charge. Overnight was one
+   * flat 800, against 500 / 1,000 / 1,500 by lorry size and a chassis at 1,500.
+   * Tolls and port charges sat at nought and added nothing at all, where the
+   * real port charge is 500, 1,000 or 5,000 depending on where the box goes.
+   *
+   * A quotation built on the wrong one of those is worse than one that does not
+   * offer them: it looks complete. So the tick boxes are gone and the
+   * conditions live in one place, which is the tab next door.
+   *
+   * The field is kept, empty, because the API still accepts options and the
+   * quotation it saves is the same shape as before.
+   */
+  const options: QuoteOption[] = [];
 
   const look = fetched?.journey === `${from.trim()}→${to.trim()}|${historyVehicle}` ? fetched.look : null;
 
@@ -506,7 +528,7 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
             const remaining = routeRows.filter((one) => one.key !== activeRoute.key);
             setRouteRows(remaining); chooseRoute(remaining[0].key);
           }} style={css("padding:7px 11px;border:1px solid #E4B4AF;border-radius:4px;background:#fff;color:#B42318;font:inherit;font-size:12px;cursor:pointer")}>นำเส้นทางนี้ออกจากชุด</button>}
-          <span style={css("font-size:11.5px;color:#7B8CA0")}>สูงสุด 20 เส้นทาง · ประเภทรถ กำไร และรายการเพิ่มเติมใช้ร่วมกันทั้งชุด</span>
+          <span style={css("font-size:11.5px;color:#7B8CA0")}>สูงสุด 20 เส้นทาง · ประเภทรถและกำไรใช้ร่วมกันทั้งชุด · ต้นทาง ปลายทาง จังหวัด และผู้ขนส่ง แยกตามเส้นทาง</span>
         </div>
         <div style={css("display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end")}>
           <Field label="ประเภทรถ · เลือกได้หลายแบบ" width="240px">
@@ -566,14 +588,45 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
               onChange={(e) => setRouteValue("county", e.target.value)} style={INPUT} />
           </Field>
           <datalist id="quote-counties">{counties.map((name) => <option key={name} value={name} />)}</datalist>
-          <Field label="TRUCK · ผู้ขนส่ง" width="190px">
-            <select value={carriers.includes(activeRoute.carriers) ? activeRoute.carriers : ""}
-              aria-label="ผู้ขนส่งสำหรับเส้นทางนี้"
-              onChange={(e) => setRouteValue("carriers", e.target.value)}
-              style={{ ...INPUT, cursor: "pointer" }}>
-              <option value="">— ยังไม่ระบุ —</option>
-              {carriers.map((name) => <option key={name} value={name}>{name}</option>)}
-            </select>
+          {/*
+           * Several carriers, because an inquiry asks several.
+           *
+           * The sheet's Subcon column is a comma-separated list in the team's
+           * own shorthand — "SANGJA,SSL,PHURADA,DGT,PK,SHORE" is one real row —
+           * and that is the shape the register stores. A single-choice control
+           * could only ever write one of them, so the question it asked was not
+           * the question the column answers.
+           */}
+          <Field label="TRUCK · ผู้ขนส่ง · เลือกได้หลายเจ้า" width="230px">
+            <details style={css("position:relative")}>
+              <summary aria-label="ผู้ขนส่งสำหรับเส้นทางนี้"
+                style={{ ...INPUT, height: "auto", minHeight: 30, padding: "6px 8px", cursor: "pointer" }}>
+                {chosenCarriers.length
+                  ? `${chosenCarriers.length} เจ้า · ${chosenCarriers.join(", ")}`
+                  : "— ยังไม่ระบุ —"}
+              </summary>
+              <div style={css("position:absolute;left:0;top:100%;z-index:60;width:260px;max-width:80vw;"
+                + "max-height:320px;overflow:auto;background:#fff;border:1px solid #C9D6E2;"
+                + "border-radius:4px;box-shadow:0 8px 24px #0A224022;padding:8px")}>
+                <div style={css("display:flex;gap:8px;padding:4px 3px 8px;border-bottom:1px solid #E9EFF5")}>
+                  <button type="button" onClick={() => setRouteValue("carriers", "")}
+                    style={css("font:inherit;font-size:12px;cursor:pointer")}>ล้างที่เลือก</button>
+                  <span style={css("margin-left:auto;font-size:11px;color:#94A3B8")}>
+                    {carriers.length} เจ้าในทะเบียน
+                  </span>
+                </div>
+                {carriers.map((name) => (
+                  <label key={name} style={css("display:flex;gap:8px;align-items:center;padding:7px 4px;font-size:12.5px;cursor:pointer")}>
+                    <input type="checkbox" checked={chosenCarriers.includes(name)}
+                      onChange={(event) => setRouteValue("carriers",
+                        joinCarriers(event.target.checked
+                          ? [...chosenCarriers, name]
+                          : chosenCarriers.filter((one) => one !== name)))} />
+                    {name}
+                  </label>
+                ))}
+              </div>
+            </details>
           </Field>
           <Field label="กำไร (%)" width="100px">
             <input value={margin} inputMode="decimal"
@@ -678,39 +731,6 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
           <RouteMap from={from} to={to} path={measured?.ok ? measured.path : []} />
         )}
 
-        {card.extras.some((one) => one.active) && (
-          <div style={css("margin-top:12px;padding-top:11px;border-top:1px solid #EEF3F8")}>
-            <div style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:7px")}>
-              รายการเพิ่มเติม
-            </div>
-            <div style={css("display:flex;gap:14px;flex-wrap:wrap")}>
-              {card.extras.filter((one) => one.active).map((one) => {
-                const on = picked[one.id] !== undefined;
-                return (
-                  <label key={one.id} style={css("display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#31465C;cursor:pointer")}>
-                    <input type="checkbox" checked={on}
-                      onChange={(e) => setPicked((was) => {
-                        const next = { ...was };
-                        if (e.target.checked) next[one.id] = one.basis === "perHour" ? 1 : 1;
-                        else delete next[one.id];
-                        return next;
-                      })} />
-                    {one.label}
-                    <span style={css("color:#94A3B8;font-size:11px")}>
-                      {one.basis === "percent" ? `${one.rate}%` : `${baht(one.rate)} ${BASIS_TH[one.basis]}`}
-                    </span>
-                    {on && one.basis === "perHour" && (
-                      <input value={String(picked[one.id])} inputMode="numeric"
-                        onChange={(e) => setPicked((was) => ({ ...was, [one.id]: Number(e.target.value) || 0 }))}
-                        style={css("height:24px;width:52px;border:1px solid #C9D6E2;border-radius:3px;padding:0 6px;font-size:11.5px;text-align:right;font-family:ui-monospace,monospace")} />
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {/*
          * What the quotation is called, and the press that files it.
          *
@@ -741,7 +761,7 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
             </button>
           </div>
           <p style={css("font-size:11.5px;color:#7B8CA0;margin:10px 0 0;line-height:1.6")}>
-            แต่ละเส้นทางบันทึกคนละแถว พร้อมจังหวัดและผู้ขนส่งของเส้นทางนั้น และราคาเสนอลูกค้าของรถที่เลือก (รวมกำไรและรายการเพิ่มเติม) · DATE ใช้วันบันทึกตามเวลาประเทศไทย · NO. รันต่อในเดือนนั้นและใช้ร่วมกันทั้งชุด · ผู้ขอเป็นบัญชีที่เข้าสู่ระบบ
+            แต่ละเส้นทางบันทึกคนละแถว พร้อมจังหวัดและผู้ขนส่งของเส้นทางนั้น และราคาเสนอลูกค้าของรถที่เลือก (รวมกำไรแล้ว) · ค่าใช้จ่ายอื่นดูที่แท็บ “เงื่อนไขเพิ่มเติม” · DATE ใช้วันบันทึกตามเวลาประเทศไทย · NO. รันต่อในเดือนนั้นและใช้ร่วมกันทั้งชุด · ผู้ขอเป็นบัญชีที่เข้าสู่ระบบ
           </p>
           {!canSaveQuote ? <p role="status" style={css("font-size:12px;color:#B45309;margin-bottom:0")}>บัญชีนี้คำนวณราคาได้ แต่ไม่มีสิทธิ์บันทึกตารางอัตรา</p>
             : !alreadySaved && saveRefusals.length > 0 && <p role="status" style={css("font-size:12px;color:#B45309;margin-bottom:0")}>{[...new Set(saveRefusals)].join(" · ")}</p>}
@@ -1018,63 +1038,9 @@ function CardEditor({ card, busy, onSave }: {
             </table>
           </ZoomBox>
 
-          <ExtrasEditor card={card} busy={busy} onSave={onSave} />
           <MarginEditor card={card} busy={busy} onSave={onSave} />
         </div>
       )}
-    </div>
-  );
-}
-
-function ExtrasEditor({ card, busy, onSave }: {
-  card: Card; busy: boolean;
-  onSave: (path: string, payload: unknown) => Promise<void>;
-}) {
-  const [label, setLabel] = useState("");
-  const [basis, setBasis] = useState<OptionBasis>("flat");
-  const [rate, setRate] = useState("");
-
-  return (
-    <div style={css("border-top:1px solid #EEF3F8;padding-top:12px")}>
-      <div style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:8px")}>
-        รายการเพิ่มเติม
-      </div>
-      {card.extras.map((one) => (
-        <div key={one.id} style={css("display:flex;gap:9px;align-items:center;padding:4px 0;font-size:12px;border-bottom:1px solid #F4F7FA")}>
-          <span style={css("flex:1;color:" + (one.active ? "#31465C" : "#B6C2CF"))}>{one.label}</span>
-          <span style={css("color:#94A3B8;font-size:11.5px;white-space:nowrap")}>{BASIS_TH[one.basis]}</span>
-          <span style={css("font-family:ui-monospace,monospace;color:#0A2240;width:72px;text-align:right")}>
-            {one.basis === "percent" ? `${one.rate}%` : baht(one.rate)}
-          </span>
-          <button type="button" disabled={busy}
-            onClick={() => void onSave("/extra", {
-              id: one.id, label: one.label, basis: one.basis, rate: one.rate, active: !one.active,
-            })}
-            style={css("height:22px;padding:0 9px;border:1px solid #C9D6E2;background:#fff;color:#64748B;border-radius:3px;font-size:11px;cursor:pointer;font-family:inherit;white-space:nowrap")}>
-            {one.active ? "ปิดใช้" : "เปิดใช้"}
-          </button>
-        </div>
-      ))}
-
-      <div style={css("display:flex;gap:7px;align-items:center;margin-top:10px;flex-wrap:wrap")}>
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="ชื่อรายการใหม่"
-          style={css("height:28px;width:190px;border:1px solid #C9D6E2;border-radius:3px;padding:0 8px;font-size:12px;font-family:inherit")} />
-        <select value={basis} onChange={(e) => setBasis(e.target.value as OptionBasis)}
-          style={css("height:28px;border:1px solid #C9D6E2;border-radius:3px;padding:0 7px;font-size:12px;background:#fff;font-family:inherit")}>
-          {(Object.keys(BASIS_TH) as OptionBasis[]).map((one) => (
-            <option key={one} value={one}>{BASIS_TH[one]}</option>
-          ))}
-        </select>
-        <input value={rate} inputMode="decimal" onChange={(e) => setRate(e.target.value)} placeholder="อัตรา"
-          style={NUM} />
-        <button type="button" disabled={busy || !label.trim()}
-          onClick={() => void onSave("/extra", {
-            id: 0, label: label.trim(), basis, rate: Number(rate) || 0, active: true,
-          }).then(() => { setLabel(""); setRate(""); })}
-          style={css("height:28px;padding:0 12px;border:1px solid #0A2240;background:" + (label.trim() ? "#0A2240" : "#C3CFDB") + ";color:#fff;border-radius:3px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
-          เพิ่ม
-        </button>
-      </div>
     </div>
   );
 }
