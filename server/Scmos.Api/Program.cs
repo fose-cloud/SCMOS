@@ -47,6 +47,7 @@ builder.Services.AddScoped<CarrierDirectory>();
 builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<KpiService>();
 builder.Services.AddScoped<KpiEngine>();
+builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<PreRunService>();
 builder.Services.AddScoped<MonitoringService>();
@@ -164,6 +165,7 @@ if (FilterCheck.Run(args) is int filterExit) return filterExit;
 if (LadderCheck.Run(args) is int ladderExit) return ladderExit;
 if (CapabilityCheck.Run(args) is int capabilityExit) return capabilityExit;
 if (SignInCheck.Run(args) is int signInExit) return signInExit;
+if (ReportCheck.Run(args) is int reportExit) return reportExit;
 
 if (args.Contains("--seed"))
 {
@@ -220,6 +222,7 @@ app.MapHealthChecks("/health");
 app.MapMe();
 app.MapJobs();
 app.MapKpi();
+app.MapReports();
 app.MapWorkflow();
 app.MapPreRun();
 app.MapMonitoring();

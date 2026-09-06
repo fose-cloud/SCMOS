@@ -227,7 +227,24 @@ button { cursor: pointer; }
    app's scrolling layout and laid on the page at its own size. */
 @media print {
   body * { visibility: hidden !important; }
-  .cargo-page, .cargo-page * { visibility: visible !important; }
+  /* The Report Centre prints the same way the cargo form does: the page is what
+     is printed, the app around it is not. This is also how the report becomes a
+     PDF — the browser's own "Save as PDF" against this rule, with no server and
+     no rendering service to stand up. */
+  .cargo-page, .cargo-page *,
+  .report-page, .report-page * { visibility: visible !important; }
+  .report-page {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  /* A section of the report should not be split down the middle of a chart. */
+  .report-block { break-inside: avoid; page-break-inside: avoid; }
   .cargo-page {
     position: absolute !important;
     left: 0 !important;
@@ -275,3 +292,101 @@ button { cursor: pointer; }
   gap: 9px;
 }
 #scmos-screen-toolbar:empty { display: none; }
+
+/* ==========================================================================
+   Tailwind, for the Report Centre only — and deliberately without preflight.
+   ==========================================================================
+
+   Tailwind was in package.json for months and never imported, so no utility
+   class in this project did anything. The Report Centre is built out of
+   shadcn/ui, which needs them, so they are generated here.
+
+   What is NOT imported is `preflight.css`, and that is the whole care of this
+   block. Preflight is a global reset: it strips the margin off every heading,
+   the list style off every ul, the border off every element, and the styling
+   off every button. Forty screens of this app are laid out with inline styles
+   that were written against the browser's defaults, and a global reset would
+   quietly restyle every one of them — the sort of change that looks fine on
+   the screen you are testing and wrong on the thirty-nine you are not.
+
+   So the reset is scoped to `.sc-ui` below instead, and only the Report Centre
+   wears that class. Everything outside it is untouched, which was the point of
+   choosing "shadcn on new surfaces only".
+*/
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/*
+ * Preflight's essentials, scoped — and in the `base` layer.
+ *
+ * The layer is not decoration. `.sc-ui *` and Tailwind's `.border` have exactly
+ * the same specificity, so whichever is written last wins — and this file is
+ * written after the import, which meant the reset's `border: 0` beat every
+ * `border` utility and the cards came out with no outline at all. Declaring it
+ * as `base` puts it under `utilities` in the cascade whatever the source order,
+ * which is the arrangement Tailwind's own preflight uses for the same reason.
+ *
+ * Only the parts shadcn's components actually depend on. `border: 0 solid` is
+ * the one that matters most: Tailwind's `border` class sets a width and nothing
+ * else, and without a style declared it renders nothing at all.
+ */
+@layer base {
+  .sc-ui, .sc-ui *, .sc-ui *::before, .sc-ui *::after {
+    box-sizing: border-box;
+    border: 0 solid #E2E8F0;
+  }
+  .sc-ui h1, .sc-ui h2, .sc-ui h3, .sc-ui h4, .sc-ui p,
+  .sc-ui figure, .sc-ui blockquote, .sc-ui dl, .sc-ui dd {
+    margin: 0;
+  }
+  .sc-ui h1, .sc-ui h2, .sc-ui h3, .sc-ui h4 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  .sc-ui ol, .sc-ui ul { margin: 0; padding: 0; list-style: none; }
+  .sc-ui table { border-collapse: collapse; border-color: inherit; text-indent: 0; }
+  .sc-ui button, .sc-ui input, .sc-ui select, .sc-ui textarea {
+    font: inherit;
+    color: inherit;
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+  }
+  .sc-ui button { cursor: pointer; }
+  .sc-ui img, .sc-ui svg { display: block; vertical-align: middle; }
+  .sc-ui img { max-width: 100%; height: auto; }
+}
+
+/*
+ * shadcn's tokens, in this app's own palette rather than its default slate.
+ *
+ * The navy is #0A2240 and has been since the mockup; a Report Centre in
+ * shadcn's stock colours would look like a different product bolted on. Scoped
+ * to .sc-ui for the same reason as the reset — :root would define them for
+ * screens that have no use for them.
+ */
+.sc-ui {
+  --background: #ffffff;
+  --foreground: #0A2240;
+  --card: #ffffff;
+  --card-foreground: #0A2240;
+  --popover: #ffffff;
+  --popover-foreground: #0A2240;
+  --primary: #0A2240;
+  --primary-foreground: #ffffff;
+  --secondary: #F2F6FA;
+  --secondary-foreground: #0A2240;
+  --muted: #F4F7FA;
+  --muted-foreground: #7B8CA0;
+  --accent: #EDF5FF;
+  --accent-foreground: #0A2240;
+  --destructive: #B42318;
+  --destructive-foreground: #ffffff;
+  --border: #D8E0E8;
+  --input: #C9D6E2;
+  --ring: #2E7DD1;
+  --radius: 0.5rem;
+
+  color: var(--foreground);
+}

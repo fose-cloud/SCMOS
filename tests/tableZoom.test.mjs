@@ -16,6 +16,7 @@ import test from "node:test";
 const ALLOWED = new Map([
   ["app/scmos/DataTable.tsx", "the grid itself — it carries the same zoom already"],
   ["app/scmos/screens/CargoForm.tsx", "a printed sheet, not a grid: a zoom would change what comes out"],
+  ["app/scmos/screens/ReportCentre.tsx", "the same: a report that is printed, and a zoom control would print with it — it scrolls on its own instead"],
   ["app/scmos/screens/Workspace.tsx", "an HTML string built for the clipboard, never rendered"],
   // Wrapped where they are used rather than where they are written: each is a
   // helper whose caller puts a ZoomBox around it. Text alone cannot see that.

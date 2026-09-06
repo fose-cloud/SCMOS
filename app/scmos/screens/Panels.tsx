@@ -6,6 +6,7 @@ import type { Db, Ship } from "../demo";
 import type { Job } from "../ops";
 import { money, pad, rng } from "../util";
 import { DelayAnalysis } from "./DelayAnalysis";
+import { ReportCentre } from "./ReportCentre";
 import { VolumeReport } from "./VolumeReport";
 import { SupplierPerformance } from "./SupplierPerformance";
 import { VendorReport } from "./VendorReport";
@@ -189,6 +190,13 @@ export function BillingAging({ filtered }: { filtered: Ship[] }) {
 /* --------------------------------------------------------------- reports */
 
 const REPORT_DEFS: [string, string, string, string][] = [
+  // First because it is the one that leaves the building. The five below answer
+  // a question on screen; this one is assembled to be sent to the customer it is
+  // about, which is why it carries its own bases and a line about how far it can
+  // be trusted.
+  ["Monthly Performance", "รายงานผลงานรายเดือน",
+    "รายงานฉบับเต็มของลูกค้าหนึ่งรายในหนึ่งเดือน — สรุปผู้บริหาร ผลงานผู้ขนส่งพร้อมกราฟ แนวโน้ม OTD และสาเหตุความล่าช้า · บันทึกเป็น PDF หรือ Excel ได้",
+    "Customer"],
   // One entry where there were six: Shipment Volume, Import Volume, Export
   // Volume, Trips by Supplier, Trips by Truck Type and Trips by Customer were
   // the same count of the same register over the same period, cut six ways.
@@ -248,6 +256,17 @@ const REPORT_TONES: Record<string, "blue" | "teal" | "red"> = {
 export function Reports({ jobs, toast }: { jobs: Job[]; toast: (message: string) => void }) {
   const [open, setOpen] = useState("");
 
+  if (open === "Monthly Performance") {
+    return (
+      <div style={css("display:flex;flex-direction:column;gap:12px")}>
+        <button type="button" onClick={() => setOpen("")} className="no-print"
+          style={css("align-self:flex-start;height:30px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font:inherit;font-size:12px;color:#475569;cursor:pointer")}>
+          ← กลับไปหน้ารายการรายงาน
+        </button>
+        <ReportCentre onToast={toast} />
+      </div>
+    );
+  }
   if (open === "Delay Analysis") {
     return <DelayAnalysis jobs={jobs} onToast={toast} onBack={() => setOpen("")} />;
   }
