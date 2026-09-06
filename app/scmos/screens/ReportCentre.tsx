@@ -57,6 +57,12 @@ type Report = {
   generatedAt: string;
 };
 
+/** One snapshot in the archive, without its document. */
+type Archived = {
+  id: number; customer: string; month: string; takenAt: string; takenBy: string;
+  trips: number; measurable: number; otd: number | null;
+};
+
 type Choices = {
   customers: { customer: string; trips: number; measurable: number; coverage: number }[];
   months: string[];
@@ -101,6 +107,16 @@ export function ReportCentre({ onToast }: { onToast: (message: string) => void }
   const [include, setInclude] = useState<Include>(ALL_IN);
   const [report, setReport] = useState<Report | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Which half is showing: making a report, or looking one up. */
+  const [view, setView] = useState<"make" | "archive">("make");
+  const [archive, setArchive] = useState<Archived[] | null>(null);
+
+  const loadArchive = useCallback(async () => {
+    const response = await apiFetch("/api/reports/archive", { headers: { accept: "application/json" } });
+    if (!response.ok) { onToast("อ่านคลังรายงานไม่สำเร็จ"); return; }
+    setArchive(await response.json() as Archived[]);
+  }, [onToast]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -137,8 +153,38 @@ export function ReportCentre({ onToast }: { onToast: (message: string) => void }
 
   return (
     <div className="sc-ui flex flex-col gap-4">
+      <div className="no-print flex gap-2">
+        {([["make", "สร้างรายงาน"], ["archive", "คลังรายงาน"]] as const).map(([key, label]) => (
+          <button key={key} type="button"
+            onClick={() => {
+              setView(key);
+              // The press is the trigger. An effect watching `view` would be a
+              // second one, and the two would take turns fetching.
+              if (key === "archive" && archive === null) void loadArchive();
+            }}
+            className={cn("h-[32px] rounded-md border px-4 text-[12.5px] font-semibold",
+              view === key
+                ? "border-[#0A2240] bg-[#0A2240] text-white"
+                : "border-[var(--input)] bg-white text-[var(--muted-foreground)]")}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "archive" && (
+        <ArchiveList rows={archive} onOpen={async (id) => {
+          const response = await apiFetch(`/api/reports/archive/${id}`,
+            { headers: { accept: "application/json" } });
+          if (!response.ok) { onToast("เปิดรายงานที่เก็บไว้ไม่สำเร็จ"); return; }
+          // The stored document is the same shape the screen renders, so the
+          // archived figures go through exactly the page that produced them.
+          setReport(await response.json() as Report);
+          setView("make");
+        }} />
+      )}
+
       {/* ------------------------------------------------ what to report on */}
-      <Card className="no-print">
+      {view === "make" && <Card className="no-print">
         <CardHeader>
           <CardTitle>Report Centre · ศูนย์รายงาน</CardTitle>
           <CardDescription>
@@ -212,18 +258,86 @@ export function ReportCentre({ onToast }: { onToast: (message: string) => void }
             </p>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      {report && <ReportPage key={`${report.customer}|${report.month}`}
-        report={report} include={include} onToast={onToast} />}
+      {view === "make" && report && <ReportPage key={`${report.customer}|${report.month}`}
+        report={report} include={include} onToast={onToast}
+        onArchived={() => setArchive(null)} />}
+    </div>
+  );
+}
+
+/**
+ * What has been kept, and when it was taken.
+ *
+ * The date matters as much as the figures. Arrival times are keyed in late, so
+ * the same month measured again reads differently — a snapshot taken on the
+ * first of October and one taken in December are both correct and are not the
+ * same number. The list says which is which.
+ */
+function ArchiveList({ rows, onOpen }: { rows: Archived[] | null; onOpen: (id: number) => void }) {
+  if (rows === null) {
+    return <Card><CardContent className="pt-5 text-[12px] text-[var(--muted-foreground)]">กำลังอ่านคลังรายงาน…</CardContent></Card>;
+  }
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="pt-5 text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
+          ยังไม่มีรายงานที่เก็บไว้ · ระบบจะเก็บรายงานของเดือนก่อนหน้าให้อัตโนมัติในช่วงต้นเดือน
+          หรือกด “เก็บเข้าคลัง” บนรายงานที่สร้างไว้แล้วก็ได้
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const months = [...new Set(rows.map((one) => one.month))];
+
+  return (
+    <div className="flex flex-col gap-4">
+      {months.map((month) => (
+        <Card key={month}>
+          <CardHeader className="pb-2"><CardTitle>{month}</CardTitle></CardHeader>
+          <CardContent className="-mx-1 overflow-x-auto px-1">
+            <table className="w-full min-w-[560px] border-collapse text-[12px]">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-left text-[10.5px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                  <th className="py-2 pr-3 font-semibold">ลูกค้า</th>
+                  <th className="py-2 pr-3 text-right font-semibold">เที่ยว</th>
+                  <th className="py-2 pr-3 text-right font-semibold">วัดได้</th>
+                  <th className="py-2 pr-3 text-right font-semibold">OTD</th>
+                  <th className="py-2 pr-3 font-semibold">เก็บเมื่อ</th>
+                  <th className="py-2 font-semibold">โดย</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.filter((one) => one.month === month).map((one) => (
+                  <tr key={one.id} className="cursor-pointer border-b border-[#F4F7FA] hover:bg-[var(--muted)]"
+                    onClick={() => onOpen(one.id)}>
+                    <td className="py-[7px] pr-3 font-semibold text-[var(--primary)]">{one.customer}</td>
+                    <td className="py-[7px] pr-3 text-right tabular-nums">{nf(one.trips)}</td>
+                    <td className="py-[7px] pr-3 text-right tabular-nums text-[var(--muted-foreground)]">{nf(one.measurable)}</td>
+                    <td className="py-[7px] pr-3 text-right font-semibold tabular-nums">{rate(one.otd)}</td>
+                    <td className="py-[7px] pr-3 text-[11px] text-[var(--muted-foreground)]">{one.takenAt}</td>
+                    <td className="py-[7px] text-[11px] text-[var(--muted-foreground)]">
+                      {one.takenBy === "scheduler" ? "ระบบเก็บอัตโนมัติ" : one.takenBy}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
 
 /* ------------------------------------------------------------ the document */
 
-function ReportPage({ report, include, onToast }: {
+function ReportPage({ report, include, onToast, onArchived }: {
   report: Report; include: Include; onToast: (m: string) => void;
+  /** Told when a snapshot is taken, so the archive list stops being stale. */
+  onArchived: () => void;
 }) {
   const { summary, target } = report;
   /*
@@ -470,6 +584,19 @@ function ReportPage({ report, include, onToast }: {
         <button type="button" onClick={() => downloadCsv(report, onToast)}
           className="h-[34px] rounded-md border border-[var(--input)] bg-white px-4 text-[12.5px] font-semibold text-[var(--primary)]">
           ดาวน์โหลด Excel
+        </button>
+        <button type="button" disabled={building}
+          onClick={async () => {
+            const response = await apiFetch(
+              `/api/reports/archive?customer=${encodeURIComponent(report.customer)}`
+              + `&month=${encodeURIComponent(report.month)}`,
+              { method: "POST", headers: { accept: "application/json" } });
+            const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+            onToast(body.message ?? body.error ?? `เก็บไม่สำเร็จ (${response.status})`);
+            if (response.ok) onArchived();
+          }}
+          className="h-[34px] rounded-md border border-[var(--input)] bg-white px-4 text-[12.5px] font-semibold text-[var(--primary)]">
+          เก็บเข้าคลัง
         </button>
         <button type="button" disabled={building}
           onClick={async () => {

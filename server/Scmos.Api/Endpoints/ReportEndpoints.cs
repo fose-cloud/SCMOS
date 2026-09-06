@@ -61,25 +61,10 @@ public static class ReportEndpoints
 
             var report = await reports.BuildAsync(wanted, period, token);
 
-            return Results.Json(new
-            {
-                report.Customer,
-                report.Month,
-                report.Summary,
-                report.Target,
-                report.Vendors,
-                report.DelayReasons,
-                report.Trend,
-                // Said by the rule rather than worked out by the screen, so the
-                // PDF and the preview carry the same warning in the same words.
-                meetsTarget = MonthlyReport.MeetsTarget(report.Summary, report.Target),
-                confidence = MonthlyReport.Confidence(report.Summary),
-                minimumSample = MonthlyReport.MinimumSample,
-                // Who ran it and when, because a report that has been forwarded
-                // twice should still say where it came from.
-                generatedBy = user.DisplayName,
-                generatedAt = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).ToString("dd/MM/yyyy HH:mm"),
-            });
+            // The one document shape — the archive stores exactly this, and the
+            // same screen renders both.
+            return Results.Json(MonthlyReportService.Document(
+                report, user.DisplayName, MonthlyReportService.Stamp()));
         });
 
         /*
@@ -124,6 +109,83 @@ public static class ReportEndpoints
                 "commentary", "", "drafted", "", token);
 
             return Results.Json(new { text = result.Text });
+        });
+
+        /* ------------------------------------------------------------ archive */
+
+        // What was taken, without the documents. The list is read far more often
+        // than any single report is opened.
+        group.MapGet("/archive", async (string? month, HttpContext context, IUserAccessor users,
+            ReportArchiveService archive, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewDashboard))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูรายงาน", StatusCodes.Status403Forbidden);
+
+            return Results.Json(await archive.ListAsync(month, token));
+        });
+
+        /*
+         * One stored report, exactly as it was answered on the day.
+         *
+         * Returned as the stored JSON rather than rebuilt, which is the whole
+         * point of the archive: arrival times are keyed in late, so the same
+         * month measured again reads differently, and the figure a customer is
+         * holding is the one that has to be recoverable.
+         */
+        group.MapGet("/archive/{id:long}", async (long id, HttpContext context, IUserAccessor users,
+            ReportArchiveService archive, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewDashboard))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูรายงาน", StatusCodes.Status403Forbidden);
+
+            var document = await archive.ReadAsync(id, token);
+            if (document is null) return ApiResults.Error("ไม่พบรายงานที่เก็บไว้", StatusCodes.Status404NotFound);
+            return Results.Text(document, "application/json");
+        });
+
+        /*
+         * Take a snapshot now, rather than waiting for the month to turn.
+         *
+         * Refuses to overwrite one that exists — see ReportArchiveService.TakeAsync.
+         * Needs EditOwnJobs rather than only ViewDashboard: reading a report is
+         * for anybody, but writing a row that will be quoted back later is an
+         * act, and the trail records who performed it.
+         */
+        group.MapPost("/archive", async (string? customer, string? month,
+            HttpContext context, IUserAccessor users, ReportArchiveService archive,
+            AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditOwnJobs))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์เก็บรายงาน", StatusCodes.Status403Forbidden);
+
+            var wanted = (customer ?? "").Trim();
+            var period = (month ?? "").Trim();
+            if (wanted.Length == 0 || wanted.Length > 200)
+                return ApiResults.Error("ต้องเลือกลูกค้า", StatusCodes.Status400BadRequest);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(period, @"^(0[1-9]|1[0-2])/[0-9]{4}$"))
+                return ApiResults.Error("เดือนต้องอยู่ในรูปแบบ MM/yyyy", StatusCodes.Status400BadRequest);
+
+            var took = await archive.TakeAsync(wanted, period, user.Signature, token);
+            if (took)
+            {
+                await audit.RecordAsync(user, AuditActions.Register, "report-archive",
+                    $"{wanted}|{period}", $"เก็บรายงาน · {wanted} · {period}",
+                    "archive", "", "taken", "", token);
+            }
+
+            return Results.Json(new
+            {
+                stored = took,
+                message = took
+                    ? $"เก็บรายงาน {wanted} · {period} แล้ว"
+                    : $"{wanted} · {period} ถูกเก็บไว้แล้วก่อนหน้านี้ — ของเดิมไม่ถูกเขียนทับ",
+            });
         });
     }
 }

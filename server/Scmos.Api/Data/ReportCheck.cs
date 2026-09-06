@@ -187,6 +187,21 @@ public static class ReportCheck
                     ReportCommentary.Explain(503, ""), ReportCommentary.Explain(0, null) }
                 .All(one => one.Contains("พิมพ์บทสรุปเอง")), true);
 
+        /* ---- the month the scheduler reaches back for ---- */
+        Console.WriteLine();
+        var prev = (int y, int m, int d) =>
+            Services.ReportArchiveService.PreviousMonth(
+                new DateTimeOffset(y, m, d, 2, 0, 0, TimeSpan.FromHours(7)));
+
+        failed += Say("the sweep on 1 October archives September", prev(2026, 10, 1), "09/2026");
+        failed += Say("and still does on the 3rd", prev(2026, 10, 3), "09/2026");
+        // The one that breaks silently and is wrong for a whole year.
+        failed += Say("January reaches back across the year boundary", prev(2027, 1, 1), "12/2026");
+        failed += Say("March reaches back to February, whatever its length",
+            prev(2026, 3, 1), "02/2026");
+        failed += Say("and a leap year changes nothing about which month it was",
+            prev(2028, 3, 1), "02/2028");
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "The report counts what it can and refuses to score what it cannot."

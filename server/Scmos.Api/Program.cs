@@ -49,6 +49,11 @@ builder.Services.AddScoped<KpiService>();
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<ReportWriterService>();
+builder.Services.AddScoped<ReportArchiveService>();
+// Archives last month's reports when the month turns over. Needs no
+// infrastructure beyond the App Service that is already running — see
+// ReportScheduler on why it is here rather than in a function app.
+builder.Services.AddHostedService<ReportScheduler>();
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<PreRunService>();
 builder.Services.AddScoped<MonitoringService>();

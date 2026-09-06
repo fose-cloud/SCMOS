@@ -64,6 +64,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<RateInquiryPrice> RateInquiryPrices => Set<RateInquiryPrice>();
     public DbSet<RatePrice> RatePrices => Set<RatePrice>();
     public DbSet<RateSurcharge> RateSurcharges => Set<RateSurcharge>();
+    public DbSet<ReportArchiveEntry> ReportArchive => Set<ReportArchiveEntry>();
 
     // A customer's own paperwork. Separate tables from the ones above on
     // purpose — see the note at the top of CustomerDocumentEntities.cs.
@@ -331,6 +332,28 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             // One road, one length. Two rows for the same journey is the very
             // thing the key exists to stop.
             entry.HasIndex(e => e.Key).IsUnique().HasDatabaseName("journey_key_idx");
+        });
+
+        model.Entity<ReportArchiveEntry>(entry =>
+        {
+            entry.ToTable("report_archive");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id");
+            entry.Property(e => e.Customer).HasColumnName("customer").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.Month).HasColumnName("month").HasMaxLength(7).HasDefaultValue("");
+            entry.Property(e => e.TakenAt).HasColumnName("taken_at");
+            entry.Property(e => e.TakenBy).HasColumnName("taken_by").HasMaxLength(160).HasDefaultValue("");
+            entry.Property(e => e.Document).HasColumnName("document");
+            entry.Property(e => e.Trips).HasColumnName("trips");
+            entry.Property(e => e.Measurable).HasColumnName("measurable");
+            // Nullable on purpose: a zero would sort every unmeasured month as
+            // the worst month on record.
+            entry.Property(e => e.Otd).HasColumnName("otd");
+            // One snapshot per customer per month. The scheduler is allowed to
+            // run twice — App Service recycles, and a month must not be
+            // archived twice because a container restarted at midnight.
+            entry.HasIndex(e => new { e.Customer, e.Month }).IsUnique()
+                .HasDatabaseName("report_archive_month_idx");
         });
 
         model.Entity<QuoteVehicleRate>(entry =>

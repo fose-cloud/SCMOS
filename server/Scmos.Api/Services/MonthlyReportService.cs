@@ -106,6 +106,39 @@ public class MonthlyReportService(JobRegisterCache register, CarrierDirectory ca
         return new ReportChoices(customers, months);
     }
 
+    /// <summary>
+    /// The report as it goes over the wire — the computed view plus the things
+    /// the screen needs said rather than worked out.
+    ///
+    /// <para>
+    /// One place, because the archive stores this document and the endpoint
+    /// returns it, and the stored copy is later rendered by the very same
+    /// screen. When the two were built separately the archived version was
+    /// missing three fields the page reads, and the page crashed on opening a
+    /// snapshot — quietly, and only for the archive.
+    /// </para>
+    /// </summary>
+    public static object Document(MonthlyReportView report, string generatedBy, string generatedAt) =>
+        new
+        {
+            report.Customer,
+            report.Month,
+            report.Summary,
+            report.Target,
+            report.Vendors,
+            report.DelayReasons,
+            report.Trend,
+            MeetsTarget = MonthlyReport.MeetsTarget(report.Summary, report.Target),
+            Confidence = MonthlyReport.Confidence(report.Summary),
+            MonthlyReport.MinimumSample,
+            GeneratedBy = generatedBy,
+            GeneratedAt = generatedAt,
+        };
+
+    /// <summary>Bangkok, which is the clock a report is dated in.</summary>
+    public static string Stamp() =>
+        DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).ToString("dd/MM/yyyy HH:mm");
+
     public async Task<MonthlyReportView> BuildAsync(string customer, string month, CancellationToken token)
     {
         var all = await TripsAsync(token);
