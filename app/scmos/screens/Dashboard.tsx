@@ -10,6 +10,7 @@ import { opsStats, STATUS_RE as RE, type Job, type OpsStats } from "../ops";
 import { periodLabel, type Period } from "../period";
 import { dowOf, money, pad } from "../util";
 import { PeriodBar } from "../PeriodBar";
+import { ExecutiveBoard } from "./ExecutiveBoard";
 import { apiFetch } from "../api";
 import { byStage } from "../incidentStages";
 
@@ -375,7 +376,7 @@ export function Dashboard({ filtered: fl, jobs, allJobs, period, onPeriod, loade
       {bar}
       {tab === "Operational"
         ? <Operational s={s} period={period} onDrill={onDrill} />
-        : <Executive s={s} fl={fl} total={total} pct={pct} onDrill={onDrill} />}
+        : <Executive s={s} fl={fl} total={total} pct={pct} onDrill={onDrill} onOpenKpi={onOpenKpi} />}
 
       {/* Only on the executive view, and only once the request answers. That is
           the view already asking "how are we doing"; the wall board is for a
@@ -395,6 +396,7 @@ function Executive(p: {
   total: number;
   pct: (n: number) => string;
   onDrill: (patch: Drill) => void;
+  onOpenKpi?: () => void;
 }) {
   const { s, fl, total, onDrill } = p;
 
@@ -432,6 +434,17 @@ function Executive(p: {
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:16px")}>
+      {/*
+       * The measured band, above the browser's own counts.
+       *
+       * Everything below is worked out here from the jobs this screen holds,
+       * which is right for a surface that filters and drills into them. The
+       * band is the operation's reported figures, computed once on the server
+       * — so "on-time delivery" says the same thing here, on the KPI page and
+       * in a report, whoever is looking and whatever filter is set.
+       */}
+      <ExecutiveBoard onOpenKpi={p.onOpenKpi} />
+
       <Tiles items={[
         { label: "Jobs in Plan", th: "งานทั้งหมดในแผน", value: String(total), note: s.dates.length + " วัน", colour: "#2E7DD1", go: () => onDrill({ tab: "PENDING" }) },
         { label: "Import", th: "งานนำเข้า", value: String(s.imports.length), note: p.pct(s.imports.length), colour: "#0A2240", go: () => onDrill({ tab: "PENDING", cat: "IMPORT" }) },
