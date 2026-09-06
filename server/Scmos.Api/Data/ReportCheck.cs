@@ -127,6 +127,42 @@ public static class ReportCheck
         failed += Say("and divides by nothing", empty.Summary.Coverage, 0);
         failed += Say("and says so", MonthlyReport.Confidence(empty.Summary), "ไม่มีเที่ยวในเดือนนี้");
 
+        /* ---- the commentary is fenced ---- */
+        Console.WriteLine();
+        var facts = ReportCommentary.Facts(MonthlyReport.Build("LOTUS ASIA", "07/2026", mixed, [], []));
+        failed += Say("the facts carry the base, not only the rate", facts.Contains("could be measured"), true);
+        // "rate" is ambiguous in this domain — an on-time rate is a percentage.
+        // What must never travel is money, so money is what this looks for.
+        string[] money = ["baht", "THB", "฿", "price", "cost", "charge", "tariff"];
+        failed += Say("and no price is ever sent",
+            money.Any(one => facts.Contains(one, StringComparison.OrdinalIgnoreCase)), false);
+        failed += Say("nor a driver or a phone number",
+            facts.Contains("driver", StringComparison.OrdinalIgnoreCase)
+            || facts.Contains("phone", StringComparison.OrdinalIgnoreCase), false);
+
+        Console.WriteLine();
+        // The failure this fence exists for: a figure that was never measured,
+        // written confidently beside figures that were.
+        failed += Say("a draft quoting the report's own numbers is allowed",
+            ReportCommentary.Judge("เดือนนี้วิ่ง 10 เที่ยว ตรงเวลา 8 เที่ยว คิดเป็น 80%", facts).Text is not null, true);
+        failed += Say("a draft inventing a comparison is refused",
+            ReportCommentary.Judge("OTD ดีขึ้น 4.7 จุดจากเดือนก่อน", facts).Text, (string?)null);
+        failed += Say("and the refusal names the figure it could not find",
+            ReportCommentary.Judge("OTD ดีขึ้น 4.7 จุดจากเดือนก่อน", facts).Refusal?.Contains("4.7"), true);
+        failed += Say("a rejected draft is thrown away whole, not trimmed",
+            ReportCommentary.Judge("ตรงเวลา 8 เที่ยว แต่ลดลง 12.3%", facts).Text, (string?)null);
+
+        Console.WriteLine();
+        // Prose counts as well as cites, and refusing "the three carriers" would
+        // make the fence unusable.
+        failed += Say("small whole numbers read as prose, not as statistics",
+            ReportCommentary.Invented("ผู้ขนส่ง 3 รายต่ำกว่าเป้า", facts).Count, 0);
+        failed += Say("a thousands separator is the same figure",
+            ReportCommentary.Invented("1,000 เที่ยว", "trips: 1000").Count, 0);
+        failed += Say("an empty draft is refused", ReportCommentary.Judge("  ", facts).Text, (string?)null);
+        failed += Say("so is one too long to be a summary",
+            ReportCommentary.Judge(new string('ก', 1400), facts).Text, (string?)null);
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "The report counts what it can and refuses to score what it cannot."

@@ -48,6 +48,7 @@ builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<KpiService>();
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<MonthlyReportService>();
+builder.Services.AddScoped<ReportWriterService>();
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<PreRunService>();
 builder.Services.AddScoped<MonitoringService>();

@@ -63,9 +63,9 @@ type Choices = {
 };
 
 /** Which blocks the reader wants. Off is a section left out, not hidden with CSS. */
-type Include = { summary: boolean; vendors: boolean; trend: boolean; delays: boolean };
+type Include = { summary: boolean; vendors: boolean; trend: boolean; delays: boolean; commentary: boolean };
 
-const ALL_IN: Include = { summary: true, vendors: true, trend: true, delays: true };
+const ALL_IN: Include = { summary: true, vendors: true, trend: true, delays: true, commentary: true };
 
 /*
  * One hue for the bars, because there is one measure.
@@ -188,6 +188,7 @@ export function ReportCentre({ onToast }: { onToast: (message: string) => void }
               ["vendors", "ผลงานผู้ขนส่ง"],
               ["trend", "แนวโน้ม OTD"],
               ["delays", "สาเหตุความล่าช้า"],
+              ["commentary", "บทสรุปผู้บริหาร"],
             ] as [keyof Include, string][]).map(([key, label]) => (
               <label key={key} className="flex cursor-pointer items-center gap-2 text-[12.5px]">
                 <input type="checkbox" checked={include[key]} className="size-[15px] cursor-pointer accent-[#2E7DD1]"
@@ -213,7 +214,8 @@ export function ReportCentre({ onToast }: { onToast: (message: string) => void }
         </CardContent>
       </Card>
 
-      {report && <ReportPage report={report} include={include} onToast={onToast} />}
+      {report && <ReportPage key={`${report.customer}|${report.month}`}
+        report={report} include={include} onToast={onToast} />}
     </div>
   );
 }
@@ -438,6 +440,10 @@ function ReportPage({ report, include, onToast }: {
           </section>
         )}
 
+        {include.commentary && (
+          <Commentary customer={report.customer} month={report.month} onToast={onToast} />
+        )}
+
         <footer className="report-block border-t border-[var(--border)] pt-3 text-[10.5px] leading-relaxed text-[var(--muted-foreground)]">
           ทุกอัตราในรายงานนี้คิดจากเที่ยวที่บันทึกเวลาถึงไว้เท่านั้น และแสดงจำนวนฐานกำกับไว้ทุกจุด ·
           เที่ยวที่ไม่มีเวลาถึงจะไม่ถูกนับเป็นทั้งตรงเวลาและล่าช้า · ออกจาก SCMOS เมื่อ {report.generatedAt}
@@ -456,6 +462,79 @@ function ReportPage({ report, include, onToast }: {
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * The management summary — typed by a person, or drafted by the assistant and
+ * then edited by a person.
+ *
+ * A textarea, always. The assistant fills it in when asked and never otherwise:
+ * pressing that button sends this customer's trip counts and carrier names to
+ * OpenAI, which is data leaving the building, and it should happen because
+ * somebody decided to rather than because a report was opened.
+ *
+ * What comes back has already been through ReportCommentary.Judge on the API,
+ * which throws away any draft citing a figure the report does not contain. So
+ * the text in this box is either something a person wrote or something whose
+ * every number was checked against the page it sits on.
+ */
+function Commentary({ customer, month, onToast }: {
+  customer: string; month: string; onToast: (m: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [drafted, setDrafted] = useState(false);
+
+  async function draft() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(
+        `/api/reports/commentary?customer=${encodeURIComponent(customer)}&month=${encodeURIComponent(month)}`,
+        { method: "POST", headers: { accept: "application/json" } });
+      const body = await response.json().catch(() => ({})) as { text?: string; error?: string };
+      if (!response.ok || !body.text) {
+        onToast(body.error ?? `ขอบทสรุปไม่สำเร็จ (${response.status})`);
+        return;
+      }
+      setText(body.text);
+      setDrafted(true);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="report-block flex flex-col gap-3">
+      <SectionTitle en="Management Summary" th="บทสรุปผู้บริหาร" />
+
+      <div className="no-print flex flex-wrap items-center gap-3">
+        <button type="button" onClick={() => void draft()} disabled={busy}
+          className={cn("h-[30px] rounded-md border border-[var(--input)] bg-white px-3 text-[12px] font-semibold",
+            busy ? "text-[var(--muted-foreground)]" : "text-[var(--primary)]")}>
+          {busy ? "กำลังร่าง…" : "ให้ผู้ช่วยร่างให้"}
+        </button>
+        <span className="text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+          กดแล้วระบบจะส่ง <b>จำนวนเที่ยว ตรงเวลา ล่าช้า และชื่อผู้ขนส่ง</b> ของรายงานนี้ไปให้ OpenAI ·
+          ไม่ส่งราคา ไม่ส่งชื่อคนขับหรือเบอร์โทร · ตัวเลขทุกตัวที่ AI เขียนถูกตรวจกับรายงานก่อนแสดง
+        </span>
+      </div>
+
+      <textarea
+        value={text}
+        onChange={(event) => { setText(event.target.value); setDrafted(false); }}
+        rows={5}
+        placeholder="เขียนบทสรุปสำหรับผู้บริหาร หรือกดปุ่มด้านบนให้ผู้ช่วยร่างให้แล้วแก้ต่อ"
+        className="w-full resize-y rounded-md border border-[var(--input)] bg-white p-3 text-[12.5px] leading-relaxed outline-none focus:border-[var(--ring)] print:border-0 print:p-0" />
+
+      {/* Marked on the page itself, not only in the editor. Whoever reads the
+          PDF should know which paragraph a person wrote and which one they
+          only approved. */}
+      {drafted && text.trim().length > 0 && (
+        <p className="text-[10.5px] text-[var(--muted-foreground)]">
+          ร่างโดยผู้ช่วย AI จากตัวเลขในรายงานนี้ · ตรวจและแก้ไขก่อนส่งให้ลูกค้า
+        </p>
+      )}
+    </section>
   );
 }
 

@@ -81,5 +81,49 @@ public static class ReportEndpoints
                 generatedAt = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).ToString("dd/MM/yyyy HH:mm"),
             });
         });
+
+        /*
+         * A drafted management summary, on request and never automatically.
+         *
+         * A POST rather than a GET because it is not a read: it sends this
+         * customer's figures — trip counts, on-time counts, carrier names — to
+         * OpenAI. No price and no personal detail travels (ReportCommentary
+         * builds the payload, and --check-report asserts that), but it is still
+         * data leaving the building, so it happens when somebody presses the
+         * button and not a moment before.
+         *
+         * Guarded on ViewDashboard like the report itself. A person who may
+         * read the figures may ask for a paragraph about them.
+         */
+        group.MapPost("/commentary", async (string? customer, string? month,
+            HttpContext context, IUserAccessor users, MonthlyReportService reports,
+            ReportWriterService writer, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewDashboard))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูรายงาน", StatusCodes.Status403Forbidden);
+
+            var wanted = (customer ?? "").Trim();
+            var period = (month ?? "").Trim();
+            if (wanted.Length == 0 || wanted.Length > 200)
+                return ApiResults.Error("ต้องเลือกลูกค้า", StatusCodes.Status400BadRequest);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(period, @"^(0[1-9]|1[0-2])/[0-9]{4}$"))
+                return ApiResults.Error("เดือนต้องอยู่ในรูปแบบ MM/yyyy", StatusCodes.Status400BadRequest);
+
+            var report = await reports.BuildAsync(wanted, period, token);
+            var result = await writer.DraftAsync(report, token);
+            if (result.Text is null)
+                return ApiResults.Error(result.Error ?? "ขอบทสรุปไม่สำเร็จ", result.Status);
+
+            // Recorded because it is an outward call carrying a customer's
+            // figures. Who asked, for whom, and when — the text itself is not
+            // kept, being a draft nobody has agreed to yet.
+            await audit.RecordAsync(user, AuditActions.Update, "report-commentary",
+                $"{wanted}|{period}", $"บทสรุป AI · {wanted} · {period}",
+                "commentary", "", "drafted", "", token);
+
+            return Results.Json(new { text = result.Text });
+        });
     }
 }
