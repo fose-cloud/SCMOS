@@ -114,6 +114,9 @@ public static class RateInquiryEndpoints
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง",
                     StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
+
             var result = await inquiries.SaveCellAsync(laneId, body.Field ?? "", body.Value ?? "", token);
             if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
 
@@ -135,6 +138,9 @@ public static class RateInquiryEndpoints
             if (!user.Can(Capability.EditRates))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง",
                     StatusCodes.Status403Forbidden);
+
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
 
             var edits = (body.Edits ?? [])
                 .Select(one => (one.LaneId, one.Field ?? "", one.Value ?? ""))
@@ -183,6 +189,9 @@ public static class RateInquiryEndpoints
             if (!user.Can(Capability.EditRates))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ลบแถวในตารางอัตรา",
                     StatusCodes.Status403Forbidden);
+
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
 
             var wanted = (body?.LaneIds ?? []).Distinct().ToList();
             if (wanted.Count == 0)
@@ -252,6 +261,9 @@ public static class RateInquiryEndpoints
             if (user is null) return ApiResults.SignInRequired;
             if (!user.Can(Capability.EditRates))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์นำเข้าใบขอราคา", StatusCodes.Status403Forbidden);
+
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
 
             var added = 0;
             var refused = new List<string>();

@@ -68,6 +68,9 @@ public static class JourneyEndpoints
             if (!user.Can(Capability.EditRates))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์บันทึกระยะทาง", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
+
             var result = await journeys.SaveAsync(body.From ?? "", body.To ?? "", body.Km,
                 user.Signature, token);
             if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);

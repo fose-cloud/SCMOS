@@ -234,6 +234,9 @@ public static class SupplierEndpoints
             if (!user.Can(Capability.EditRates))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
+
             var ids = body.LaneIds ?? [];
             if (ids.Count == 0)
                 return ApiResults.Error("ไม่ได้เลือกเส้นทางที่จะย้าย", StatusCodes.Status400BadRequest);

@@ -91,6 +91,7 @@ import { Training } from "./scmos/screens/Training";
 import { Login } from "./scmos/overlays/Login";
 import { APP_VERSION } from "./scmos/version";
 import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toast, type Field, type StoredDoc } from "./scmos/overlays/Overlays";
+import type { SignInReading } from "./scmos/settings";
 import type { Alert, WsTarget } from "./scmos/alerts";
 import { globalSearch, type SearchHit } from "./scmos/search";
 import { DEFAULT_PREFS, EMPTY_PROFILE, loadPrefs, loadProfile, readAvatar, savePrefs, saveProfile, type Prefs, type Profile } from "./scmos/settings";
@@ -552,7 +553,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   const [identity, setIdentity] = useState<
     { role: string; opId: string; name: string; init: string; known: boolean;
-      full: string; authorised: boolean; actingFor: string[] } | null>(null);
+      full: string; authorised: boolean; actingFor: string[];
+      /** What Entra said about how this session was proved. See SignInStrength on the API. */
+      signIn: SignInReading | null } | null>(null);
   const [can, setCan] = useState<Set<string>>(new Set());
   /**
    * Whether the capability list ever arrived.
@@ -593,6 +596,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
           known?: boolean;
           authorised?: boolean;
           actingFor?: string[];
+          signIn?: SignInReading;
         };
         if (cancelled) return;
 
@@ -610,6 +614,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             // refused would lock out a working deployment mid-upgrade.
             authorised: body.authorised !== false,
             actingFor: body.actingFor ?? [],
+            // Absent on an API older than this field. Null rather than a
+            // guess: "we did not ask" and "we asked and could not tell" are
+            // different, and the panel says so.
+            signIn: body.signIn ?? null,
           });
         }
         setIdentityState("ready");
@@ -2860,6 +2868,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
         <ProfileMenu
           me={me}
           profile={profile}
+          signIn={identity?.signIn ?? null}
           stats={myStats}
           onOpen={openTarget}
           onSettings={() => { setProfileOpen(false); setSettingsOpen(true); }}

@@ -163,6 +163,7 @@ if (JourneyCheck.Run(args) is int journeyExit) return journeyExit;
 if (FilterCheck.Run(args) is int filterExit) return filterExit;
 if (LadderCheck.Run(args) is int ladderExit) return ladderExit;
 if (CapabilityCheck.Run(args) is int capabilityExit) return capabilityExit;
+if (SignInCheck.Run(args) is int signInExit) return signInExit;
 
 if (args.Contains("--seed"))
 {

@@ -34,6 +34,9 @@ public static class VehicleTypeEndpoints
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("เพิ่มประเภทรถได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                return weak;
+
             var result = await types.AddAsync(body.Code ?? "", body.Label ?? "", user.Signature, token);
             if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
 
@@ -51,6 +54,9 @@ public static class VehicleTypeEndpoints
             if (user is null) return ApiResults.SignInRequired;
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("นำประเภทรถออกได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
+
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                return weak;
 
             var result = await types.RetireAsync(id, user.Signature, token);
             if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);

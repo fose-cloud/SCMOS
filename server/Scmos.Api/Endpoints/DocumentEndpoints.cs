@@ -128,6 +128,9 @@ public static class DocumentEndpoints
                 return ApiResults.Error("อนุมัติการเก็บรักษาได้เฉพาะระดับผู้จัดการขึ้นไป",
                     StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ApproveRetention) is { } weak)
+                return weak;
+
             var reason = (body.Reason ?? "").Trim();
             if (reason.Length == 0)
                 return ApiResults.Error("ต้องระบุเหตุผลของการตัดสินใจ", StatusCodes.Status400BadRequest);

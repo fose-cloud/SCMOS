@@ -72,6 +72,34 @@ public static class MeEndpoints
                 // screen can stop rather than render an app made of errors.
                 authorised,
                 source = user.Source,
+                /*
+                 * How this person proved who they are, and what the deployment
+                 * does about it.
+                 *
+                 * This is the diagnostic before it is a feature. Whether the
+                 * `amr` claim reaches this application depends on directory
+                 * configuration that cannot be read from the code, so before
+                 * anybody sets Auth:SignInPolicy to Require they can sign in,
+                 * open this, and see whether `strength` says "MultiFactor" or
+                 * "Unknown". Turning enforcement on while it says Unknown takes
+                 * rate editing away from every manager at once.
+                 *
+                 * `methods` is the raw claim, because "we saw pwd and mfa" is
+                 * checkable and "we decided it was strong" is not.
+                 */
+                signIn = new
+                {
+                    strength = user.Strength.ToString(),
+                    methods = user.Methods ?? [],
+                    policy = users.Policy.ToString(),
+                    // What would be refused if the policy were switched on now,
+                    // whether or not it is — so the answer is readable before
+                    // the change rather than discovered after it.
+                    wouldRefuse = SignIn.Guarded
+                        .Where(one => !SignIn.Allows(SignInPolicy.Require, user.Strength, one))
+                        .Select(one => one.ToString())
+                        .ToArray(),
+                },
             });
         }).WithTags("Identity");
     }

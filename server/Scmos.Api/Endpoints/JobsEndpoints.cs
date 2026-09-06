@@ -207,6 +207,9 @@ public static class JobsEndpoints
                 if (!user.Can(Capability.AdministerData) && !user.IsSupervisor)
                     return ApiResults.Error("Only a supervisor may clear the register", StatusCodes.Status403Forbidden);
 
+                if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                    return weak;
+
                 var (_, count) = await jobs.LoadAsync(token);
                 await jobs.ClearAsync(token);
                 await audit.RecordAsync(user, AuditActions.BulkReplace, "register", "", "ทะเบียนงาน",
@@ -225,6 +228,9 @@ public static class JobsEndpoints
                 if (!user.Can(Capability.AdministerData) && !user.IsSupervisor)
                     return ApiResults.Error("Only a supervisor may clear another account's jobs",
                         StatusCodes.Status403Forbidden);
+
+                if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                    return weak;
 
                 var month = (body?.Month ?? "").Trim();
                 // Refused here so the caller is told what is wrong. The

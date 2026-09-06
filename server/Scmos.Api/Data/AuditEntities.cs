@@ -66,4 +66,18 @@ public class AuditEvent
 
     /// <summary>web · api · import · migration · ai — how the change arrived.</summary>
     public string Source { get; set; } = "web";
+
+    /// <summary>
+    /// How the person proved who they were, as Entra reported it —
+    /// <c>mfa:pwd+mfa</c>, <c>single:pwd</c>, or <c>unknown</c>.
+    ///
+    /// Separate from <see cref="Source"/>, which says how the change arrived
+    /// rather than how the person got in. The question this answers is the one
+    /// asked six months later about a rate that moved: not only who agreed it,
+    /// but whether the account that agreed it had been proven with a second
+    /// factor at the time. Blank on every row written before this existed, and
+    /// <c>unknown</c> is a real answer rather than an accusation — see
+    /// <see cref="Rules.SignInStrength"/>.
+    /// </summary>
+    public string SignInMethod { get; set; } = "";
 }

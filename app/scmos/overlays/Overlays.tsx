@@ -5,7 +5,7 @@ import { apiFetch } from "../api";
 import { badge, css } from "../theme";
 import type { Alert, WsTarget } from "../alerts";
 import { ALL_NAV, type Account } from "../nav";
-import { PER_PAGE_OPTIONS, type Prefs, type Profile } from "../settings";
+import { PER_PAGE_OPTIONS, type Prefs, type Profile, type SignInReading } from "../settings";
 
 /**
  * Where an alert opens, in the same words the menu uses for it.
@@ -97,9 +97,24 @@ export function Notifications(p: {
 
 /* --------------------------------------------------------------- profile */
 
+/**
+ * How the sign-in reads, in the three words that are true.
+ *
+ * "Unknown" is drawn grey and not amber on purpose. It is not a finding about
+ * this person — it means the directory did not tell us, which is a fact about
+ * the tenant's configuration and nothing anybody sitting here did wrong.
+ */
+const SIGN_IN_TONE: Record<string, { label: string; colour: string }> = {
+  MultiFactor: { label: "ยืนยันตัวตนสองชั้นแล้ว", colour: "#16794C" },
+  SingleFactor: { label: "ยังไม่ได้ยืนยันสองชั้น", colour: "#B45309" },
+  Unknown: { label: "ระบบตรวจไม่ได้", colour: "#7B8CA0" },
+};
+
 export function ProfileMenu(p: {
   me: Account;
   profile: Profile;
+  /** Null on an API that has no such idea yet — the row is left off entirely. */
+  signIn: SignInReading | null;
   stats: { total: number; open: number; running: number; delayed: number; action: number; format: number };
   onOpen: (target: WsTarget) => void;
   onSettings: () => void;
@@ -115,6 +130,12 @@ export function ProfileMenu(p: {
     ["Phone", "เบอร์โทร", p.profile.phone || "—"],
     ["Edit rights", "สิทธิ์แก้ไข", p.me.role === "Operation User" ? "เฉพาะงานที่ตัวเองรับผิดชอบ" : "แก้ไขได้ทุกงานในทีม"],
   ];
+  const signIn = p.signIn
+    ? SIGN_IN_TONE[p.signIn.strength] ?? SIGN_IN_TONE.Unknown
+    : null;
+  // Only when the policy is actually in force. Telling somebody what would be
+  // refused under a setting nobody has turned on is a warning about nothing.
+  const blocked = p.signIn?.policy === "Require" ? p.signIn.wouldRefuse : [];
   const stats: [string, string, number, string][] = [
     ["MY JOBS", "งานของฉัน", p.stats.total, "#2E7DD1"],
     ["OPEN", "ยังไม่ปิด", p.stats.open, "#475569"],
@@ -172,6 +193,30 @@ export function ProfileMenu(p: {
                 <span style={css("flex:1;min-width:0;color:#0A2240;font-weight:600;word-break:break-word")}>{value}</span>
               </div>
             ))}
+            {signIn && (
+              <div style={css("display:flex;gap:10px;padding:8px 11px;font-size:11.5px;border-top:1px solid #F1F5F9;align-items:baseline")}>
+                <span style={css("flex:none;width:118px;color:#64748B")}>
+                  Sign-in <span style={css("color:#94A3B8")}>· การเข้าสู่ระบบ</span>
+                </span>
+                <span style={css("flex:1;min-width:0")}>
+                  <span style={css(`display:block;font-weight:600;color:${signIn.colour}`)}>
+                    {signIn.label}
+                  </span>
+                  {/* The raw methods, because "we saw pwd and mfa" is checkable
+                      and "we decided it was strong" is not. */}
+                  {p.signIn!.methods.length > 0 && (
+                    <span style={css("display:block;color:#94A3B8;font-size:10.5px;margin-top:2px")}>
+                      {p.signIn!.methods.join(" · ")}
+                    </span>
+                  )}
+                  {blocked.length > 0 && (
+                    <span style={css("display:block;color:#B42318;font-size:10.5px;margin-top:3px;line-height:1.5")}>
+                      งานที่ทำไม่ได้จนกว่าจะยืนยันสองชั้น — ออกจากระบบแล้วเข้าใหม่ด้วย Microsoft Authenticator
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
           </div>
 
           <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>

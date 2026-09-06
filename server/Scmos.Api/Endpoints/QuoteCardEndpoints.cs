@@ -89,6 +89,9 @@ public static class QuoteCardEndpoints
             return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง",
                 StatusCodes.Status403Forbidden);
 
+        if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+            return weak;
+
         var result = await action();
         if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
 

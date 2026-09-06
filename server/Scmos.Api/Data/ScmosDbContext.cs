@@ -653,6 +653,11 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.IpAddress).HasColumnName("ip_address").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.SessionId).HasColumnName("session_id").HasMaxLength(120).HasDefaultValue("");
             entry.Property(e => e.Source).HasColumnName("source").HasMaxLength(20).HasDefaultValue("web");
+            // Sixty is what SignIn.Describe is bounded to; a directory is free
+            // to name more methods than anybody expects, and the rule truncates
+            // rather than letting the insert fail on somebody's rate change.
+            entry.Property(e => e.SignInMethod).HasColumnName("sign_in_method")
+                .HasMaxLength(60).HasDefaultValue("");
             entry.HasIndex(e => new { e.Entity, e.EntityId }).HasDatabaseName("audit_entity_idx");
             entry.HasIndex(e => e.Who).HasDatabaseName("audit_who_idx");
             entry.HasIndex(e => e.At).HasDatabaseName("audit_at_idx");

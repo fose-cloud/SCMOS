@@ -139,6 +139,24 @@ export type Profile = {
   avatar: string;
 };
 
+/**
+ * What Entra said about how this session was proved, as `/api/me` reports it.
+ *
+ * Read from the API rather than worked out here — SCMOS checks nobody's
+ * password, and the browser is the last place that should be forming an opinion
+ * about how strongly somebody signed in.
+ */
+export type SignInReading = {
+  /** "MultiFactor" · "SingleFactor" · "Unknown" — see SignInStrength on the API. */
+  strength: string;
+  /** The raw `amr` values, so the panel can show what was actually seen. */
+  methods: string[];
+  /** "Record" or "Require" — what this deployment does about a single factor. */
+  policy: string;
+  /** Which capabilities a Require policy would refuse for this session. */
+  wouldRefuse: string[];
+};
+
 export const EMPTY_PROFILE: Profile = { full: "", init: "", email: "", phone: "", avatar: "" };
 
 const PROFILE_KEY = (user: string) => "scmos.profile." + user;

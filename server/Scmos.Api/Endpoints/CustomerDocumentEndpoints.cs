@@ -50,6 +50,9 @@ public static class CustomerDocumentEndpoints
             if (!user.Can(Capability.EditRates))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ตารางราคา", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
+
             if (body.Lanes.Count == 0)
                 return ApiResults.Error("ไม่มีเส้นทางในการ์ดราคานี้", StatusCodes.Status400BadRequest);
 

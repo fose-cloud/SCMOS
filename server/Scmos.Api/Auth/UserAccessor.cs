@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Scmos.Api.Rules;
 
 namespace Scmos.Api.Auth;
 
@@ -26,6 +27,24 @@ public class AuthOptions
 
     /// <summary>Shared secret between the web app and this API. Comes from Key Vault.</summary>
     public string ProxyKey { get; set; } = "";
+
+    /// <summary>
+    /// What to do about a sign-in that cannot be shown to be multi-factor.
+    ///
+    /// <c>Record</c> — the default, and the only safe value to ship. The
+    /// strength is written into the audit trail and refused nowhere.
+    ///
+    /// <c>Require</c> — the three heaviest capabilities are refused unless
+    /// Entra says multi-factor was satisfied. Turn this on only after
+    /// <c>/api/me</c> on a real signed-in session shows a strength other than
+    /// "unknown": whether the <c>amr</c> claim reaches this application depends
+    /// on directory configuration that cannot be read from here, and switching
+    /// it on blind would take rate editing away from every manager at once.
+    ///
+    /// See <see cref="Rules.SignIn"/>. Anything unrecognised reads as
+    /// <c>Record</c>, so a typo costs nobody their afternoon.
+    /// </summary>
+    public string SignInPolicy { get; set; } = "Record";
 
     /// <summary>
     /// Overrides for people whose role is not the default. Email → role.
@@ -99,6 +118,24 @@ public interface IUserAccessor
     /// instead of bouncing them back to a sign-in page they already passed.
     /// </summary>
     AppUser? Identity(HttpContext context);
+
+    /// <summary>
+    /// The deployment's answer to a single-factor sign-in. Read by
+    /// <c>/api/me</c> so the screen can say what is in force, and by the guard
+    /// below so there is one copy of the setting rather than one per endpoint.
+    /// </summary>
+    SignInPolicy Policy { get; }
+
+    /// <summary>
+    /// Why this sign-in may not do this, or null when it may.
+    ///
+    /// A second condition on three capabilities, asked <b>after</b> the
+    /// capability itself — being refused for want of a second factor is a
+    /// different message from not having the right at all, and telling somebody
+    /// to go and set up an authenticator for a permission they were never going
+    /// to be granted helps nobody.
+    /// </summary>
+    string? Refuses(AppUser user, Capability capability);
 }
 
 /// <summary>
@@ -172,6 +209,11 @@ public class UserAccessor(
         };
     }
 
+    public SignInPolicy Policy => SignIn.ReadPolicy(_options.SignInPolicy);
+
+    public string? Refuses(AppUser user, Capability capability) =>
+        SignIn.Allows(Policy, user.Strength, capability) ? null : SignIn.Refusal(user.Strength);
+
     /// <summary>
     /// Fixed-time comparison — a shared secret checked with <c>==</c> leaks its
     /// length and prefix to anyone willing to time the responses.
@@ -197,6 +239,7 @@ public class UserAccessor(
         var email = context.Request.Headers[NameHeader].ToString().Trim();
         var userId = context.Request.Headers[IdHeader].ToString().Trim();
         var displayName = "";
+        IReadOnlyList<string> methods = [];
 
         var encoded = context.Request.Headers[PrincipalHeader].ToString();
         if (encoded.Length > 0)
@@ -210,13 +253,21 @@ public class UserAccessor(
                     "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name") ?? "";
                 userId = Claim(principal, "oid",
                     "http://schemas.microsoft.com/identity/claims/objectidentifier") ?? userId;
+                // How they proved it, if the directory says. Every value, not
+                // the first: `amr` is a list and "pwd" arrives beside "mfa".
+                methods = Claims(principal, "amr",
+                    "http://schemas.microsoft.com/claims/authnmethodsreferences");
             }
         }
 
         if (email.Length == 0 && userId.Length == 0) return null;
         if (displayName.Length == 0) displayName = NameFromEmail(email);
 
-        return Build(userId, email, displayName, "webapp");
+        return Build(userId, email, displayName, "webapp") with
+        {
+            Strength = SignIn.Read(methods),
+            Methods = methods,
+        };
     }
 
     /// <summary>
@@ -287,6 +338,26 @@ public class UserAccessor(
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Every value of a claim rather than the first.
+    ///
+    /// <c>amr</c> is a list — "pwd" and "mfa" arrive as two entries of the same
+    /// claim type — and reading only the first would report a password sign-in
+    /// for somebody who approved it on their phone.
+    /// </summary>
+    private static IReadOnlyList<string> Claims(ClientPrincipal principal, params string[] types)
+    {
+        var found = new List<string>();
+        foreach (var type in types)
+        {
+            found.AddRange((principal.Claims ?? [])
+                .Where(one => string.Equals(one.Type, type, StringComparison.OrdinalIgnoreCase))
+                .Select(one => (one.Value ?? "").Trim())
+                .Where(one => one.Length > 0));
+        }
+        return found;
     }
 
     private static string? Claim(ClientPrincipal principal, params string[] types)

@@ -78,6 +78,9 @@ public static class StaffEndpoints
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("เพิ่มผู้ใช้ได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                return weak;
+
             var email = body.Email ?? "";
             var name = body.Name ?? "";
             var mode = (body.SignIn ?? "invite").Trim().ToLowerInvariant();
@@ -147,6 +150,9 @@ public static class StaffEndpoints
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("ส่งคำเชิญได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                return weak;
+
             var person = (await staff.ListAsync(token)).FirstOrDefault(p => p.Id == id);
             if (person is null) return ApiResults.Error("ไม่พบผู้ใช้", StatusCodes.Status404NotFound);
             if (person.Email.Trim().Length == 0)
@@ -179,6 +185,9 @@ public static class StaffEndpoints
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("ลบผู้ใช้ได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                return weak;
+
             // Read the row first: once it is gone there is nothing left to name
             // in the trail, and "AD-07 was deleted" is not much of a record.
             var before = (await staff.ListAsync(token)).FirstOrDefault(p => p.Id == id);
@@ -203,6 +212,9 @@ public static class StaffEndpoints
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("ตั้งรหัสผ่านใหม่ได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
 
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                return weak;
+
             var person = (await staff.ListAsync(token)).FirstOrDefault(p => p.Id == id);
             if (person is null) return ApiResults.Error("ไม่พบผู้ใช้", StatusCodes.Status404NotFound);
 
@@ -224,6 +236,9 @@ public static class StaffEndpoints
             if (user is null) return ApiResults.SignInRequired;
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("แก้ไขผู้ใช้ได้เฉพาะผู้ดูแลระบบ", StatusCodes.Status403Forbidden);
+
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak)
+                return weak;
 
             // Read the row before the change so the trail can say what it was.
             var before = (await staff.ListAsync(token)).FirstOrDefault(p => p.Id == id);

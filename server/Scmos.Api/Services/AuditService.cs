@@ -95,6 +95,10 @@ public class AuditService(ScmosDbContext db, IHttpContextAccessor context, ILogg
             IpAddress = Address(),
             SessionId = Session(request),
             Source = source,
+            // Taken off the user rather than read from the request again: the
+            // claim was decoded once when the identity was established, and a
+            // second reading here would be a second chance to disagree.
+            SignInMethod = user.SignInNote,
         };
     }
 
