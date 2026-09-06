@@ -163,6 +163,30 @@ public static class ReportCheck
         failed += Say("so is one too long to be a summary",
             ReportCommentary.Judge(new string('ก', 1400), facts).Text, (string?)null);
 
+        /* ---- a failure says what to do about it ---- */
+        Console.WriteLine();
+        // The one that matters: both arrive as 429 and they are opposite
+        // instructions. "Try again later" for an empty account sends somebody
+        // back to the button every ten minutes for a fault only finance clears.
+        failed += Say("no credit is told to top up, not to wait",
+            ReportCommentary.Explain(429, "You exceeded your current quota, insufficient_quota")
+                .Contains("เติมเครดิต"), true);
+        failed += Say("and a real rate limit is told to wait",
+            ReportCommentary.Explain(429, "rate_limit_exceeded").Contains("รอสักครู่"), true);
+        failed += Say("a bad key goes to the administrator",
+            ReportCommentary.Explain(401, "invalid api key").Contains("ผู้ดูแลระบบ"), true);
+        failed += Say("so does a model this account cannot use",
+            ReportCommentary.Explain(404, "model not found").Contains("ผู้ดูแลระบบ"), true);
+        failed += Say("an outage is not blamed on the key",
+            ReportCommentary.Explain(503, "").Contains("OpenAI ขัดข้อง"), true);
+        // Whatever went wrong, the person reading the report is told they can
+        // simply write it themselves — which is the only part they can act on.
+        failed += Say("and every explanation offers the way forward",
+            new[] { ReportCommentary.Explain(429, "insufficient_quota"),
+                    ReportCommentary.Explain(401, ""), ReportCommentary.Explain(404, ""),
+                    ReportCommentary.Explain(503, ""), ReportCommentary.Explain(0, null) }
+                .All(one => one.Contains("พิมพ์บทสรุปเอง")), true);
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "The report counts what it can and refuses to score what it cannot."

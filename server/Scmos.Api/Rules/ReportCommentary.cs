@@ -164,6 +164,54 @@ public static partial class ReportCommentary
     }
 
     /// <summary>
+    /// Why the assistant could not be reached, in words that say what to do next.
+    ///
+    /// <para>
+    /// The distinction that matters is inside the 429. OpenAI returns it both
+    /// for "you are calling too fast" and for "this account has no credit", and
+    /// they are opposite instructions: the first means wait a moment, the second
+    /// means no amount of waiting will ever work and somebody has to go and pay.
+    /// A single "try again later" for both sends a manager back to the button
+    /// every ten minutes for a fault only the finance department can clear.
+    /// </para>
+    ///
+    /// <para>
+    /// The others separate the two audiences. A bad key is for whoever
+    /// administers the system; an empty account is for whoever owns the card;
+    /// and neither of them is the person looking at the report, who mostly needs
+    /// to know they should type the paragraph themselves and move on.
+    /// </para>
+    /// </summary>
+    public static string Explain(int status, string? detail)
+    {
+        var text = (detail ?? "").ToLowerInvariant();
+
+        // Checked before the bare 429, because it arrives as one.
+        if (text.Contains("insufficient_quota") || text.Contains("exceeded your current quota")
+            || text.Contains("billing"))
+        {
+            return "บัญชี OpenAI ไม่มีเครดิตเหลือ — ต้องเติมเครดิตก่อนจึงจะใช้ปุ่มนี้ได้ "
+                 + "· ระหว่างนี้พิมพ์บทสรุปเองได้ตามปกติ";
+        }
+
+        return status switch
+        {
+            401 or 403 =>
+                "คีย์ของผู้ช่วย AI ไม่ถูกต้องหรือถูกยกเลิกแล้ว — แจ้งผู้ดูแลระบบ "
+                + "· ระหว่างนี้พิมพ์บทสรุปเองได้ตามปกติ",
+            404 =>
+                "บัญชี OpenAI นี้ยังไม่มีสิทธิ์ใช้โมเดลที่ตั้งไว้ — แจ้งผู้ดูแลระบบ "
+                + "· ระหว่างนี้พิมพ์บทสรุปเองได้ตามปกติ",
+            429 =>
+                "เรียกใช้ถี่เกินไป — รอสักครู่แล้วกดใหม่",
+            >= 500 =>
+                "ฝั่ง OpenAI ขัดข้องอยู่ — ลองใหม่ภายหลัง · ระหว่างนี้พิมพ์บทสรุปเองได้ตามปกติ",
+            _ =>
+                "ขอบทสรุปจากผู้ช่วยไม่สำเร็จ — พิมพ์บทสรุปเองได้ในช่องด้านล่าง",
+        };
+    }
+
+    /// <summary>
     /// The draft, or why it was thrown away.
     ///
     /// Rejected whole rather than trimmed: a summary that is wrong in one clause

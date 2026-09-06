@@ -81,11 +81,19 @@ public class ReportWriterService(IOptions<OpenAiOptions> options, ILogger<Report
 
             return new CommentaryResult(text, null, 200);
         }
+        catch (System.ClientModel.ClientResultException refused)
+        {
+            // Logged with the status so an administrator can tell a wrong key
+            // from an empty account without asking the person who pressed the
+            // button what the message said.
+            log.LogWarning(refused, "OpenAI refused the commentary request ({Status})", refused.Status);
+            return new CommentaryResult(null,
+                ReportCommentary.Explain(refused.Status, refused.Message), 502);
+        }
         catch (Exception problem)
         {
             log.LogError(problem, "Report commentary could not be drafted");
-            return new CommentaryResult(null,
-                "ขอบทสรุปจากผู้ช่วยไม่สำเร็จ — เขียนเองได้ในช่องด้านล่าง", 502);
+            return new CommentaryResult(null, ReportCommentary.Explain(0, null), 502);
         }
     }
 }
