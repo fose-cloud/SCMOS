@@ -220,6 +220,35 @@ public static class LineAuthorityCheck
         if (leaks > 0) failed++;
         Console.WriteLine($"  {(leaks == 0 ? "ok  " : "FAIL")}  only an \"ok\" decision is allowed to change anything");
 
+        /* ------------------------------- the two ways in must agree */
+
+        Console.WriteLine();
+        Console.WriteLine("Approving a message asks the same question receiving one did.");
+        Console.WriteLine();
+
+        // Decide() ends by calling Move(), and the apply endpoint calls Move()
+        // directly once an operator has picked a row. If those two ever drifted,
+        // a message refused on arrival could be approved anyway — so the whole
+        // move half of the case list is replayed through Move() and must give
+        // the same answer.
+        var disagreed = 0;
+        foreach (var one in Cases.Where(c => c.Rows.Length == 1))
+        {
+            var whole = LineAuthority.Decide(one.Group, one.Status, one.Rows);
+            // Only where Decide actually got as far as the move.
+            if (whole.Keys.Count != 1) continue;
+
+            var move = LineAuthority.Move(one.Rows[0], one.Status);
+            if (move.Result != whole.Result || move.From != whole.From || move.To != whole.To)
+            {
+                disagreed++;
+                Console.WriteLine($"  FAIL  {one.Why}");
+                Console.WriteLine($"          Decide said {whole.Result}, Move said {move.Result}");
+            }
+        }
+        if (disagreed > 0) failed += disagreed;
+        Console.WriteLine($"  {(disagreed == 0 ? "ok  " : "FAIL")}  Decide and Move give the same verdict on every single-row case");
+
         Console.WriteLine();
         return failed;
     }

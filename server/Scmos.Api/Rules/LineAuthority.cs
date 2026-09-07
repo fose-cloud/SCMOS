@@ -237,14 +237,31 @@ public static class LineAuthority
             return new(Outcome.ManyJobs, keys, "", status ?? "",
                 $"เลขงานนี้มี {mine.Count} รายการของ {group.SupplierName} — ต้องเลือกก่อน");
 
-        var job = mine[0];
-        var one_key = new[] { job.Key };
-
-        /* ---------------------------------------------------- the move */
-
         // Asked after the job is found, not before: which job it is, and whether
         // the speaker may touch it, are true regardless of what they said about
-        // it. A message that names a job and no status is still worth filing
+        // it.
+        return Move(mine[0], status);
+    }
+
+    /// <summary>
+    /// Whether this one job can make this move — the second half of
+    /// <see cref="Decide"/>, on its own.
+    ///
+    /// <para>
+    /// Public because approving a message is not the same act as receiving one.
+    /// When a number covers several of a haulier's rows the operator picks one,
+    /// and by then the authority question is already settled — the key came out
+    /// of the set this module filtered. What is not settled is whether that
+    /// particular row can make the move, since the set-level answer said nothing
+    /// about any single row's status. This is that question, asked without
+    /// having to invent a speaker to ask it through.
+    /// </para>
+    /// </summary>
+    public static LineDecision Move(JobCandidate job, string? status)
+    {
+        var one_key = new[] { job.Key };
+
+        // A message that names a job and no status is still worth filing
         // against that job.
         if (string.IsNullOrWhiteSpace(status))
             return new(Outcome.NoStatus, one_key, job.Status, "",

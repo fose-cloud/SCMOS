@@ -32,6 +32,11 @@ public static class LineEndpoints
     {
         var group = routes.MapGroup("/api/integrations/line").WithTags("Line");
 
+        // The operator-facing half: the review queue, the approval, and the
+        // group-to-supplier mapping. Its own file, because everything below is
+        // authenticated by a signature and everything there is behind sign-in.
+        group.MapLineReview();
+
         /*
          * What the Integrations screen probes. Says whether the integration is
          * switched on and whether a secret is configured — never the secret,
