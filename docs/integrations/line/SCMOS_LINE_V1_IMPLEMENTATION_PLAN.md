@@ -246,20 +246,59 @@ Never log the secret, the token, or the raw body of a rejected request.
 ## 6. Order of work
 
 1. Discovery and this document ✅
-2. `LineParser.cs` + `tests`/`--check-line` — pure, no infrastructure
-3. The four tables + migration
-4. Signature verification + the webhook endpoint (persist and return)
-5. `LineEventWorker` + the claim-one-row guard
-6. Vendor and job authority
-7. The job update through the existing domain path, in one transaction with the
-   history row
-8. `LineReplyService`
-9. Activity and Review APIs
-10. Activity and Review screens
-11. Promote the seven job columns; then Live Operations and OTD
-12. Documentation
+2. `LineParser.cs` + `tests`/`--check-line` — pure, no infrastructure ✅
+3. The tables + migration ✅
+4. Signature verification + the webhook endpoint (persist and return) ✅
+5. `LineEventWorker` + the claim-one-row guard ✅
+6. Vendor and job authority — `LineAuthority.cs`, `LineMatching.cs` ✅
+7. ~~The job update through the existing domain path~~ — **changed, see below**
+8. `LineReplyService` — not started
+9. Activity and Review APIs ✅ — `LineReviewEndpoints.cs`
+10. Activity and Review screens ✅ — `LineReview.tsx`, `lineReview.ts`
+11. Promote the seven job columns; then Live Operations and OTD — not started
+12. Documentation — this section
 
 **Not** starting with the dashboard, as the specification requires.
+
+### What changed at step 7, and why
+
+The plan had the worker write the status itself. It does not, and will not.
+
+Changing an operational record needs approval, and a message in a chat room is
+not one. So the worker decides and files; an operator approves; the approval
+writes. Even a message the rule is completely certain about is filed as
+`ready-to-apply` rather than applied — the certainty is about *what the message
+means*, which is a different question from *whether it should be acted on*.
+
+The write goes through `JobsRepository.PatchAsync`, which merges into the job's
+JSON and re-saves, so the promoted columns follow and nothing is blanked. It is
+audited with `source = LINE`, so "who set this job to DELIVERED" answers with
+the operator who approved it *and* the vendor message behind it.
+
+The approval works the decision out again at the moment it is pressed rather
+than trusting what the worker stored. A queue row can sit for hours, and in
+that time the job can be delivered by somebody else, cancelled, or reassigned.
+
+### What was learnt on the way
+
+**A job number is not a job.** 1,445 rows in the register carry a twelve-digit
+job code, and those are 1,038 distinct numbers; 236 numbers sit on more than
+one row, covering 643 of them. A number is a *booking*, and a booking can be
+several containers — plus some of the rest are the same booking imported
+twice. So matching returns a set and an operator chooses within it. 220 of
+those 236 have a single carrier throughout, so authority is answerable even
+where identity is not.
+
+**Carrier names need normalising, and it had to be measured.** The register
+writes one haulier as "T.O.", "T.O", "TO." and "TO". Exact matching left 5 of
+34 carrier names unresolved; matching on letters and digits alone resolves all
+34, covering every one of 2,077 rows. Because that is a *looser* test on the
+boundary deciding whose job a vendor may touch, the collision count across the
+29 suppliers was measured too: zero. TATIYAPOL and TATIYAPON stay distinct.
+
+**One row still carries a pre-codes status**, `Truck Confirmed`. Its position on
+the ladder is unknown, so whether a message moves it forward is unknown, and it
+is filed rather than guessed.
 
 ---
 
@@ -285,4 +324,17 @@ Service.
 | **You** | The app settings on the API — `Line__ChannelSecret`, `Line__ChannelAccessToken`. Changing app settings restarts the container. |
 
 Nothing in sections 1–7 is blocked. The parser, the tables, the worker and the
-screens can all be built and tested before a single credential exists.
+screens can all be built and tested before a single credential exists — and all
+of them now have been, end to end on LocalDB, with signed webhook deliveries.
+
+### What is left
+
+| Step | State |
+|---|---|
+| 8 — reply back to the group | Not started. Needs the channel access token, so it is behind a credential. **The rule it must keep:** the review queue tells `no-such-job` and `not-your-job` apart so an operator can see which happened; a reply to the group must not, or it confirms to an unknown sender that a job number is real. |
+| 11 — promote job columns, then OTD | Not started. Independent of LINE credentials. |
+| Group mapping | **Now doable in the UI** — Integrations → LINE, bottom panel. This was on the account team's list and no longer needs anybody to write SQL. |
+
+The 20–30 real vendor messages are still wanted. The parser is checked against
+the specification's examples and shapes the register makes likely, which is not
+the same as being checked against what vendors actually type.
