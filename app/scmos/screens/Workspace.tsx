@@ -1499,6 +1499,22 @@ export function Workspace(p: Props) {
    * the card's answer is shown greyed, with the arithmetic in the tooltip so
    * the number can be argued with.
    */
+  /**
+   * What this trip's rate is, whether somebody keyed it or the card gave it.
+   *
+   * One place, because three columns depend on it and they were not agreeing.
+   * The return-load charge and the total were reading the keyed rate only, so a
+   * trip priced from the card showed ฿8,138 in one column and "ยังไม่มีราคาเที่ยว"
+   * in the next — the sum did not add up, which is exactly what a column of
+   * money must never do.
+   */
+  const tripRate = (j: Job): number | null => {
+    const keyed = Number(String(j.cost ?? "").replace(/[,\s฿]/g, ""));
+    if (Number.isFinite(keyed) && keyed > 0) return keyed;
+    if (!p.customerCard) return null;
+    return rateTrip(j, p.customerCard.lanes, bandForDiesel(p.customerCard.bands, p.diesel)).total;
+  };
+
   const transportRateCell = (j: Job): Cell => {
     if (j.cost) {
       return cell("฿" + Number(j.cost).toLocaleString("en-US"), { mono: true, align: "right" });
@@ -1603,7 +1619,8 @@ export function Workspace(p: Props) {
   const returnCostCell = (j: Job): Cell => {
     const kind = returnKind(j.returnLoad, j.returnFinished);
     if (kind === "none") return cell("", { mono: true, align: "right", mute: true });
-    const charge = returnLoadCharge(j.cost, kind);
+    // The trip's rate, keyed or from the card — see tripRate.
+    const charge = returnLoadCharge(tripRate(j), kind);
     // Ticked with no rate on the trip is not a free return leg — it is a cost
     // nobody can work out yet, and it says so rather than showing nothing.
     return charge === null
@@ -1613,7 +1630,7 @@ export function Workspace(p: Props) {
 
   /** The rate and the return leg together — what this trip actually costs. */
   const tripTotalCell = (j: Job): Cell => {
-    const total = tripCost(j.cost, returnKind(j.returnLoad, j.returnFinished));
+    const total = tripCost(tripRate(j), returnKind(j.returnLoad, j.returnFinished));
     return cell(total === null ? "—" : "฿" + total.toLocaleString("en-US"),
       { mono: true, align: "right", bold: total !== null, mute: total === null });
   };
