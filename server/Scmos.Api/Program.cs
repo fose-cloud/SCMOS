@@ -54,6 +54,13 @@ builder.Services.AddScoped<ReportArchiveService>();
 // infrastructure beyond the App Service that is already running — see
 // ReportScheduler on why it is here rather than in a function app.
 builder.Services.AddHostedService<ReportScheduler>();
+
+// Only when the integration is switched on. Every other deployment would
+// otherwise run a poll loop against a table that is always empty.
+if (builder.Configuration.GetValue(LineEndpoints.EnabledKey, false))
+{
+    builder.Services.AddHostedService<LineEventWorker>();
+}
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<PreRunService>();
 builder.Services.AddScoped<MonitoringService>();

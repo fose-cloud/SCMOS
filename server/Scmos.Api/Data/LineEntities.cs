@@ -171,6 +171,15 @@ public class LineEvent
     /// <summary>RECEIVED · PROCESSING · PROCESSED · NEED_REVIEW · IGNORED · FAILED.</summary>
     public string ProcessingStatus { get; set; } = LineProcessing.Received;
 
+    /// <summary>
+    /// When the worker last had this row in its hands.
+    ///
+    /// Written twice: once when the row is claimed, and again when the work
+    /// finishes. Both, because the claim timestamp is what tells a later pass
+    /// that a row sitting in PROCESSING was abandoned by a container that went
+    /// away — arrival time cannot, since a backlog is full of old rows being
+    /// worked on right now.
+    /// </summary>
     public DateTimeOffset? ProcessedAt { get; set; }
 
     /// <summary>Why it stopped, in a word a screen can group by.</summary>
