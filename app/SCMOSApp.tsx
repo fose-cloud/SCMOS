@@ -91,6 +91,7 @@ import { Booking } from "./scmos/screens/Booking";
 import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
 
 import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
+import { LineReview } from "./scmos/screens/LineReview";
 import { OilRate } from "./scmos/screens/OilRate";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
@@ -2783,10 +2784,16 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "capacity" && (
               <CapacityBoard canEdit={able("EditOwnJobs")} canAdmin={able("AdministerData")} onToast={setToast} />
             )}
-            {/* One screen, four systems. `systemById` is the only thing that
+            {/* LINE has outgrown the placeholder: it has a queue to work and a
+                mapping to keep. The other three are still the shared panel. */}
+            {screen === "line" && (
+              <LineReview canApprove={able("EditAnyJob")} canMap={able("ManageSuppliers")}
+                onToast={setToast} />
+            )}
+            {/* One screen, three systems. `systemById` is the only thing that
                 decides which — a screen id with no definition renders nothing
                 rather than an empty frame pretending to be a page. */}
-            {systemById(screen) && <ExternalSystemScreen system={systemById(screen)!} />}
+            {screen !== "line" && systemById(screen) && <ExternalSystemScreen system={systemById(screen)!} />}
             {screen === "oilrate" && <OilRate canEdit={able("EditRates")} onToast={setToast} />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (

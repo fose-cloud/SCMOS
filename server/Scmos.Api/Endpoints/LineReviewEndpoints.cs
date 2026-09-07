@@ -167,6 +167,64 @@ public static class LineReviewEndpoints
             return Results.Json(new { message = $"ผูกกลุ่มกับ {supplier.Name} แล้ว", id = row.Id });
         });
 
+        /* ------------------------------------------ what it would do now */
+
+        group.MapGet("/events/{id:long}/options", async (long id, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+
+            var row = await db.LineEvents.AsNoTracking()
+                .FirstOrDefaultAsync(one => one.Id == id, token);
+            if (row is null) return ApiResults.Error("ไม่พบข้อความนี้", StatusCodes.Status404NotFound);
+
+            /*
+             * The decision as it is now, not as it was when the worker looked.
+             *
+             * This is what the screen opens a row against, so that what an
+             * operator is shown and what the approval will do are the same
+             * answer to the same question, asked a second apart. Reading the
+             * stored verdict here would let the screen offer a button the
+             * approval then refuses.
+             */
+            var now = await LineMatching.DecideAsync(
+                db, row.LineGroupId, row.JobNumber, row.ParsedStatus, token);
+
+            // Each offered row with its own status, because when a number covers
+            // several the operator is choosing between them and the status is
+            // what tells them apart.
+            var keys = now.Keys.ToList();
+            var offered = await db.OperationJobs.AsNoTracking()
+                .Where(job => keys.Contains(job.Key))
+                .Select(job => new { job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate })
+                .ToListAsync(token);
+
+            return Results.Json(new
+            {
+                outcome = now.Result,
+                detail = now.Detail,
+                canApply = now.Applies,
+                from = now.From,
+                to = now.To,
+                options = offered.Select(job =>
+                {
+                    // Whether this particular row could take the move, which the
+                    // set-level answer does not say. The carrier is left empty
+                    // because Move does not read it — authority was settled when
+                    // these keys came out of the decision's own filtered set.
+                    var move = LineAuthority.Move(
+                        new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status),
+                        row.ParsedStatus);
+                    return new
+                    {
+                        job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate,
+                        move = new { move.Result, move.Detail, ok = move.Applies },
+                    };
+                }),
+                stored = row.ErrorCode,
+            });
+        });
+
         /* --------------------------------------------------- the approval */
 
         group.MapPost("/events/{id:long}/apply", async (long id, [FromBody] ApplyBody body,
