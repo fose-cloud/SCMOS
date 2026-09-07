@@ -28,6 +28,10 @@ on:
         type: choice
         options: ["no", "report", "apply"]
         default: "no"
+      otdReport:
+        description: "On-time delivery: count how much of the register it can actually score (reads only)"
+        type: boolean
+        default: false
 
 env:
   DOTNET_VERSION: "10.0.x"
@@ -188,6 +192,23 @@ jobs:
           extra=""
           [ "${{ inputs.linkIssues }}" = "apply" ] && extra="--apply"
           dotnet publish/Scmos.Api.dll --link-issues $extra
+
+      # Counts rows and prints. There is no apply and nothing to undo, so it is
+      # safe to run whenever — it exists because a claim about the register
+      # decided whether to write a migration, and that claim should be measured
+      # on the register rather than on a development copy.
+      - name: On-time delivery coverage
+        if: github.event_name == 'workflow_dispatch' && inputs.otdReport
+        env:
+          ConnectionStrings__ScmosDb: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: |
+          if [ -z "$ConnectionStrings__ScmosDb" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
+            exit 1
+          fi
+
+          dotnet publish/Scmos.Api.dll --report-otd
 
       - name: Deploy API to Azure App Service
         uses: azure/webapps-deploy@v3

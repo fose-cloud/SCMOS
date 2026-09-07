@@ -201,6 +201,13 @@ if (args.Contains("--normalise-types"))
     return await TypeMigration.RunAsync(app, args);
 }
 
+// Counts and prints; there is no --apply. Answers how much of the register
+// on-time delivery can actually score, using the rule the KPI screen uses.
+if (args.Contains("--report-otd"))
+{
+    return await OtdCoverage.RunAsync(app, args);
+}
+
 // Reports by default; --apply writes. See IssueLinkFix for why old issues need
 // it and new ones do not.
 if (args.Contains("--link-issues"))
