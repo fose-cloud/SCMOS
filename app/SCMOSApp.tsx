@@ -77,7 +77,11 @@ const OWN_SCREEN: Partial<Record<Screen, true>> = {
   // nothing. Every report inside the catalogue carries its own export, next to
   // the period and filters that decide what should be in it.
   reports: true,
-  capacity: true, documents: true, admin: true, docverify: true, abs: true, loreal: true, carrier: true, training: true,
+  capacity: true, documents: true, admin: true, docverify: true, loreal: true, carrier: true, training: true,
+  // The integration screens are not listed here by name. They are read off
+  // externalSystems.ts below, so adding a fifth system cannot quietly put the
+  // lying Export button back on it — which is what happened to CCS, LINE and
+  // Outlook the moment they were added beside ABS.
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
@@ -85,7 +89,8 @@ import { BillingAging, Reports } from "./scmos/screens/Panels";
 import { Booking } from "./scmos/screens/Booking";
 import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
 
-import { Abs } from "./scmos/screens/Abs";
+import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
+import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
 import { Training } from "./scmos/screens/Training";
@@ -1353,7 +1358,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     // offers an "Export Excel" that only raises a toast, and a button that
     // claims to export and does not is worse than no button.
     if (screen === "kpi" || screen === "monitoring" || screen === "prerun" || screen === "audit") return [];
-    if (NOT_BUILT[screen] || OWN_SCREEN[screen]) return [];
+    if (NOT_BUILT[screen] || OWN_SCREEN[screen] || systemById(screen)) return [];
     if (screen === "booking") {
       const waiting = (ops?.jobs ?? []).filter((j) => !/complet|delivered|gate-in/i.test(j.status) && !j.licence.trim());
       return [
@@ -2730,7 +2735,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             {screen === "capacity" && (
               <CapacityBoard canEdit={able("EditOwnJobs")} canAdmin={able("AdministerData")} onToast={setToast} />
             )}
-            {screen === "abs" && <Abs />}
+            {/* One screen, four systems. `systemById` is the only thing that
+                decides which — a screen id with no definition renders nothing
+                rather than an empty frame pretending to be a page. */}
+            {systemById(screen) && <ExternalSystemScreen system={systemById(screen)!} />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (
               <Training onToast={setToast}

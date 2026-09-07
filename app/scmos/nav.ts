@@ -4,7 +4,7 @@ export type Screen =
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
-  | "partners" | "commercial" | "quality";
+  | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook";
 
 /**
  * The menu, in the order the work happens.
@@ -27,7 +27,11 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["documents", "Document Center", "ศูนย์เอกสาร", [[3, 2, 10, 12], [5, 5, 6, 1], [5, 8, 6, 1], [5, 11, 4, 1]]],
   ["reports", "Reports", "รายงาน", [[2, 2, 12, 2], [2, 6, 12, 1.5], [2, 9.5, 9, 1.5], [2, 13, 6, 1.5]]],
   ["assistant", "AI Assistant", "ผู้ช่วย AI", [[4, 3, 8, 8], [6, 12, 4, 2], [2, 5, 2, 2], [12, 5, 2, 2]]],
-  ["abs", "ABS", "ระบบ ABS", [[2, 2, 12, 12], [5, 5, 6, 6]]],
+  // A heading, not a destination. ABS used to sit here on its own; three more
+  // systems arrived and four flat entries would have pushed the process out of
+  // its own menu — this list is the order the work happens, and talking to
+  // somebody else's system is not a step in it.
+  ["integrations", "Integrations", "เชื่อมต่อระบบ", [[2, 4, 4, 3], [10, 4, 4, 3], [2, 9, 4, 3], [10, 9, 4, 3], [6, 6, 4, 4]]],
   ["admin", "Administration", "ผู้ดูแลระบบ", [[2, 2, 5, 5], [9, 2, 5, 5], [9, 9, 5, 5]]],
 ];
 
@@ -51,6 +55,16 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["capacity", "Capacity", "วางแผนกำลังรถ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
     ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
     ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
+  ],
+
+  // Somebody else's system, and what it would take to talk to it. All four
+  // screens are the same screen reading a different definition — see
+  // externalSystems.ts.
+  integrations: [
+    ["abs", "ABS", "ระบบ ABS", [[2, 2, 12, 12], [5, 5, 6, 6]]],
+    ["ccs", "CCS", "พิธีการศุลกากร", [[2, 3, 12, 10], [4, 6, 8, 1.5], [4, 9, 5, 1.5]]],
+    ["outlook", "Outlook", "ศูนย์รวมอีเมล", [[2, 4, 12, 8], [2, 4, 6, 5], [8, 4, 6, 5]]],
+    ["line", "LINE", "อัปเดตงานผ่าน LINE", [[2, 3, 12, 8], [5, 12, 3, 2], [3, 5, 10, 1.5], [3, 8, 7, 1.5]]],
   ],
 
   // What a journey costs and what is billed for it.
@@ -123,7 +137,7 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
  * still navigated would open a page with nothing on it, and the only way to
  * learn that is to click it.
  */
-export const HEADINGS: Screen[] = ["workspace", "partners", "commercial", "quality"];
+export const HEADINGS: Screen[] = ["workspace", "partners", "commercial", "quality", "integrations"];
 
 /**
  * What a carrier's account is allowed to open.
@@ -177,7 +191,13 @@ export const META: Record<string, [string, string, string]> = {
   training: ["Customer Training Control", "การอบรมพนักงานขับรถ", "ข้อกำหนดของลูกค้าแต่ละราย ใบรับรองของคนขับ และวันหมดอายุ — สถานะคำนวณจากวันที่ทุกครั้งที่เปิดหน้า ไม่มีงานเบื้องหลังที่ต้องรัน และคนขับที่หลักสูตรบังคับหมดอายุจะรับงานของลูกค้ารายนั้นไม่ได้"],
   carrier: ["งานของบริษัท", "Carrier Portal", "งานที่ลูกค้าส่งมาให้บริษัทนี้ กดรับพร้อมแจ้งทะเบียนรถ คนขับ และเบอร์โทร แล้วข้อมูลจะขึ้นที่หน้างานของเจ้าของงานทันที"],
   loreal: ["L'OREAL Truck Report", "รายงานรถลูกค้า L'OREAL", "ฟอร์มเดียวกับที่ส่งลูกค้าทุกเดือน ดึงจากทะเบียนงานจริง — ช่องที่ระบบยังไม่มีที่มาจะเว้นว่างและบอกไว้ ไม่เดาแทน"],
+  // The four integration screens describe themselves from externalSystems.ts;
+  // these are the page headings above them.
+  integrations: ["Integrations", "เชื่อมต่อระบบ", "ระบบอื่นที่ SCMOS ต้องคุยด้วย — หน้าจอพร้อมแล้ว รอต่อข้อมูลเข้ามา"],
   abs: ["ABS", "ระบบ ABS", "หน้าจอยังว่าง รอเชื่อมกับ API ของโปรแกรม ABS — เมนู เส้นทาง และการตรวจสิทธิ์พร้อมแล้ว"],
+  ccs: ["CCS", "ระบบพิธีการศุลกากร", "รอต่อ API ของ Custom Clearance System เพื่อดึงงานมาคิด KPI รายลูกค้า"],
+  outlook: ["Outlook", "ศูนย์รวมอีเมล", "รออ่านกล่องจดหมายกลางผ่าน Microsoft Graph แล้วผูกอีเมลเข้ากับงาน"],
+  line: ["LINE", "อัปเดตงานผ่าน LINE", "รอรับสถานะรถจากกลุ่ม LINE ของผู้รับเหมา พร้อมประวัติที่ตรวจสอบได้"],
   admin: ["Administration", "การดูแลระบบ", "Role-based access control and audit trail."],
 };
 
