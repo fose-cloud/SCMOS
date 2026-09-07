@@ -6,11 +6,12 @@ import { DataTable, type TableModel } from "../DataTable";
 import { exportRateSheet } from "../excel";
 import { FilterPickMany } from "../FilterPickMany";
 import { chosenIn } from "../filterChoices";
+import { editHistoryShortcut } from "../editHistory";
 import { NO_DATE, monthLabel, partsOf } from "../period";
 import { SHEET_COLUMNS, readCell, type SheetColumn, type SheetRow } from "../rateSheetColumns";
 import { css } from "../theme";
 import { useGridRange } from "../useGridRange";
-import { cell, type Cell } from "../util";
+import { cell, nowHM, type Cell } from "../util";
 import { ImportWorkbook } from "./ImportWorkbook";
 
 /**
@@ -74,6 +75,29 @@ const NO_FILTERS: Filters = {
   year: "ALL", month: "ALL", day: "ALL",
 };
 
+/**
+ * One cell an action displaced, with both ends of the move.
+ *
+ * My Job keeps only the "before" and works the inverse out by reading the row
+ * again, which it can do because the whole register is sitting in the browser.
+ * This sheet holds fifty rows of three thousand and re-reads them from the API
+ * after every write, so by the time somebody presses Undo the row may be on
+ * another page, behind a filter, or simply not loaded. Keeping both ends at the
+ * moment of the edit means undo and redo need nothing on screen to work from.
+ */
+type SheetEdit = { laneId: number; field: string; before: string; after: string };
+
+/** Everything one action changed, so a pasted block comes back in one press. */
+type SheetStep = { label: string; at: string; edits: SheetEdit[] };
+
+/**
+ * How many presses of undo the sheet remembers.
+ *
+ * The same twenty My Job keeps: deep enough to walk back a bad paste, short
+ * enough that nobody undoes their way into last Tuesday.
+ */
+const HISTORY = 20;
+
 const PER = 50;
 
 /**
@@ -135,6 +159,18 @@ export function RateSheet({ canEdit, onToast }: {
    * on screen, so it says how many and offers to clear them.
    */
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  /**
+   * What the last few actions overwrote.
+   *
+   * Cell edits only. Removing a row is deliberately absent, for the same reason
+   * My Job will not undo a created one: there is no history table behind this
+   * register, so putting a deleted lane back would mean re-creating it with a
+   * new id and a new place in the numbering — a different row that merely looks
+   * like the old one. A deletion is recoverable from the audit trail, by a
+   * person who can see what it held and decide.
+   */
+  const [undos, setUndos] = useState<SheetStep[]>([]);
+  const [redos, setRedos] = useState<SheetStep[]>([]);
   const rows = page?.rows ?? [];
 
   /*
@@ -211,10 +247,111 @@ export function RateSheet({ canEdit, onToast }: {
   useEffect(() => { void loadChoices(); }, [loadChoices]);
 
   /** A block of cells in one request, so a paste is one round trip. */
+  /* ---- undo -------------------------------------------------------------- */
+
+  /*
+   * Ctrl+Z and Ctrl+Shift+Z, resolved by the same module My Job uses.
+   *
+   * Not while a cell editor is open: inside a text box Ctrl+Z belongs to the
+   * box, and stealing it would undo somebody's last keystroke by throwing away
+   * their last saved cell instead.
+   */
+  useEffect(() => {
+    if (!canEdit) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (editing !== null) return;
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      const command = editHistoryShortcut(event);
+      if (!command) return;
+      event.preventDefault();
+      void (command === "undo" ? undo() : redo());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // `undo`/`redo` are redeclared each render and close over the current
+    // stacks; listing them would rebind the listener on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, editing, undos, redos, saving]);
+
+  /**
+   * Files what an action is about to overwrite.
+   *
+   * Called with everything one action touched, so a pasted block or a cleared
+   * rectangle comes back in a single press rather than forty.
+   */
+  function remember(label: string, edits: SheetEdit[]) {
+    const moved = edits.filter((one) => one.before !== one.after);
+    if (moved.length === 0) return;
+    setUndos((was) => was.slice(-(HISTORY - 1)).concat([{ label, at: nowHM(), edits: moved }]));
+    // Like a spreadsheet: a new edit makes the forward path invalid.
+    setRedos([]);
+  }
+
+  /**
+   * Writes one saved step back through the ordinary cell endpoint.
+   *
+   * Undo is an edit, not a rollback. It goes through the same door as any other
+   * change — the same permission check, the same validation, and its own line in
+   * the audit trail naming who pressed it. A quiet restore that left no trace
+   * would be the one kind of change nobody could account for later.
+   */
+  async function move(step: SheetStep, direction: "before" | "after", label: string) {
+    setSaving(true);
+    try {
+      const response = await apiFetch("/api/rate-inquiries/sheet/cells", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          edits: step.edits.map((one) => ({
+            laneId: one.laneId, field: one.field, value: one[direction],
+          })),
+        }),
+      });
+      const reply = await response.json().catch(() => ({})) as
+        { saved?: number; refused?: string[]; error?: string };
+      if (!response.ok) { onToast(reply.error ?? `ย้อนกลับไม่สำเร็จ (${response.status})`); return false; }
+
+      const refused = reply.refused ?? [];
+      onToast(`${label} ${step.label} · ${reply.saved ?? 0} ช่อง`
+        // A row deleted since the edit cannot take its old value back, and the
+        // API says so per cell rather than failing the whole step.
+        + (refused.length ? ` · ข้าม ${refused.length} — ${refused[0]}` : ""));
+      setEditing(null);
+      await load();
+      return true;
+    } finally { setSaving(false); }
+  }
+
+  async function undo() {
+    if (undos.length === 0) { onToast("ไม่มีการแก้ไขให้ย้อนกลับ"); return; }
+    const step = undos[undos.length - 1];
+    if (!await move(step, "before", "ย้อนกลับแล้ว ↶")) return;
+    setUndos((was) => was.slice(0, -1));
+    setRedos((was) => was.slice(-(HISTORY - 1)).concat([step]));
+  }
+
+  async function redo() {
+    if (redos.length === 0) { onToast("ไม่มีข้อมูลให้ไปข้างหน้า"); return; }
+    const step = redos[redos.length - 1];
+    if (!await move(step, "after", "ไปข้างหน้าแล้ว ↷")) return;
+    setRedos((was) => was.slice(0, -1));
+    setUndos((was) => was.slice(-(HISTORY - 1)).concat([step]));
+  }
+
   async function writeBlock(
     edits: { row: SheetRow; field: string; value: string }[],
     how: "paste" | "clear",
   ) {
+    // Filed before the write, because afterwards the page is re-read and the
+    // old values are gone from the browser as well as from the register.
+    remember(how === "clear" ? "ล้างช่อง" : "วางข้อมูล", edits.map((one) => ({
+      laneId: one.row.laneId,
+      field: one.field,
+      before: String(readCell(one.row, columnFor(one.field)) ?? ""),
+      after: one.value,
+    })));
+
     setSaving(true);
     try {
       const response = await apiFetch("/api/rate-inquiries/sheet/cells", {
@@ -247,6 +384,9 @@ export function RateSheet({ canEdit, onToast }: {
     const field = column.kind === "price" ? `price:${column.vehicle}` : column.field!;
     const before = readCell(row, column);
     if (value.trim() === String(before).trim()) return;
+
+    remember(`แก้ ${column.head}`,
+      [{ laneId: row.laneId, field, before: String(before ?? ""), after: value }]);
 
     setSaving(true);
     try {
@@ -513,6 +653,16 @@ export function RateSheet({ canEdit, onToast }: {
     meta: "รูปแบบตามไฟล์ Rate Inquiry",
     fill: true,
     actions: [
+      // First, and only once there is something to walk back — a permanently
+      // greyed pair of buttons teaches people to stop looking at that corner.
+      ...(undos.length > 0
+        ? [{ label: "↶ ย้อนกลับ", title: `ย้อนกลับ ${undos[undos.length - 1].label} (Ctrl+Z)`,
+            disabled: saving, style: "", go: () => void undo() }]
+        : []),
+      ...(redos.length > 0
+        ? [{ label: "↷ ไปข้างหน้า", title: `ทำซ้ำ ${redos[redos.length - 1].label} (Ctrl+Shift+Z)`,
+            disabled: saving, style: "", go: () => void redo() }]
+        : []),
       {
         label: panel === "add" ? "ปิดการเพิ่มแถว" : "+ แทรกแถว",
         title: canEdit
