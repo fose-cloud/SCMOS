@@ -5,7 +5,7 @@ import type { Job } from "../ops";
 import { useRemembered } from "../pageCache";
 import { apiFetch } from "../api";
 import { CargoForm, type FormTemplate } from "./CargoForm";
-import { ChemoursRates, readRateCard, readSellingCard, type RateCard } from "./ChemoursRates";
+import { ChemoursRates, SELLER, readRateCard, readSellingCard, type RateCard } from "./ChemoursRates";
 
 /**
  * The Chemours account: what it costs to run, and what the customer signs for.
@@ -99,6 +99,7 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
    */
   const [sell, setSell] = useRemembered<RateCard>("chemours.selling");
   const [saving, setSaving] = useState(false);
+  const [savingSell, setSavingSell] = useState(false);
   /** The receipt shapes already on file, so the picker is filled before anybody opens a folder. */
   const [templates, setTemplates] = useRemembered<FormTemplate[]>("chemours.forms");
 
@@ -118,12 +119,24 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
     let alive = true;
     (async () => {
       try {
-        const response = await apiFetch("/api/customer-rates?customer=CHEMOURS",
-          { headers: { accept: "application/json" } });
-        if (!response.ok || !alive) return;
-        const stored = await response.json() as StoredCard;
-        if (!alive || !stored.lanes?.length) return;
-        setCard(fromStored(stored));
+        // Both sides of the card, in one pass. They are two reads because the
+        // store keeps them apart on purpose — a selling price that could be
+        // read back as a haulier's quote would eventually be given to a job.
+        const [costReply, sellReply] = await Promise.all([
+          apiFetch("/api/customer-rates?customer=CHEMOURS&kind=COST",
+            { headers: { accept: "application/json" } }),
+          apiFetch("/api/customer-rates?customer=CHEMOURS&kind=SELL",
+            { headers: { accept: "application/json" } }),
+        ]);
+        if (!alive) return;
+        if (costReply.ok) {
+          const stored = await costReply.json() as StoredCard;
+          if (alive && stored.lanes?.length) setCard(fromStored(stored));
+        }
+        if (sellReply.ok) {
+          const stored = await sellReply.json() as StoredCard;
+          if (alive && stored.lanes?.length) setSell(fromStored(stored));
+        }
       } catch { /* the tab still works from a file; a failed fetch is not worth a toast on arrival */ }
     })();
     (async () => {
@@ -200,6 +213,62 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
       onToast("อ่านไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     }
   }
+
+  /**
+   * Writes the selling card to the register.
+   *
+   * One write, not one per haulier: this card is ours and has no haulier to
+   * split it by. It goes in under the same customer as the cost card and is
+   * kept apart from it by the kind, so the carrier dropdown next door can never
+   * offer a selling price as somebody's quote.
+   *
+   * It had no save at all until now. The card was read from the file each
+   * session, which meant choosing the same file every morning — and that was a
+   * decision I made when there was nowhere to put a card without a carrier,
+   * not a decision anybody wanted.
+   */
+  const saveSelling = useCallback(async () => {
+    if (!sell) { onToast("ยังไม่ได้เปิดไฟล์ราคาขาย"); return; }
+
+    setSavingSell(true);
+    try {
+      const response = await apiFetch("/api/customer-rates", {
+        method: "PUT",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          customer: "CHEMOURS",
+          carrier: SELLER,
+          kind: "SELL",
+          bands: sell.bands.map((band) => ({
+            label: band.label,
+            min: Number.isFinite(band.min) ? band.min : 0,
+            max: Number.isFinite(band.max) ? band.max : 9999,
+          })),
+          lanes: sell.lanes.map((lane) => ({
+            carrier: SELLER,
+            from: lane.from,
+            to: lane.to,
+            postalCode: lane.county,
+            // DG or Non-DG, which the selling card writes beside each lane and
+            // which prices the same postcode very differently.
+            cargoType: lane.remark,
+            prices: lane.prices,
+          })),
+        }),
+      });
+      const answer = await response.json().catch(() => null) as
+        { lanes?: number; prices?: number; message?: string } | null;
+      if (!response.ok) {
+        onToast(answer?.message ?? `บันทึกราคาขายไม่สำเร็จ (${response.status})`);
+        return;
+      }
+      onToast(`บันทึกราคาขายแล้ว ${answer?.lanes ?? sell.lanes.length} เส้นทาง · ${answer?.prices ?? 0} ราคา`);
+    } catch (error) {
+      onToast("บันทึกไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setSavingSell(false);
+    }
+  }, [sell, onToast]);
 
   /**
    * Writes the card to the register, one haulier at a time.
@@ -302,6 +371,8 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
       haulers={haulerNames}
       onLoad={loadCard}
       onLoadSell={loadSelling}
+      onSaveSell={saveSelling}
+      savingSell={savingSell}
       onSave={saveCard}
       canSave={canEditRates}
       saving={saving}

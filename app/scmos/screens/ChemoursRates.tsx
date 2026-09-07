@@ -154,7 +154,7 @@ export async function readSellingCard(file: File): Promise<RateCard> {
 }
 
 /** Us, on the selling side of the card. Not a hauler and never filtered as one. */
-const SELLER = "LESCHACO";
+export const SELLER = "LESCHACO";
 
 
 /**
@@ -271,7 +271,9 @@ function rateModel(
 const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600";
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
 
-export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave, canSave, saving, onToast }: {
+export function ChemoursRates({
+  card, sell, haulers, onLoad, onLoadSell, onSave, onSaveSell, canSave, saving, savingSell, onToast,
+}: {
   card: RateCard | null;
   /**
    * What we bill the customer, when it has been loaded.
@@ -286,6 +288,9 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
   haulers: string[];
   onLoad: (file: File, hauler: string) => void;
   onLoadSell: (file: File) => void;
+  /** Writes the selling card to the register. It has no haulier to split by. */
+  onSaveSell: () => void;
+  savingSell: boolean;
   /** Writes one haulier's part of the card to the register. */
   onSave: (hauler: string) => void;
   /** False for an account that may read the card but not change it. */
@@ -555,6 +560,22 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
                     ? `บันทึกเข้าระบบ (${carriers.length} ราย)`
                     : `บันทึกเข้าระบบ (${carrier})`}
               </button>
+              {/* Its own save. The card has no haulier, so it is one write
+                  rather than one per carrier — and it had no save at all until
+                  somebody uploaded a file and found nowhere to put it. */}
+              {sell && (
+                <button
+                  onClick={onSaveSell}
+                  disabled={savingSell || !canSave}
+                  title={canSave ? "" : "ต้องใช้บัญชีระดับ Assistant Manager ขึ้นไปจึงจะบันทึกราคาได้"}
+                  style={css("height:32px;padding:0 15px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;"
+                    + (savingSell || !canSave
+                      ? "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"
+                      : "border:1px solid #0A6E8A;background:#fff;color:#0A6E8A;cursor:pointer"))}
+                >
+                  {savingSell ? "กำลังบันทึก…" : `บันทึกราคาขาย (${sell.lanes.length} เส้นทาง)`}
+                </button>
+              )}
               <button
                 onClick={exportCard}
                 style={css("height:32px;padding:0 16px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}

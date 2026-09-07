@@ -9,7 +9,7 @@ public record CustomerBandView(string Label, decimal Min, decimal Max, int Posit
 
 public record CustomerLaneView(
     long Id, string Carrier, string From, string To, string PostalCode,
-    Dictionary<string, int?[]> Prices);
+    Dictionary<string, int?[]> Prices, string CargoType);
 
 public record CustomerRateCardView(
     string Customer,
@@ -25,12 +25,17 @@ public record CustomerBandInput(string Label, decimal Min, decimal Max);
 
 public record CustomerLaneInput(
     string Carrier, string From, string To, string PostalCode,
-    Dictionary<string, int?[]> Prices);
+    Dictionary<string, int?[]> Prices,
+    /// <summary>DG or Non-DG, off the selling card. Empty on a haulier card.</summary>
+    string? CargoType = null);
 
 public record CustomerCardInput(
     string Customer, string Carrier,
     List<CustomerBandInput> Bands,
-    List<CustomerLaneInput> Lanes);
+    List<CustomerLaneInput> Lanes,
+    /// <summary>COST or SELL. Absent means COST, which is what every caller
+    /// written before the selling card existed is asking for.</summary>
+    string? Kind = null);
 
 public record CargoTemplateInput(string Customer, string SourceFile, List<string> Columns);
 
@@ -45,16 +50,22 @@ public class CustomerDocumentService(ScmosDbContext db)
 {
     /* ------------------------------------------------------------- rates */
 
-    public async Task<CustomerRateCardView> ReadCardAsync(string customer, CancellationToken token)
+    public async Task<CustomerRateCardView> ReadCardAsync(
+        string customer, string? kind, CancellationToken token)
     {
+        // COST unless SELL is asked for by name. A caller that forgot the
+        // parameter gets what it always got rather than a mixture of the two,
+        // which would put a selling price in the carrier comparison.
+        var side = RateKind.Read(kind);
+
         var bands = await db.CustomerRateBands.AsNoTracking()
-            .Where(band => band.Customer == customer)
+            .Where(band => band.Customer == customer && band.Kind == side)
             .OrderBy(band => band.Position)
             .Select(band => new CustomerBandView(band.Label, band.MinPrice, band.MaxPrice, band.Position))
             .ToListAsync(token);
 
         var lanes = await db.CustomerRateLanes.AsNoTracking()
-            .Where(lane => lane.Customer == customer)
+            .Where(lane => lane.Customer == customer && lane.Kind == side)
             .ToListAsync(token);
 
         var laneIds = lanes.Select(lane => lane.Id).ToHashSet();
@@ -86,7 +97,7 @@ public class CustomerDocumentService(ScmosDbContext db)
                 }
             }
             return new CustomerLaneView(lane.Id, lane.Carrier, lane.FromPlace, lane.ToPlace,
-                lane.PostalCode, table);
+                lane.PostalCode, table, lane.CargoType);
         }).ToList();
 
         var carriers = views.Select(lane => lane.Carrier).Distinct().OrderBy(name => name).ToList();
@@ -110,6 +121,7 @@ public class CustomerDocumentService(ScmosDbContext db)
     {
         var customer = input.Customer.Trim();
         var carrier = input.Carrier.Trim();
+        var side = RateKind.Read(input.Kind);
         if (customer.Length == 0 || carrier.Length == 0) return 0;
 
         // All of it or none of it, and through the execution strategy.
@@ -133,8 +145,12 @@ public class CustomerDocumentService(ScmosDbContext db)
         {
             await using var work = await db.Database.BeginTransactionAsync(token);
 
+            // Scoped to this side as well as this carrier. Without the kind in
+            // the filter, saving the selling card would delete the haulier's
+            // lanes for the same customer — the two sides quote the same routes
+            // and would have looked like the same rows.
             var doomed = await db.CustomerRateLanes
-                .Where(lane => lane.Customer == customer && lane.Carrier == carrier)
+                .Where(lane => lane.Customer == customer && lane.Carrier == carrier && lane.Kind == side)
                 .Select(lane => lane.Id)
                 .ToListAsync(token);
 
@@ -146,7 +162,7 @@ public class CustomerDocumentService(ScmosDbContext db)
                     .ExecuteDeleteAsync(token);
             }
 
-            await db.CustomerRateBands.Where(band => band.Customer == customer)
+            await db.CustomerRateBands.Where(band => band.Customer == customer && band.Kind == side)
                 .ExecuteDeleteAsync(token);
 
             for (var position = 0; position < input.Bands.Count; position++)
@@ -159,6 +175,7 @@ public class CustomerDocumentService(ScmosDbContext db)
                     MinPrice = band.Min,
                     MaxPrice = band.Max,
                     Position = position,
+                    Kind = side,
                 });
             }
 
@@ -176,6 +193,8 @@ public class CustomerDocumentService(ScmosDbContext db)
                 FromPlace = lane.From,
                 ToPlace = lane.To,
                 PostalCode = lane.PostalCode,
+                Kind = side,
+                CargoType = lane.CargoType ?? "",
             }).ToList();
             db.CustomerRateLanes.AddRange(rows);
             await db.SaveChangesAsync(token);

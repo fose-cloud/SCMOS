@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Scmos.Api.Auth;
+using Scmos.Api.Data;
 using Scmos.Api.Rules;
 using Scmos.Api.Services;
 
@@ -26,7 +27,7 @@ public static class CustomerDocumentEndpoints
     {
         var rates = routes.MapGroup("/api/customer-rates").WithTags("CustomerRates");
 
-        rates.MapGet("", async (string? customer, HttpContext context, IUserAccessor users,
+        rates.MapGet("", async (string? customer, string? kind, HttpContext context, IUserAccessor users,
             CustomerDocumentService service, CancellationToken token) =>
         {
             var user = users.Current(context);
@@ -38,7 +39,7 @@ public static class CustomerDocumentEndpoints
             if (wanted.Length == 0)
                 return Results.Json(await service.CustomersWithCardsAsync(token));
 
-            return Results.Json(await service.ReadCardAsync(wanted, token));
+            return Results.Json(await service.ReadCardAsync(wanted, kind, token));
         });
 
         rates.MapPut("", async ([FromBody] CustomerCardInput body, HttpContext context,
@@ -60,8 +61,10 @@ public static class CustomerDocumentEndpoints
 
             // Written down because it is a rate change, and a rate change is
             // one of the things somebody has to be able to point at afterwards.
+            // The side is in the trail, because "the rate changed" means two
+            // different things depending on which one it was.
             await audit.RecordAsync(user, "save", "customer-rate", body.Customer,
-                $"การ์ดราคา {body.Customer} · {body.Carrier}",
+                $"การ์ดราคา{(RateKind.Read(body.Kind) == RateKind.Sell ? "ขาย" : "ทุน")} {body.Customer} · {body.Carrier}",
                 "", "", $"{body.Lanes.Count} เส้นทาง · {saved} ราคา", "", token);
 
             return Results.Json(new { lanes = body.Lanes.Count, prices = saved });

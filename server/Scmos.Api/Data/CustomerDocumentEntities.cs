@@ -21,6 +21,34 @@ namespace Scmos.Api.Data;
  * move every subcontractor's prices into bands they never quoted.
  */
 
+/// <summary>
+/// Which side of a lane a stored price is.
+///
+/// The same customer's card exists twice over: what a haulier charges us, and
+/// what we bill the customer. They quote the same lanes at the same eleven
+/// diesel bands and differ by about a quarter, so nothing about a row's shape
+/// tells the two apart — only this does.
+///
+/// Stored as text rather than an enum column because every other discriminator
+/// in this schema is text, and because a wrong integer here is unreadable in a
+/// query window while a wrong word is obvious.
+/// </summary>
+public static class RateKind
+{
+    /// <summary>What the haulier charges LESCHACO. The default, and what every
+    /// row saved before this column existed is.</summary>
+    public const string Cost = "COST";
+
+    /// <summary>What LESCHACO bills the customer.</summary>
+    public const string Sell = "SELL";
+
+    public static string Read(string? value)
+    {
+        var text = (value ?? "").Trim().ToUpperInvariant();
+        return text == Sell ? Sell : Cost;
+    }
+}
+
 /// <summary>One step of a customer's own fuel clause.</summary>
 public class CustomerRateBand
 {
@@ -35,6 +63,9 @@ public class CustomerRateBand
 
     /// <summary>Position in fuel order. Lane prices index against this.</summary>
     public int Position { get; set; }
+
+    /// <summary>COST or SELL — see <see cref="RateKind"/>.</summary>
+    public string Kind { get; set; } = RateKind.Cost;
 }
 
 /// <summary>One priced route on a customer's card.</summary>
@@ -51,6 +82,25 @@ public class CustomerRateLane
 
     /// <summary>Destination postcode, which is how these routes are identified.</summary>
     public string PostalCode { get; set; } = "";
+
+    /// <summary>
+    /// COST or SELL — see <see cref="RateKind"/>.
+    ///
+    /// Defaulted to COST so that every lane saved before this column existed
+    /// keeps the meaning it was saved with. A selling price appearing in the
+    /// carrier dropdown would eventually be compared against a haulier's quote
+    /// and chosen as the cheaper of the two.
+    /// </summary>
+    public string Kind { get; set; } = RateKind.Cost;
+
+    /// <summary>
+    /// DG or Non-DG, as the selling card writes it beside each lane.
+    ///
+    /// Descriptive rather than a key: no postcode on that card is quoted for
+    /// both, so it never splits a lane in two — but the two are priced very
+    /// differently and a reader needs to see which they are looking at.
+    /// </summary>
+    public string CargoType { get; set; } = "";
 }
 
 /// <summary>One price: a lane, a truck size, and which fuel band it holds at.</summary>

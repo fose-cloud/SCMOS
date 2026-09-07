@@ -932,8 +932,11 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.MinPrice).HasColumnName("min_price").HasPrecision(9, 2);
             entry.Property(e => e.MaxPrice).HasColumnName("max_price").HasPrecision(9, 2);
             entry.Property(e => e.Position).HasColumnName("position");
-            // One card per customer is read at a time, and it is read whole.
-            entry.HasIndex(e => new { e.Customer, e.Position }).HasDatabaseName("customer_rate_bands_idx");
+            entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(8).HasDefaultValue(RateKind.Cost);
+            // One card per customer per side is read at a time, and it is read
+            // whole. The fuel clause is a contract term and the two sides have
+            // their own — they agree today and need not tomorrow.
+            entry.HasIndex(e => new { e.Customer, e.Kind, e.Position }).HasDatabaseName("customer_rate_bands_idx");
         });
 
         model.Entity<CustomerRateLane>(entry =>
@@ -946,7 +949,14 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.FromPlace).HasColumnName("from_place").HasMaxLength(200).HasDefaultValue("");
             entry.Property(e => e.ToPlace).HasColumnName("to_place").HasMaxLength(200).HasDefaultValue("");
             entry.Property(e => e.PostalCode).HasColumnName("postal_code").HasMaxLength(20).HasDefaultValue("");
-            entry.HasIndex(e => new { e.Customer, e.Carrier }).HasDatabaseName("customer_rate_lanes_idx");
+            // COST for everything stored before the selling card existed, which
+            // is what those rows are. A default of "" would have left every one
+            // of them matching neither side and vanishing off the screen.
+            entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(8).HasDefaultValue(RateKind.Cost);
+            entry.Property(e => e.CargoType).HasColumnName("cargo_type").HasMaxLength(20).HasDefaultValue("");
+            // The kind joins the index: every read filters on it, and the two
+            // sides of one customer's card are the same lanes twice over.
+            entry.HasIndex(e => new { e.Customer, e.Carrier, e.Kind }).HasDatabaseName("customer_rate_lanes_idx");
         });
 
         model.Entity<CustomerRatePrice>(entry =>

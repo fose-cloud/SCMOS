@@ -1,6 +1,13 @@
 /**
  * The diesel price, which is what chooses a rate.
  *
+ * **Superseded as the pricing basis by dieselMonth.ts.** The account team's
+ * rule is that a month is priced at the average of its daily pump prices, not
+ * at whatever the price happened to be on the day somebody looked. What is left
+ * here is the current published figure and its provenance — useful as the
+ * default in a box somebody is typing into, and as one day's input for
+ * an average, but not as the rate a trip is billed at.
+ *
  * Every lane on the Chemours cards is eleven prices, one per band of the fuel
  * clause, and the diesel figure picks which one applies. So the number is not
  * decoration on a job — it is half of how the trip's cost was arrived at, and a
