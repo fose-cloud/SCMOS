@@ -7,6 +7,7 @@ import { exportRateSheet } from "../excel";
 import { FilterPickMany } from "../FilterPickMany";
 import { chosenIn } from "../filterChoices";
 import { editHistoryShortcut } from "../editHistory";
+import { writeClipboardTable } from "../pasteBlock";
 import { NO_DATE, monthLabel, partsOf } from "../period";
 import { SHEET_COLUMNS, readCell, type SheetColumn, type SheetRow } from "../rateSheetColumns";
 import { css } from "../theme";
@@ -509,14 +510,34 @@ export function RateSheet({ canEdit, onToast }: {
    * This is the other use, and it is a different thing rather than the same
    * thing with a flag.
    */
+  /**
+   * Copy the table with its column headings, for pasting into a mail.
+   *
+   * The whole page, never the selected rectangle. It used to copy the selection,
+   * which was reasonable while a single click opened an editor and a rectangle
+   * only existed if somebody had dragged for it. Editing moved to a double click
+   * so that a click could select instead — and that quietly turned this button
+   * into "copy this cell", which is how it was reported. My Job had the same
+   * fault, for the same reason, and the note above its copyWithHeads says so.
+   *
+   * The rectangle still has Ctrl+C. This button has a name, and the name says
+   * table.
+   */
   async function copyWithHeads() {
-    const held = grid.resolve();
-    if (!held.cells.length) { onToast("เลือกช่องในตารางก่อน แล้วกดอีกครั้ง"); return; }
-    const lines = held.cells.map((line) =>
-      line.map(({ row, field }) => String(readCell(row, columnFor(field)) ?? "")).join("\t"));
+    const heads = SHEET_COLUMNS.map((column) => column.head);
+    const lines = rows.map((row) =>
+      SHEET_COLUMNS.map((column) => String(readCell(row, column) ?? "")));
+
+    if (!lines.length) { onToast("ไม่มีแถวให้คัดลอก"); return; }
+
     try {
-      await navigator.clipboard.writeText([held.heads.join("\t"), ...lines].join("\n"));
-      onToast(`คัดลอกพร้อมหัวตารางแล้ว ${lines.length} แถว · ${held.heads.length} คอลัมน์`);
+      await writeClipboardTable(lines, heads);
+      // The register is paged by the server, so only this page is in the
+      // browser. Saying "50 rows" while the bar says 3,007 would read as the
+      // whole thing.
+      const missing = (page?.total ?? 0) > lines.length ? (page!.total - lines.length) : 0;
+      onToast(`คัดลอกพร้อมหัวตารางแล้ว ${lines.length} แถว · ${heads.length} คอลัมน์`
+        + (missing ? ` · ยังเหลืออีก ${missing.toLocaleString()} แถวที่ยังไม่ได้โหลด — ใช้ Export Excel เพื่อเอาครบ` : ""));
     } catch {
       onToast("เบราว์เซอร์ไม่อนุญาตให้คัดลอก — ลองกดที่ตารางก่อนแล้วกดปุ่มอีกครั้ง");
     }

@@ -109,3 +109,68 @@ test("pasting onto the last cell writes exactly one value", () => {
   assert.equal(plan.rowsClipped, 1);
   assert.equal(plan.columnsClipped, 1);
 });
+
+/* ----------------------------------------------------------- copying out */
+
+import { copyBlockPayload } from "../app/scmos/pasteBlock.ts";
+
+/**
+ * The button is called "copy with headings" and it copies a table.
+ *
+ * My Job's version once preferred the selected rectangle when there was one,
+ * which was harmless while a click opened an editor. Once a click left a
+ * one-cell selection instead, the same rule turned the button into "copy this
+ * cell" — reported twice, on two screens, for the same reason. The payload
+ * builder is shared now; these pin what it must produce.
+ */
+test("the text flavour is what a spreadsheet reads", () => {
+  const { text } = copyBlockPayload([["A", "1"], ["B", "2"]], ["Name", "Qty"]);
+  assert.equal(text, "Name\tQty\nA\t1\nB\t2");
+});
+
+test("the html flavour carries a heading row, so a mail renders it as a table", () => {
+  const { html } = copyBlockPayload([["A", "1"]], ["Name", "Qty"]);
+  assert.match(html, /<thead>/);
+  assert.match(html, /<th[^>]*>.*Name.*<\/th>/);
+  assert.match(html, /<td[^>]*>1<\/td>/);
+});
+
+test("a value that looks like markup is escaped, not rendered", () => {
+  // A customer called "A & B <Ltd>" must not become a tag in somebody's inbox.
+  const { html } = copyBlockPayload([["A & B <Ltd>"]], null);
+  assert.match(html, /A &amp; B &lt;Ltd&gt;/);
+  assert.doesNotMatch(html, /<Ltd>/);
+});
+
+test("an empty cell keeps its box rather than collapsing the row", () => {
+  const { html } = copyBlockPayload([["", "x"]], null);
+  assert.match(html, /&nbsp;/);
+});
+
+test("the heading colour is set three ways, because clients drop different ones", () => {
+  // Outlook honours bgcolor, Excel the style, and a white word on a white cell
+  // is worse than no colour at all.
+  const { html } = copyBlockPayload([["a"]], ["H"]);
+  assert.match(html, /bgcolor="#0A2240"/);
+  assert.match(html, /background-color:#0A2240/);
+  assert.match(html, /<font color="#FFFFFF">/);
+});
+
+test("no headings means no thead, not an empty one", () => {
+  const { html } = copyBlockPayload([["a"]], null);
+  assert.doesNotMatch(html, /<thead>/);
+});
+
+test("a value with a newline in it cannot break the row it is on", () => {
+  // The rate register keeps addresses as typed — three lines and a maps link is
+  // ordinary. Fifty of those once produced 121 lines for 50 rows, which puts
+  // every row after the first long address one out in the spreadsheet.
+  const { text } = copyBlockPayload([["A", "W/H SUZUYO\n136/103 Moo1\nชลบุรี"], ["B", "x"]], ["N", "Addr"]);
+  assert.equal(text.split("\n").length, 3, "one heading and two rows, whatever is inside a cell");
+  assert.match(text, /W\/H SUZUYO 136\/103 Moo1 ชลบุรี/);
+});
+
+test("a tab inside a value cannot open a column either", () => {
+  const { text } = copyBlockPayload([["a\tb", "c"]], null);
+  assert.equal(text.split("\t").length, 2, "two cells, not three");
+});

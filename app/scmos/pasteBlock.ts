@@ -125,3 +125,82 @@ export function planPaste<TField>(
 
   return { cells, rowsClipped, columnsClipped, cellsUnwritable };
 }
+
+/* -------------------------------------------------------------- copying out */
+
+/** The heading row of a copied table, in the app's own navy. */
+const HEAD_BG = "#0A2240";
+const HEAD_FG = "#FFFFFF";
+
+/**
+ * A block of values as text, and as a table an email will actually render.
+ *
+ * Tab-separated text is what a spreadsheet reads, and it is all Ctrl+C puts on
+ * the clipboard. Pasted into an email it arrives as a run of words with tabs in
+ * it, which is why the headings were asked for in the first place: without the
+ * column names nobody reading the mail can tell which number is which. So the
+ * copy meant for a mail carries an HTML table as well, and the mail client
+ * renders the borders and the heading row. Both formats go on the clipboard
+ * together and whatever receives it takes the one it can use.
+ *
+ * Lives here rather than on a screen because two grids copy tables now, and a
+ * second implementation would eventually disagree about the heading colour, the
+ * escaping, or which of them Outlook honours.
+ */
+export function copyBlockPayload(lines: string[][], heads: string[] | null) {
+  const rows = heads ? [heads, ...lines] : lines;
+  /*
+   * A tab or a newline inside a value would end the cell or the row.
+   *
+   * Not hypothetical: the rate register keeps addresses as they were typed, and
+   * plenty of them run to three lines with a maps link underneath. Copying fifty
+   * of those rows produced a hundred and twenty lines, so everything after the
+   * first long address landed a row out in the spreadsheet it was pasted into.
+   *
+   * Flattened to a space rather than quoted. A quoted value is only understood
+   * by some of the things people paste into, and an address that loses a line
+   * break is a smaller loss than every row below it losing its alignment.
+   */
+  const flat = (value: string) => value.replace(/[\t\r\n]+/g, " ").trim();
+  const text = rows.map((line) => line.map(flat).join(TAB)).join(NEWLINE);
+  const esc = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const box = (value: string, head: boolean) => {
+    const tag = head ? "th" : "td";
+    // The heading row in the app's navy with white text — asked for so a pasted
+    // table reads as a heading in a mail rather than as a first row that happens
+    // to be bold. `bgcolor` and a `color` on the cell as well as the style:
+    // Outlook and Excel each drop one or other of them, and a white word on a
+    // white cell is worse than no colour at all.
+    const style = "border:1px solid " + (head ? HEAD_BG : "#D8E0E8") + ";padding:4px 9px;text-align:left"
+      + (head ? `;background-color:${HEAD_BG};color:${HEAD_FG};font-weight:600` : "");
+    const attrs = head ? ` bgcolor="${HEAD_BG}"` : "";
+    const inner = head
+      ? `<font color="${HEAD_FG}">${esc(value) || "&nbsp;"}</font>`
+      : (esc(value) || "&nbsp;");
+    return `<${tag}${attrs} style="${style}">${inner}</${tag}>`;
+  };
+  const html = '<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px">'
+    + (heads ? `<thead><tr>${heads.map((h) => box(h, true)).join("")}</tr></thead>` : "")
+    + `<tbody>${lines.map((line) => `<tr>${line.map((v) => box(v, false)).join("")}</tr>`).join("")}</tbody>`
+    + "</table>";
+  return { text, html };
+}
+
+/**
+ * Puts a table on the clipboard in both flavours.
+ *
+ * Older browsers have no `ClipboardItem`; they still get the text, which is the
+ * whole of what Ctrl+C would have given them anyway.
+ */
+export async function writeClipboardTable(lines: string[][], heads: string[] | null) {
+  const { text, html } = copyBlockPayload(lines, heads);
+  if (typeof ClipboardItem === "function") {
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/plain": new Blob([text], { type: "text/plain" }),
+      "text/html": new Blob([html], { type: "text/html" }),
+    })]);
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+}

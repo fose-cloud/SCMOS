@@ -11,6 +11,7 @@ import { DataTable, type TableModel, type TableRow } from "../DataTable";
 import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
+import { writeClipboardTable } from "../pasteBlock";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { useGridRange } from "../useGridRange";
 import { useCarriers } from "../carriers";
@@ -246,10 +247,6 @@ const hasFormatError = (j: Job) => j.issues.some((i) => i.severity === "error");
  * header used to raise a toast and change nothing; these are the columns the
  * grid actually shows, so every one of them now sorts.
  */
-/** Tab and newline, as a spreadsheet writes them. */
-const TAB = "\t";
-const NEWLINE = "\n";
-
 const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text" | "date" | "time" | "number" | "prio" }> = {
   Priority: { pick: (j) => j.prio, as: "prio" },
   Own: { pick: (j) => j.op, as: "text" },
@@ -1927,37 +1924,6 @@ export function Workspace(p: Props) {
    * mail client renders the borders and the heading row. Both formats go on the
    * clipboard together and whatever receives it takes the one it can use.
    */
-  /** The heading row of a copied table, in the app's own navy. */
-  const HEAD_BG = "#0A2240";
-  const HEAD_FG = "#FFFFFF";
-
-  function blockPayload(lines: string[][], heads: string[] | null) {
-    const rows = heads ? [heads, ...lines] : lines;
-    const text = rows.map((line) => line.join(TAB)).join(NEWLINE);
-    const esc = (value: string) =>
-      value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const box = (value: string, head: boolean) => {
-      const tag = head ? "th" : "td";
-      // The heading row in the app's navy with white text — asked for so a
-      // pasted table reads as a heading in a mail rather than as a first row
-      // that happens to be bold. `bgcolor` and a `color` on the cell as well as
-      // the style: Outlook and Excel each drop one or other of them, and a
-      // white word on a white cell is worse than no colour at all.
-      const style = "border:1px solid " + (head ? HEAD_BG : "#D8E0E8") + ";padding:4px 9px;text-align:left"
-        + (head ? `;background-color:${HEAD_BG};color:${HEAD_FG};font-weight:600` : "");
-      const attrs = head ? ` bgcolor="${HEAD_BG}"` : "";
-      const inner = head
-        ? `<font color="${HEAD_FG}">${esc(value) || "&nbsp;"}</font>`
-        : (esc(value) || "&nbsp;");
-      return `<${tag}${attrs} style="${style}">${inner}</${tag}>`;
-    };
-    const html = '<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px">'
-      + (heads ? `<thead><tr>${heads.map((h) => box(h, true)).join("")}</tr></thead>` : "")
-      + `<tbody>${lines.map((line) => `<tr>${line.map((v) => box(v, false)).join("")}</tr>`).join("")}</tbody>`
-      + "</table>";
-    return { text, html };
-  }
-
   /**
    * Copy the table with its column headings, for pasting into a mail.
    *
@@ -1980,19 +1946,8 @@ export function Workspace(p: Props) {
 
     if (!lines.length) { p.onToast("ไม่มีงานให้คัดลอก"); return; }
 
-    const { text, html } = blockPayload(lines, heads);
     try {
-      // The HTML flavour is what makes it arrive in a mail as a table. Older
-      // browsers have no ClipboardItem; they still get the text, which is the
-      // whole of what Ctrl+C would have given them anyway.
-      if (typeof ClipboardItem === "function") {
-        await navigator.clipboard.write([new ClipboardItem({
-          "text/plain": new Blob([text], { type: "text/plain" }),
-          "text/html": new Blob([html], { type: "text/html" }),
-        })]);
-      } else {
-        await navigator.clipboard.writeText(text);
-      }
+      await writeClipboardTable(lines, heads);
       // When the server is paging, only its page is in the browser. Saying
       // "50 rows" while the list says 823 would read as the whole thing.
       const missing = held.total > lines.length ? held.total - lines.length : 0;
