@@ -254,6 +254,7 @@ app.MapOperations();
 app.MapAiExtract();
 app.MapCustomerDocuments();
 app.MapDiesel();
+app.MapLine();
 
 await app.RunAsync();
 return 0;

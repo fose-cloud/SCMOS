@@ -189,6 +189,49 @@ public static class LineParserCheck
         }
         Console.WriteLine();
 
+        /* ------------------------------------------ the signature */
+
+        Console.WriteLine("Proving a delivery came from LINE.");
+        Console.WriteLine();
+
+        // A body with the awkward things in it: unicode, a quote, and the
+        // whitespace a JSON round trip would change.
+        const string secret = "not-a-real-secret-only-for-this-check";
+        const string body = "{ \"events\": [ {\"type\":\"message\",\"message\":{\"text\":\"ถึงลูกค้าแล้ว \\\"10.25\\\"\"}} ] }";
+        var good = LineSignature.Sign(secret, body);
+
+        var signatureCases = new (string Why, bool Want, string? Secret, string? Header, string? Body)[]
+        {
+            ("a body signed with the channel secret is accepted", true, secret, good, body),
+            ("a body altered by one character is not", false, secret, good, body + " "),
+            ("nor is the same body under another secret", false, secret, LineSignature.Sign("other", body), body),
+            // The one that matters most: an unset secret must never pass, or the
+            // endpoint accepts anything the day somebody forgets an app setting.
+            ("an unconfigured secret refuses everything", false, "", good, body),
+            ("so does a null one", false, null, good, body),
+            ("a missing header is refused", false, secret, null, body),
+            ("an empty header is refused", false, secret, "", body),
+            ("a header that is not base64 is refused, not thrown on", false, secret, "!!not base64!!", body),
+            ("a base64 header of the wrong length is refused", false, secret, "YWJj", body),
+            ("a null body is refused", false, secret, good, null),
+        };
+
+        foreach (var (why, want, aSecret, aHeader, aBody) in signatureCases)
+        {
+            var got = LineSignature.Verify(aSecret, aHeader, aBody);
+            var ok = got == want;
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          want {want}, got {got}");
+        }
+
+        // Signing is deterministic, or a retry of the same delivery would be
+        // rejected the second time.
+        var twice = LineSignature.Sign(secret, body) == LineSignature.Sign(secret, body);
+        if (!twice) failed++;
+        Console.WriteLine($"  {(twice ? "ok  " : "FAIL")}  signing the same body twice gives the same signature");
+        Console.WriteLine();
+
         Console.WriteLine(failed == 0
             ? "All LINE parser checks passed."
             : $"{failed} LINE parser check(s) failed.");
