@@ -266,7 +266,37 @@ button { cursor: pointer; }
   /* The cargo receipt is printed twice on one page — one copy for the customer
      and one for the driver — and the second is only in the way on screen. */
   .print-only { display: block !important; }
-  @page { size: A4 portrait; margin: 12mm 10mm; }
+
+  /*
+   * Both copies on one sheet, which is the whole point of printing two.
+   *
+   * At the sizes the form is drawn on screen the pair comes to about 1,212px
+   * against roughly 1,030px of usable A4, so it broke across two pages and the
+   * driver's copy arrived cut in half. The margins take some of that back and
+   * the zoom takes the rest.
+   *
+   * `zoom` rather than `transform: scale()`. A transform is painted after
+   * layout, so the page still breaks where the unscaled box fell and the second
+   * page comes out blank; zoom is applied during layout, so the pagination
+   * follows it. Chromium honours it in print, which is what this is printed
+   * from — and a browser that ignores it gets the old two-page behaviour rather
+   * than a broken layout.
+   *
+   * Measured rather than guessed: the pair lays out at 298.5mm unscaled, and
+   * 0.80 brings it to 239mm. That fits the 281mm of an A4 at these margins with
+   * room to spare, and still fits the ~256mm left when the browser's own header
+   * and footer are on — which they are by default, and which is how it was
+   * printed when it came back as two pages.
+   */
+  .cargo-page {
+    zoom: 0.8;
+    padding: 0 !important;
+  }
+  /* Neither copy is worth splitting; if only one will fit, the break belongs
+     between them. */
+  .cargo-page > div { break-inside: avoid; page-break-inside: avoid; }
+
+  @page { size: A4 portrait; margin: 8mm 10mm; }
 }
 
 .print-only { display: none; }

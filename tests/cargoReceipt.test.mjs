@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  receiptChoices, receiptDestination, receiptHead, receiptLabel, receiptLine,
+  receiptChoices, receiptDestination, receiptHead, receiptLabel, receiptLine, receiptTruck,
 } from "../app/scmos/cargoReceipt.ts";
 
 /*
@@ -25,7 +25,7 @@ test("the heading block is copied off the job, not typed again", () => {
   const head = receiptHead(job());
   assert.equal(head.customer, "AMPACET");
   assert.equal(head.date, "02/08/2026");
-  assert.equal(head.truckNo, "70-1234 กรุงเทพ");
+  assert.equal(head.truckNo, "SSL · 70-1234 กรุงเทพ", "the haulier and the plate");
   assert.equal(head.invoiceNo, "6317309804", "the delivery note is what the gate checks");
   assert.equal(head.blNo, "8505076096", "and the SAP order is the customer's own reference");
 });
@@ -104,7 +104,34 @@ test("the newest run is at the top, and December does not come before February",
 
 test("a job is named the way somebody looking for it holds it in their head", () => {
   assert.equal(receiptLabel(job({ destination: "W/H AMPACET" })),
-    "02/08/2026 · AMPACET · W/H AMPACET · 6317309804");
+    "02/08/2026 · SSL · AMPACET · W/H AMPACET · 6317309804");
   // Without a consignee it says so rather than leaving a gap in the line.
   assert.match(receiptLabel(job({ customer: "" })), /ไม่ระบุผู้รับ/);
+});
+
+test("the haulier is in the picker, because two of them can run to one consignee", () => {
+  // On a day like that the company is the only thing telling the rows apart.
+  const ssl = receiptLabel(job({ trucker: "SSL" }));
+  const kot = receiptLabel(job({ trucker: "THAI KOT" }));
+  assert.notEqual(ssl, kot);
+  assert.match(ssl, /SSL/);
+});
+
+test("the receipt names which truck came: the haulier and the plate", () => {
+  // The form's second signature line is ลายมือชื่อผู้รับบรรทุก — the carrier's —
+  // so the company belongs on the document. It goes into the one TRUCK NO.
+  // field rather than into a caption the customer has never seen.
+  assert.equal(receiptTruck(job({ trucker: "SSL", licence: "70-1234 กรุงเทพ" })), "SSL · 70-1234 กรุงเทพ");
+});
+
+test("a job with a haulier and no plate still names the haulier", () => {
+  // Which is most Domestic jobs: the company was booked days before and the
+  // plate is only known at the gate.
+  assert.equal(receiptTruck(job({ trucker: "SSL", licence: "" })), "SSL");
+  assert.equal(receiptHead(job({ trucker: "SSL", licence: "" })).truckNo, "SSL");
+});
+
+test("a plate with no haulier is still a plate", () => {
+  assert.equal(receiptTruck(job({ trucker: "", licence: "70-1234 กรุงเทพ" })), "70-1234 กรุงเทพ");
+  assert.equal(receiptTruck(job({ trucker: "", licence: "" })), "");
 });

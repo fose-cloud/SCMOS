@@ -28,6 +28,7 @@ export type ReceiptJob = {
   province?: string;
   zip?: string;
   wh?: string;
+  /** The haulier running the trip — SSL, THAI KOT. Their driver signs the receipt. */
   trucker?: string;
   licence?: string;
   /** The customer's own paperwork: the SAP order and the delivery note. */
@@ -66,18 +67,40 @@ const text = (value: unknown): string => String(value ?? "").replace(/\s+/g, " "
 /**
  * How a job is named in the picker.
  *
- * Date, consignee and destination, because that is how somebody looking for
- * "the Ampacet run this morning" holds it in their head. The delivery note
- * comes last and only when there is one: it is the exact answer when two runs
- * look alike, and noise on the many days when they do not.
+ * Date, haulier, consignee and destination, because that is how somebody
+ * looking for "SSL's Ampacet run this morning" holds it in their head — and on
+ * a day when two hauliers run to the same consignee, the company is the thing
+ * that tells the rows apart. The delivery note comes last and only when there
+ * is one: it is the exact answer when two runs still look alike, and noise on
+ * the many days when they do not.
  */
 export function receiptLabel(job: ReceiptJob): string {
-  const parts = [text(job.date), text(job.customer) || "ไม่ระบุผู้รับ"];
+  const parts = [text(job.date)];
+  const carrier = text(job.trucker);
+  if (carrier) parts.push(carrier);
+  parts.push(text(job.customer) || "ไม่ระบุผู้รับ");
   const where = text(job.destination) || text(job.province) || text(job.zip);
   if (where) parts.push(where);
   const note = text(job.deliverNo) || text(job.sid);
   if (note) parts.push(note);
   return parts.join(" · ");
+}
+
+/**
+ * Which truck came: the haulier and the plate.
+ *
+ * Both, into the form's one TRUCK NO. field, rather than a new row. This
+ * document is reproduced cell for cell from the account's own file and the
+ * second of its three signature lines is ลายมือชื่อผู้รับบรรทุก — the carrier's.
+ * So the company belongs on the receipt; adding a caption the customer has
+ * never seen to put it there does not.
+ *
+ * Whichever of the two the job has. A Domestic job often carries the haulier
+ * and no plate, because the plate is known at the gate and the company was
+ * booked days before.
+ */
+export function receiptTruck(job: ReceiptJob): string {
+  return [text(job.trucker), text(job.licence)].filter(Boolean).join(" · ");
 }
 
 /**
@@ -111,7 +134,7 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
     // what the customer's own system calls the same movement.
     invoiceNo: text(job.deliverNo),
     vessel: "",
-    truckNo: text(job.licence),
+    truckNo: receiptTruck(job),
     date: text(job.date),
     blNo: text(job.sapOrder),
     eta: "",
