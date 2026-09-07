@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -171,4 +171,26 @@ test("the screen cancels on cleanup and resets its state when the endpoint chang
   assert.match(screen, /return \(\) => controller.abort\(\)/);
   assert.match(screen, /\[endpoint, attempt\]/);
   assert.match(screen, /answer && !controller.signal.aborted/);
+});
+
+test("every document a system points at actually exists", () => {
+  // A pointer to a file that was renamed is worse than no pointer: it sends
+  // somebody looking for a plan that reads as though it were never written.
+  for (const system of EXTERNAL_SYSTEMS) {
+    for (const path of system.docs ?? []) {
+      assert.ok(existsSync(new URL("../" + path, import.meta.url)),
+        `${system.id} points at ${path}, which is not there`);
+    }
+  }
+});
+
+test("the two systems with a written plan point at it", () => {
+  // LINE and Outlook arrived with full specifications. The plan documents are
+  // where the disagreements between those specs and this repository are
+  // recorded, and a screen that did not mention them would let somebody start
+  // building against the wrong architecture.
+  for (const id of ["line", "outlook"]) {
+    const docs = systemById(id).docs ?? [];
+    assert.ok(docs.some((path) => /IMPLEMENTATION_PLAN\.md$/.test(path)), id);
+  }
 });

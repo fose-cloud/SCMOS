@@ -43,6 +43,15 @@ export type ExternalSystem = {
    * blank page. Empty when there is no written spec yet.
    */
   spec?: string;
+  /**
+   * Documents in this repository that carry the plan and the setup steps.
+   *
+   * Paths, not links: these screens have no router to a markdown file, and a
+   * path somebody can paste into an editor is more use than a link that 404s.
+   * A test asserts every one of them exists, because a pointer to a document
+   * that was renamed is worse than no pointer.
+   */
+  docs?: string[];
 };
 
 export const EXTERNAL_SYSTEMS: ExternalSystem[] = [
@@ -52,6 +61,7 @@ export const EXTERNAL_SYSTEMS: ExternalSystem[] = [
     thai: "ระบบ ABS",
     purpose: "ระบบงานเดิมของ LESCHACO — ต่อเพื่อดึงงานเข้ามาโดยไม่ต้องคีย์ซ้ำ",
     endpoint: "/api/abs/status",
+    docs: ["docs/integrations/SETUP.md"],
     unknowns: [
       "ABS เก็บข้อมูลอะไร และหน้านี้ต้องแสดงอะไรเป็นอย่างแรก",
       "ที่อยู่ของ API ฝั่ง ABS และวิธียืนยันตัวตน — คีย์, OAuth หรือผ่าน network ภายใน",
@@ -66,6 +76,7 @@ export const EXTERNAL_SYSTEMS: ExternalSystem[] = [
     thai: "ระบบพิธีการศุลกากร",
     purpose: "Custom Clearance System ของ LESCHACO — ต่อ API เพื่อดึงงานมาคิด KPI การขนส่งรายลูกค้า",
     endpoint: "/api/ccs/status",
+    docs: ["docs/integrations/SETUP.md"],
     unknowns: [
       "API ของ CCS อยู่ที่ไหน และยืนยันตัวตนอย่างไร — หน้า login ที่เห็นเป็นของคน ไม่ใช่ของเครื่อง",
       "งานใน CCS ผูกกับงานใน SCMOS ด้วยเลขอะไร — Reference No., Job No. หรือเลขตู้",
@@ -87,7 +98,11 @@ export const EXTERNAL_SYSTEMS: ExternalSystem[] = [
       "webhook ของ Graph ต้องเปิดออกอินเทอร์เน็ตได้ และต่ออายุ subscription อัตโนมัติ",
       "ไฟล์แนบเก็บใน Blob แบบ private — ต้องตกลงว่าเก็บนานเท่าไร",
     ],
-    spec: "รับสเปคเต็มไว้แล้ว — ดูหัวข้อ Communication Center ในบันทึกการสนทนา",
+    spec: "แผนงานเขียนไว้แล้ว — สเปคเดิมเขียนมาสำหรับ Next.js + ORM ซึ่ง SCMOS ไม่ได้เป็นแบบนั้น อ่านหัวข้อ 1 ในเอกสารก่อน",
+    docs: [
+      "docs/integrations/outlook/SCMOS_OUTLOOK_IMPLEMENTATION_PLAN.md",
+      "docs/integrations/SETUP.md",
+    ],
   },
   {
     id: "line",
@@ -102,7 +117,11 @@ export const EXTERNAL_SYSTEMS: ExternalSystem[] = [
       "สถานะใน SCMOS ตัวไหนที่ LINE จะอัปเดตได้ และตัวไหนห้าม",
       "ข้อความที่อ่านไม่ชัดต้องเข้าคิวให้คนตรวจ ไม่ใช่เดาแล้วอัปเดต",
     ],
-    spec: "รับสเปคเต็มไว้แล้ว — V1 ไม่ใช้ AI ใช้กฎกับคำสำคัญก่อน",
+    spec: "แผนงานเขียนไว้แล้ว — V1 ไม่ใช้ AI ใช้กฎกับคำสำคัญก่อน และยังไม่ต้องมีคิวแยก",
+    docs: [
+      "docs/integrations/line/SCMOS_LINE_V1_IMPLEMENTATION_PLAN.md",
+      "docs/integrations/SETUP.md",
+    ],
   },
 ];
 

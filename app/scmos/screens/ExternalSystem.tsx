@@ -94,6 +94,16 @@ function SystemPanel({ system }: { system: ExternalSystem }) {
             {system.spec}
           </div>
         )}
+        {!!system.docs?.length && (
+          <div style={css("margin-top:9px;font-size:11.5px;color:#5A6B7D;line-height:1.9")}>
+            เอกสารในโปรเจกต์:
+            {system.docs.map((path) => (
+              <div key={path}>
+                <code style={css("font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px")}>{path}</code>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={css("margin-top:11px;font-size:11.5px;color:#7B8CA0;line-height:1.7")}>
           ฝั่ง SCMOS จะเรียกผ่าน API ของตัวเองเสมอ ไม่เรียกระบบปลายทางจากเบราว์เซอร์ตรง ๆ —
           เพื่อให้คีย์อยู่ฝั่งเซิร์ฟเวอร์ และให้การตรวจสิทธิ์อยู่ที่เดียวกับทุกเมนู
