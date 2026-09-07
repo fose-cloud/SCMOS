@@ -172,6 +172,7 @@ if (LadderCheck.Run(args) is int ladderExit) return ladderExit;
 if (CapabilityCheck.Run(args) is int capabilityExit) return capabilityExit;
 if (SignInCheck.Run(args) is int signInExit) return signInExit;
 if (ReportCheck.Run(args) is int reportExit) return reportExit;
+if (LineParserCheck.Run(args) is int lineExit) return lineExit;
 
 if (args.Contains("--seed"))
 {
