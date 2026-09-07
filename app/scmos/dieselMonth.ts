@@ -52,6 +52,70 @@ export type DieselAverage = {
   closed: boolean;
 };
 
+/**
+ * A published price change: this price, from this date until the next change.
+ *
+ * This is how the source actually works. PTT OR publish a change, not a row a
+ * day — July 2569 had four of them, on the 3rd, the 8th, the 22nd and the 23rd.
+ * The account team's own sheet expands those into thirty-one rows and averages
+ * the rows, which is the right arithmetic and a great deal of typing.
+ *
+ * So this is what gets entered, and the expansion is done here.
+ */
+export type DieselChange = {
+  /** dd/MM/yyyy — the day this price took effect. */
+  date: string;
+  price: number;
+};
+
+/**
+ * A month's daily prices, worked out from the changes around it.
+ *
+ * The first days of a month are almost always priced by a change made in the
+ * month before — May opens at the April price and holds it until the first May
+ * change. So this looks backwards for the last change on or before the 1st, and
+ * a month with no such change simply starts empty rather than borrowing the
+ * next one forward.
+ *
+ * Checked against the team's own May'25 sheet: 37.5 for seven days, 34.94 for
+ * fourteen, 35.79 for one and 36.69 for nine averages to 36.05, which is the
+ * figure in the green cell at the bottom of it.
+ */
+export function expand(changes: readonly DieselChange[], month: string): DieselDay[] {
+  const total = daysInMonth(month);
+  if (total === 0) return [];
+
+  const sortable = (date: string) => {
+    const parts = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(date ?? "").trim());
+    return parts ? `${parts[3]}${parts[2]}${parts[1]}` : "";
+  };
+
+  const usable = changes
+    .filter((one) => sortable(one.date) && Number.isFinite(one.price) && one.price > 0)
+    .slice()
+    .sort((a, b) => sortable(a.date).localeCompare(sortable(b.date)));
+  if (usable.length === 0) return [];
+
+  const days: DieselDay[] = [];
+  // The price in force on the 1st: the last change on or before it, which is
+  // usually one made last month.
+  const firstOfMonth = `01/${month}`;
+  let held: number | null = null;
+  for (const one of usable) {
+    if (sortable(one.date) <= sortable(firstOfMonth)) held = one.price;
+  }
+
+  for (let day = 1; day <= total; day++) {
+    const date = `${String(day).padStart(2, "0")}/${month}`;
+    const changed = usable.find((one) => one.date === date);
+    if (changed) held = changed.price;
+    // Nothing in force yet — the month began before the first price anybody
+    // recorded. Left out rather than guessed, which also keeps the month open.
+    if (held !== null) days.push({ date, price: held });
+  }
+  return days;
+}
+
 /** The month a dd/MM/yyyy date belongs to, as MM/yyyy. Empty when unreadable. */
 export function monthOf(date: string | undefined | null): string {
   const text = String(date ?? "").trim();

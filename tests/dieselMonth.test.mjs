@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  averageFor, averages, daysInMonth, describe, monthKey, monthOf, rateForJob,
+  averageFor, averages, daysInMonth, describe, expand, monthKey, monthOf, rateForJob,
 } from "../app/scmos/dieselMonth.ts";
 
 /*
@@ -112,4 +112,85 @@ test("an unfinished month says so wherever it is shown", () => {
   assert.match(describe(closed), /เฉลี่ยทั้งเดือน/);
 
   assert.match(describe(null), /ยังไม่มีราคาน้ำมัน/);
+});
+
+/* ------------------------------------ changes expanded into daily prices */
+
+test("the team's own May'25 sheet reproduces to 36.05", () => {
+  // Their sheet: 37.5 for the 1st to the 7th, 34.94 for the 8th to the 21st,
+  // 35.79 on the 22nd, 36.69 from the 23rd. The green cell says 36.05.
+  //
+  // The 37.5 was set in April — a month opens at the price the month before
+  // left it at, which is what makes the backward look necessary.
+  const changes = [
+    { date: "28/04/2025", price: 37.5 },
+    { date: "08/05/2025", price: 34.94 },
+    { date: "22/05/2025", price: 35.79 },
+    { date: "23/05/2025", price: 36.69 },
+  ];
+  const days = expand(changes, "05/2025");
+  assert.equal(days.length, 31);
+  assert.equal(days[0].price, 37.5);
+  assert.equal(days[6].price, 37.5);
+  assert.equal(days[7].price, 34.94);
+  assert.equal(days[20].price, 34.94);
+  assert.equal(days[21].price, 35.79);
+  assert.equal(days[22].price, 36.69);
+  assert.equal(days[30].price, 36.69);
+
+  const got = averageFor(days, "05/2025");
+  assert.equal(got.average, 36.05, "the figure in the green cell");
+  assert.equal(got.closed, true);
+});
+
+test("a price holds until the next change, however far away that is", () => {
+  // One change all month is one price all month, not one day of it.
+  const days = expand([{ date: "01/08/2026", price: 39.14 }], "08/2026");
+  assert.equal(days.length, 31);
+  assert.ok(days.every((day) => day.price === 39.14));
+});
+
+test("a month opens at the price the month before left it at", () => {
+  // July's changes were the 3rd, 8th, 22nd and 23rd. August opens at the 23rd
+  // of July's price and holds it until August's first change.
+  const days = expand([{ date: "23/07/2026", price: 36.69 }], "08/2026");
+  assert.equal(days[0].price, 36.69);
+  assert.equal(days.length, 31);
+});
+
+test("a month before any recorded price is empty, not guessed backwards", () => {
+  // Borrowing the next change backwards would invent a price for days nobody
+  // published one for.
+  assert.deepEqual(expand([{ date: "08/05/2025", price: 34.94 }], "03/2025"), []);
+  assert.deepEqual(expand([], "05/2025"), []);
+});
+
+test("a month whose prices start mid-way is not closed", () => {
+  // The first change lands on the 8th and nothing before it is known, so seven
+  // days are missing and the average is not the month's.
+  const days = expand([{ date: "08/05/2025", price: 34.94 }], "05/2025");
+  assert.equal(days.length, 24);
+  assert.equal(averageFor(days, "05/2025").closed, false);
+});
+
+test("changes arrive in any order and are read in date order", () => {
+  const jumbled = [
+    { date: "23/05/2025", price: 36.69 },
+    { date: "28/04/2025", price: 37.5 },
+    { date: "08/05/2025", price: 34.94 },
+    { date: "22/05/2025", price: 35.79 },
+  ];
+  assert.equal(averageFor(expand(jumbled, "05/2025"), "05/2025").average, 36.05);
+});
+
+test("a nonsense row is left out rather than averaged in", () => {
+  const changes = [
+    { date: "28/04/2025", price: 37.5 },
+    { date: "not a date", price: 99 },
+    { date: "08/05/2025", price: 0 },
+    { date: "08/05/2025", price: 34.94 },
+    { date: "22/05/2025", price: 35.79 },
+    { date: "23/05/2025", price: 36.69 },
+  ];
+  assert.equal(averageFor(expand(changes, "05/2025"), "05/2025").average, 36.05);
 });

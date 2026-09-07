@@ -78,6 +78,7 @@ const OWN_SCREEN: Partial<Record<Screen, true>> = {
   // the period and filters that decide what should be in it.
   reports: true,
   capacity: true, documents: true, admin: true, docverify: true, loreal: true, carrier: true, training: true,
+  oilrate: true,
   // The integration screens are not listed here by name. They are read off
   // externalSystems.ts below, so adding a fifth system cannot quietly put the
   // lying Export button back on it — which is what happened to CCS, LINE and
@@ -90,6 +91,7 @@ import { Booking } from "./scmos/screens/Booking";
 import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
 
 import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
+import { OilRate } from "./scmos/screens/OilRate";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
@@ -2783,6 +2785,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                 decides which — a screen id with no definition renders nothing
                 rather than an empty frame pretending to be a page. */}
             {systemById(screen) && <ExternalSystemScreen system={systemById(screen)!} />}
+            {screen === "oilrate" && <OilRate canEdit={able("EditRates")} onToast={setToast} />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (
               <Training onToast={setToast}

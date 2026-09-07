@@ -4,7 +4,8 @@ export type Screen =
   | "audit" | "documents" | "reports" | "assistant"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
-  | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook";
+  | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
+  | "oilrate";
 
 /**
  * The menu, in the order the work happens.
@@ -72,6 +73,9 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["rates", "Rate Management", "อัตราค่าขนส่ง", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
     ["quotation", "Rate Quotation", "ขอใบเสนอราคา", [[2, 2, 10, 12], [4, 5, 6, 1.5], [4, 8, 6, 1.5], [4, 11, 4, 1.5]]],
     ["billing", "Billing Control", "ควบคุมการวางบิล", [[2, 4, 12, 8], [4, 7, 4, 2]]],
+    // Diesel decides which band of the fuel clause every lane is read at, so it
+    // belongs beside the rates it moves rather than in a settings screen.
+    ["oilrate", "Oil Rate", "เรทน้ำมัน", [[6, 2, 4, 3], [4, 5, 8, 9], [6, 8, 4, 3]]],
   ],
 
   // When something went wrong, and what was done about it.
@@ -170,6 +174,7 @@ export const META: Record<string, [string, string, string]> = {
   capacity: ["Capacity Planning", "การวางแผนกำลังรถ", "ประเภทรถและตู้ที่คอลัมน์ TYPE เลือกได้ · และกำลังรถรายวันเทียบกับงานที่รับไว้"],
   rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง", "Cost vs selling rate with fuel adjustment and margin control per lane."],
   billing: ["Billing Control", "การควบคุมการวางบิล", "Supplier invoices must be received within 4 calendar days after delivery / loading completion."],
+  oilrate: ["Oil Rate", "เรทน้ำมัน", "กรอกเฉพาะวันที่ราคาเปลี่ยน ระบบกระจายเป็นรายวันแล้วหาค่าเฉลี่ยทั้งเดือนให้ — ค่าเฉลี่ยคือตัวที่ใช้เลือกช่วงราคาในการ์ดค่าขนส่ง"],
   monitoring: ["Shipment Monitoring", "ติดตามการขนส่ง", "ติดตามงานตั้งแต่จ่ายงานจนปิดงาน — แผนกับเวลาจริงของทุกขั้นตอน พร้อมบันทึกความล่าช้าและสาเหตุ"],
   kpi: ["Operational KPI", "ตัวชี้วัดการปฏิบัติงาน", "ทุกตัวเลขคำนวณจากทะเบียนงานจริงฝั่ง .NET ตามกฎชุดเดียวกับที่หน้า Workspace ใช้ — เปลี่ยนช่วงเวลาแล้วทุกค่าคิดใหม่ทั้งหมด"],
   carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR", "ทะเบียนเดียวกับหน้า Incident — ระบบไม่ยอมให้ข้ามขั้น: ไม่มีสาเหตุที่แท้จริงก็กำหนดการแก้ไขไม่ได้ ไม่มีผู้รับผิดชอบและกำหนดเสร็จก็ติดตามไม่ได้ และปิดเคสได้เฉพาะระดับหัวหน้างานขึ้นไป"],

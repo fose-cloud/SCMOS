@@ -15,6 +15,10 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<LineGroup> LineGroups => Set<LineGroup>();
     public DbSet<LineUser> LineUsers => Set<LineUser>();
     public DbSet<LineEvent> LineEvents => Set<LineEvent>();
+
+    /// <summary>Published diesel prices, one row per change. The monthly
+    /// average is computed from these — see dieselMonth.ts.</summary>
+    public DbSet<DieselPrice> DieselPrices => Set<DieselPrice>();
     public DbSet<SupplierRequest> SupplierRequests => Set<SupplierRequest>();
     public DbSet<PreRunCheck> PreRunChecks => Set<PreRunCheck>();
     public DbSet<ShipmentMilestone> ShipmentMilestones => Set<ShipmentMilestone>();
@@ -134,6 +138,21 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
         });
 
         /* ------------------------------------------------------------- LINE */
+
+        model.Entity<DieselPrice>(entry =>
+        {
+            entry.ToTable("diesel_prices");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.EffectiveDate).HasColumnName("effective_date").HasMaxLength(10);
+            entry.Property(e => e.Price).HasColumnName("price").HasPrecision(6, 2);
+            entry.Property(e => e.Source).HasColumnName("source").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.RecordedBy).HasColumnName("recorded_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.RecordedAt).HasColumnName("recorded_at");
+            // One price per day, enforced by the database. Two rows for one day
+            // would be two answers to what the month averaged.
+            entry.HasIndex(e => e.EffectiveDate).IsUnique().HasDatabaseName("diesel_prices_date_idx");
+        });
 
         model.Entity<LineGroup>(entry =>
         {

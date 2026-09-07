@@ -21,6 +21,9 @@ const ALLOWED = new Map([
   // helper whose caller puts a ZoomBox around it. Text alone cannot see that.
   ["app/scmos/screens/Kpi.tsx", "rendered inside Panel, which wraps its children"],
   ["app/scmos/screens/MonitorBoard.tsx", "rendered inside Card, which wraps its children"],
+  // Two narrow tables of three fixed columns each — a month and a number, and a
+  // date and a number. Nothing to zoom out to see.
+  ["app/scmos/screens/OilRate.tsx", "two three-column tables that fit any screen"],
   // Dialogs size themselves and are read for a moment, not worked in.
   ["app/scmos/overlays/DataOverlays.tsx", "a modal with its own height"],
   ["app/scmos/overlays/ExcelOverlays.tsx", "a modal with its own height"],

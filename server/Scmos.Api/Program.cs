@@ -253,6 +253,7 @@ app.MapRotation();
 app.MapOperations();
 app.MapAiExtract();
 app.MapCustomerDocuments();
+app.MapDiesel();
 
 await app.RunAsync();
 return 0;
