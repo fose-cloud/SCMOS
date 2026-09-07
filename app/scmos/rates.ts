@@ -748,6 +748,247 @@ export function parseChemoursSheet(
   };
 }
 
+/* ------------------------------------------------ what we bill the customer */
+
+/**
+ * Where the selling card keeps things, which is not where the cost card does.
+ *
+ * The two describe the same lanes and are laid out differently, because they
+ * were written for different readers. The haulier's card gives one sheet per
+ * truck size and names that size in a heading; the RFP we answer gives one
+ * sheet per warehouse with a Truck type column, so a lane appears four times on
+ * one sheet instead of once on each of four. The bands therefore start after
+ * Cargo type and Truck type rather than immediately after the postcode.
+ *
+ * Detected on "Truck type" being a heading, and only that. A sheet without it
+ * is the cost layout and belongs to parseChemoursSheet — which is the check
+ * that stops one card being read as the other, and a selling price being filed
+ * as a cost.
+ */
+export type SellLayout = {
+  headRow: number;
+  /** DG or Non-DG. Descriptive: no postcode on this card is quoted for both. */
+  cargo: number;
+  truck: number;
+  /** The trailing free-text column, which is not a diesel band however it parses. */
+  note: number;
+  bands: { column: number; label: string }[];
+};
+
+export function chemoursSellLayout(rows: unknown[][]): SellLayout | null {
+  const headRow = rows.findIndex((row, index) =>
+    index < 6 && /^origin city$/i.test(String(row?.[0] ?? "").trim()));
+  if (headRow < 0) return null;
+
+  const head = (rows[headRow] ?? []).map((cell) => String(cell ?? "").replace(/\s+/g, " ").trim());
+  const truck = head.findIndex((cell) => /^truck\s*type$/i.test(cell));
+  if (truck < 0) return null;
+
+  const cargo = head.findIndex((cell) => /^cargo\s*type$/i.test(cell));
+  const note = head.findIndex((cell) => /^note$/i.test(cell));
+
+  const bands: { column: number; label: string }[] = [];
+  for (let c = truck + 1; c < head.length; c++) {
+    if (c === note) continue;
+    if (parseBand(head[c])) bands.push({ column: c, label: head[c] });
+  }
+  return bands.length ? { headRow, cargo, truck, note, bands } : null;
+}
+
+/**
+ * The truck size as the selling card writes it in its own column.
+ *
+ * "4W", "6W" and "10W" line up with the cost card, so a lane's two prices meet
+ * in one row. Anything else is kept as it was written rather than dropped —
+ * this card carries a 20'/40'GP line the customer asked for and we never
+ * priced, and a reader should see the empty row instead of not knowing the
+ * question was put.
+ */
+export function chemoursSellVehicle(label: string): string {
+  const value = String(label ?? "").replace(/\s+/g, "").toUpperCase();
+  const wheels = /^(\d{1,2})W$/.exec(value);
+  return wheels ? `${Number(wheels[1])}W` : String(label ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * One sheet of what LESCHACO bills the customer.
+ *
+ * Every truck size for a lane lands on one lane object, keyed on origin,
+ * destination and postcode, because that is how the cost card already reads and
+ * the point of loading this at all is to put the two side by side.
+ *
+ * The prices are rounded to whole baht by the same helper every other rate in
+ * this system goes through. The workbook holds them to six decimal places —
+ * each band is the one before it times 1.03 — and an invoice is written in
+ * baht, so the fraction is arithmetic left in the cell rather than a price
+ * anybody agreed to.
+ */
+export function parseChemoursSellSheet(
+  input: SheetInput,
+  bands: FuelBand[],
+  issues: RateIssue[],
+): { lanes: RateLane[]; source: RateSource } | null {
+  const layout = chemoursSellLayout(input.rows);
+  if (!layout) return null;
+
+  const carrier = input.carrier.trim() || "LESCHACO";
+  const service = "DELIVERY";
+
+  const bandIndex = (band: FuelBand) => {
+    const found = bands.findIndex((b) => sameBand(b, band));
+    if (found >= 0) return found;
+    bands.push(band);
+    return bands.length - 1;
+  };
+
+  const columns: { column: number; slot: number }[] = [];
+  for (const { column, label } of layout.bands) {
+    const band = parseBand(label);
+    if (!band) continue;
+    if (band.max < band.min) {
+      issues.push({
+        file: input.fileName, sheet: input.sheetName, row: layout.headRow + 1, field: "band",
+        value: label,
+        message: "ช่วงราคาน้ำมันกลับหัวกลับหาง ปลายช่วงน้อยกว่าต้นช่วง — ข้ามคอลัมน์นี้ไว้ก่อน",
+      });
+      continue;
+    }
+    columns.push({ column, slot: bandIndex(band) });
+  }
+  if (!columns.length) return null;
+
+  const held = new Map<string, RateLane>();
+  const order: string[] = [];
+  let skipped = 0;
+
+  for (let r = layout.headRow + 1; r < input.rows.length; r++) {
+    const row = input.rows[r] ?? [];
+    const to = text(row, 2);
+    if (!to) continue;
+
+    const vehicle = chemoursSellVehicle(text(row, layout.truck));
+    if (!vehicle) continue;
+
+    const prices: (number | null)[] = [];
+    let quoted = 0;
+    for (const { column, slot } of columns) {
+      const price = priceAt(row, column);
+      if (price === null) continue;
+      prices[slot] = price;
+      quoted++;
+    }
+    // The 20'/40'GP rows are the customer asking for a container rate and being
+    // given none. Counted, not carried: an unpriced row in the table would read
+    // as a lane worth nothing.
+    if (!quoted) { skipped++; continue; }
+
+    const from = text(row, 0);
+    const county = text(row, 3);
+    const key = `${from}|${to}|${county}`;
+    const lane = held.get(key);
+    if (lane) {
+      if (lane.prices[vehicle]) {
+        issues.push({
+          file: input.fileName, sheet: input.sheetName, row: r + 1, field: "vehicle",
+          value: `${to} · ${vehicle}`,
+          message: "เส้นทางนี้มีราคารถขนาดเดียวกันซ้ำสองแถว — ใช้แถวแรก",
+        });
+        continue;
+      }
+      lane.prices[vehicle] = prices;
+      continue;
+    }
+
+    order.push(key);
+    held.set(key, {
+      id: `${carrier}|SELL|${service}|${r}`,
+      carrier,
+      service,
+      customer: "CHEMOURS",
+      from,
+      to,
+      county,
+      // DG and Non-DG price the same postcode very differently and no postcode
+      // on this card is quoted for both, so the word belongs to the lane rather
+      // than splitting it in two.
+      remark: layout.cargo >= 0 ? text(row, layout.cargo) : "",
+      prices: { [vehicle]: prices },
+    });
+  }
+
+  const lanes = order.map((key) => held.get(key)!);
+  if (!lanes.length) return null;
+
+  return {
+    lanes,
+    source: { carrier, file: input.fileName, sheet: input.sheetName, service, lanes: lanes.length, skipped },
+  };
+}
+
+/**
+ * How a lane on the selling card finds the same lane on a cost card.
+ *
+ * Origin and destination postcode, and nothing else. The destination *name* is
+ * written differently on the two cards for the same place, and the postcode is
+ * what the entity comment next door already calls the identifier for these
+ * routes — it is also what the job register carries in its ZIP CODE column, so
+ * one key serves the card, the cost and the work.
+ *
+ * The cost card quotes 20000 twice, as "Chonburi, Amatanakorn" and "Chonburi,
+ * Amatanakorn (MCP)", at the same price. Both rows therefore find the one
+ * selling price and both show the same margin, which is the truth about them:
+ * they are one lane written twice, not two lanes one of which we must choose.
+ */
+export function chemoursLaneKey(from: string, county: string): string {
+  const tidy = (value: string) => String(value ?? "").replace(/\s+/g, " ").trim().toUpperCase();
+  return `${tidy(from)}|${tidy(county)}`;
+}
+
+/**
+ * The selling lanes by that key.
+ *
+ * A key claimed twice keeps the first and is reported. Two selling prices for
+ * one lane is not something to average or to pick between: it means the card
+ * was read wrong or written wrong, and quietly taking one of them would put a
+ * margin on screen that nobody could reproduce.
+ */
+export function chemoursSellIndex(
+  lanes: RateLane[],
+  issues?: RateIssue[],
+): Map<string, RateLane> {
+  const index = new Map<string, RateLane>();
+  for (const lane of lanes) {
+    const key = chemoursLaneKey(lane.from, lane.county);
+    if (index.has(key)) {
+      issues?.push({
+        file: "", sheet: "", row: 0, field: "lane",
+        value: `${lane.from} → ${lane.to} (${lane.county})`,
+        message: "เส้นทางนี้มีราคาขายสองรายการ — ใช้รายการแรก",
+      });
+      continue;
+    }
+    index.set(key, lane);
+  }
+  return index;
+}
+
+/**
+ * Gross margin: what share of the price we bill is not the price we pay.
+ *
+ * Of the selling price, not of the cost — the figure a P&L is read in. A lane
+ * costing 4,000 and billed at 5,000 is 20% here, and would be 25% if it were
+ * quoted as a mark-up on cost; the screen says which so the two are never read
+ * as the same number.
+ *
+ * Null unless both sides are known. A missing cost is not a free trip and a
+ * missing sell is not a lane given away.
+ */
+export function chemoursMargin(cost: number | null, sell: number | null): number | null {
+  if (cost == null || sell == null) return null;
+  if (!Number.isFinite(cost) || !Number.isFinite(sell) || sell <= 0) return null;
+  return ((sell - cost) / sell) * 100;
+}
+
 export function parseSurcharges(rows: unknown[][], service: string): Surcharge[] {
   const out: Surcharge[] = [];
   for (const row of rows) {

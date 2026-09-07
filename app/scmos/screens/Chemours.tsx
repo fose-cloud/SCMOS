@@ -5,7 +5,7 @@ import type { Job } from "../ops";
 import { useRemembered } from "../pageCache";
 import { apiFetch } from "../api";
 import { CargoForm, type FormTemplate } from "./CargoForm";
-import { ChemoursRates, readRateCard, type RateCard } from "./ChemoursRates";
+import { ChemoursRates, readRateCard, readSellingCard, type RateCard } from "./ChemoursRates";
 
 /**
  * The Chemours account: what it costs to run, and what the customer signs for.
@@ -19,6 +19,11 @@ import { ChemoursRates, readRateCard, type RateCard } from "./ChemoursRates";
  * What is left is the two things this screen is for. The rate card, which is
  * this account's own prices and deliberately not in the subcontractor book. And
  * the cargo receipt, which is a document that gets signed.
+ *
+ * Both now reach across to the Domestic grid rather than standing on their own.
+ * The card can be read beside what we bill the customer for the same lane, so a
+ * margin is visible where the trip is priced; the receipt is filled from the job
+ * it is for, because everything on it was already keyed in once.
  */
 
 /** The tab that holds this account's own transport prices. */
@@ -77,6 +82,16 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
   onToast: (message: string) => void;
 }) {
   const [card, setCard] = useRemembered<RateCard>("chemours.rates");
+  /**
+   * What we bill, held beside what we pay.
+   *
+   * Not saved to the register with the cost card. That endpoint stores lanes
+   * under a customer and a carrier, and this card has no carrier — putting it
+   * there under a made-up one would make a selling price readable as a quote
+   * somebody could give a job to. It is read from the file each session, the
+   * way the cost card was until it was given a home of its own.
+   */
+  const [sell, setSell] = useRemembered<RateCard>("chemours.selling");
   const [saving, setSaving] = useState(false);
   /** The receipt shapes already on file, so the picker is filled before anybody opens a folder. */
   const [templates, setTemplates] = useRemembered<FormTemplate[]>("chemours.forms");
@@ -146,6 +161,29 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
         };
       });
       onToast(`อ่านการ์ดของ ${hauler} แล้ว ${read.lanes.length} แถว · ${read.bands.length} ช่วงราคาน้ำมัน`);
+    } catch (error) {
+      onToast("อ่านไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  /**
+   * Opens the RFP answer — what LESCHACO bills this account.
+   *
+   * Replaces rather than joins, unlike a cost card. The whole workbook is one
+   * agreement with one customer, so a second file is a newer version of it, not
+   * another party's view of the same lanes.
+   */
+  async function loadSelling(file: File) {
+    try {
+      const read = await readSellingCard(file);
+      if (!read.lanes.length) {
+        onToast("ไม่พบราคาขายในไฟล์นี้ — ต้องเป็นชีตที่มีคอลัมน์ Truck type (ไฟล์การ์ดผู้ขนส่งใช้ช่องด้านซ้าย)");
+        return;
+      }
+      setSell(read);
+      const skipped = read.issues.length;
+      onToast(`อ่านราคาขายแล้ว ${read.lanes.length} เส้นทาง · ${read.bands.length} ช่วงราคาน้ำมัน`
+        + (skipped ? ` · มีข้อทักท้วง ${skipped} รายการ` : ""));
     } catch (error) {
       onToast("อ่านไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     }
@@ -242,14 +280,16 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
   // card has no jobs in it, so neither wants the filters this screen used to
   // carry for its reports. Both draw on their own.
   if (tab === "Cargo Receipt") {
-    return <CargoForm stored={templates} onStore={saveTemplates} onToast={onToast} />;
+    return <CargoForm jobs={jobs} stored={templates} onStore={saveTemplates} onToast={onToast} />;
   }
 
   return (
     <ChemoursRates
       card={card}
+      sell={sell}
       haulers={haulerNames}
       onLoad={loadCard}
+      onLoadSell={loadSelling}
       onSave={saveCard}
       canSave={canEditRates}
       saving={saving}

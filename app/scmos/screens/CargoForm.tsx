@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
+import {
+  receiptChoices, receiptHead, receiptLabel, receiptLine, type ReceiptJob,
+} from "../cargoReceipt";
 
 /**
  * The cargo receipt, ISO-FRM-TH-ADM-26-06, reproduced from the account's file.
@@ -142,7 +145,15 @@ const HEAD_CELL = "border:1px solid #333;padding:3px 5px;font-size:10px;text-ali
 /** The printed sheet, and the frame the letterhead mark is placed against. */
 const SHEET_FRAME = "position:relative";
 
-export function CargoForm({ stored, onStore, onToast }: {
+export function CargoForm({ jobs, stored, onStore, onToast }: {
+  /**
+   * The Domestic work, so a receipt can be filled from the job it is for.
+   *
+   * The whole register is passed and the Domestic rows picked out here rather
+   * than upstream, because which jobs this form may draw on is a fact about the
+   * form — it has no room for a vessel — and not about the screen that hosts it.
+   */
+  jobs: readonly ReceiptJob[];
   /**
    * The customers already on file. null while they are still being fetched,
    * which is not the same as an empty list and must not read as "none exist".
@@ -168,6 +179,38 @@ export function CargoForm({ stored, onStore, onToast }: {
   const customers = read ?? stored ?? [];
   const unsaved = read !== null;
   const [storing, setStoring] = useState(false);
+
+  /** Which job this receipt is for, if it was filled from one. */
+  const [from, setFrom] = useState("");
+  const choices = useMemo(() => receiptChoices(jobs), [jobs]);
+
+  /**
+   * Fills the form from a job, and says what it did not fill.
+   *
+   * Every field is written, including the empty ones. A picker that only filled
+   * the blanks would leave the last job's truck number under this job's
+   * consignee, and the receipt would be signed with it.
+   */
+  function fillFrom(key: string) {
+    setFrom(key);
+    if (!key) return;
+    const job = choices.find((one) => String(one.key ?? "") === key);
+    if (!job) return;
+
+    setForm(receiptHead(job));
+    setLines([receiptLine(job), ...BLANK_LINES.slice(1)]);
+
+    const head = receiptHead(job);
+    const missing = [
+      !head.customer && "ชื่อลูกค้า",
+      !head.deliveryTo && "ปลายทาง",
+      !head.truckNo && "ทะเบียนรถ",
+      !head.invoiceNo && "เลขที่ใบส่งของ",
+    ].filter(Boolean);
+    onToast(`กรอกจากงาน ${receiptLabel(job)} แล้ว`
+      + (missing.length ? ` — งานนี้ยังไม่มี ${missing.join(", ")} ต้องกรอกเอง` : "")
+      + " · เวลารถเข้า-ออก กรอกที่หน้างาน");
+  }
 
   const set = (field: keyof Form, value: string) => setForm((held) => ({ ...held, [field]: value }));
   const setLine = (row: number, field: keyof Line, value: string) =>
@@ -304,6 +347,26 @@ export function CargoForm({ stored, onStore, onToast }: {
           />
         </label>
 
+        {/* Before the customer picker, because filling from a job sets the
+            customer — and a control that overwrites the one above it should not
+            sit below it. */}
+        <label style={css("display:flex;flex-direction:column;gap:3px")}>
+          <span style={css(LABEL)}>กรอกจากงาน Domestic</span>
+          <select
+            value={from}
+            disabled={!choices.length}
+            onChange={(e) => fillFrom(e.target.value)}
+            style={css(CONTROL + ";min-width:330px" + (choices.length ? "" : ";opacity:.5"))}
+          >
+            <option value="">
+              {choices.length ? `เลือกงาน · ${choices.length} รายการ` : "ยังไม่มีงาน Domestic ในระบบ"}
+            </option>
+            {choices.map((job) => (
+              <option key={String(job.key)} value={String(job.key ?? "")}>{receiptLabel(job)}</option>
+            ))}
+          </select>
+        </label>
+
         <label style={css("display:flex;flex-direction:column;gap:3px")}>
           <span style={css(LABEL)}>ชื่อลูกค้า</span>
           <select
@@ -337,7 +400,7 @@ export function CargoForm({ stored, onStore, onToast }: {
             </button>
           )}
           <button
-            onClick={() => { setForm(BLANK); setLines(BLANK_LINES); }}
+            onClick={() => { setForm(BLANK); setLines(BLANK_LINES); setFrom(""); }}
             className="ghost-btn"
             style={css("height:32px;padding:0 14px;border:1px solid #D3DBE3;background:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#465A6E")}
           >

@@ -6,7 +6,8 @@ import { css } from "../theme";
 import { cell, paginate } from "../util";
 import { DataTable, type TableModel } from "../DataTable";
 import {
-  bandForDiesel, chemoursLayout, parseChemoursSheet, priceFor, reconcileChemoursBands,
+  bandForDiesel, chemoursLaneKey, chemoursLayout, chemoursMargin, chemoursSellIndex,
+  parseChemoursSellSheet, parseChemoursSheet, priceFor, reconcileChemoursBands,
   type FuelBand, type RateIssue, type RateLane,
 } from "../rates";
 
@@ -82,6 +83,42 @@ export async function readRateCard(file: File, carrier: string): Promise<RateCar
 }
 
 /**
+ * What LESCHACO bills the customer, read from the RFP answer.
+ *
+ * No hauler is asked for, because there is not one: this card is ours. Every
+ * sheet is a warehouse, every lane carries its own truck sizes, and the whole
+ * file is one card — which is why it replaces what was loaded rather than
+ * joining it the way a second hauler's cost card does.
+ *
+ * A workbook without a Truck type column is a cost card, and is refused here
+ * rather than parsed as best it can be. Reading one as the other would file
+ * what we charge as what we pay, and the margin column would be wrong in the
+ * comforting direction.
+ */
+export async function readSellingCard(file: File): Promise<RateCard> {
+  const book = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+  const bands: FuelBand[] = [];
+  const lanes: RateLane[] = [];
+  const issues: RateIssue[] = [];
+
+  for (const sheetName of book.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], {
+      header: 1, blankrows: false, defval: "",
+    });
+    if (!rows.length) continue;
+    const parsed = parseChemoursSellSheet(
+      { carrier: SELLER, fileName: file.name, sheetName, rows }, bands, issues);
+    if (parsed) lanes.push(...parsed.lanes);
+  }
+
+  return { file: file.name, bands, lanes, issues };
+}
+
+/** Us, on the selling side of the card. Not a hauler and never filtered as one. */
+const SELLER = "LESCHACO";
+
+
+/**
  * The three truck sizes on one row, which is how the card is read.
  *
  * The workbook quotes one size per sheet, so the same lane arrives three times.
@@ -113,11 +150,22 @@ const VEHICLES = ["4W", "6W", "10W"];
  */
 const RATE_PER = 300;
 
+/**
+ * What one cell of the table is: the trip's cost, what we bill for it, and the
+ * share of the invoice that is neither.
+ *
+ * Held together rather than computed three times in the row builder, because a
+ * margin worked out from a different pair of numbers than the two printed
+ * beside it is the one bug this table could have that nobody would spot.
+ */
+type Money = { cost: number | null; sell: number | null; margin: number | null };
+
 /** The card as the shared grid draws it. */
 function rateModel(
   rows: LaneRow[],
-  priceAt: (row: LaneRow, vehicle: string) => number | null,
+  moneyAt: (row: LaneRow, vehicle: string) => Money,
   carrier: string,
+  selling: boolean,
   page: number,
 ): TableModel {
   const pg = paginate(rows, page, RATE_PER);
@@ -132,24 +180,44 @@ function rateModel(
     sort: () => undefined,
   });
 
+  const money = (value: number | null, mute = false) =>
+    // A lane the card does not price is a dash, not a zero: zero is a price and
+    // this is the absence of one.
+    cell(value == null ? "" : value.toLocaleString("en-US"),
+      { mono: true, align: "right", mute: mute || value == null });
+
   return {
     title: "ค่าขนส่ง",
-    meta: `${rows.length} เส้นทาง · ${carrier === "ALL" ? "ทุกผู้ขนส่ง" : carrier}`,
+    meta: `${rows.length} เส้นทาง · ${carrier === "ALL" ? "ทุกผู้ขนส่ง" : carrier}`
+      + (selling ? " · ทุน / ขาย / กำไร" : ""),
     cols: [
       head("ผู้ขนส่ง", false), head("ต้นทาง", false), head("ปลายทาง", false), head("ZIP", false),
-      ...VEHICLES.map((vehicle) => head(vehicle, true)),
+      ...VEHICLES.flatMap((vehicle) => (selling
+        ? [head(`${vehicle} ทุน`, true), head(`${vehicle} ขาย`, true), head(`${vehicle} กำไร %`, true)]
+        : [head(vehicle, true)])),
     ],
     rows: pg.slice.map((row, index) => ({
       key: `${row.carrier}|${row.from}|${row.to}|${index}`,
       style: "",
       cells: [
         cell(row.carrier), cell(row.from), cell(row.to), cell(row.zip, { mono: true }),
-        ...VEHICLES.map((vehicle) => {
-          const value = priceAt(row, vehicle);
-          // A lane the card does not price is a dash, not a zero: zero is a
-          // price and this is the absence of one.
-          return cell(value == null ? "" : value.toLocaleString("en-US"),
-            { mono: true, align: "right", mute: value == null });
+        ...VEHICLES.flatMap((vehicle) => {
+          const at = moneyAt(row, vehicle);
+          if (!selling) return [money(at.cost)];
+          return [
+            // The cost is greyed beside the price we bill. Both are wanted on
+            // the row and only one of them is the answer to "what do we charge".
+            money(at.cost, true),
+            money(at.sell),
+            cell(at.margin == null ? "" : at.margin.toFixed(1),
+              {
+                mono: true, align: "right", mute: at.margin == null,
+                // A lane billed under cost is the thing this table exists to
+                // find. Red is not decoration here — and it is never the only
+                // signal, since the number beside it carries a minus sign.
+                color: at.margin != null && at.margin < 0 ? "#B91C1C" : undefined,
+              }),
+          ];
         }),
       ],
     })),
@@ -164,11 +232,21 @@ function rateModel(
 const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600";
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
 
-export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, onToast }: {
+export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave, canSave, saving, onToast }: {
   card: RateCard | null;
+  /**
+   * What we bill the customer, when it has been loaded.
+   *
+   * Kept apart from `card` rather than merged into it as another carrier. They
+   * are two sides of one lane, not two quotes for it, and a selling price
+   * sitting in the carrier dropdown would eventually be compared against a
+   * haulier and chosen as the cheaper of the two.
+   */
+  sell: RateCard | null;
   /** Hauliers the register already knows, so the name is not typed twice. */
   haulers: string[];
   onLoad: (file: File, hauler: string) => void;
+  onLoadSell: (file: File) => void;
   /** Writes one haulier's part of the card to the register. */
   onSave: (hauler: string) => void;
   /** False for an account that may read the card but not change it. */
@@ -208,20 +286,60 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, 
     [card],
   );
 
-  const priceAt = (row: LaneRow, vehicle: string) => {
-    if (!card || band < 0) return null;
-    const lane = row.lanes.find((l) => l.prices[vehicle]);
-    return lane ? priceFor(lane, vehicle, card.bands, price) : null;
+  /**
+   * The selling lanes by origin and destination postcode.
+   *
+   * Built once for the card rather than searched per cell — fifty lanes times
+   * three trucks is a hundred and fifty scans of the same list otherwise, on
+   * every keystroke in the diesel box.
+   */
+  const selling = useMemo(() => (sell ? chemoursSellIndex(sell.lanes) : null), [sell]);
+
+  const moneyAt = (row: LaneRow, vehicle: string) => {
+    const costLane = row.lanes.find((l) => l.prices[vehicle]);
+    const cost = card && band >= 0 && costLane
+      ? priceFor(costLane, vehicle, card.bands, price) : null;
+
+    // Read against the selling card's own fuel clause, not the haulier's. They
+    // agree today — both run 28.01 to 50.00 in eleven steps — and the day they
+    // do not, each side must still be the price its own contract names.
+    const sellLane = selling?.get(chemoursLaneKey(row.from, row.zip));
+    const sellPrice = sell && sellLane && readable
+      ? priceFor(sellLane, vehicle, sell.bands, price) : null;
+
+    return { cost, sell: sellPrice, margin: chemoursMargin(cost, sellPrice) };
   };
+
+  /**
+   * Cost lanes on screen with no selling price behind them.
+   *
+   * Said out loud rather than left as a column of dashes. The cost card carries
+   * lanes the RFP answer does not, and a reader scanning for margins needs to
+   * know that a blank is a lane we never quoted the customer for — not one
+   * where the join failed.
+   */
+  const unmatched = useMemo(() => (selling
+    ? rows.filter((row) => !selling.get(chemoursLaneKey(row.from, row.zip))).length
+    : 0), [rows, selling]);
 
   function exportCard() {
     if (!card || !rows.length) { onToast("ยังไม่มีการ์ดราคาให้ส่งออก"); return; }
-    const head = ["Carrier", "Origin", "Destination", "ZIP", ...VEHICLES];
+    const head = ["Carrier", "Origin", "Destination", "ZIP",
+      ...VEHICLES.flatMap((vehicle) => (sell
+        ? [`${vehicle} cost`, `${vehicle} sell`, `${vehicle} margin %`]
+        : [vehicle])),
+    ];
     const body = rows.map((row) => [
       row.carrier, row.from, row.to, row.zip,
-      ...VEHICLES.map((vehicle) => {
-        const value = priceAt(row, vehicle);
-        return value == null ? "" : String(value);
+      ...VEHICLES.flatMap((vehicle) => {
+        const at = moneyAt(row, vehicle);
+        const show = (value: number | null) => (value == null ? "" : value);
+        // Numbers, not text. This workbook gets pivoted and summed the moment
+        // it lands, and a column of strings that look like money does not add
+        // up — quietly, with a total of zero at the bottom.
+        return sell
+          ? [show(at.cost), show(at.sell), at.margin == null ? "" : Number(at.margin.toFixed(1))]
+          : [show(at.cost)];
       }),
     ]);
     // The diesel price is printed above the table because the numbers under it
@@ -229,6 +347,9 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, 
     const sheet = XLSX.utils.aoa_to_sheet([
       ["Customer", ":", "", "CHEMOURS"],
       ["Diesel", ":", "", diesel + " บาท" + (band >= 0 ? "  (" + card.bands[band].label + ")" : "")],
+      // Said on the sheet, because a margin column with no definition beside it
+      // gets read as a mark-up on cost by whoever opens it next.
+      ...(sell ? [["Margin", ":", "", "กำไรขั้นต้น = (ขาย − ทุน) ÷ ขาย"], ["Selling card", ":", "", sell.file]] : []),
       [],
       head, ...body,
     ]);
@@ -269,6 +390,23 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, 
               e.target.value = "";
             }}
             style={css("font-size:12px;font-family:inherit;max-width:250px" + (loading.trim() ? "" : ";opacity:.45"))}
+          />
+        </label>
+
+        {/* Its own picker, and no hauler box beside it. This card is ours, so
+            there is nobody to name — and asking for one would invite somebody
+            to file the selling prices under a haulier. */}
+        <label style={css("display:flex;flex-direction:column;gap:3px")}>
+          <span style={css(LABEL)}>ไฟล์ราคาขาย (วางบิลลูกค้า)</span>
+          <input
+            type="file"
+            accept=".xlsx,.xlsm,.xls"
+            onChange={(e) => {
+              const chosen = e.target.files?.[0];
+              if (chosen) onLoadSell(chosen);
+              e.target.value = "";
+            }}
+            style={css("font-size:12px;font-family:inherit;max-width:250px")}
           />
         </label>
 
@@ -360,6 +498,21 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, 
           <div style={css("font-size:11px;color:#7B8CA0;line-height:1.6")}>
             {card.file} · {rows.length} เส้นทาง · {card.lanes.length} แถวราคา · {card.bands.length} ช่วงราคาน้ำมัน ·
             ราคาที่แสดงคือราคาที่ช่วงน้ำมันด้านบน เปลี่ยนตัวเลขแล้วทั้งตารางเปลี่ยนตาม
+            {sell && (
+              <>
+                <br />
+                ราคาขาย: {sell.file} · {sell.lanes.length} เส้นทาง · จับคู่กับต้นทุนด้วยต้นทางและรหัสไปรษณีย์ปลายทาง ·{" "}
+                <b>กำไรขั้นต้น = (ขาย − ทุน) ÷ ขาย</b> ไม่ใช่บวกเพิ่มจากทุน
+                {unmatched > 0 && (
+                  <>
+                    {" · "}
+                    <span style={css("color:#B45309")}>
+                      {unmatched} เส้นทางในตารางนี้ยังไม่มีราคาขาย
+                    </span>
+                  </>
+                )}
+              </>
+            )}
           </div>
 
           {rows.length === 0 ? (
@@ -373,7 +526,7 @@ export function ChemoursRates({ card, haulers, onLoad, onSave, canSave, saving, 
                because the diesel price and the file pickers above it are part
                of reading the card and a locked page would squeeze them. */
             <DataTable
-              model={rateModel(rows, priceAt, carrier, page)}
+              model={rateModel(rows, moneyAt, carrier, !!sell, page)}
               full={full}
               onFull={() => setFull((on) => !on)}
               onPage={setPage}
