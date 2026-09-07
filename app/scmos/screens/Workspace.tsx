@@ -370,9 +370,23 @@ const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text"
 
 const PRIO_RANK: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 
-function sortJobs(list: Job[], sort: { key: string; dir: "asc" | "desc" } | null): Job[] {
+/**
+ * @param priced Pickers for the columns whose value depends on the rate card.
+ *
+ * SORT_BY is a module constant and cannot see the card, so three of the money
+ * columns were sorting on the keyed rate while showing the card's. A row priced
+ * from the card sorted as blank and sat at the bottom under a figure. Passing
+ * the pickers in is smaller than threading the card through every column
+ * definition, and it keeps one rule per column rather than two.
+ */
+function sortJobs(
+  list: Job[],
+  sort: { key: string; dir: "asc" | "desc" } | null,
+  priced?: Record<string, (job: Job) => string>,
+): Job[] {
   if (!sort) return list;
-  const rule = SORT_BY[sort.key];
+  const override = priced?.[sort.key];
+  const rule = override ? { pick: override, as: "number" as const } : SORT_BY[sort.key];
   if (!rule) return list;
   const flip = sort.dir === "desc" ? -1 : 1;
 
@@ -1143,7 +1157,33 @@ export function Workspace(p: Props) {
   if (ws.cat === "EXPORT") colKey = "EXPORT";
   if (ws.cat === "DELIVERY") colKey = "DELIVERY";
 
-  list = sortJobs(list, ws.sort);
+  /**
+   * What this trip's rate is, whether somebody keyed it or the card gave it.
+   *
+   * One place, because three columns depend on it and they were not agreeing.
+   * The return-load charge and the total were reading the keyed rate only, so a
+   * trip priced from the card showed ฿8,138 in one column and "ยังไม่มีราคาเที่ยว"
+   * in the next — the sum did not add up, which is exactly what a column of
+   * money must never do.
+   */
+  const tripRate = (j: Job): number | null => {
+    const keyed = Number(String(j.cost ?? "").replace(/[,\s฿]/g, ""));
+    if (Number.isFinite(keyed) && keyed > 0) return keyed;
+    if (!p.customerCard) return null;
+    return rateTrip(j, p.customerCard.lanes, bandForDiesel(p.customerCard.bands, p.diesel)).total;
+  };
+
+  // The three money columns whose figure comes off the rate card when the job
+  // carries no keyed rate. They must sort on what they show — see sortJobs.
+  list = sortJobs(list, ws.sort, {
+    "Transportation Rate": (job) => String(tripRate(job) ?? ""),
+    "ค่ารับกลับ": (job) => {
+      const kind = returnKind(job.returnLoad, job.returnFinished);
+      return kind === "none" ? "" : String(returnLoadCharge(tripRate(job), kind) ?? "");
+    },
+    "รวมค่าขนส่ง": (job) =>
+      String(tripCost(tripRate(job), returnKind(job.returnLoad, job.returnFinished)) ?? ""),
+  });
 
   /**
    * Import and export are different jobs with different paperwork, so a list
@@ -1499,22 +1539,6 @@ export function Workspace(p: Props) {
    * the card's answer is shown greyed, with the arithmetic in the tooltip so
    * the number can be argued with.
    */
-  /**
-   * What this trip's rate is, whether somebody keyed it or the card gave it.
-   *
-   * One place, because three columns depend on it and they were not agreeing.
-   * The return-load charge and the total were reading the keyed rate only, so a
-   * trip priced from the card showed ฿8,138 in one column and "ยังไม่มีราคาเที่ยว"
-   * in the next — the sum did not add up, which is exactly what a column of
-   * money must never do.
-   */
-  const tripRate = (j: Job): number | null => {
-    const keyed = Number(String(j.cost ?? "").replace(/[,\s฿]/g, ""));
-    if (Number.isFinite(keyed) && keyed > 0) return keyed;
-    if (!p.customerCard) return null;
-    return rateTrip(j, p.customerCard.lanes, bandForDiesel(p.customerCard.bands, p.diesel)).total;
-  };
-
   const transportRateCell = (j: Job): Cell => {
     if (j.cost) {
       return cell("฿" + Number(j.cost).toLocaleString("en-US"), { mono: true, align: "right" });
