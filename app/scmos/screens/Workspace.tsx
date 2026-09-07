@@ -13,6 +13,8 @@ import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { writeClipboardTable } from "../pasteBlock";
 import { looksLikeDiesel } from "../diesel";
+import { bandForDiesel } from "../rates";
+import { explain, rateTrip } from "../domesticRate";
 import {
   RETURN_SHARE, TICKED, UNTICKED, returnKind, returnLoadCharge, termCoversOrigin, tripCost,
   type ReturnKind,
@@ -69,6 +71,16 @@ type Props = {
   onDrawer: (key: string) => void;
   onDelay: (key: string) => void;
   onSaveCell: (job: Job, field: keyof Job) => void;
+  /**
+   * The customer's cost card, for the two priced columns on the Domestic grid.
+   * Null until it has been fetched, and on every grid that is not Domestic.
+   */
+  customerCard: {
+    lanes: { from: string; county: string; prices: Record<string, (number | null)[]> }[];
+    bands: { label: string; min: number; max: number }[];
+  } | null;
+  /** The diesel figure the card is read at. */
+  diesel: number;
   /** A dragged rectangle written in one go, each column keeping its own rule. */
   onPasteCells: (
     edits: { job: Job; field: keyof Job; value: string }[],
@@ -1416,7 +1428,7 @@ export function Workspace(p: Props) {
         ed(j, "weight", { mono: true, align: "right" }),
         ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
         ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtl", { mono: true, align: "right" }),
-        cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right" }),
+        transportRateCell(j),
         returnBox(j, "standard"), returnBox(j, "finished"), returnCostCell(j), tripTotalCell(j),
         ed(j, "remark", { w: 170, mute: true }), stCell(j),
       { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
@@ -1455,10 +1467,50 @@ export function Workspace(p: Props) {
    */
   const dieselCell = (j: Job): Cell => {
     const base = ed(j, "diesel", { mono: true, align: "right" });
-    if (base.kind === "input" || !j.diesel) return base;
+    if (base.kind === "input") return base;
+
+    // Nothing keyed against this job: show the figure the rate card is being
+    // read at, greyed, so the column is not a row of dashes on every job while
+    // still being obviously not the job's own recorded rate. Typing over it
+    // writes a real value.
+    if (!j.diesel) {
+      return {
+        ...cell(p.diesel ? String(p.diesel) : "", { mono: true, align: "right", mute: true }),
+        field: "diesel",
+        title: `ยังไม่ได้บันทึกเรทน้ำมันของงานนี้ — แสดงค่าที่ใช้อ่านการ์ดราคาอยู่ (${p.diesel})`
+          + " · ตามข้อตกลงต้องใช้ค่าเฉลี่ยทั้งเดือน",
+      };
+    }
     return looksLikeDiesel(j.diesel)
       ? base
       : { ...base, sp: base.sp + "color:#B45309;font-weight:600;" };
+  };
+
+  /**
+   * What the trip costs, off the customer's card by destination postcode.
+   *
+   * A rate already keyed onto the job wins — that is what was actually agreed,
+   * and a computed figure drawn over it would hide it. Where the job has none,
+   * the card's answer is shown greyed, with the arithmetic in the tooltip so
+   * the number can be argued with.
+   */
+  const transportRateCell = (j: Job): Cell => {
+    if (j.cost) {
+      return cell("฿" + Number(j.cost).toLocaleString("en-US"), { mono: true, align: "right" });
+    }
+    if (!p.customerCard) return cell("", { mono: true, align: "right", mute: true });
+
+    const band = bandForDiesel(p.customerCard.bands, p.diesel);
+    const rated = rateTrip(j, p.customerCard.lanes, band);
+    if (rated.total === null) {
+      return { ...cell("", { mono: true, align: "right", mute: true }), title: explain(rated.reason, j.wh) };
+    }
+    return {
+      ...cell("฿" + rated.total.toLocaleString("en-US"), { mono: true, align: "right", mute: true }),
+      title: "จากการ์ดราคา · " + rated.parts
+        .map((part) => `${part.trucks}×${part.vehicle} @ ฿${part.each.toLocaleString("en-US")}`)
+        .join(" + ") + ` · ที่ดีเซล ${p.diesel}`,
+    };
   };
 
   /**

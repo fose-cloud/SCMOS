@@ -148,7 +148,7 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
       } catch { /* the templates stay as they were rather than emptying */ }
     })();
     return () => { alive = false; };
-  }, [setCard, setTemplates]);
+  }, [setCard, setSell, setTemplates]);
 
   /**
    * Opens one haulier's card and adds it to whatever is already on screen.

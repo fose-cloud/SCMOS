@@ -741,6 +741,48 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   // the one from before the move.
   const [ratesEpoch, setRatesEpoch] = useState(0);
 
+  /**
+   * The customer's own cost card, for the two priced columns on the Domestic
+   * grid.
+   *
+   * Not the subcontractor book above — that is eighteen carriers quoting the
+   * same lanes so a job can go to the cheapest, and it prices nothing on this
+   * account. This is what the haulier charges us for these distribution runs,
+   * and it is what the grid's Transportation Rate column is a figure from.
+   *
+   * Fetched when the Domestic grid is opened and not before. It is a few
+   * hundred lanes and every other screen would be paying for it.
+   */
+  const [customerCard, setCustomerCard] = useState<
+    { lanes: { from: string; county: string; prices: Record<string, (number | null)[]> }[];
+      bands: { label: string; min: number; max: number }[] } | null>(null);
+  const customerCardAsked = useRef(false);
+
+  useEffect(() => {
+    if (!domesticGrid || customerCardAsked.current) return;
+    customerCardAsked.current = true;
+    (async () => {
+      try {
+        const response = await apiFetch("/api/customer-rates?customer=CHEMOURS&kind=COST",
+          { headers: { accept: "application/json" } });
+        if (!response.ok) return;
+        const stored = await response.json() as {
+          bands: { label: string; min: number; max: number }[];
+          lanes: { from: string; postalCode: string; prices: Record<string, (number | null)[]> }[];
+        };
+        setCustomerCard({
+          bands: stored.bands ?? [],
+          lanes: (stored.lanes ?? []).map((lane) => ({
+            from: lane.from, county: lane.postalCode, prices: lane.prices,
+          })),
+        });
+      } catch {
+        // The grid shows a dash and says why. A toast on arrival would be a
+        // complaint about a card most days nobody is looking at.
+      }
+    })();
+  }, [domesticGrid]);
+
   useEffect(() => {
     if (screen !== "rates" && screen !== "booking") return;
     if (ratesAsked.current === ratesEpoch) return;
@@ -2644,6 +2686,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onDrawer={ops ? setDrawer : () => setToast("กำลังโหลดข้อมูลสรุปก่อนเปิดรายละเอียด…")}
                   onDelay={setOpsDelay}
                   onSaveCell={saveCell}
+                  customerCard={customerCard}
+                  diesel={diesel}
                   onPasteCells={pasteCells}
                   onToast={setToast}
                   lockedCat={lockedCat}
