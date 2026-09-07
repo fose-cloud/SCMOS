@@ -72,8 +72,9 @@ type Props = {
   onDelay: (key: string) => void;
   onSaveCell: (job: Job, field: keyof Job) => void;
   /**
-   * The customer's cost card, for the two priced columns on the Domestic grid.
-   * Null until it has been fetched, and on every grid that is not Domestic.
+   * The customer's selling card — what The Chemours is billed, which is the
+   * figure the Transportation Rate column wants. Null until it has been
+   * fetched, and on every grid that is not Domestic.
    */
   customerCard: {
     lanes: { from: string; county: string; prices: Record<string, (number | null)[]> }[];
@@ -1502,16 +1503,28 @@ export function Workspace(p: Props) {
     if (j.cost) {
       return cell("฿" + Number(j.cost).toLocaleString("en-US"), { mono: true, align: "right" });
     }
-    if (!p.customerCard) return cell("", { mono: true, align: "right", mute: true });
+    if (!p.customerCard) {
+      return { ...cell("", { mono: true, align: "right", mute: true }),
+        title: "ยังไม่ได้โหลดการ์ดราคาขาย — เปิดแท็บ ค่าขนส่ง แล้วบันทึกไฟล์ราคาขายเข้าระบบ" };
+    }
 
     const band = bandForDiesel(p.customerCard.bands, p.diesel);
     const rated = rateTrip(j, p.customerCard.lanes, band);
     if (rated.total === null) {
-      return { ...cell("", { mono: true, align: "right", mute: true }), title: explain(rated.reason, j.wh) };
+      // Say what was searched, not only that nothing was found. A postcode that
+      // is simply not on the card and one that is there under another origin
+      // look identical on screen otherwise.
+      const detail = rated.reason === "no-lane"
+        ? ` — ค้นจากราคาขาย ${p.customerCard.lanes.length} เส้นทาง ไม่มี ${j.zip || "(ไม่มีรหัส)"}`
+        : "";
+      return {
+        ...cell("", { mono: true, align: "right", mute: true }),
+        title: explain(rated.reason, j.wh) + detail,
+      };
     }
     return {
       ...cell("฿" + rated.total.toLocaleString("en-US"), { mono: true, align: "right", mute: true }),
-      title: "จากการ์ดราคา · " + rated.parts
+      title: "ราคาขาย · " + rated.parts
         .map((part) => `${part.trucks}×${part.vehicle} @ ฿${part.each.toLocaleString("en-US")}`)
         .join(" + ") + ` · ที่ดีเซล ${p.diesel}`,
     };

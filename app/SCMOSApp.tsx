@@ -744,13 +744,15 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
   const [ratesEpoch, setRatesEpoch] = useState(0);
 
   /**
-   * The customer's own cost card, for the two priced columns on the Domestic
-   * grid.
+   * The customer's **selling** card, for the Transportation Rate column.
    *
-   * Not the subcontractor book above — that is eighteen carriers quoting the
-   * same lanes so a job can go to the cheapest, and it prices nothing on this
-   * account. This is what the haulier charges us for these distribution runs,
-   * and it is what the grid's Transportation Rate column is a figure from.
+   * Sell, not cost. I built this against the cost card first, which was wrong:
+   * the figure wanted on a job is what The Chemours is billed for it, not what
+   * the haulier charges us for it. The two differ by about a quarter.
+   *
+   * Not the subcontractor book above either — that is eighteen carriers quoting
+   * the same lanes so a job can go to the cheapest, and it prices nothing on
+   * this account.
    *
    * Fetched when the Domestic grid is opened and not before. It is a few
    * hundred lanes and every other screen would be paying for it.
@@ -765,7 +767,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     customerCardAsked.current = true;
     (async () => {
       try {
-        const response = await apiFetch("/api/customer-rates?customer=CHEMOURS&kind=COST",
+        const response = await apiFetch("/api/customer-rates?customer=CHEMOURS&kind=SELL",
           { headers: { accept: "application/json" } });
         if (!response.ok) return;
         const stored = await response.json() as {

@@ -164,7 +164,12 @@ export function explain(reason: RatedTrip["reason"], warehouse?: string): string
   switch (reason) {
     case "no-zip": return "งานนี้ยังไม่มี ZIP CODE — เป็นตัวที่ใช้จับคู่กับตารางค่าขนส่ง";
     case "no-lane": return "ไม่มีเส้นทางนี้ในการ์ดราคา";
-    case "ambiguous": return `รหัสไปรษณีย์นี้มีหลายเส้นทางในการ์ด และคลัง ${warehouse || "ของงานนี้"} ไม่ตรงกับอันไหน`;
+    case "ambiguous": return warehouse
+      ? `รหัสไปรษณีย์นี้มีราคาจากสองคลัง และ ${warehouse} ไม่ตรงกับคลังไหนในการ์ด`
+      // 15 of the 36 postcodes on the selling card are quoted from both
+      // warehouses at different prices. Without the job's W/H there is no way
+      // to choose, and picking one would be inventing a price.
+      : "รหัสไปรษณีย์นี้มีราคาจากสองคลัง — งานนี้ยังไม่ได้ระบุ W/H จึงเลือกไม่ได้";
     case "no-trucks": return "ยังไม่ได้ระบุจำนวนรถ";
     case "no-band": return "ยังไม่มีเรทน้ำมันของเดือนนี้";
     case "not-quoted": return "การ์ดราคาไม่ได้เสนอราคารถขนาดนี้ในเส้นทางนี้";
