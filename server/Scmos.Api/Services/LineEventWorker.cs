@@ -26,11 +26,11 @@ namespace Scmos.Api.Services;
 /// </para>
 ///
 /// <para>
-/// Nothing here writes to a job yet. This pass proves the pipeline: claim,
-/// parse, record what was understood, and file the message as processed or as
-/// needing review. Updating the register comes next, and it is deliberately not
-/// here — a worker that both drains a queue for the first time and mutates the
-/// operational record is two things to debug at once.
+/// Nothing here writes to a job. It claims, parses, works out which job the
+/// message means and whether the room that sent it may speak for that job, and
+/// files the answer. Applying the answer is a separate step on purpose: changing
+/// an operational record needs approval, and a message in a chat room is not
+/// one, so even a decision of "ok" is filed as ready-to-apply for an operator.
 /// </para>
 /// </summary>
 public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker> log)
@@ -175,22 +175,49 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             return;
         }
 
+        // Understood. Now: is the room allowed to say it about that job, and
+        // which job is it? The rule decides; this only stores the answer.
+        var decision = await LineMatching.DecideAsync(
+            db, row.LineGroupId, row.JobNumber, row.ParsedStatus, stopping);
+
+        // One key when there is one job. For a number that covers several of the
+        // speaker's own rows the column cannot hold the choice, so it stays
+        // empty and the keys go in the message a person reads.
+        row.JobKey = decision.Keys.Count == 1 ? decision.Keys[0] : "";
+        row.ErrorMessage = decision.Keys.Count > 1
+            ? $"{decision.Detail} ({string.Join(", ", decision.Keys)})"
+            : decision.Detail;
+
+        if (decision.Result == LineAuthority.Outcome.AlreadyThere)
+        {
+            // Nothing to do and nothing wrong. Vendors repeat themselves, and a
+            // review queue that fills up with messages agreeing with the
+            // register is one nobody reads.
+            row.ProcessingStatus = LineProcessing.Ignored;
+            row.ErrorCode = decision.Result;
+            await db.SaveChangesAsync(stopping);
+            log.LogInformation("LINE message {Id}: job {Key} is already {Status}",
+                id, row.JobKey, decision.To);
+            return;
+        }
+
         /*
-         * Understood, and nothing has been done with it yet.
+         * Everything else waits for a person, including a decision of "ok".
          *
-         * The next step resolves the group to a supplier, the number to a job,
-         * checks that the one may speak for the other, and writes the status
-         * through the transport domain. Until that exists, an understood
-         * message is filed for review rather than marked processed — telling
-         * the screen a job was updated when none was would be worse than saying
-         * nothing.
+         * Not because the match is in doubt — it is the one case where it is
+         * not — but because changing an operational record needs approval, and
+         * a message in a chat room is not one. So an allowed update is filed as
+         * ready-to-apply and an operator applies it. The step that does the
+         * applying is next, and it hangs off that approval rather than off this
+         * loop.
          */
         row.ProcessingStatus = LineProcessing.NeedReview;
-        row.ErrorCode = "awaiting-job-matching";
-        row.ErrorMessage = "อ่านข้อความได้แล้ว รอขั้นตอนจับคู่งานและอัปเดตสถานะ";
+        row.ErrorCode = decision.Applies ? "ready-to-apply" : decision.Result;
         await db.SaveChangesAsync(stopping);
-        log.LogInformation("LINE message {Id} parsed: job {Job}, status {Status}, confidence {Confidence}",
-            id, row.JobNumber, row.ParsedStatus, row.Confidence);
+
+        log.LogInformation(
+            "LINE message {Id}: job {Job} -> {Outcome} (key {Key}, {From} to {To})",
+            id, row.JobNumber, row.ErrorCode, row.JobKey, decision.From, decision.To);
     }
 
     /// <summary>

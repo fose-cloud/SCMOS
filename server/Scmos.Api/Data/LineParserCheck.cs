@@ -232,9 +232,16 @@ public static class LineParserCheck
         Console.WriteLine($"  {(twice ? "ok  " : "FAIL")}  signing the same body twice gives the same signature");
         Console.WriteLine();
 
+        /* ------------------------------------------ who may act on it */
+
+        // The other half of the integration's correctness, kept in its own file
+        // and run here so CI's --check-line covers both without a second entry
+        // in the workflow's list.
+        failed += LineAuthorityCheck.Run();
+
         Console.WriteLine(failed == 0
-            ? "All LINE parser checks passed."
-            : $"{failed} LINE parser check(s) failed.");
+            ? "All LINE checks passed."
+            : $"{failed} LINE check(s) failed.");
         return failed == 0 ? 0 : 1;
     }
 }
