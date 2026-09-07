@@ -373,19 +373,36 @@ path already records exactly that in `audit_events` with `source = LINE`.
 `EtaDelivery` has no source of data at all yet.
 
 **What actually limits OTD is missing data, not missing columns.** Measured on
-the development copy of the register (2,105 jobs):
+the production register with `--report-otd` (3,060 jobs), which reads through
+`JobRules.IsMeasurable` rather than counting non-empty columns:
 
-| | jobs | has `planTime` | measurable by OTD |
-|---|---|---|---|
-| EXPORT | 678 | 676 | 517 |
-| IMPORT | 1,427 | 177 | 117 |
-| **all** | **2,105** | **853** | **634** |
+| | jobs | has `planTime` | measurable by OTD | on time |
+|---|---|---|---|---|
+| IMPORT | 2,093 | 1,315 | 930 | 73% |
+| EXPORT | 921 | 908 | 593 | 59% |
+| DELIVERY | 46 | 0 | 0 | — |
+| **all** | **3,060** | **2,223** | **1,523 (50%)** | |
 
-Among jobs that actually finished — DELIVERED or COMPLETED — OTD can score 49
-of 236. So the figure is close to an EXPORT-only measure, and no schema change
-moves it: what moves it is `planTime` being filled on import jobs. That is an
-operations question, not an engineering one, and it should be put to the team
-before anybody writes a migration.
+Among jobs that actually finished — DELIVERED or COMPLETED — OTD scores 1,456
+of 2,683, so 54% of finished work is scoreable; of those, 1,047 on time and 409
+late by more than 30 minutes.
+
+No schema change moves any of that. What moves it is the four fields being
+filled, which is an operations question rather than an engineering one, and it
+should be put to the team before anybody writes a migration.
+
+> **An earlier draft of this section had the wrong numbers.** It was measured
+> on a development copy of the register — 2,105 jobs, `planTime` on 177 of
+> 1,427 import jobs — and concluded that OTD was close to an EXPORT-only
+> measure. That is not true of production, where import jobs carry `planTime`
+> 63% of the time and contribute *more* measurable jobs than export does. The
+> conclusion about step 11 is unchanged and is in fact stronger; the diagnosis
+> of where the gap lay was wrong. The development copy is a stale subset, and
+> that is why `--report-otd` exists.
+
+The real blind spot the production numbers show is **DELIVERY: 46 jobs, none
+with a `planTime`, none scoreable.** Small, but it is a whole category that
+cannot appear in an on-time figure at all.
 
 `workflow_events` is also empty (0 rows), so the workflow history the spec
 assumes is not being written yet either.
