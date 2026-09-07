@@ -10,6 +10,11 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
 {
     public DbSet<OperationJob> OperationJobs => Set<OperationJob>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
+
+    /* ---- LINE: the group-to-supplier bridge, and the raw events ---- */
+    public DbSet<LineGroup> LineGroups => Set<LineGroup>();
+    public DbSet<LineUser> LineUsers => Set<LineUser>();
+    public DbSet<LineEvent> LineEvents => Set<LineEvent>();
     public DbSet<SupplierRequest> SupplierRequests => Set<SupplierRequest>();
     public DbSet<PreRunCheck> PreRunChecks => Set<PreRunCheck>();
     public DbSet<ShipmentMilestone> ShipmentMilestones => Set<ShipmentMilestone>();
@@ -119,8 +124,86 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(500).HasDefaultValue("");
             entry.Property(e => e.By).HasColumnName("by_user").HasMaxLength(120);
             entry.Property(e => e.At).HasColumnName("at");
+            entry.Property(e => e.EventAt).HasColumnName("event_at");
+            // SCMOS for everything written before LINE existed, which is what
+            // those rows are.
+            entry.Property(e => e.Source).HasColumnName("source").HasMaxLength(12).HasDefaultValue(EventSource.Scmos);
+            entry.Property(e => e.LineEventId).HasColumnName("line_event_id").HasDefaultValue(0L);
             // Reading a job's workflow means reading its events newest first.
             entry.HasIndex(e => new { e.JobKey, e.Id }).HasDatabaseName("workflow_events_job_idx");
+        });
+
+        /* ------------------------------------------------------------- LINE */
+
+        model.Entity<LineGroup>(entry =>
+        {
+            entry.ToTable("line_groups");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.LineGroupId).HasColumnName("line_group_id").HasMaxLength(64);
+            entry.Property(e => e.GroupName).HasColumnName("group_name").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.SupplierId).HasColumnName("supplier_id").HasDefaultValue(0L);
+            entry.Property(e => e.GroupType).HasColumnName("group_type").HasMaxLength(16).HasDefaultValue(LineGroupType.Vendor);
+            entry.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            // One row per group, enforced by the database. The mapping is the
+            // authorisation, and two rows for one group would be two answers to
+            // "whose work is this".
+            entry.HasIndex(e => e.LineGroupId).IsUnique().HasDatabaseName("line_groups_id_idx");
+        });
+
+        model.Entity<LineUser>(entry =>
+        {
+            entry.ToTable("line_users");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.LineUserId).HasColumnName("line_user_id").HasMaxLength(64);
+            entry.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.SupplierId).HasColumnName("supplier_id").HasDefaultValue(0L);
+            entry.Property(e => e.StaffId).HasColumnName("staff_id").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Role).HasColumnName("role").HasMaxLength(24).HasDefaultValue("UNKNOWN");
+            entry.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entry.HasIndex(e => e.LineUserId).IsUnique().HasDatabaseName("line_users_id_idx");
+        });
+
+        model.Entity<LineEvent>(entry =>
+        {
+            entry.ToTable("line_events");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.WebhookEventId).HasColumnName("webhook_event_id").HasMaxLength(64).HasDefaultValue("");
+            entry.Property(e => e.LineMessageId).HasColumnName("line_message_id").HasMaxLength(64);
+            entry.Property(e => e.LineGroupId).HasColumnName("line_group_id").HasMaxLength(64).HasDefaultValue("");
+            entry.Property(e => e.LineUserId).HasColumnName("line_user_id").HasMaxLength(64).HasDefaultValue("");
+            entry.Property(e => e.MessageType).HasColumnName("message_type").HasMaxLength(24).HasDefaultValue("");
+            entry.Property(e => e.RawText).HasColumnName("raw_text").HasMaxLength(4000).HasDefaultValue("");
+            // No length: a webhook body is whatever LINE sends, and truncating
+            // the only copy of the evidence defeats the point of keeping it.
+            entry.Property(e => e.RawPayload).HasColumnName("raw_payload").HasDefaultValue("");
+            entry.Property(e => e.ReceivedAt).HasColumnName("received_at");
+            entry.Property(e => e.ProcessingStatus).HasColumnName("processing_status").HasMaxLength(16).HasDefaultValue(LineProcessing.Received);
+            entry.Property(e => e.ProcessedAt).HasColumnName("processed_at");
+            entry.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(40).HasDefaultValue("");
+            entry.Property(e => e.ErrorMessage).HasColumnName("error_message").HasMaxLength(500).HasDefaultValue("");
+            entry.Property(e => e.RetryCount).HasColumnName("retry_count").HasDefaultValue(0);
+            entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.JobNumber).HasColumnName("job_number").HasMaxLength(40).HasDefaultValue("");
+            entry.Property(e => e.ParsedStatus).HasColumnName("parsed_status").HasMaxLength(40).HasDefaultValue("");
+            entry.Property(e => e.Confidence).HasColumnName("confidence").HasDefaultValue(0d);
+            entry.Property(e => e.MatchedRules).HasColumnName("matched_rules").HasMaxLength(500).HasDefaultValue("");
+            entry.Property(e => e.Warnings).HasColumnName("warnings").HasMaxLength(500).HasDefaultValue("");
+
+            // Idempotency, enforced by the database rather than by a check the
+            // worker might skip. LINE retries a webhook it did not get a fast
+            // enough answer to, so the same message will arrive twice.
+            entry.HasIndex(e => e.LineMessageId).IsUnique().HasDatabaseName("line_events_message_idx");
+            // What the worker asks for: the oldest thing not yet dealt with.
+            entry.HasIndex(e => new { e.ProcessingStatus, e.ReceivedAt }).HasDatabaseName("line_events_queue_idx");
+            // And what the review screen asks for.
+            entry.HasIndex(e => new { e.LineGroupId, e.ReceivedAt }).HasDatabaseName("line_events_group_idx");
         });
 
         model.Entity<SupplierRequest>(entry =>

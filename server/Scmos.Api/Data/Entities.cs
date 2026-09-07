@@ -68,7 +68,25 @@ public class WorkflowEvent
     public string Note { get; set; } = "";
 
     public string By { get; set; } = "";
+
+    /// <summary>When SCMOS recorded it.</summary>
     public DateTimeOffset At { get; set; }
+
+    /// <summary>
+    /// When the thing actually happened, when that is known to be different.
+    ///
+    /// A driver writing "ถึงลูกค้าแล้ว 10.25" at 10:41 is reporting an arrival
+    /// at 10:25. <see cref="At"/> is when we heard; this is when it happened,
+    /// and it is the one an OTD figure has to be measured against. Null for
+    /// everything entered in SCMOS, where the two are the same moment.
+    /// </summary>
+    public DateTimeOffset? EventAt { get; set; }
+
+    /// <summary>SCMOS · LINE · SYSTEM — see <see cref="EventSource"/>.</summary>
+    public string Source { get; set; } = EventSource.Scmos;
+
+    /// <summary>The LINE message that caused it, when one did. 0 otherwise.</summary>
+    public long LineEventId { get; set; }
 }
 
 /// <summary>
