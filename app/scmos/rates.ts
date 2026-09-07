@@ -19,6 +19,24 @@ import * as XLSX from "xlsx";
 /** One step of the fuel clause. `max` is Infinity on the open-ended top band. */
 export type FuelBand = { label: string; min: number; max: number };
 
+/**
+ * A line the customer asked to have priced, that carries no price.
+ *
+ * Counted before as a number and then thrown away. On the Chemours card that
+ * number is 51 — a 20'/40'GP line on every single lane of the RFP, noted "Truck
+ * with container", priced at none of the eleven diesel bands. A count tells
+ * nobody which lanes; a blank column would read as a lane worth nothing. So the
+ * rows were dropped, and the question the customer asked went with them.
+ */
+export type UnpricedLine = {
+  from: string;
+  to: string;
+  county: string;
+  vehicle: string;
+  /** Whatever the sheet wrote beside it, which is often the only explanation. */
+  note: string;
+};
+
 export type RateLane = {
   id: string;
   carrier: string;
@@ -851,7 +869,7 @@ export function parseChemoursSellSheet(
   input: SheetInput,
   bands: FuelBand[],
   issues: RateIssue[],
-): { lanes: RateLane[]; source: RateSource } | null {
+): { lanes: RateLane[]; unpriced: UnpricedLine[]; source: RateSource } | null {
   const layout = chemoursSellLayout(input.rows);
   if (!layout) return null;
 
@@ -883,6 +901,7 @@ export function parseChemoursSellSheet(
 
   const held = new Map<string, RateLane>();
   const order: string[] = [];
+  const unpriced: UnpricedLine[] = [];
   let skipped = 0;
 
   for (let r = layout.headRow + 1; r < input.rows.length; r++) {
@@ -901,13 +920,25 @@ export function parseChemoursSellSheet(
       prices[slot] = price;
       quoted++;
     }
-    // The 20'/40'GP rows are the customer asking for a container rate and being
-    // given none. Counted, not carried: an unpriced row in the table would read
-    // as a lane worth nothing.
-    if (!quoted) { skipped++; continue; }
-
     const from = text(row, 0);
     const county = text(row, 3);
+
+    /*
+     * The 20'/40'GP rows are the customer asking for a container rate and being
+     * given none.
+     *
+     * Not kept as lanes — an unpriced row in the price table would read as a
+     * lane worth nothing — but kept as what they are: a question that was put
+     * and not answered, with the lane it was put about.
+     */
+    if (!quoted) {
+      skipped++;
+      unpriced.push({
+        from, to, county, vehicle,
+        note: layout.note >= 0 ? text(row, layout.note) : "",
+      });
+      continue;
+    }
     const key = `${from}|${to}|${county}`;
     const lane = held.get(key);
     if (lane) {
@@ -941,10 +972,14 @@ export function parseChemoursSellSheet(
   }
 
   const lanes = order.map((key) => held.get(key)!);
-  if (!lanes.length) return null;
+  // A sheet with no priced lane is still worth returning when it asked for
+  // prices and got none — a whole warehouse left unquoted is the loudest
+  // version of this, and giving up here would be the one case that hides it.
+  if (!lanes.length && !unpriced.length) return null;
 
   return {
     lanes,
+    unpriced,
     source: { carrier, file: input.fileName, sheet: input.sheetName, service, lanes: lanes.length, skipped },
   };
 }

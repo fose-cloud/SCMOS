@@ -71,16 +71,46 @@ test("four truck sizes on one lane are one row with the sizes beside each other"
   assert.equal(out.lanes[0].county, "10130");
 });
 
-test("a row the customer asked for and we never priced is counted, not carried", () => {
-  // 20'/40'GP is on every lane of the real card and priced on none of them.
-  // A lane in the table with no price would read as a trip worth nothing.
+test("a row the customer asked for and we never priced is kept as the question it is", () => {
+  // 20'/40'GP is on every lane of the real card and priced on none of them —
+  // 51 rows, noted "Truck with container". A lane in the price table with no
+  // price would read as a trip worth nothing, so it is not one; but dropping
+  // the row entirely threw away the fact that the customer had asked.
   const { out } = read([
     lane("Samutprakarn", 10130, "Non-DG", "4W", [2420, 2492.6, 2567.378]),
-    lane("Samutprakarn", 10130, "Non-DG", "20'/40'GP", ["", "", ""]),
+    lane("Samutprakarn", 10130, "Non-DG", "20'/40'GP", ["", "", ""], "Truck with container"),
   ]);
-  assert.equal(out.lanes.length, 1);
-  assert.equal(out.source.skipped, 1, "the unpriced line is reported, not silently dropped");
+  assert.equal(out.lanes.length, 1, "not a priced lane");
   assert.equal(out.lanes[0].prices["20'/40'GP"], undefined);
+  assert.equal(out.source.skipped, 1);
+
+  assert.equal(out.unpriced.length, 1, "and not thrown away either");
+  assert.deepEqual(out.unpriced[0], {
+    from: "Unithai (Bangna KM. 23)", to: "Samutprakarn", county: "10130",
+    vehicle: "20'/40'GP", note: "Truck with container",
+  });
+});
+
+test("the unpriced line names its own lane, so the list can be sent to a haulier", () => {
+  // A count says 51 and nothing else. Which lanes is the whole question.
+  const { out } = read([
+    lane("Bangkok", 10160, "Non-DG", "4W", [3080, 3172, 3268]),
+    lane("Bangkok", 10160, "Non-DG", "20'/40'GP", ["", "", ""], "Truck with container"),
+    lane("Rayong", 21140, "Non-DG", "6W", [6400, 6592, 6790]),
+    lane("Rayong", 21140, "Non-DG", "20'/40'GP", ["", "", ""], "Truck with container"),
+  ]);
+  assert.deepEqual(out.unpriced.map((line) => `${line.to} ${line.county}`),
+    ["Bangkok 10160", "Rayong 21140"]);
+});
+
+test("a sheet that priced nothing at all is still returned, not given up on", () => {
+  // A whole warehouse left unquoted is the loudest version of this, and the
+  // no-lanes shortcut was the one case that would have hidden it.
+  const { out } = read([
+    lane("Samutprakarn", 10130, "Non-DG", "20'/40'GP", ["", "", ""], "Truck with container"),
+  ]);
+  assert.equal(out.lanes.length, 0);
+  assert.equal(out.unpriced.length, 1);
 });
 
 test("fractional baht round to whole baht, because an invoice is written in baht", () => {

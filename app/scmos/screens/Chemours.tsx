@@ -65,8 +65,10 @@ function fromStored(stored: StoredCard): RateCard {
     issues: [],
     // The register stores prices, not the words around them. A card read back
     // from it has no conditions on it, which is the truth about what was kept —
-    // not a claim that the agreement carries none.
+    // not a claim that the agreement carries none. Same for the lines that were
+    // asked about and never priced: nothing was stored, so nothing is claimed.
     notes: [],
+    unpriced: [],
   };
 }
 
@@ -165,6 +167,9 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
           // The haulier being reloaded brings its own conditions with it, so
           // the ones already held for that haulier go with the old lanes.
           notes: [...held.notes.filter((note) => note.carrier !== read.lanes[0].carrier), ...read.notes],
+          // The haulier card carries none of these — see readRateCard — so this
+          // is the selling card's list, left alone by a cost card arriving.
+          unpriced: held.unpriced,
         };
       });
       onToast(`อ่านการ์ดของ ${hauler} แล้ว ${read.lanes.length} แถว · ${read.bands.length} ช่วงราคาน้ำมัน`);

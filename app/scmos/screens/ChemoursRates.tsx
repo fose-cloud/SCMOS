@@ -3,12 +3,13 @@
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
+import { DIESEL, DIESEL_DEFAULT } from "../diesel";
 import { cell, paginate } from "../util";
 import { DataTable, type TableModel } from "../DataTable";
 import {
   bandForDiesel, chemoursLaneKey, chemoursLayout, chemoursMargin, chemoursSellIndex,
   parseChemoursSellSheet, parseChemoursSheet, priceFor, reconcileChemoursBands,
-  type FuelBand, type RateIssue, type RateLane,
+  type FuelBand, type RateIssue, type RateLane, type UnpricedLine,
 } from "../rates";
 
 /**
@@ -42,6 +43,8 @@ export type RateCard = {
   /** Conditions off the sheets. Empty for a card read back from the register,
    *  which stores prices and not the words around them. */
   notes: CardNote[];
+  /** Lines the customer asked to have priced and that carry no price. */
+  unpriced: UnpricedLine[];
 };
 
 /**
@@ -107,7 +110,10 @@ export async function readRateCard(file: File, carrier: string): Promise<RateCar
     }
   }
 
-  return { file: file.name, bands, lanes, issues, notes };
+  // The haulier card quotes one truck size a sheet, so a size it does not
+  // cover has no row to be unpriced on — the absence is the missing sheet
+  // itself, which the reader cannot tell from a size nobody asked about.
+  return { file: file.name, bands, lanes, issues, notes, unpriced: [] };
 }
 
 /**
@@ -128,6 +134,7 @@ export async function readSellingCard(file: File): Promise<RateCard> {
   const bands: FuelBand[] = [];
   const lanes: RateLane[] = [];
   const issues: RateIssue[] = [];
+  const unpriced: UnpricedLine[] = [];
 
   for (const sheetName of book.SheetNames) {
     const rows = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[sheetName], {
@@ -136,12 +143,14 @@ export async function readSellingCard(file: File): Promise<RateCard> {
     if (!rows.length) continue;
     const parsed = parseChemoursSellSheet(
       { carrier: SELLER, fileName: file.name, sheetName, rows }, bands, issues);
-    if (parsed) lanes.push(...parsed.lanes);
+    if (!parsed) continue;
+    lanes.push(...parsed.lanes);
+    unpriced.push(...parsed.unpriced);
   }
 
   // No notes: this card keeps its conditions in a Note column beside each lane
   // rather than in a line at the foot of the sheet, and the lanes carry them.
-  return { file: file.name, bands, lanes, issues, notes: [] };
+  return { file: file.name, bands, lanes, issues, notes: [], unpriced };
 }
 
 /** Us, on the selling side of the card. Not a hauler and never filtered as one. */
@@ -294,7 +303,7 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
    * a control rather than a constant — the contract's fuel clause moves the
    * rate about 3% each time diesel crosses a band.
    */
-  const [diesel, setDiesel] = useState("32.94");
+  const [diesel, setDiesel] = useState(DIESEL_DEFAULT);
 
   const price = Number(diesel.replace(/,/g, ""));
   const readable = Number.isFinite(price) && price > 0;
@@ -303,6 +312,8 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
   const [page, setPage] = useState(1);
   /** The card filling the screen with everything else hidden, as on My Job. */
   const [full, setFull] = useState(false);
+  /** Whether the lanes behind the unpriced summary are listed out. */
+  const [showGaps, setShowGaps] = useState(false);
 
   const rows = useMemo(() => (card ? laneRows(card, carrier) : []), [card, carrier]);
 
@@ -339,6 +350,28 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
 
     return { cost, sell: sellPrice, margin: chemoursMargin(cost, sellPrice) };
   };
+
+  /**
+   * The lines the customer asked about and nobody priced, gathered by vehicle.
+   *
+   * Whether a haulier has quoted the same vehicle is worked out from the cost
+   * card rather than assumed. On this account nobody has: the cost card is six
+   * sheets of 4W, 6W and 10W and there is no container sheet at all. That
+   * changes what the gap means — it is not a selling price waiting to be set
+   * over a known cost, it is a quote nobody has asked the haulier for.
+   */
+  const gaps = useMemo(() => {
+    const byVehicle = new Map<string, { vehicle: string; note: string; lines: UnpricedLine[] }>();
+    for (const line of sell?.unpriced ?? []) {
+      const held = byVehicle.get(line.vehicle);
+      if (held) held.lines.push(line);
+      else byVehicle.set(line.vehicle, { vehicle: line.vehicle, note: line.note, lines: [line] });
+    }
+    return [...byVehicle.values()].map((group) => ({
+      ...group,
+      costed: (card?.lanes ?? []).some((lane) => lane.prices[group.vehicle]),
+    }));
+  }, [sell, card]);
 
   /**
    * Cost lanes on screen with no selling price behind them.
@@ -386,8 +419,31 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
     sheet["!cols"] = head.map((h) => ({ wch: Math.max(11, h.length + 6) }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, "Rates");
+
+    // The gaps go out as their own sheet, in the shape of the question rather
+    // than of an answer. Somebody has to take this list to the haulier before
+    // any of it can be priced, and a list they can send is the useful form of
+    // it — one row per lane, with what is missing named.
+    if (gaps.length) {
+      const gapRows = gaps.flatMap((gap) => gap.lines.map((line) => [
+        line.from, line.to, line.county, line.vehicle, line.note,
+        gap.costed ? "มีราคาทุนแล้ว" : "ยังไม่มีราคาทุน",
+      ]));
+      const gapHead = ["Origin", "Destination", "ZIP", "Truck type", "Note", "Cost"];
+      const gapSheet = XLSX.utils.aoa_to_sheet([
+        ["Customer", ":", "", "CHEMOURS"],
+        ["", "", "", "ลูกค้าขอราคาไว้แต่ยังไม่ได้เสนอ"],
+        [],
+        gapHead, ...gapRows,
+      ]);
+      gapSheet["!cols"] = [{ wch: 26 }, { wch: 34 }, { wch: 9 }, { wch: 13 }, { wch: 20 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(workbook, gapSheet, "Not quoted");
+    }
+
     XLSX.writeFile(workbook, `Chemours_rates_${carrier === "ALL" ? "ALL" : carrier}.xlsx`);
-    onToast(`ส่งออก ${rows.length} เส้นทางแล้ว`);
+    const missing = gaps.reduce((sum, gap) => sum + gap.lines.length, 0);
+    onToast(`ส่งออก ${rows.length} เส้นทางแล้ว`
+      + (missing ? ` · แนบรายการที่ยังไม่ได้เสนอราคา ${missing} รายการไว้ในชีต Not quoted` : ""));
   }
 
   return (
@@ -461,6 +517,10 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
 
             <div style={css("display:flex;flex-direction:column;gap:2px")}>
               <span style={css(LABEL)}>ช่วงราคาที่ใช้</span>
+              {/* Where the default came from and how old it is. The box is the
+                  one control on this screen that changes every number under it,
+                  and a figure with no date on it invites somebody to trust a
+                  stale one. */}
               {/* One clause per haulier, so with more than one on screen there
                   is no single band to name. Each row is still priced against
                   its own haulier's clause; naming one of them here would be a
@@ -470,6 +530,9 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
                   : carriers.length > 1 && carrier === "ALL" ? "แต่ละรายใช้ช่วงของตัวเอง"
                   : band >= 0 ? card.bands[band].label
                   : "เกินช่วงสูงสุดที่การ์ดนี้ระบุไว้"}
+              </span>
+              <span style={css("font-size:10.5px;color:#94A3B8")}>
+                ค่าตั้งต้น {DIESEL.price} · {DIESEL.effective} · {DIESEL.source}
               </span>
             </div>
 
@@ -516,6 +579,41 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
         </div>
       ) : (
         <>
+          {/* Lines the customer asked to have priced, that carry none.
+              These used to be counted and dropped: the 20'/40'GP row on every
+              lane of the RFP, priced at none of the eleven bands. A count told
+              nobody which lanes, and dropping them meant the question the
+              customer asked disappeared along with the rows. */}
+          {!!gaps.length && (
+            <div style={css("background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:12px 15px;font-size:12px;color:#7C4A03;line-height:1.75")}>
+              <b>ลูกค้าขอราคาไว้แต่ยังไม่ได้เสนอ {gaps.reduce((sum, gap) => sum + gap.lines.length, 0)} รายการ</b>
+              {gaps.map((gap) => (
+                <div key={gap.vehicle}>
+                  {gap.vehicle} · {gap.lines.length} เส้นทาง{gap.note ? ` · ${gap.note}` : ""}
+                  {" — "}
+                  {gap.costed
+                    ? "มีราคาทุนของผู้ขนส่งแล้ว ตั้งราคาขายได้เลย"
+                    : "ยังไม่มีราคาทุนของรถประเภทนี้ในการ์ดผู้ขนส่งด้วย ต้องขอราคาจากผู้ขนส่งก่อน"}
+                </div>
+              ))}
+              <button
+                onClick={() => setShowGaps((on) => !on)}
+                style={css("margin-top:7px;height:26px;padding:0 11px;border:1px solid #D9A441;background:#fff;color:#7C4A03;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit")}
+              >
+                {showGaps ? "ซ่อนรายชื่อเส้นทาง" : "ดูว่าเป็นเส้นทางไหนบ้าง"}
+              </button>
+              {showGaps && (
+                <div style={css("margin-top:8px;max-height:220px;overflow:auto;font-size:11.5px;font-family:'IBM Plex Mono',monospace;line-height:1.85")}>
+                  {gaps.flatMap((gap) => gap.lines).map((line, index) => (
+                    <div key={index}>
+                      {line.from} → {line.to} · {line.county} · {line.vehicle}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Conditions off the card, under the prices they qualify. These are
               contract terms that were being dropped on the floor: the
               return-load line is worth half a trip's rate on every backhaul and
