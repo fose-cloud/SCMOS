@@ -60,6 +60,18 @@ export type RateSource = {
   service: string;
   lanes: number;
   skipped: number;
+  /**
+   * Conditions written on the sheet under the prices, in the words the card
+   * uses.
+   *
+   * These were being dropped. THAI KOT's SCGJWD sheets end with *กรณีมีงานรับกลับ
+   * วางบิลในครึ่งราคาของราคาเที่ยวนั้นๆ* — a return load is billed at half the rate
+   * of that trip — and its Unithai sheets do not. That is a term worth money on
+   * every backhaul, and it lived only in a file nobody opens once the card has
+   * been loaded. Carried through so it can be shown beside the prices it
+   * qualifies, and so which sheets carry it stays visible.
+   */
+  notes?: string[];
 };
 
 export type RateIssue = {
@@ -704,12 +716,24 @@ export function parseChemoursSheet(
   }
 
   const lanes: RateLane[] = [];
+  const notes: string[] = [];
   let skipped = 0;
 
   for (let r = headRow + 2; r < input.rows.length; r++) {
     const row = input.rows[r] ?? [];
     const to = text(row, 2);
-    if (!to) continue;
+    if (!to) {
+      // A line with something in the origin column and no destination or
+      // postcode beside it is a condition, not a lane. That is exactly how
+      // these cards write their footnotes, and the loop used to walk past them.
+      const note = text(row, 0);
+      // The bare "หมายเหตุ" heading over them carries nothing the reader needs;
+      // the sentence under it does.
+      if (note && !text(row, 3) && !/^(หมายเหตุ|remark|remarks|note|notes)$/i.test(note)) {
+        notes.push(note);
+      }
+      continue;
+    }
 
     const prices: (number | null)[] = [];
     let quoted = 0;
@@ -743,7 +767,7 @@ export function parseChemoursSheet(
     lanes,
     source: {
       carrier, file: input.fileName, sheet: input.sheetName, service,
-      lanes: lanes.length, skipped,
+      lanes: lanes.length, skipped, notes,
     },
   };
 }

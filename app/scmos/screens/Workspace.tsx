@@ -12,6 +12,7 @@ import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { writeClipboardTable } from "../pasteBlock";
+import { TICKED, UNTICKED, hasReturnLoad, returnLoadCharge, termCoversOrigin, tripCost } from "../returnLoad";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { useGridRange } from "../useGridRange";
 import { useCarriers } from "../carriers";
@@ -64,6 +65,14 @@ type Props = {
   onDrawer: (key: string) => void;
   onDelay: (key: string) => void;
   onSaveCell: (job: Job, field: keyof Job) => void;
+  /**
+   * One value written straight onto one field, with no editor in between.
+   *
+   * `onSaveCell` reads what is in the edit box; a tick knows its new value
+   * already and reading the box would save the previous render's — the same
+   * trap the dropdowns had. So the value travels with the call.
+   */
+  onSetCell: (job: Job, field: keyof Job, value: string) => void;
   /** A dragged rectangle written in one go, each column keeping its own rule. */
   onPasteCells: (
     edits: { job: Job; field: keyof Job; value: string }[],
@@ -218,7 +227,7 @@ const COL_DEFS: Record<string, [string][]> = {
   // Province is gone: it is not on their sheet and was not asked for. It is
   // still written by the import and still printed on the Delivery Details
   // report, so nothing is lost, but it cannot be edited from this grid.
-  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["Remark"], ["Status"], ["Assigned To"]],
+  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["งานรับกลับ"], ["ครึ่งราคารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
   ALL: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
@@ -284,6 +293,15 @@ const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text"
   "KGS.": { pick: (j) => j.weight, as: "number" },
   "TAIL LIFT": { pick: (j) => j.vtl, as: "number" },
   "Transportation Rate": { pick: (j) => j.cost, as: "number" },
+  // The half-rate and the total sort on what they show, not on the rate behind
+  // them: a ticked 4,000 trip costs more than an unticked 5,000 one, and a sort
+  // that put them the other way round would be lying about the column.
+  "งานรับกลับ": { pick: (j) => (hasReturnLoad(j.returnLoad) ? "1" : "0"), as: "text" },
+  "ครึ่งราคารับกลับ": {
+    pick: (j) => (hasReturnLoad(j.returnLoad) ? String(returnLoadCharge(j.cost) ?? "") : ""),
+    as: "number",
+  },
+  "รวมค่าขนส่ง": { pick: (j) => String(tripCost(j.cost, j.returnLoad) ?? ""), as: "number" },
   Plan: { pick: (j) => j.planTime, as: "time" },
   "Plan Time": { pick: (j) => j.planTime, as: "time" },
   Type: { pick: (j) => j.type, as: "text" },
@@ -1394,7 +1412,8 @@ export function Workspace(p: Props) {
         ed(j, "weight", { mono: true, align: "right" }),
         ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
         ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtl", { mono: true, align: "right" }),
-        cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right", bold: true }),
+        cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right" }),
+        returnCell(j), returnHalfCell(j), tripTotalCell(j),
         ed(j, "remark", { w: 170, mute: true }), stCell(j),
       { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
       ]);
@@ -1418,6 +1437,63 @@ export function Workspace(p: Props) {
     ]);
   };
 
+  /**
+   * งานรับกลับ — a load came back on this trip, so the haulier bills half the
+   * trip's rate again for the return leg.
+   *
+   * A box rather than a typed TRUE, because it is the only value the column
+   * can hold and because this is a cost somebody has to be able to add without
+   * opening the job.
+   *
+   * Ticked on a warehouse whose card does not carry the term, it still ticks —
+   * and says so. The line is on THAI KOT's SCGJWD sheets and not on its Unithai
+   * ones, but the register's warehouse names are whatever operators typed and
+   * there is no agreed mapping to the card's own spellings. Refusing on a
+   * spelling nobody settled would lose a real cost; asking about it does not.
+   */
+  const returnCell = (j: Job): Cell => {
+    const on = hasReturnLoad(j.returnLoad);
+    const covered = termCoversOrigin(j.wh);
+    return {
+      kind: "check",
+      v: "",
+      sp: "",
+      td: "padding:5px 6px;border-bottom:1px solid #EDF1F5;vertical-align:middle;text-align:center;width:38px;",
+      checked: on,
+      disabled: !canEditJob(j),
+      // The warning belongs on the ticked state most of all. A tick on a
+      // warehouse whose card carries no such term is a cost being claimed under
+      // an agreement that does not cover it, and saying so only while the box
+      // is empty is saying so at the one moment it does not matter.
+      title: !canEditJob(j)
+        ? (j.op ? "งานของ " + j.op + " — แก้ไม่ได้" : "งานนี้ยังไม่มีเจ้าของ — แก้ไม่ได้")
+        : covered
+          ? (on ? "มีงานรับกลับ · คิดครึ่งราคาของเที่ยวนี้"
+                : "ติ๊กเมื่อเที่ยวนี้มีงานรับกลับ — คิดเพิ่มครึ่งราคา")
+          : (on ? "⚠ ติ๊กไว้แล้ว แต่การ์ดของคลัง " + (j.wh || "นี้") + " ไม่ได้เขียนเงื่อนไขงานรับกลับไว้ — ตรวจสอบก่อนวางบิล"
+                : "ติ๊กได้ แต่การ์ดของคลัง " + (j.wh || "นี้") + " ไม่ได้เขียนเงื่อนไขงานรับกลับไว้"),
+      onCheck: () => p.onSetCell(j, "returnLoad", on ? UNTICKED : TICKED),
+    };
+  };
+
+  /** Half the trip's own rate, which is what the term says and no more. */
+  const returnHalfCell = (j: Job): Cell => {
+    if (!hasReturnLoad(j.returnLoad)) return cell("", { mono: true, align: "right", mute: true });
+    const half = returnLoadCharge(j.cost);
+    // Ticked with no rate on the trip is not a free return leg — it is a cost
+    // nobody can work out yet, and it says so rather than showing nothing.
+    return half === null
+      ? cell("ยังไม่มีราคาเที่ยว", { align: "right", mute: true })
+      : cell("฿" + half.toLocaleString("en-US"), { mono: true, align: "right" });
+  };
+
+  /** The rate and the return leg together — what this trip actually costs. */
+  const tripTotalCell = (j: Job): Cell => {
+    const total = tripCost(j.cost, j.returnLoad);
+    return cell(total === null ? "—" : "฿" + total.toLocaleString("en-US"),
+      { mono: true, align: "right", bold: total !== null, mute: total === null });
+  };
+
   /** Leading tick-box, so a row can be picked without opening it. */
   const checkCell = (j: Job): Cell => ({
     kind: "check",
@@ -1426,7 +1502,9 @@ export function Workspace(p: Props) {
     td: "padding:5px 6px 5px 12px;border-bottom:1px solid #EDF1F5;vertical-align:middle;width:34px;",
     checked: picked.has(j.key),
     disabled: !canEditJob(j),
-    title: canEditJob(j) ? "เลือกงานนี้" : "งานของ " + j.op + " — เลือกไม่ได้",
+    title: canEditJob(j) ? "เลือกงานนี้"
+      : j.op ? "งานของ " + j.op + " — เลือกไม่ได้"
+      : "งานนี้ยังไม่มีเจ้าของ — เลือกไม่ได้",
     onCheck: () => togglePick(j.key),
   });
 

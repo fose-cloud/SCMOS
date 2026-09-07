@@ -24,7 +24,25 @@ import {
  * contract term, changing the book needs approval, and a screen that quietly
  * wrote prices somewhere would be doing the one thing it must not.
  */
-export type RateCard = { file: string; bands: FuelBand[]; lanes: RateLane[]; issues: RateIssue[] };
+/**
+ * A condition written on a card, and which sheet of it wrote them.
+ *
+ * The sheet is kept because it is half the meaning. THAI KOT's return-load
+ * term is on its SCGJWD sheets and not on its Unithai ones, and a list of
+ * conditions that did not say which is which would read as though the term
+ * covered the whole card.
+ */
+export type CardNote = { carrier: string; sheet: string; text: string };
+
+export type RateCard = {
+  file: string;
+  bands: FuelBand[];
+  lanes: RateLane[];
+  issues: RateIssue[];
+  /** Conditions off the sheets. Empty for a card read back from the register,
+   *  which stores prices and not the words around them. */
+  notes: CardNote[];
+};
 
 /**
  * Whose card this is has to be told, because the workbook does not say.
@@ -40,6 +58,7 @@ export async function readRateCard(file: File, carrier: string): Promise<RateCar
   const bands: FuelBand[] = [];
   const lanes: RateLane[] = [];
   const issues: RateIssue[] = [];
+  const notes: CardNote[] = [];
 
   // Read every sheet first, then agree the fuel clause across them, then parse.
   //
@@ -76,10 +95,19 @@ export async function readRateCard(file: File, carrier: string): Promise<RateCar
     }
     const parsed = parseChemoursSheet(
       { carrier, fileName: file.name, sheetName: sheet.sheetName, rows: sheet.rows }, bands, issues);
-    if (parsed) lanes.push(...parsed.lanes);
+    if (!parsed) continue;
+    lanes.push(...parsed.lanes);
+    for (const text of parsed.source.notes ?? []) {
+      // The same line appears on all three of a warehouse's sheets, being one
+      // term of one agreement. Listed once per carrier and wording, with the
+      // sheets it was found on folded together below.
+      if (!notes.some((note) => note.carrier === carrier && note.text === text)) {
+        notes.push({ carrier, sheet: sheet.sheetName, text });
+      }
+    }
   }
 
-  return { file: file.name, bands, lanes, issues };
+  return { file: file.name, bands, lanes, issues, notes };
 }
 
 /**
@@ -111,7 +139,9 @@ export async function readSellingCard(file: File): Promise<RateCard> {
     if (parsed) lanes.push(...parsed.lanes);
   }
 
-  return { file: file.name, bands, lanes, issues };
+  // No notes: this card keeps its conditions in a Note column beside each lane
+  // rather than in a line at the foot of the sheet, and the lanes carry them.
+  return { file: file.name, bands, lanes, issues, notes: [] };
 }
 
 /** Us, on the selling side of the card. Not a hauler and never filtered as one. */
@@ -486,6 +516,29 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
         </div>
       ) : (
         <>
+          {/* Conditions off the card, under the prices they qualify. These are
+              contract terms that were being dropped on the floor: the
+              return-load line is worth half a trip's rate on every backhaul and
+              lived only in a workbook nobody reopens. Shown with the haulier
+              and the sheet, because THAI KOT carries it on SCGJWD and not on
+              Unithai and a list that flattened that would be misleading. */}
+          {!!card.notes.length && (
+            <div style={css("background:#F1F7FB;border:1px solid #CBE0EE;border-radius:6px;padding:12px 15px;font-size:12px;color:#12496B;line-height:1.75")}>
+              <b>เงื่อนไขที่เขียนไว้ในการ์ด {card.notes.length} ข้อ</b>
+              {card.notes
+                .filter((note) => carrier === "ALL" || note.carrier === carrier)
+                .map((note, index) => (
+                  <div key={index}>
+                    <span style={css("color:#5B7A91")}>{note.carrier} · {note.sheet}</span>{" — "}{note.text}
+                  </div>
+                ))}
+              <div style={css("margin-top:7px;color:#5B7A91;font-size:11.5px")}>
+                ระบบไม่ได้คิดเงื่อนไขเหล่านี้ให้เอง ยกเว้นงานรับกลับ ซึ่งติ๊กได้ในตาราง งาน Domestic
+                แล้วจะคิดครึ่งราคาของเที่ยวนั้นให้
+              </div>
+            </div>
+          )}
+
           {!!card.issues.length && (
             <div style={css("background:#FFF7ED;border:1px solid #FED7AA;border-radius:6px;padding:12px 15px;font-size:11.5px;color:#9A3412;line-height:1.7")}>
               <b>อ่านไม่ได้ {card.issues.length} ชีต</b>

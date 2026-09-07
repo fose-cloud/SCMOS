@@ -4,6 +4,7 @@ import { opsStats, STATUS_RE, type Job } from "./ops";
 import type { RateBook } from "./rates";
 import { DEFAULT_STATUS, legacyStatus, normaliseJob, validateJob, clean, type Fix, type Issue } from "./standard";
 import { inferImportCategory, sheetImportCategory, type ImportCategory } from "./excelImportCategory";
+import { hasReturnLoad, returnLoadCharge, tripCost } from "./returnLoad";
 import { SHEET_COLUMNS, cellText, type SheetRow } from "./rateSheetColumns";
 import { QUOTE_TERMS, chargeText } from "./quoteTerms";
 import { STATUS_LADDER, STATUS_TH } from "./theme";
@@ -105,6 +106,16 @@ const DELIVERY_COLUMNS: Column[] = [
   { header: "10W", pick: (j) => j.v10 ?? "" },
   { header: "Trailer", pick: (j) => j.vtr ?? "" },
   { header: "Transport Cost", pick: (j) => j.cost ?? "" },
+  // The return leg goes out as the tick and the money it comes to, not as the
+  // tick alone. Whoever opens this file is reconciling an invoice, and half of
+  // a rate they would otherwise have to look up column by column is the thing
+  // they are checking.
+  { header: "Return Load", pick: (j) => (hasReturnLoad(j.returnLoad) ? "TRUE" : "") },
+  {
+    header: "Return Load Cost",
+    pick: (j) => (hasReturnLoad(j.returnLoad) ? String(returnLoadCharge(j.cost) ?? "") : ""),
+  },
+  { header: "Total Transport Cost", pick: (j) => String(tripCost(j.cost, j.returnLoad) ?? "") },
   { header: "Status", pick: (j) => j.status },
   { header: "Remark", pick: (j) => j.remark },
 ];
@@ -460,6 +471,11 @@ const HEADER_ALIASES: Record<string, string[]> = {
   sapOrder: ["SAP ORDER", "SAP ORDER NO", "SAP ORDER NO."],
   deliverNo: ["DELIVER NO", "DELIVER NO.", "DELIVERY NO", "DELIVERY NO."],
   checked: ["CHACK", "CHECK", "CLEAR"],
+  // No sheet heads this column yet — the term has always been a footnote on the
+  // rate card and never a fact about a trip. The aliases are here so that the
+  // day somebody adds it to their workbook, it imports rather than being typed
+  // in again over the top.
+  returnLoad: ["RETURN LOAD", "RETURN", "BACKHAUL", "งานรับกลับ", "รับกลับ"],
   cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง"],
 };
 

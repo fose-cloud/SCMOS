@@ -126,6 +126,19 @@ export type Job = {
   v10?: string;
   vtr?: string;
   cost?: string;
+  /**
+   * งานรับกลับ — whether a load came back on this trip.
+   *
+   * "TRUE" or empty, matching the operators' own CHACK column rather than a
+   * second spelling for yes. It is a Domestic fact and lives with the other
+   * Domestic-only fields: THAI KOT's SCGJWD sheets bill a return load at half
+   * the rate of the trip it came back from, and until this box existed there
+   * was nowhere in the register to say that one had.
+   *
+   * The arithmetic is in returnLoad.ts. Cost side only — the selling card
+   * carries no matching term.
+   */
+  returnLoad?: string;
   // computed
   hist: HistEntry[];
   flags: string[];

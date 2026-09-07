@@ -2633,6 +2633,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onDrawer={ops ? setDrawer : () => setToast("กำลังโหลดข้อมูลสรุปก่อนเปิดรายละเอียด…")}
                   onDelay={setOpsDelay}
                   onSaveCell={saveCell}
+                  onSetCell={(job, field, value) => setField(job, field, value)}
                   onPasteCells={pasteCells}
                   onToast={setToast}
                   lockedCat={lockedCat}
