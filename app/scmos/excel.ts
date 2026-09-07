@@ -4,7 +4,7 @@ import { opsStats, STATUS_RE, type Job } from "./ops";
 import type { RateBook } from "./rates";
 import { DEFAULT_STATUS, legacyStatus, normaliseJob, validateJob, clean, type Fix, type Issue } from "./standard";
 import { inferImportCategory, sheetImportCategory, type ImportCategory } from "./excelImportCategory";
-import { hasReturnLoad, returnLoadCharge, tripCost } from "./returnLoad";
+import { RETURN_SHARE, returnKind, returnLoadCharge, tripCost } from "./returnLoad";
 import { SHEET_COLUMNS, cellText, type SheetRow } from "./rateSheetColumns";
 import { QUOTE_TERMS, chargeText } from "./quoteTerms";
 import { STATUS_LADDER, STATUS_TH } from "./theme";
@@ -110,12 +110,28 @@ const DELIVERY_COLUMNS: Column[] = [
   // tick alone. Whoever opens this file is reconciling an invoice, and half of
   // a rate they would otherwise have to look up column by column is the thing
   // they are checking.
-  { header: "Return Load", pick: (j) => (hasReturnLoad(j.returnLoad) ? "TRUE" : "") },
+  { header: "Return Load", pick: (j) => (returnKind(j.returnLoad, j.returnFinished) === "standard" ? "TRUE" : "") },
+  { header: "Return Load FG", pick: (j) => (returnKind(j.returnLoad, j.returnFinished) === "finished" ? "TRUE" : "") },
   {
     header: "Return Load Cost",
-    pick: (j) => (hasReturnLoad(j.returnLoad) ? String(returnLoadCharge(j.cost) ?? "") : ""),
+    pick: (j) => {
+      const kind = returnKind(j.returnLoad, j.returnFinished);
+      return kind === "none" ? "" : String(returnLoadCharge(j.cost, kind) ?? "");
+    },
   },
-  { header: "Total Transport Cost", pick: (j) => String(tripCost(j.cost, j.returnLoad) ?? "") },
+  // The share goes out beside the money. Whoever opens this file is checking an
+  // invoice, and 50 against 80 is the thing they are checking.
+  {
+    header: "Return Load %",
+    pick: (j) => {
+      const kind = returnKind(j.returnLoad, j.returnFinished);
+      return kind === "none" ? "" : String(RETURN_SHARE[kind] * 100);
+    },
+  },
+  {
+    header: "Total Transport Cost",
+    pick: (j) => String(tripCost(j.cost, returnKind(j.returnLoad, j.returnFinished)) ?? ""),
+  },
   { header: "Status", pick: (j) => j.status },
   { header: "Remark", pick: (j) => j.remark },
 ];
@@ -476,6 +492,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   // day somebody adds it to their workbook, it imports rather than being typed
   // in again over the top.
   returnLoad: ["RETURN LOAD", "RETURN", "BACKHAUL", "งานรับกลับ", "รับกลับ"],
+  returnFinished: ["RETURN FG", "RETURN FINISHED", "FINISHED GOODS", "FINISH GOODS", "งานรับกลับ FG", "รับกลับ FG"],
   cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง"],
 };
 

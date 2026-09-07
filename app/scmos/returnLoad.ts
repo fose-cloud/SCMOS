@@ -8,6 +8,17 @@
  *
  * Two things follow from reading it closely, and both are load-bearing here.
  *
+ * A second rate sits beside it. A return load that is finished goods coming
+ * back is charged at **80%** of the trip's rate rather than half — given by the
+ * account team on 2026-09-07 and written nowhere in the workbook. The card
+ * knows only the half-rate, so the two terms have different authorities, and
+ * the code keeps that visible rather than presenting them as one clause.
+ *
+ * A lorry comes back once, so a trip has one return leg and it is priced one
+ * way or the other. They are never added: the pair is modelled as a kind rather
+ * than as two independent ticks, which is what stops a trip being charged 130%
+ * of its outbound rate for the journey home.
+ *
  * It is half of **that trip's** rate — *ราคาเที่ยวนั้นๆ* — so the figure is taken
  * from the job's own Transportation Rate rather than looked up again on the
  * card. That is not only simpler: the job may have been priced at a diesel band
@@ -62,16 +73,63 @@ export function amount(value: string | number | undefined | null): number | null
 }
 
 /**
- * What the return leg adds to a trip: half its rate, to the nearest baht.
+ * What came back on the trip, if anything.
+ *
+ * One value rather than two booleans, because a lorry comes back once. The two
+ * tick boxes on the grid are two ways of describing the same leg, and modelling
+ * them as independent would make "both" a state the arithmetic has to hold an
+ * opinion about.
+ */
+export type ReturnKind = "none" | "standard" | "finished";
+
+/** The share of the trip's own rate each kind of return leg is charged at. */
+export const RETURN_SHARE: Record<ReturnKind, number> = {
+  none: 0,
+  /** The card's own term, on THAI KOT's SCGJWD sheets. */
+  standard: 0.5,
+  /** Finished goods coming back. From the account team; on no card. */
+  finished: 0.8,
+};
+
+/** What each kind is called where somebody has to read it. */
+export const RETURN_LABEL: Record<ReturnKind, string> = {
+  none: "ไม่มีงานรับกลับ",
+  standard: "งานรับกลับ · ครึ่งราคา",
+  finished: "งานรับกลับ Finished goods · 80%",
+};
+
+/**
+ * Which kind of return leg a job carries.
+ *
+ * Finished goods wins if the register somehow holds both — an import from a
+ * sheet with its own columns, say. It is the more specific description of the
+ * same leg, and the grid cannot produce that state: ticking either box clears
+ * the other.
+ */
+export function returnKind(
+  standard: string | undefined | null,
+  finished: string | undefined | null,
+): ReturnKind {
+  if (hasReturnLoad(finished)) return "finished";
+  if (hasReturnLoad(standard)) return "standard";
+  return "none";
+}
+
+/**
+ * What the return leg adds to a trip, to the nearest baht.
  *
  * Null when the trip has no rate on it. A job nobody has priced does not have a
  * free return load — it has an unknown one, and showing 0 would put a number
- * into an invoice reconciliation that no document supports.
+ * into an invoice reconciliation that no document supports. Zero for a trip
+ * with no return leg is a different thing and is a real answer.
  */
-export function returnLoadCharge(rate: string | number | undefined | null): number | null {
+export function returnLoadCharge(
+  rate: string | number | undefined | null,
+  kind: ReturnKind = "standard",
+): number | null {
   const trip = amount(rate);
   if (trip === null) return null;
-  return Math.round(trip / 2);
+  return Math.round(trip * RETURN_SHARE[kind]);
 }
 
 /**
@@ -83,20 +141,21 @@ export function returnLoadCharge(rate: string | number | undefined | null): numb
  */
 export function tripCost(
   rate: string | number | undefined | null,
-  returnLoad: string | undefined | null,
+  kind: ReturnKind,
 ): number | null {
   const trip = amount(rate);
   if (trip === null) return null;
-  if (!hasReturnLoad(returnLoad)) return trip;
-  return trip + (returnLoadCharge(trip) ?? 0);
+  if (kind === "none") return trip;
+  return trip + (returnLoadCharge(trip, kind) ?? 0);
 }
 
 /**
  * The origins whose card carries the term, as the card writes them.
  *
- * Used to warn, never to refuse. The term is written on THAI KOT's SCGJWD
- * sheets and nowhere else, so a return load ticked on a Unithai run is worth
- * questioning — but the warehouse vocabulary in the register ("JWD",
+ * Used to warn, never to refuse. The half-rate term is written on THAI KOT's
+ * SCGJWD sheets and nowhere else, so a standard return load ticked on a Unithai
+ * run is worth questioning — the finished-goods rate came from the account team
+ * rather than the card, so it is not checked against this list at all — but the warehouse vocabulary in the register ("JWD",
  * "UNITHAI") is whatever operators typed, there is no canonical mapping to the
  * card's own names, and a tick refused on a spelling nobody agreed is worse
  * than a tick queried.

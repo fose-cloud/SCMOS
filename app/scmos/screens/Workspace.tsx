@@ -12,7 +12,10 @@ import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { writeClipboardTable } from "../pasteBlock";
-import { TICKED, UNTICKED, hasReturnLoad, returnLoadCharge, termCoversOrigin, tripCost } from "../returnLoad";
+import {
+  RETURN_SHARE, TICKED, UNTICKED, returnKind, returnLoadCharge, termCoversOrigin, tripCost,
+  type ReturnKind,
+} from "../returnLoad";
 import { cell, cols, dnum, pad, paginate, tmin, type Cell, type CellOpts } from "../util";
 import { useGridRange } from "../useGridRange";
 import { useCarriers } from "../carriers";
@@ -65,19 +68,11 @@ type Props = {
   onDrawer: (key: string) => void;
   onDelay: (key: string) => void;
   onSaveCell: (job: Job, field: keyof Job) => void;
-  /**
-   * One value written straight onto one field, with no editor in between.
-   *
-   * `onSaveCell` reads what is in the edit box; a tick knows its new value
-   * already and reading the box would save the previous render's — the same
-   * trap the dropdowns had. So the value travels with the call.
-   */
-  onSetCell: (job: Job, field: keyof Job, value: string) => void;
   /** A dragged rectangle written in one go, each column keeping its own rule. */
   onPasteCells: (
     edits: { job: Job; field: keyof Job; value: string }[],
     /** What to call it in the toast and in the undo list. */
-    how?: "paste" | "clear",
+    how?: "paste" | "clear" | "tick",
     /**
      * Cells a dropdown column refused because the pasted value is not one of
      * its options.
@@ -227,7 +222,7 @@ const COL_DEFS: Record<string, [string][]> = {
   // Province is gone: it is not on their sheet and was not asked for. It is
   // still written by the import and still printed on the Delivery Details
   // report, so nothing is lost, but it cannot be edited from this grid.
-  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["งานรับกลับ"], ["ครึ่งราคารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
+  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["รับกลับ 50%"], ["รับกลับ FG 80%"], ["ค่ารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
   ALL: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
@@ -293,15 +288,22 @@ const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text"
   "KGS.": { pick: (j) => j.weight, as: "number" },
   "TAIL LIFT": { pick: (j) => j.vtl, as: "number" },
   "Transportation Rate": { pick: (j) => j.cost, as: "number" },
-  // The half-rate and the total sort on what they show, not on the rate behind
-  // them: a ticked 4,000 trip costs more than an unticked 5,000 one, and a sort
-  // that put them the other way round would be lying about the column.
-  "งานรับกลับ": { pick: (j) => (hasReturnLoad(j.returnLoad) ? "1" : "0"), as: "text" },
-  "ครึ่งราคารับกลับ": {
-    pick: (j) => (hasReturnLoad(j.returnLoad) ? String(returnLoadCharge(j.cost) ?? "") : ""),
+  // The return columns and the total sort on what they show, not on the rate
+  // behind them: a ticked 4,000 trip costs more than an unticked 5,000 one, and
+  // a sort that put them the other way round would be lying about the column.
+  "รับกลับ 50%": { pick: (j) => (returnKind(j.returnLoad, j.returnFinished) === "standard" ? "1" : "0"), as: "text" },
+  "รับกลับ FG 80%": { pick: (j) => (returnKind(j.returnLoad, j.returnFinished) === "finished" ? "1" : "0"), as: "text" },
+  "ค่ารับกลับ": {
+    pick: (j) => {
+      const kind = returnKind(j.returnLoad, j.returnFinished);
+      return kind === "none" ? "" : String(returnLoadCharge(j.cost, kind) ?? "");
+    },
     as: "number",
   },
-  "รวมค่าขนส่ง": { pick: (j) => String(tripCost(j.cost, j.returnLoad) ?? ""), as: "number" },
+  "รวมค่าขนส่ง": {
+    pick: (j) => String(tripCost(j.cost, returnKind(j.returnLoad, j.returnFinished)) ?? ""),
+    as: "number",
+  },
   Plan: { pick: (j) => j.planTime, as: "time" },
   "Plan Time": { pick: (j) => j.planTime, as: "time" },
   Type: { pick: (j) => j.type, as: "text" },
@@ -1413,7 +1415,7 @@ export function Workspace(p: Props) {
         ed(j, "v4", { mono: true, align: "right" }), ed(j, "v6", { mono: true, align: "right" }),
         ed(j, "v10", { mono: true, align: "right" }), ed(j, "vtl", { mono: true, align: "right" }),
         cell(j.cost ? "฿" + Number(j.cost).toLocaleString("en-US") : "—", { mono: true, align: "right" }),
-        returnCell(j), returnHalfCell(j), tripTotalCell(j),
+        returnBox(j, "standard"), returnBox(j, "finished"), returnCostCell(j), tripTotalCell(j),
         ed(j, "remark", { w: 170, mute: true }), stCell(j),
       { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
       ]);
@@ -1438,22 +1440,49 @@ export function Workspace(p: Props) {
   };
 
   /**
-   * งานรับกลับ — a load came back on this trip, so the haulier bills half the
-   * trip's rate again for the return leg.
+   * The two return-load boxes: a load came back on this trip, and at which
+   * rate.
    *
-   * A box rather than a typed TRUE, because it is the only value the column
-   * can hold and because this is a cost somebody has to be able to add without
-   * opening the job.
+   * Half the trip's rate for an ordinary return, 80% when what came back is
+   * finished goods. Boxes rather than typed values, because each column holds
+   * one thing and this is a cost somebody has to be able to add without opening
+   * the job.
    *
-   * Ticked on a warehouse whose card does not carry the term, it still ticks —
-   * and says so. The line is on THAI KOT's SCGJWD sheets and not on its Unithai
-   * ones, but the register's warehouse names are whatever operators typed and
-   * there is no agreed mapping to the card's own spellings. Refusing on a
-   * spelling nobody settled would lose a real cost; asking about it does not.
+   * Ticking either clears the other. A lorry comes back once, so the pair
+   * describes one leg two ways; leaving both on would charge 130% of the
+   * outbound rate for the journey home, and no arrangement here says that.
+   *
+   * Ticked on a warehouse whose card does not carry the term, the standard box
+   * still ticks — and says so. The line is on THAI KOT's SCGJWD sheets and not
+   * its Unithai ones, but the register's warehouse names are whatever operators
+   * typed and there is no agreed mapping to the card's own spellings. Refusing
+   * on a spelling nobody settled would lose a real cost; asking about it does
+   * not. The finished-goods rate is not checked against the card at all,
+   * because it was never on one.
    */
-  const returnCell = (j: Job): Cell => {
-    const on = hasReturnLoad(j.returnLoad);
-    const covered = termCoversOrigin(j.wh);
+  const returnBox = (j: Job, want: Exclude<ReturnKind, "none">): Cell => {
+    const kind = returnKind(j.returnLoad, j.returnFinished);
+    const on = kind === want;
+    const other = kind !== "none" && !on;
+    const covered = want === "finished" || termCoversOrigin(j.wh);
+    const share = Math.round(RETURN_SHARE[want] * 100);
+
+    const title = !canEditJob(j)
+      ? (j.op ? "งานของ " + j.op + " — แก้ไม่ได้" : "งานนี้ยังไม่มีเจ้าของ — แก้ไม่ได้")
+      : on
+        ? (covered
+          ? `มีงานรับกลับ · คิด ${share}% ของราคาเที่ยวนี้`
+          : "⚠ ติ๊กไว้แล้ว แต่การ์ดของคลัง " + (j.wh || "นี้")
+            + " ไม่ได้เขียนเงื่อนไขงานรับกลับไว้ — ตรวจสอบก่อนวางบิล")
+        : other
+          // Said before the click, not after. The box is not disabled — the
+          // operator may well be correcting which kind it is — but they should
+          // know the other one is about to come off.
+          ? `ติ๊กแล้วจะเปลี่ยนเป็น ${share}% แทน (ตอนนี้ติ๊ก ${Math.round(RETURN_SHARE[kind] * 100)}% ไว้)`
+          : covered
+            ? `ติ๊กเมื่อเที่ยวนี้มีงานรับกลับ — คิดเพิ่ม ${share}% ของราคาเที่ยว`
+            : "ติ๊กได้ แต่การ์ดของคลัง " + (j.wh || "นี้") + " ไม่ได้เขียนเงื่อนไขงานรับกลับไว้";
+
     return {
       kind: "check",
       v: "",
@@ -1461,35 +1490,39 @@ export function Workspace(p: Props) {
       td: "padding:5px 6px;border-bottom:1px solid #EDF1F5;vertical-align:middle;text-align:center;width:38px;",
       checked: on,
       disabled: !canEditJob(j),
-      // The warning belongs on the ticked state most of all. A tick on a
-      // warehouse whose card carries no such term is a cost being claimed under
-      // an agreement that does not cover it, and saying so only while the box
-      // is empty is saying so at the one moment it does not matter.
-      title: !canEditJob(j)
-        ? (j.op ? "งานของ " + j.op + " — แก้ไม่ได้" : "งานนี้ยังไม่มีเจ้าของ — แก้ไม่ได้")
-        : covered
-          ? (on ? "มีงานรับกลับ · คิดครึ่งราคาของเที่ยวนี้"
-                : "ติ๊กเมื่อเที่ยวนี้มีงานรับกลับ — คิดเพิ่มครึ่งราคา")
-          : (on ? "⚠ ติ๊กไว้แล้ว แต่การ์ดของคลัง " + (j.wh || "นี้") + " ไม่ได้เขียนเงื่อนไขงานรับกลับไว้ — ตรวจสอบก่อนวางบิล"
-                : "ติ๊กได้ แต่การ์ดของคลัง " + (j.wh || "นี้") + " ไม่ได้เขียนเงื่อนไขงานรับกลับไว้"),
-      onCheck: () => p.onSetCell(j, "returnLoad", on ? UNTICKED : TICKED),
+      title,
+      onCheck: () => {
+        const field: keyof Job = want === "finished" ? "returnFinished" : "returnLoad";
+        const clear: keyof Job = want === "finished" ? "returnLoad" : "returnFinished";
+        // Through the block writer, not two single writes: a swap between the
+        // two kinds is one change, and as two it would take two presses of undo
+        // to put back — leaving the trip briefly charged at neither rate or at
+        // both.
+        p.onPasteCells(
+          on
+            ? [{ job: j, field, value: UNTICKED }]
+            : [{ job: j, field, value: TICKED }, { job: j, field: clear, value: UNTICKED }],
+          "tick",
+        );
+      },
     };
   };
 
-  /** Half the trip's own rate, which is what the term says and no more. */
-  const returnHalfCell = (j: Job): Cell => {
-    if (!hasReturnLoad(j.returnLoad)) return cell("", { mono: true, align: "right", mute: true });
-    const half = returnLoadCharge(j.cost);
+  /** What the return leg costs — the share of this trip's own rate. */
+  const returnCostCell = (j: Job): Cell => {
+    const kind = returnKind(j.returnLoad, j.returnFinished);
+    if (kind === "none") return cell("", { mono: true, align: "right", mute: true });
+    const charge = returnLoadCharge(j.cost, kind);
     // Ticked with no rate on the trip is not a free return leg — it is a cost
     // nobody can work out yet, and it says so rather than showing nothing.
-    return half === null
+    return charge === null
       ? cell("ยังไม่มีราคาเที่ยว", { align: "right", mute: true })
-      : cell("฿" + half.toLocaleString("en-US"), { mono: true, align: "right" });
+      : cell("฿" + charge.toLocaleString("en-US"), { mono: true, align: "right" });
   };
 
   /** The rate and the return leg together — what this trip actually costs. */
   const tripTotalCell = (j: Job): Cell => {
-    const total = tripCost(j.cost, j.returnLoad);
+    const total = tripCost(j.cost, returnKind(j.returnLoad, j.returnFinished));
     return cell(total === null ? "—" : "฿" + total.toLocaleString("en-US"),
       { mono: true, align: "right", bold: total !== null, mute: total === null });
   };

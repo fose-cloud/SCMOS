@@ -139,6 +139,17 @@ export type Job = {
    * carries no matching term.
    */
   returnLoad?: string;
+  /**
+   * งานรับกลับที่เป็น finished goods — charged at 80% of the trip's rate rather
+   * than half.
+   *
+   * A separate column because the operators asked for a separate box, and
+   * because the two rates have different authorities: the half-rate is written
+   * on THAI KOT's card, this one was given by the account team and appears on
+   * no card at all. Never both — see returnKind, and the grid clears one when
+   * the other is ticked.
+   */
+  returnFinished?: string;
   // computed
   hist: HistEntry[];
   flags: string[];

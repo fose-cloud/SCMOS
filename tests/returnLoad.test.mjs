@@ -2,17 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  TICKED, amount, hasReturnLoad, returnLoadCharge, termCoversOrigin, tripCost,
+  RETURN_SHARE, TICKED, amount, hasReturnLoad, returnKind, returnLoadCharge,
+  termCoversOrigin, tripCost,
 } from "../app/scmos/returnLoad.ts";
 import { parseChemoursSheet } from "../app/scmos/rates.ts";
 
 /*
  * งานรับกลับ — the return load, at half the rate of that trip.
  *
- * The term is on THAI KOT's cost card, under its SCGJWD sheets only:
- * "กรณีมีงานรับกลับ วางบิลในครึ่งราคาของราคาเที่ยวนั้นๆ". It is what the haulier
- * charges us. The selling card carries no matching term and nothing here
- * touches the selling side.
+ * The half-rate is on THAI KOT's cost card, under its SCGJWD sheets only:
+ * "กรณีมีงานรับกลับ วางบิลในครึ่งราคาของราคาเที่ยวนั้นๆ". Finished goods coming back
+ * are charged at 80% instead — from the account team, on no card at all.
+ *
+ * Both are what the haulier charges us. The selling card carries no matching
+ * term and nothing here touches the selling side.
  */
 
 test("a return load costs half the rate of the trip it came back from", () => {
@@ -46,14 +49,56 @@ test("a negative rate is refused rather than halved", () => {
 });
 
 test("the trip costs its rate, and half again when a load came back", () => {
-  assert.equal(tripCost(4000, ""), 4000);
-  assert.equal(tripCost(4000, TICKED), 6000);
-  assert.equal(tripCost("8,700", "TRUE"), 13050);
+  assert.equal(tripCost(4000, "none"), 4000);
+  assert.equal(tripCost(4000, "standard"), 6000);
+  assert.equal(tripCost("8,700", "standard"), 13050);
+});
+
+test("finished goods coming back cost 80% of the trip, not half", () => {
+  assert.equal(returnLoadCharge(4000, "finished"), 3200);
+  assert.equal(tripCost(4000, "finished"), 7200);
+  assert.equal(returnLoadCharge(3480, "finished"), 2784);
+});
+
+test("the two rates are different numbers and never the same one", () => {
+  assert.equal(RETURN_SHARE.standard, 0.5);
+  assert.equal(RETURN_SHARE.finished, 0.8);
+  assert.notEqual(returnLoadCharge(4000, "standard"), returnLoadCharge(4000, "finished"));
+});
+
+test("a trip with no return leg adds nothing, which is a real answer", () => {
+  assert.equal(returnLoadCharge(4000, "none"), 0);
+  assert.equal(tripCost(4000, "none"), 4000);
 });
 
 test("an unpriced trip has no total, ticked or not", () => {
-  assert.equal(tripCost("", TICKED), null);
-  assert.equal(tripCost("", ""), null);
+  assert.equal(tripCost("", "standard"), null);
+  assert.equal(tripCost("", "finished"), null);
+  assert.equal(tripCost("", "none"), null);
+});
+
+test("a lorry comes back once, so the two kinds are never added together", () => {
+  // 50% and 80% would be 130% of the outbound rate for the journey home. The
+  // model has no way to express it: the pair is one kind, not two flags.
+  assert.equal(returnKind(TICKED, TICKED), "finished");
+  assert.equal(tripCost(4000, returnKind(TICKED, TICKED)), 7200);
+  assert.notEqual(tripCost(4000, returnKind(TICKED, TICKED)), 4000 + 2000 + 3200);
+});
+
+test("finished goods wins when the register somehow holds both", () => {
+  // It is the more specific description of the same leg. The grid cannot
+  // produce the state — ticking either box clears the other — but an import
+  // from a sheet with its own columns could.
+  assert.equal(returnKind(TICKED, TICKED), "finished");
+  assert.equal(returnKind(TICKED, ""), "standard");
+  assert.equal(returnKind("", TICKED), "finished");
+  assert.equal(returnKind("", ""), "none");
+  assert.equal(returnKind(undefined, undefined), "none");
+});
+
+test("FALSE in either column is not a return leg", () => {
+  assert.equal(returnKind("FALSE", "FALSE"), "none");
+  assert.equal(returnKind("FALSE", TICKED), "finished");
 });
 
 test("the tick is read the way spreadsheets write it", () => {
@@ -70,7 +115,7 @@ test("FALSE is not read as a tick, however Excel spells it", () => {
   // The obvious way to get this wrong is a truthiness check on the string:
   // "FALSE" is a non-empty string and would tick every unticked row.
   assert.equal(hasReturnLoad("FALSE"), false);
-  assert.equal(tripCost(4000, "FALSE"), 4000);
+  assert.equal(tripCost(4000, returnKind("FALSE", "")), 4000);
 });
 
 test("the term is known to cover SCGJWD, whichever way the warehouse is spelled", () => {

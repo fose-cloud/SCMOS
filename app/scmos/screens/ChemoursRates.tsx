@@ -534,7 +534,8 @@ export function ChemoursRates({ card, sell, haulers, onLoad, onLoadSell, onSave,
                 ))}
               <div style={css("margin-top:7px;color:#5B7A91;font-size:11.5px")}>
                 ระบบไม่ได้คิดเงื่อนไขเหล่านี้ให้เอง ยกเว้นงานรับกลับ ซึ่งติ๊กได้ในตาราง งาน Domestic
-                แล้วจะคิดครึ่งราคาของเที่ยวนั้นให้
+                แล้วจะคิดครึ่งราคาของเที่ยวนั้นให้ · งานรับกลับที่เป็น Finished goods คิด 80%
+                ตามที่ทีมบัญชีกำหนด ไม่ได้เขียนไว้ในการ์ดใบนี้
               </div>
             </div>
           )}

@@ -1703,14 +1703,17 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
    */
   function pasteCells(
     edits: { job: Job; field: keyof Job; value: string }[],
-    how: "paste" | "clear" = "paste",
+    how: "paste" | "clear" | "tick" = "paste",
     /**
      * Cells a dropdown column already refused, counted by the screen that knows
      * its options. Folded into this message rather than announced separately.
      */
     refusedChoices = 0,
   ) {
-    const doing = how === "clear" ? "ล้าง" : "วาง";
+    // "tick" is a box that writes more than one cell — the return-load pair,
+    // where setting either kind clears the other. It comes through here rather
+    // than as two writes so that one press of undo takes the whole swap back.
+    const doing = how === "clear" ? "ล้าง" : how === "tick" ? "ติ๊ก" : "วาง";
     const touched = new Map<string, Job>();
     let changed = 0;
     let fixed = 0;
@@ -1734,7 +1737,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     touch();
 
     if (changed === 0 && refused === 0 && refusedChoices === 0) {
-      setToast(how === "clear" ? "ช่องที่เลือกว่างอยู่แล้ว" : "ค่าที่วางเหมือนเดิมทุกช่อง");
+      setToast(how === "clear" ? "ช่องที่เลือกว่างอยู่แล้ว"
+        : how === "tick" ? "ค่าเดิมอยู่แล้ว"
+        : "ค่าที่วางเหมือนเดิมทุกช่อง");
       return;
     }
     setToast(
@@ -2633,7 +2638,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
                   onDrawer={ops ? setDrawer : () => setToast("กำลังโหลดข้อมูลสรุปก่อนเปิดรายละเอียด…")}
                   onDelay={setOpsDelay}
                   onSaveCell={saveCell}
-                  onSetCell={(job, field, value) => setField(job, field, value)}
                   onPasteCells={pasteCells}
                   onToast={setToast}
                   lockedCat={lockedCat}
