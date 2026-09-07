@@ -332,8 +332,65 @@ of them now have been, end to end on LocalDB, with signed webhook deliveries.
 | Step | State |
 |---|---|
 | 8 — reply back to the group | Not started. Needs the channel access token, so it is behind a credential. **The rule it must keep:** the review queue tells `no-such-job` and `not-your-job` apart so an operator can see which happened; a reply to the group must not, or it confirms to an unknown sender that a job number is real. |
-| 11 — promote job columns, then OTD | Not started. Independent of LINE credentials. |
+| 11 — promote job columns, then OTD | **Should not be built as written — see below.** |
 | Group mapping | **Now doable in the UI** — Integrations → LINE, bottom panel. This was on the account team's list and no longer needs anybody to write SQL. |
+
+### Step 11 was wrong, and here is the measurement
+
+Section 2.1 proposed promoting seven columns — `EtaDelivery`,
+`ActualArrivalAt`, `DelayFlag`, `DelayMinutes`, `DelayReasonCode`,
+`StatusSource`, `StatusUpdatedAt` — so that Live Operations and OTD could be
+served by SQL. Checked against the register before writing the migration, most
+of that is already there, and three of the seven contradict a decision the
+codebase has already made and written down.
+
+**On-time delivery already exists.** `JobRules.MinutesLate` compares
+`planTime`/`date` against `arrTime`/`arrDate`; `JobRules.LateMinutes` is the
+single 30-minute threshold, carrying its own note that "two copies of 'late' is
+the shape of bug this codebase keeps finding"; `KpiMeasures.OnTimeDelivery` and
+`KpiService` compute the rate with a minimum-sample guard, and the KPI screen
+already prints the base as "X จาก Y งานที่วัดได้". Building an OTD on new columns
+would be the second copy that note warns about.
+
+**Delay already has a home.** `delay_records` carries `category`,
+`impact_minutes`, `responsible`, `detected_at`, `resolved_at` and
+`against_carrier`. `DelayFlag` is a row existing, `DelayMinutes` is
+`impact_minutes`, `DelayReasonCode` is `category`. `JobStatus.cs` says the
+status set has no DELAYED on purpose, because "a delay is a thing that happened
+to a job, recorded in delay_records with a category and an owner, not a place
+the job sits". Promoting those three onto the job contradicts that directly.
+
+**Arrival already exists too.** A job blob carries 49 fields. None of the seven
+proposed names is among them — but `arrDate`, `arrTime`, `date` and `planTime`
+are, and they are what the existing OTD reads. `ActualArrivalAt` would be a
+second arrival time beside `arrDate`/`arrTime`.
+
+That leaves `StatusSource` as the only one genuinely missing and genuinely
+useful, and `StatusUpdatedAt` as one largely covered by the existing
+`updated_at` column. Neither is worth a migration while both would be null on
+every row: nothing writes a status source until LINE is live, and the approval
+path already records exactly that in `audit_events` with `source = LINE`.
+`EtaDelivery` has no source of data at all yet.
+
+**What actually limits OTD is missing data, not missing columns.** Measured on
+the development copy of the register (2,105 jobs):
+
+| | jobs | has `planTime` | measurable by OTD |
+|---|---|---|---|
+| EXPORT | 678 | 676 | 517 |
+| IMPORT | 1,427 | 177 | 117 |
+| **all** | **2,105** | **853** | **634** |
+
+Among jobs that actually finished — DELIVERED or COMPLETED — OTD can score 49
+of 236. So the figure is close to an EXPORT-only measure, and no schema change
+moves it: what moves it is `planTime` being filled on import jobs. That is an
+operations question, not an engineering one, and it should be put to the team
+before anybody writes a migration.
+
+`workflow_events` is also empty (0 rows), so the workflow history the spec
+assumes is not being written yet either.
+
+---
 
 The 20–30 real vendor messages are still wanted. The parser is checked against
 the specification's examples and shapes the register makes likely, which is not
