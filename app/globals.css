@@ -263,43 +263,25 @@ button { cursor: pointer; }
     resize: none !important;
   }
   .no-print { display: none !important; }
-  /* The cargo receipt is printed twice on one page — one copy for the customer
-     and one for the driver — and the second is only in the way on screen. */
-  .print-only { display: block !important; }
-
   /*
-   * Both copies on one sheet, which is the whole point of printing two.
+   * The receipt is one page, and no longer needs shrinking to get there.
    *
-   * At the sizes the form is drawn on screen the pair comes to about 1,212px
-   * against roughly 1,030px of usable A4, so it broke across two pages and the
-   * driver's copy arrived cut in half. The margins take some of that back and
-   * the zoom takes the rest.
+   * It was two: the old form was printed twice on a sheet, one copy for the
+   * customer and one for the driver, and the pair laid out at 298.5mm against
+   * the 281mm of an A4. A zoom of 0.8 forced it down.
    *
-   * `zoom` rather than `transform: scale()`. A transform is painted after
-   * layout, so the page still breaks where the unscaled box fell and the second
-   * page comes out blank; zoom is applied during layout, so the pagination
-   * follows it. Chromium honours it in print, which is what this is printed
-   * from — and a browser that ignores it gets the old two-page behaviour rather
-   * than a broken layout.
-   *
-   * Measured rather than guessed: the pair lays out at 298.5mm unscaled, and
-   * 0.80 brings it to 239mm. That fits the 281mm of an A4 at these margins with
-   * room to spare, and still fits the ~256mm left when the browser's own header
-   * and footer are on — which they are by default, and which is how it was
-   * printed when it came back as two pages.
+   * CCL-04-01 is a single receipt — all seven of the real copies are — and it
+   * lays out at 205mm, inside the ~256mm left even with the browser's own
+   * header and footer switched on. Keeping the zoom would only have made a
+   * form full of 8pt legal text smaller than it needs to be.
    */
-  .cargo-page {
-    zoom: 0.8;
-    padding: 0 !important;
-  }
-  /* Neither copy is worth splitting; if only one will fit, the break belongs
-     between them. */
+  .cargo-page { padding: 0 !important; }
+  /* The receipt is not worth splitting across a page break. */
   .cargo-page > div { break-inside: avoid; page-break-inside: avoid; }
 
   @page { size: A4 portrait; margin: 8mm 10mm; }
 }
 
-.print-only { display: none; }
 
 /*
  * Where a screen puts its own controls, in the header beside the tabs.

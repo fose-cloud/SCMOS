@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
-  EXTERNAL_SYSTEMS, probeStateFor, probeTone, systemById,
+  EXTERNAL_SYSTEMS, probeStateFor, probeSystem, probeTone, systemById,
 } from "../app/scmos/externalSystems.ts";
 
 /*
@@ -100,4 +100,75 @@ test("no integration screen offers the header's fallback Export Excel", () => {
     assert.ok(!own.includes(`${system.id}: true`),
       `${system.id} is named in OWN_SCREEN as well — one list or the other, not both`);
   }
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+test("a probe passes its cancellation signal through the same-origin request", async () => {
+  const controller = new AbortController();
+  const answer = await probeSystem("/api/ccs/status", async (path, init) => {
+    assert.equal(path, "/api/ccs/status");
+    assert.equal(init.signal, controller.signal);
+    assert.equal(init.headers.accept, "application/json");
+    return { status: 404 };
+  }, controller.signal);
+  assert.equal(answer.state, "absent");
+  assert.match(answer.detail, /endpoint/);
+});
+
+test("a cancelled probe never starts a request", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const answer = await probeSystem("/api/abs/status", async () => {
+    assert.fail("cancelled probes must not call the API");
+  }, controller.signal);
+  assert.equal(answer, null);
+});
+
+test("a late success from the menu we left cannot overwrite the new menu", async () => {
+  const previous = new AbortController();
+  const pending = deferred();
+  const old = probeSystem("/api/abs/status", () => pending.promise, previous.signal);
+  previous.abort();
+  const current = await probeSystem("/api/ccs/status", async () => ({ status: 403 }), new AbortController().signal);
+  pending.resolve({ status: 200 });
+  assert.equal(current.state, "denied");
+  assert.match(current.detail, /403/);
+  assert.equal(await old, null);
+});
+
+test("a late failure from the menu we left is ignored too", async () => {
+  const controller = new AbortController();
+  const pending = deferred();
+  const answer = probeSystem("/api/abs/status", () => pending.promise, controller.signal);
+  controller.abort();
+  pending.reject(new Error("old connection failed"));
+  assert.equal(await answer, null);
+});
+
+test("a real network failure is still reported for the active menu", async () => {
+  const answer = await probeSystem("/api/abs/status", async () => {
+    throw new Error("network unavailable");
+  }, new AbortController().signal);
+  assert.deepEqual(answer, { state: "error", detail: "network unavailable" });
+});
+
+test("each new retry uses its own response", async () => {
+  const answers = [];
+  for (const status of [500, 200, 404]) {
+    answers.push((await probeSystem("/api/abs/status", async () => ({ status }), new AbortController().signal)).state);
+  }
+  assert.deepEqual(answers, ["error", "ready", "absent"]);
+});
+
+test("the screen cancels on cleanup and resets its state when the endpoint changes", () => {
+  const screen = readFileSync(new URL("../app/scmos/screens/ExternalSystem.tsx", import.meta.url), "utf8");
+  assert.match(screen, /key=\{system.endpoint\}/);
+  assert.match(screen, /return \(\) => controller.abort\(\)/);
+  assert.match(screen, /\[endpoint, attempt\]/);
+  assert.match(screen, /answer && !controller.signal.aborted/);
 });

@@ -134,3 +134,30 @@ export function probeTone(state: ProbeState): "ok" | "warn" | "idle" {
   if (state === "error" || state === "denied") return "warn";
   return "idle";
 }
+
+export type ProbeResult = { state: ProbeState; detail: string };
+
+/** A cancelled screen must not publish either a late response or a late error. */
+export async function probeSystem(
+  endpoint: string,
+  request: (path: string, init: RequestInit) => Promise<Pick<Response, "status">>,
+  signal: AbortSignal,
+): Promise<ProbeResult | null> {
+  if (signal.aborted) return null;
+  try {
+    const response = await request(endpoint, { signal, headers: { accept: "application/json" } });
+    if (signal.aborted) return null;
+    const state = probeStateFor(response.status);
+    return {
+      state,
+      detail:
+        state === "absent" ? "ยังไม่มี endpoint นี้ในฝั่ง API — เป็นสถานะที่ถูกต้องสำหรับตอนนี้"
+        : state === "denied" ? `API ตอบ ${response.status} — บัญชีนี้ยังไม่มีสิทธิ์เรียกส่วนนี้`
+        : state === "ready" ? "ต่อกับ API ได้แล้ว — พร้อมใส่หน้าจอจริง"
+        : `API ตอบ ${response.status}`,
+    };
+  } catch (error) {
+    if (signal.aborted) return null;
+    return { state: "error", detail: error instanceof Error ? error.message : String(error) };
+  }
+}

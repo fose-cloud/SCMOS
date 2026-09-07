@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  receiptChoices, receiptDestination, receiptHead, receiptLabel, receiptLine, receiptTruck,
+  receiptChoices, receiptDestination, receiptHead, receiptItem, receiptLabel, receiptTruck,
 } from "../app/scmos/cargoReceipt.ts";
 
 /*
@@ -24,7 +24,7 @@ const job = (over = {}) => ({
 test("the heading block is copied off the job, not typed again", () => {
   const head = receiptHead(job());
   assert.equal(head.customer, "AMPACET");
-  assert.equal(head.date, "02/08/2026");
+  assert.equal(head.deliveryDate, "02/08/2026");
   assert.equal(head.truckNo, "SSL · 70-1234 กรุงเทพ", "the haulier and the plate");
   assert.equal(head.invoiceNo, "6317309804", "the delivery note is what the gate checks");
   assert.equal(head.blNo, "8505076096", "and the SAP order is the customer's own reference");
@@ -46,24 +46,69 @@ test("the consignee signs, not the account we bill", () => {
 
 test("the truck's times are left for whoever is standing at the gate", () => {
   // A receipt that arrived with them filled in would be a record of what was
-  // planned, signed as what happened.
-  const line = receiptLine(job());
-  assert.equal(line.truckIn, "");
-  assert.equal(line.truckOut, "");
+  // planned, signed as what happened. On CCL-04-01 they are heading fields,
+  // not columns of the item table.
+  const head = receiptHead(job());
+  assert.equal(head.truckIn, "");
+  assert.equal(head.truckOut, "");
 });
 
-test("pallets and kilos land in the two columns that hold them", () => {
-  const line = receiptLine(job({ pallet: "10", kgs: "10000" }));
-  assert.equal(line.packages, "10");
-  assert.equal(line.weight, "10000");
+test("pallets and kilos land in the heading block that holds them", () => {
+  const head = receiptHead(job({ pallet: "10", kgs: "10000" }));
+  assert.equal(head.packages, "10");
+  assert.equal(head.grossWeight, "10000");
 });
 
 test("kilos keyed in the general grid's column still fill the form", () => {
   // The Domestic import writes them to both; a job entered by hand elsewhere
   // has only `weight`. Either way the receipt should not go out empty.
-  assert.equal(receiptLine(job({ kgs: "", weight: "8400" })).weight, "8400");
-  assert.equal(receiptLine(job({ kgs: "10000", weight: "8400" })).weight, "10000",
+  assert.equal(receiptHead(job({ kgs: "", weight: "8400" })).grossWeight, "8400");
+  assert.equal(receiptHead(job({ kgs: "10000", weight: "8400" })).grossWeight, "10000",
     "the Domestic column wins when both are there");
+});
+
+test("the item table is filled per column, because the columns differ per customer", () => {
+  // Which references a customer wants beside the product is the one thing that
+  // varies between copies of this form, so the mapping answers per heading
+  // rather than returning a fixed row.
+  const one = job({ dCode: "D10445447", deliverNo: "6317309804", pallet: "10", kgs: "10000" });
+  assert.equal(receiptItem(one, "D-Code"), "D10445447");
+  assert.equal(receiptItem(one, "DELIVERY NO."), "6317309804");
+  assert.equal(receiptItem(one, "No. of P'kg (s)"), "10");
+  assert.equal(receiptItem(one, "QTY (KG)"), "10000");
+  assert.equal(receiptItem(one, "NET WEIGHT (KGS)"), "10000");
+});
+
+test("what the register does not know is left blank, not invented", () => {
+  // The PO number, the product name and the UN class live in the customer's
+  // own paperwork. A screen that guessed them would be writing a signed
+  // document out of nothing.
+  const one = job();
+  assert.equal(receiptItem(one, "PO NO"), "");
+  assert.equal(receiptItem(one, "PRODUCT NAME"), "");
+  assert.equal(receiptItem(one, "UN NUMBER CLASS"), "");
+  assert.equal(receiptItem(one, "IM"), "");
+});
+
+test("a vessel and a container are import lines and stay empty on a lorry", () => {
+  // All seven real copies leave every one of these blank.
+  const head = receiptHead(job());
+  for (const field of ["vessel", "eta", "portOfDischarge", "containerNo", "agent", "receiverName"]) {
+    assert.equal(head[field], "", field);
+  }
+});
+
+test("the delivery note goes where the form asks for an invoice number", () => {
+  // It is what the consignee's gate checks against; the SAP order underneath
+  // is what the customer's own system calls the same movement.
+  const head = receiptHead(job({ deliverNo: "6317309804", sapOrder: "8505076096" }));
+  assert.equal(head.invoiceNo, "6317309804");
+  assert.equal(head.blNo, "8505076096");
+});
+
+test("the vehicle line is composed onto the form from the job's truck counts", () => {
+  assert.equal(receiptHead(job({ v6: "1", vtl: "1" })).vehicle, "1X6WH Tail Lift");
+  assert.equal(receiptHead(job({ v6: "1", v10: "1" })).vehicle, "1X6WH , 1X10WH");
 });
 
 test("where the goods are going falls back to the province and postcode", () => {

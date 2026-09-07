@@ -4,72 +4,29 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
 import {
-  receiptChoices, receiptHead, receiptLabel, receiptLine, type ReceiptJob,
+  receiptChoices, receiptHead, receiptLabel, receiptItem, type ReceiptJob,
 } from "../cargoReceipt";
+import {
+  ADDRESS, COMPANY, CONTACT, FORM_NO, ITEM_ROWS, NOTE, SIGNATURES, TERMS, itemColumns,
+} from "../cargoReceiptForm";
 
 /**
- * The cargo receipt, ISO-FRM-TH-ADM-26-06, reproduced from the account's file.
+ * The cargo receipt, ISO-FRM-TH-CCL-04-01, as the operators actually issue it.
  *
- * Not the CCL-04-01 form this tab carried before. That one has an item table
- * whose columns each customer had changed to suit themselves; this one has no
- * item table at all — a package count, an approximate weight, the times the
- * truck came and went, and a remarks column. Different document, and this is
- * the one asked for.
+ * Rebuilt from seven signed copies of the real document. The screen had been
+ * drawing ISO-FRM-TH-ADM-26-06 — a simpler form with no item table — chosen
+ * because the item table's columns differed per customer and could not be
+ * pinned down. The seven copies settle it: the columns do differ, everything
+ * around them is identical, and the answer is to store the columns per
+ * customer rather than to issue a different document.
  *
- * The sheet holds the receipt twice, rows 1-23 and 25-47, cell for cell
- * identical. That is not a mistake to tidy up: it is one copy for the customer
- * and one for the driver, printed on the same page and signed together. So the
- * screen shows one to fill in and both come out of the printer and the export.
+ * The form's fixed text and its column shapes live in cargoReceiptForm.ts, so
+ * the wording of a controlled document is testable without a browser.
  *
- * There is no signature block anywhere on it. Row 20 is sixty-two points of
- * nothing, which is where people sign. Adding labels would be inventing a
- * document the customer has never seen.
+ * One copy, not two. The ADM form was printed twice on a sheet — one for the
+ * customer, one for the driver — and every one of the seven real copies is a
+ * single receipt on a single page.
  */
-
-/** Fixed on every copy: the letterhead the form prints. */
-const COMPANY = "Leschaco(Thailand) Ltd.";
-const ADDRESS = "3354/36-39 Manorom Building, 11th Floor, Rama IV Road, Klongtoey, Bangkok 10110";
-const CONTACT = "Tel : (66) 0 2686 1000 Fax : (66) 0 2671 6717";
-const FORM_NO = "ISO-FRM-TH-ADM-26-06";
-
-/**
- * Who signs, in the order the form puts them.
- *
- * The template this was first built from had sixty-two points of empty row
- * here and no labels, so none were invented. A filled-in copy of the receipt
- * settled it: three signatures, the Leschaco officer on the left, the driver
- * taking the load in the middle, the customer receiving it on the right.
- *
- * The lines stay blank. The copy that named them was one officer signing one
- * delivery in June 2022; printing that name onto every blank form afterwards
- * would put somebody's signature under work they never saw.
- */
-/**
- * Rows in one copy of the form, and therefore the offset of the second.
- *
- * Written down rather than left as the 24 it used to be: the signature block
- * made the copy a row taller, and a hard-coded offset would have dropped the
- * second copy's merges a row into the first one's note.
- */
-const COPY_ROWS = 25;
-
-const SIGNATURES: [string, string][] = [
-  ["ลายมือชื่อพนักงานเลสชาโก้", "LESCHACO OFFICER"],
-  ["ลายมือชื่อผู้รับบรรทุก", ""],
-  ["ลายมือชื่อลูกค้า", ""],
-];
-
-/** The conditions of carriage, exactly as the cell in A19 holds them. */
-const TERMS = "1. ได้รับสินค้าไปในสภาพที่เรียบร้อยตามรายการ (HAVE RECEIVED IN GOOD ORDER AND CONDITION FOR ABOVE MENTIONED GOODS.)\n"
-  + "2. ถ้าสินค้ามีการสูญหายหรือชำรุด โปรดระบุลงในใบรับสินค้านี้ภายใน 24 ชั่วโมง ส่งจดหมายเคลมถึงเลสชาโก้ภายใน 7 วัน นับจากวันได้รับสินค้า มิเช่นนั้นแล้วทางบริษัทจะไม่รับผิดชอบต่อการสูญเสียหรือชำรุดรวมถึงการรับเคลมด้วย\n"
-  + "(WE  CANNOT  BE  HELD  RESPONSIBLE  FOR  LOSS  OR  DAMAGE  OF  GOODS,UNLESS  STATED  ON  THIS  CARGO  RECEIPT  WITHIN  24  HOURS  AND  CLAIM  LETTER  RECEIVED  NO  LATER  THAN  AFTER  7  DAYS  FROM  DELIVERY, LESCHACO  WILL  NOT  TAKE RESPONSIBILITY  FOR  ANY  CLAIM  AFTER  THE  TIME  FRAME  GIVEN.)";
-
-/** The standing note about how carriage is performed, exactly as A22 holds it. */
-const NOTE = "หมายเหตุ :\n"
-  + "คู่มือแนวทางปฏิบัติโดยทั่วไปของรถขนส่งที่ปฏิบัติการดำเนินการและดูแลรับผิดชอบการให้บริการโลจิสติกส์ในนามของบริษัท เลสชาโก้ (ประเทศไทย) จำกัด ถือเป็นส่วนหนึ่งของธุรกิจการขนส่งของเลสชาโก้ ซึ่งการให้บริการขนส่งจะต้องดำเนินการภายใต้กฎหมายการขนส่งทางถนนภายในประเทศและกฎระเบียบข้อบังคับอื่นๆที่เกี่ยวข้อง พนักงานขับรถที่ได้รับมอบหมายจะต้องยินยอมปฏิบัติตามกฎระเบียบข้อบังคับของโรงงานอาคารสถานที่ที่เกี่ยวข้องกับการปฏิบัติการขนส่งอย่างเคร่งครัด! รถขนส่งจะต้องมีอุปกรณ์เครื่องมือครบถ้วนตามข้อตกลงและเงื่อนไขทั่วไปของเลสชาโก้และกรณีเป็นการขนส่งสินค้าอันตรายจะต้องปฏิบัติตามข้อกำหนดว่าด้วยการขนส่งสินค้าอันตรายทางถนนของประเทศไทย ฉบับที่ 2 (ADR : Thai Provision Volume II) ข้อมูลสินค้าอันตรายจะต้องถ่ายทอดสื่อสารลงบนเอกสารประกอบการขนส่งอย่างครบถ้วนและห้ามแก้ไขเปลี่ยนแปลง ทั้งนี้การขนส่งตามข้อกำหนดว่าด้วยการขนส่งสินค้าอันตราย ข้อ 1.1.4.2.1.: คือเราไม่ใช่ผู้ขนส่งสินค้าตามข้อกำหนด ADR  และเอกสารชุดนี้ไม่สามารถนำไปใช้เป็นเอกสารการขนส่งตามข้อกำหนดของ ADR";
-
-/** How many lines the body has, counted off rows 14 to 18 of the sheet. */
-const BODY_ROWS = 5;
 
 /**
  * One customer's form file: who it is for.
@@ -79,6 +36,9 @@ const BODY_ROWS = 5;
  * CHEMOURS in it, and so do the ones for ISUZU and Iwatani, because somebody
  * opened the nearest file and typed over it. The name on the file is what the
  * operators actually use to find the right form.
+ *
+ * `columns` is the item table's headings for that customer, which is the one
+ * part of this document that differs between them.
  */
 export type FormTemplate = { customer: string; file: string; columns: string[] };
 
@@ -103,37 +63,65 @@ export function customerFromFile(name: string): string {
 /**
  * A form file read for its customer.
  *
- * The workbook is not opened at all. It used to be, to lift the item-table
- * headings out of it, and that reader turned away any file without such a table
- * — which is every copy of this form, including the one this screen is now
- * built from. The name is what is wanted and the name is on the file.
+ * The workbook is not opened. The name is what is wanted and the name is on
+ * the file; the item columns are set on the screen, because the operators know
+ * their own customers better than a heading row read out of a spreadsheet
+ * somebody last edited in 2022.
  */
 export function readTemplate(file: File): FormTemplate | null {
   const customer = customerFromFile(file.name);
   return customer ? { customer, file: file.name, columns: [] } : null;
 }
 
+/**
+ * The heading block, in the order the form lays it out.
+ *
+ * Most of these stay empty on this account's work — there is no vessel, no
+ * B/L, no container and no port of discharge on a lorry leaving Bangna. They
+ * are on the form because the same document covers import work, and a receipt
+ * missing rows the customer has signed for before is a different document.
+ */
 type Form = {
-  customer: string;
-  deliveryTo: string;
+  // left column
+  jobNo: string;
+  createDate: string;
   invoiceNo: string;
   vessel: string;
-  truckNo: string;
-  date: string;
-  blNo: string;
   eta: string;
+  portOfDischarge: string;
+  deliveryDate: string;
+  blNo: string;
+  truckNo: string;
+  packages: string;
+  grossWeight: string;
+  remark: string;
+  // right column
+  customer: string;
+  receiverName: string;
+  receiverAddress: string;
+  agent: string;
+  containerNo: string;
+  truckIn: string;
+  truckOut: string;
+  // the vehicle block under the item table
+  vehicle: string;
+  plate: string;
+  /** "" until somebody ticks one — the form offers both and neither by default. */
+  crew: "" | "with" | "without";
 };
 
-type Line = { packages: string; weight: string; truckIn: string; truckOut: string; remark: string };
+/** One line of the item table: a cell per column, and the columns vary. */
+type Item = { cells: string[] };
 
 const BLANK: Form = {
-  customer: "", deliveryTo: "", invoiceNo: "", vessel: "",
-  truckNo: "", date: "", blNo: "", eta: "",
+  jobNo: "", createDate: "", invoiceNo: "", vessel: "", eta: "", portOfDischarge: "",
+  deliveryDate: "", blNo: "", truckNo: "", packages: "", grossWeight: "", remark: "",
+  customer: "", receiverName: "", receiverAddress: "", agent: "", containerNo: "",
+  truckIn: "", truckOut: "", vehicle: "", plate: "", crew: "",
 };
 
-const BLANK_LINES: Line[] = Array.from({ length: BODY_ROWS }, () => ({
-  packages: "", weight: "", truckIn: "", truckOut: "", remark: "",
-}));
+const blankItems = (width: number): Item[] =>
+  Array.from({ length: ITEM_ROWS }, () => ({ cells: Array(width).fill("") }));
 
 const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600";
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
@@ -164,7 +152,16 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
   onToast: (message: string) => void;
 }) {
   const [form, setForm] = useState<Form>(BLANK);
-  const [lines, setLines] = useState<Line[]>(BLANK_LINES);
+  /**
+   * The item table's headings for the customer on the form, and the rows under
+   * them.
+   *
+   * Held together because they change together: picking a customer whose
+   * columns differ has to redraw the rows, and a row array left over from the
+   * last customer would put a D-code under a PO number heading.
+   */
+  const [columns, setColumns] = useState<string[]>(itemColumns(null));
+  const [items, setItems] = useState<Item[]>(blankItems(itemColumns(null).length));
 
   /**
    * A folder read this session, if there has been one.
@@ -197,24 +194,62 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
     const job = choices.find((one) => String(one.key ?? "") === key);
     if (!job) return;
 
-    setForm(receiptHead(job));
-    setLines([receiptLine(job), ...BLANK_LINES.slice(1)]);
-
     const head = receiptHead(job);
+    setForm(head);
+    // The customer's own columns, and one row filled as far as the register
+    // can. Read here rather than left to an effect so the headings and the row
+    // under them are never a render out of step.
+    const heads = columnsFor(head.customer);
+    setColumns(heads);
+    setItems([{ cells: heads.map((column) => receiptItem(job, column)) }, ...blankItems(heads.length).slice(1)]);
+
     const missing = [
       !head.customer && "ชื่อลูกค้า",
-      !head.deliveryTo && "ปลายทาง",
-      !head.truckNo && "ทะเบียนรถ",
+      !head.receiverAddress && "ปลายทาง",
+      !head.plate && "ทะเบียนรถ",
       !head.invoiceNo && "เลขที่ใบส่งของ",
     ].filter(Boolean);
     onToast(`กรอกจากงาน ${receiptLabel(job)} แล้ว`
       + (missing.length ? ` — งานนี้ยังไม่มี ${missing.join(", ")} ต้องกรอกเอง` : "")
-      + " · เวลารถเข้า-ออก กรอกที่หน้างาน");
+      + " · เวลารถเข้า-ออก และรายละเอียดสินค้า กรอกที่หน้างาน");
   }
 
   const set = (field: keyof Form, value: string) => setForm((held) => ({ ...held, [field]: value }));
-  const setLine = (row: number, field: keyof Line, value: string) =>
-    setLines((held) => held.map((line, i) => (i === row ? { ...line, [field]: value } : line)));
+  const setItem = (row: number, column: number, value: string) =>
+    setItems((held) => held.map((item, i) => (i === row
+      ? { cells: item.cells.map((cell, c) => (c === column ? value : cell)) }
+      : item)));
+
+  /**
+   * The item columns for a customer, off what is stored for them.
+   *
+   * Falls back to the commonest of the four shapes rather than to an empty
+   * table — see cargoReceiptForm.ts. The screen says which of the two it used,
+   * because a receipt drawn with the wrong references is one the consignee's
+   * gate will turn away.
+   */
+  function columnsFor(customer: string): string[] {
+    const held = (stored ?? []).find((one) =>
+      one.customer.trim().toLowerCase() === customer.trim().toLowerCase());
+    return itemColumns(held?.columns);
+  }
+
+  /** Changing the customer by hand changes whose columns the table draws. */
+  function pickCustomer(customer: string) {
+    set("customer", customer);
+    const heads = columnsFor(customer);
+    setColumns(heads);
+    setItems((held) => held.map((item) => ({
+      // Keep what has been typed where a column survives the change, by name
+      // rather than by position: two customers can both have PRODUCT NAME in
+      // different places, and shifting the text sideways would be worse than
+      // clearing it.
+      cells: heads.map((column) => {
+        const was = columns.indexOf(column);
+        return was >= 0 ? (item.cells[was] ?? "") : "";
+      }),
+    })));
+  }
 
   function loadFolder(files: FileList) {
     const found: FormTemplate[] = [];
@@ -254,76 +289,77 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
   function exportSheet() {
     if (!form.customer.trim()) { onToast("เลือกชื่อลูกค้าก่อน"); return; }
 
-    // Cell for cell as the workbook has it, twice, because that is what the
-    // sheet is: one receipt for the customer and one for the driver.
-    const copy = (): (string | number)[][] => {
-      const rows: (string | number)[][] = Array.from({ length: COPY_ROWS - 1 }, () => Array(5).fill(""));
-      const put = (r: number, c: number, v: string) => { rows[r - 1][c] = v; };
-
-      put(1, 0, "CARGO RECEIPT");
-      put(2, 0, "ใบรับ-ส่งสินค้า");
-      put(3, 0, "Company :"); put(3, 1, COMPANY);
-      put(4, 0, "Address :"); put(4, 1, ADDRESS);
-      put(5, 0, CONTACT);
-
-      put(7, 0, `CUSTOMER'S NAME : ${form.customer}`);
-      put(7, 4, `TRUCK NO. : ${form.truckNo}`);
-      put(8, 0, `Delivery to :   ${form.deliveryTo}`);
-      put(9, 4, `DATE :   ${form.date}`);
-      put(10, 0, `INVOICE NO. : ${form.invoiceNo}`);
-      put(10, 4, `B/L NO./AWB NO. : ${form.blNo}`);
-      put(11, 0, `VESSEL/FLIGHT : ${form.vessel}`);
-      put(11, 4, `ETA. : ${form.eta}`);
-
-      put(12, 0, "จำนวนหีบห่อ"); put(12, 1, "น้ำหนักโดยประมาณ"); put(12, 2, "Time");
-      put(12, 4, "หมายเหตุ\nRemarks");
-      put(13, 0, "No. of  P'kg (s)"); put(13, 1, "Approx Weight (kgs)");
-      put(13, 2, "Truck in"); put(13, 3, "Truck out");
-
-      lines.forEach((line, i) => {
-        put(14 + i, 0, line.packages);
-        put(14 + i, 1, line.weight);
-        put(14 + i, 2, line.truckIn);
-        put(14 + i, 3, line.truckOut);
-        put(14 + i, 4, line.remark);
-      });
-
-      put(19, 0, TERMS);
-      // The signature row, so a printed sheet carries the same three lines the
-      // screen does rather than an empty band somebody has to label by hand.
-      put(21, 0, "(                    )");
-      put(21, 2, "(                    )");
-      put(21, 4, "(                    )");
-      put(22, 0, SIGNATURES[0][1] + "\n" + SIGNATURES[0][0]);
-      put(22, 2, SIGNATURES[1][0]);
-      put(22, 4, SIGNATURES[2][0]);
-      put(23, 0, NOTE);
-      put(24, 4, FORM_NO);
-      return rows;
+    // One receipt, laid out as the paper form reads: a two-column heading
+    // block, the customer's own item table, the vehicle line, then the terms,
+    // the signatures and the note.
+    const width = Math.max(7, columns.length + 1);
+    const rows: (string | number)[][] = [];
+    const put = (...cells: (string | number)[]) => {
+      const row: (string | number)[] = Array(width).fill("");
+      cells.forEach((value, i) => { row[i] = value; });
+      rows.push(row);
+    };
+    /** A heading line: a label and value on the left, another pair on the right. */
+    const pair = (leftLabel: string, left: string, rightLabel = "", right = "") => {
+      const row: (string | number)[] = Array(width).fill("");
+      row[0] = leftLabel; row[1] = left;
+      if (rightLabel) { row[width - 3] = rightLabel; row[width - 2] = right; }
+      rows.push(row);
     };
 
-    // A blank row between the two, as on the original. One row longer than it
-    // was now that the signatures are written out, so the second copy shifts
-    // with it rather than landing on top of the first one's note.
-    const aoa = [...copy(), Array(5).fill(""), ...copy()];
-    const sheet = XLSX.utils.aoa_to_sheet(aoa);
+    put("CARGO RECEIPT");
+    put("ใบรับ-ส่งสินค้า");
+    put("Company :", COMPANY);
+    put("Address :", ADDRESS);
+    put(CONTACT);
+    put();
 
-    // The same merges, offset by 24 for the second copy.
-    const spans: [number, number, number, number][] = [
-      [1, 0, 1, 4], [2, 0, 2, 4], [5, 0, 5, 4],
-      [7, 0, 7, 2], [8, 0, 8, 2], [9, 0, 9, 2], [10, 0, 10, 2], [11, 0, 11, 2],
-      [12, 2, 12, 3], [12, 4, 13, 4],
-      [19, 0, 19, 4], [21, 0, 21, 1], [21, 2, 21, 3], [22, 0, 22, 1], [22, 2, 22, 3],
-      [23, 0, 23, 4],
-    ];
-    sheet["!merges"] = spans.flatMap(([r1, c1, r2, c2]) => [0, COPY_ROWS].map((shift) => ({
-      s: { r: r1 - 1 + shift, c: c1 }, e: { r: r2 - 1 + shift, c: c2 },
-    })));
-    sheet["!cols"] = [{ wch: 18 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 30 }];
+    pair("JOB NO. :", form.jobNo, "CUSTOMER'S NAME :", form.customer);
+    pair("CREATE DATE :", form.createDate);
+    pair("INVOICE NO. :", form.invoiceNo, "RECEIVER'S NAME :", form.receiverName);
+    pair("VESSEL/FLIGHT :", form.vessel, "RECEIVER'S ADDRESS :", form.receiverAddress);
+    pair("ETA :", form.eta);
+    pair("PORT OF DISCHARGE :", form.portOfDischarge);
+    pair("DELIVERY DATE :", form.deliveryDate);
+    pair("B/L NO./AWB NO. :", form.blNo, "AGENT :", form.agent);
+    pair("TRUCK NO. :", form.truckNo, "CONTAINER NO. :", form.containerNo);
+    pair("NO. OF PACKAGE", form.packages, "TIME OF TRUCK IN :", form.truckIn);
+    pair("GROSS WEIGHT (KGM)", form.grossWeight, "TIME OF TRUCK OUT :", form.truckOut);
+    pair("REMARK :", form.remark);
+    put();
+
+    put("ITEM :");
+    put("NO", ...columns);
+    items.forEach((item, i) => {
+      // Only the rows somebody filled in. A blank numbered row on a signed
+      // document invites a line to be added after it was signed for.
+      if (item.cells.every((cell) => !cell.trim())) return;
+      put(i + 1, ...item.cells);
+    });
+    put("TOTAL");
+    put();
+
+    put("หัวลาก");
+    put("รถบรรทุก", form.vehicle, "ทะเบียนเลขที่ :", form.plate);
+    put(form.crew === "with" ? "[X] มีพนักงานยกสินค้า" : "[ ] มีพนักงานยกสินค้า");
+    put(form.crew === "without" ? "[X] ไม่มีพนักงานยกสินค้า" : "[ ] ไม่มีพนักงานยกสินค้า");
+    put();
+
+    TERMS.forEach((term, i) => put(`${i + 1}. ${term}`));
+    put();
+    put("(                    )", "", "(                    )", "", "(                    )");
+    put(...SIGNATURES.flatMap(([thai]) => [thai, ""]));
+    put(...SIGNATURES.flatMap(([, english]) => [english, ""]));
+    put();
+    put(NOTE);
+    put(FORM_NO);
+
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    sheet["!cols"] = Array.from({ length: width }, (_, i) => ({ wch: i === 0 ? 22 : 18 }));
 
     const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, FORM_NO);
-    const safe = form.customer.replace(/[\\/:*?"<>|]/g, "-").trim();
+    XLSX.utils.book_append_sheet(book, sheet, "Cargo Receipt");
+    const safe = form.customer.replace(/[/:*?"<>|]/g, "-").trim();
     XLSX.writeFile(book, `Cargo_Receipt_${safe}.xlsx`);
     onToast(`ส่งออกใบรับ-ส่งสินค้าของ ${form.customer} แล้ว`);
   }
@@ -400,7 +436,7 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
             </button>
           )}
           <button
-            onClick={() => { setForm(BLANK); setLines(BLANK_LINES); setFrom(""); }}
+            onClick={() => { setForm(BLANK); setItems(blankItems(columns.length)); setFrom(""); }}
             className="ghost-btn"
             style={css("height:32px;padding:0 14px;border:1px solid #D3DBE3;background:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#465A6E")}
           >
@@ -425,33 +461,34 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
         {customers.map((entry) => <option key={entry.customer} value={entry.customer} />)}
       </datalist>
 
+      {/* One receipt. The form this screen used to draw was printed twice on a
+          sheet, one copy for the customer and one for the driver; every one of
+          the seven real copies of CCL-04-01 is a single receipt on a page. */}
       <div className="cargo-page" style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:20px 22px")}>
-        <Receipt form={form} lines={lines} onField={set} onLine={setLine} />
-        {/* The second copy. Hidden on screen — two identical forms to type into
-            would be a question nobody should have to answer — and printed with
-            the first, because the page is meant to carry both. */}
-        <div className="print-only">
-          <div style={css("height:14px")} />
-          <Receipt form={form} lines={lines} onField={set} onLine={setLine} />
-        </div>
+        <Receipt
+          form={form} columns={columns} items={items}
+          onField={set} onCustomer={pickCustomer} onItem={setItem}
+        />
       </div>
     </div>
   );
 }
 
 /**
- * One receipt.
+ * One receipt — ISO-FRM-TH-CCL-04-01.
  *
- * A top-level component rather than one built inside the form's render. Defined
- * in there it was a different component on every keystroke, so React threw the
- * subtree away and made a new one each time — and the box being typed into lost
- * focus after a single character.
+ * A top-level component rather than one built inside the form's render.
+ * Defined in there it was a different component on every keystroke, so React
+ * threw the subtree away and made a new one each time — and the box being
+ * typed into lost focus after a single character.
  */
-function Receipt({ form, lines, onField, onLine }: {
+function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
   form: Form;
-  lines: Line[];
+  columns: string[];
+  items: Item[];
   onField: (field: keyof Form, value: string) => void;
-  onLine: (row: number, field: keyof Line, value: string) => void;
+  onCustomer: (value: string) => void;
+  onItem: (row: number, column: number, value: string) => void;
 }) {
   return (
   <div style={css("display:flex;flex-direction:column;gap:0;color:#111;" + SHEET_FRAME)}>
@@ -469,69 +506,111 @@ function Receipt({ form, lines, onField, onLine }: {
     <img src="/cargo-receipt-logo.png" alt="Leschaco"
       style={css("position:absolute;top:6px;right:10px;height:26px;width:auto")} />
 
-    <div style={css("display:flex;gap:6px;font-size:10.5px;margin-top:2px")}>
-      <span style={css("flex:0 0 62px;font-weight:600")}>Company :</span>
+    <div style={css("display:flex;gap:6px;font-size:10px;margin-top:2px")}>
+      <span style={css("flex:0 0 58px;font-weight:600")}>Company :</span>
       <span>{COMPANY}</span>
     </div>
-    <div style={css("display:flex;gap:6px;font-size:10.5px")}>
-      <span style={css("flex:0 0 62px;font-weight:600")}>Address :</span>
+    <div style={css("display:flex;gap:6px;font-size:10px")}>
+      <span style={css("flex:0 0 58px;font-weight:600")}>Address :</span>
       <span>{ADDRESS}</span>
     </div>
-    <div style={css("font-size:10.5px;margin-bottom:7px")}>{CONTACT}</div>
+    <div style={css("font-size:10px;margin-bottom:6px")}>{CONTACT}</div>
 
-    {/* The heading block: three of the five columns on the left, the fifth on
-        the right, exactly as the merges in the sheet lay it out. */}
-    <div style={css("display:grid;grid-template-columns:3fr 2fr;gap:2px 14px")}>
-      <Field label="CUSTOMER'S NAME :" value={form.customer} onChange={(v) => onField("customer", v)} list="cargo-customers" />
-      <Field label="TRUCK NO. :" value={form.truckNo} onChange={(v) => onField("truckNo", v)} />
-      <Field label="Delivery to :" value={form.deliveryTo} onChange={(v) => onField("deliveryTo", v)} />
+    {/* The heading block, two columns, in the order the paper form reads.
+        Most of the left column is blank on this account's work — no vessel,
+        no B/L, no port of discharge — and the rows stay because the same
+        document covers import work. */}
+    <div style={css("display:grid;grid-template-columns:1fr 1fr;gap:1px 18px;border:1px solid #333;padding:5px 7px")}>
+      <Field label="JOB NO. :" value={form.jobNo} onChange={(v) => onField("jobNo", v)} />
+      <Field label="CUSTOMER'S NAME :" value={form.customer} onChange={onCustomer} list="cargo-customers" />
+      <Field label="CREATE DATE :" value={form.createDate} onChange={(v) => onField("createDate", v)} />
       <span />
-      <span />
-      <Field label="DATE :" value={form.date} onChange={(v) => onField("date", v)} />
       <Field label="INVOICE NO. :" value={form.invoiceNo} onChange={(v) => onField("invoiceNo", v)} />
-      <Field label="B/L NO./AWB NO. :" value={form.blNo} onChange={(v) => onField("blNo", v)} />
+      <Field label="RECEIVER'S NAME :" value={form.receiverName} onChange={(v) => onField("receiverName", v)} />
       <Field label="VESSEL/FLIGHT :" value={form.vessel} onChange={(v) => onField("vessel", v)} />
-      <Field label="ETA. :" value={form.eta} onChange={(v) => onField("eta", v)} />
+      <Field label="RECEIVER'S ADDRESS :" value={form.receiverAddress} onChange={(v) => onField("receiverAddress", v)} />
+      <Field label="ETA :" value={form.eta} onChange={(v) => onField("eta", v)} />
+      <span />
+      <Field label="PORT OF DISCHARGE :" value={form.portOfDischarge} onChange={(v) => onField("portOfDischarge", v)} />
+      <span />
+      <Field label="DELIVERY DATE :" value={form.deliveryDate} onChange={(v) => onField("deliveryDate", v)} />
+      <span />
+      <Field label="B/L NO./AWB NO. :" value={form.blNo} onChange={(v) => onField("blNo", v)} />
+      <Field label="AGENT :" value={form.agent} onChange={(v) => onField("agent", v)} />
+      <Field label="TRUCK NO. :" value={form.truckNo} onChange={(v) => onField("truckNo", v)} />
+      <Field label="CONTAINER NO. :" value={form.containerNo} onChange={(v) => onField("containerNo", v)} />
+      <Field label="NO. OF PACKAGE" value={form.packages} onChange={(v) => onField("packages", v)} />
+      <Field label="TIME OF TRUCK IN :" value={form.truckIn} onChange={(v) => onField("truckIn", v)} />
+      <Field label="GROSS WEIGHT (KGM)" value={form.grossWeight} onChange={(v) => onField("grossWeight", v)} />
+      <Field label="TIME OF TRUCK OUT :" value={form.truckOut} onChange={(v) => onField("truckOut", v)} />
+      <div style={css("grid-column:1 / -1")}>
+        <Field label="REMARK :" value={form.remark} onChange={(v) => onField("remark", v)} />
+      </div>
     </div>
 
-    <table style={css("width:100%;border-collapse:collapse;margin-top:8px")}>
+    <div style={css("font-size:10px;font-weight:600;margin:6px 0 2px")}>ITEM :</div>
+    <table style={css("width:100%;border-collapse:collapse")}>
       <thead>
-        {/* Two header rows, because "Time" sits over both clock columns on the
-            paper form. As one row it read as the heading of "Truck in" alone,
-            with a blank cell over "Truck out". */}
         <tr>
-          <th rowSpan={2} style={css(HEAD_CELL + ";width:17%")}>จำนวนหีบห่อ<br />No. of&nbsp; P&apos;kg (s)</th>
-          <th rowSpan={2} style={css(HEAD_CELL + ";width:21%")}>น้ำหนักโดยประมาณ<br />Approx Weight (kgs)</th>
-          <th colSpan={2} style={css(HEAD_CELL + ";width:26%")}>Time</th>
-          <th rowSpan={2} style={css(HEAD_CELL)}>หมายเหตุ<br />Remarks</th>
-        </tr>
-        <tr>
-          <th style={css(HEAD_CELL + ";width:13%")}>Truck in</th>
-          <th style={css(HEAD_CELL + ";width:13%")}>Truck out</th>
+          <th style={css(HEAD_CELL + ";width:26px")}>NO</th>
+          {columns.map((column) => <th key={column} style={css(HEAD_CELL)}>{column}</th>)}
         </tr>
       </thead>
       <tbody>
-        {lines.map((line, i) => (
-          <tr key={i}>
-            {(["packages", "weight", "truckIn", "truckOut", "remark"] as (keyof Line)[]).map((field) => (
-              <td key={field} style={css(BOX)}>
+        {items.map((item, row) => (
+          <tr key={row}>
+            <td style={css(BOX + ";text-align:center;font-size:10px;color:#555")}>{row + 1}</td>
+            {item.cells.map((value, column) => (
+              <td key={column} style={css(BOX)}>
                 <input
-                  value={line[field]}
-                  onChange={(e) => onLine(i, field, e.target.value)}
-                  style={css(BOX_INPUT + (field === "packages" || field === "weight" ? ";text-align:right" : ""))}
+                  value={value}
+                  onChange={(e) => onItem(row, column, e.target.value)}
+                  style={css(BOX_INPUT + (/WEIGHT|QTY|P.?KG/i.test(columns[column] ?? "") ? ";text-align:right" : ""))}
                 />
               </td>
             ))}
           </tr>
         ))}
+        <tr>
+          <td colSpan={columns.length + 1} style={css(BOX + ";padding:3px 5px;font-size:10px;font-weight:600")}>
+            TOTAL
+          </td>
+        </tr>
       </tbody>
     </table>
 
-    <div style={css("font-size:9px;line-height:1.5;white-space:pre-line;margin-top:7px")}>{TERMS}</div>
+    {/* The vehicle block. "หัวลาก" and "รถบรรทุก" are the two kinds of vehicle
+        the form offers; the line beside them is composed from the job's own
+        truck counts. */}
+    <div style={css("display:flex;gap:16px;align-items:baseline;margin-top:6px;font-size:10.5px;flex-wrap:wrap")}>
+      <span style={css("font-weight:600")}>หัวลาก</span>
+      <span style={css("font-weight:600")}>รถบรรทุก</span>
+      <input value={form.vehicle} onChange={(e) => onField("vehicle", e.target.value)}
+        style={css(FIELD + ";flex:0 1 190px")} />
+      <span style={css("font-weight:600;white-space:nowrap")}>ทะเบียนเลขที่ :</span>
+      <input value={form.plate} onChange={(e) => onField("plate", e.target.value)}
+        style={css(FIELD + ";flex:1 1 150px")} />
+    </div>
+    {/* One or the other, never both — which a pair of radios says and a pair of
+        tick boxes does not. */}
+    <div style={css("display:flex;gap:20px;margin-top:3px;font-size:10.5px")}>
+      {([["with", "มีพนักงานยกสินค้า"], ["without", "ไม่มีพนักงานยกสินค้า"]] as const).map(([value, label]) => (
+        <label key={value} style={css("display:flex;gap:5px;align-items:center;cursor:pointer")}>
+          <input type="radio" name="cargo-crew" checked={form.crew === value}
+            onChange={() => onField("crew", value)} style={css("margin:0")} />
+          <span>{label}</span>
+        </label>
+      ))}
+    </div>
 
-    {/* Where the form is signed. The blank row it used to be is now the three
-        signatures the real receipt carries, left empty for whoever signs. */}
-    <div style={css("display:flex;gap:18px;margin-top:34px;margin-bottom:6px")}>
+    <ol style={css("font-size:8.5px;line-height:1.5;margin:7px 0 0;padding-left:15px")}>
+      {TERMS.map((term) => <li key={term.slice(0, 24)} style={css("margin-bottom:1px")}>{term}</li>)}
+    </ol>
+
+    {/* Where the form is signed. Left empty for whoever signs — one of the real
+        copies has the officer's name typed in, and printing it on every blank
+        form would put their signature under work they never saw. */}
+    <div style={css("display:flex;gap:18px;margin-top:30px;margin-bottom:6px")}>
       {SIGNATURES.map(([thai, english]) => (
         <div key={thai} style={css("flex:1;text-align:center")}>
           <div style={css("border-bottom:1px dotted #333;height:1px;margin-bottom:5px")} />
@@ -542,7 +621,7 @@ function Receipt({ form, lines, onField, onLine }: {
       ))}
     </div>
 
-    <div style={css("font-size:8.5px;line-height:1.45;white-space:pre-line;color:#333;border-top:1px solid #999;padding-top:4px")}>{NOTE}</div>
+    <div style={css("font-size:8px;line-height:1.45;white-space:pre-line;color:#333;border-top:1px solid #999;padding-top:4px")}>{NOTE}</div>
     <div style={css("text-align:right;font-size:9px;color:#333;margin-top:3px")}>{FORM_NO}</div>
   </div>
   );

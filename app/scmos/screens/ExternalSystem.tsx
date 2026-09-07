@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
 import {
-  probeStateFor, probeTone, type ExternalSystem, type ProbeState,
+  probeSystem, probeTone, type ExternalSystem, type ProbeResult,
 } from "../externalSystems";
 
 /**
@@ -25,41 +25,28 @@ import {
  * nobody has to guess whether the gap is here or at the other end.
  */
 export function ExternalSystemScreen({ system }: { system: ExternalSystem }) {
-  const [probe, setProbe] = useState<{ state: ProbeState; detail: string }>(
-    { state: "checking", detail: "" });
+  // Returning to a menu starts a fresh check, never a result from its last visit.
+  return <SystemPanel key={system.endpoint} system={system} />;
+}
 
-  // No "checking" set in here: that is the state this screen already opens in,
-  // and setting it again on mount is a second render before the first has been
-  // painted. The retry button below arms it, because there it is a real change.
-  const check = useCallback(async () => {
-    try {
-      const response = await apiFetch(system.endpoint, { headers: { accept: "application/json" } });
-      const state = probeStateFor(response.status);
-      setProbe({
-        state,
-        detail:
-          state === "absent" ? "ยังไม่มี endpoint นี้ในฝั่ง API — เป็นสถานะที่ถูกต้องสำหรับตอนนี้"
-          : state === "denied" ? `API ตอบ ${response.status} — บัญชีนี้ยังไม่มีสิทธิ์เรียกส่วนนี้`
-          : state === "ready" ? "ต่อกับ API ได้แล้ว — พร้อมใส่หน้าจอจริง"
-          : `API ตอบ ${response.status}`,
-      });
-    } catch (error) {
-      setProbe({ state: "error", detail: error instanceof Error ? error.message : String(error) });
-    }
-  }, [system.endpoint]);
+function SystemPanel({ system }: { system: ExternalSystem }) {
+  const endpoint = system.endpoint;
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<(ProbeResult & { endpoint: string; attempt: number }) | null>(null);
 
-  // Fetching on mount. Every setState inside is after an await, so it runs
-  // in a microtask rather than while this body does — the rule cannot see
-  // past the await and reads it as a synchronous set. Genuine ones in this
-  // codebase have been fixed; this idiom has no other spelling.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void check(); }, [check]);
+  // A menu change or retry immediately hides the previous answer, even before
+  // the effect starts. The request belongs to this endpoint AND this attempt.
+  const probe: ProbeResult = result?.endpoint === endpoint && result.attempt === attempt
+    ? result : { state: "checking", detail: "" };
 
-  // Switching menu is a different system, and the last one's answer is not an
-  // answer about this one. Read during render on the value changing rather
-  // than in an effect, which would show the wrong panel for a frame first.
-  const [shown, setShown] = useState(system.id);
-  if (shown !== system.id) { setShown(system.id); setProbe({ state: "checking", detail: "" }); }
+  useEffect(() => {
+    const controller = new AbortController();
+    void probeSystem(endpoint, apiFetch, controller.signal).then((answer) => {
+      // Cleanup may have run after the request resolved but before this callback.
+      if (answer && !controller.signal.aborted) setResult({ ...answer, endpoint, attempt });
+    });
+    return () => controller.abort();
+  }, [endpoint, attempt]);
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
@@ -83,7 +70,7 @@ export function ExternalSystemScreen({ system }: { system: ExternalSystem }) {
         }
         action={probe.state === "checking" ? undefined : {
           label: "ตรวจอีกครั้ง",
-          onClick: () => { setProbe({ state: "checking", detail: "" }); void check(); },
+          onClick: () => setAttempt((previous) => previous + 1),
         }}
       >
         {probe.detail || "…"}
