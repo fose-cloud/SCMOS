@@ -127,6 +127,19 @@ export type Job = {
   vtr?: string;
   cost?: string;
   /**
+   * เรทน้ำมัน — the diesel price this trip was charged against, ฿/litre.
+   *
+   * Not decoration. Every lane on the customer's cards is eleven prices, one
+   * per band of the fuel clause, and this figure picks which one applied. A
+   * trip that does not carry it cannot be reconciled against an invoice later
+   * without guessing what the pump said that week.
+   *
+   * Blank on every job that existed before the column did, and deliberately not
+   * backfilled — nobody knows what diesel was on those days, and today's figure
+   * written across last month's work would be a confident wrong answer.
+   */
+  diesel?: string;
+  /**
    * งานรับกลับ — whether a load came back on this trip.
    *
    * "TRUE" or empty, matching the operators' own CHACK column rather than a

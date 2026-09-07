@@ -12,6 +12,7 @@ import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { writeClipboardTable } from "../pasteBlock";
+import { looksLikeDiesel } from "../diesel";
 import {
   RETURN_SHARE, TICKED, UNTICKED, returnKind, returnLoadCharge, termCoversOrigin, tripCost,
   type ReturnKind,
@@ -222,7 +223,7 @@ const COL_DEFS: Record<string, [string][]> = {
   // Province is gone: it is not on their sheet and was not asked for. It is
   // still written by the import and still printed on the Delivery Details
   // report, so nothing is lost, but it cannot be edited from this grid.
-  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["รับกลับ 50%"], ["รับกลับ FG 80%"], ["ค่ารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
+  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["เรทน้ำมัน"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["รับกลับ 50%"], ["รับกลับ FG 80%"], ["ค่ารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
   ALL: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
@@ -283,6 +284,7 @@ const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text"
   "SAP ORDER": { pick: (j) => j.sapOrder, as: "text" },
   "DELIVER NO.": { pick: (j) => j.deliverNo, as: "text" },
   "Customer List": { pick: (j) => j.customer, as: "text" },
+  "เรทน้ำมัน": { pick: (j) => j.diesel, as: "number" },
   "ZIP CODE": { pick: (j) => j.zip, as: "text" },
   PALLET: { pick: (j) => j.pallet, as: "number" },
   "KGS.": { pick: (j) => j.weight, as: "number" },
@@ -1405,7 +1407,7 @@ export function Workspace(p: Props) {
         ed(j, "jobCode", { mono: true }), ed(j, "dCode", { mono: true }),
         ed(j, "date", { mono: true }), ed(j, "sid", { mono: true, mute: true }),
         ed(j, "sapOrder", { mono: true }), ed(j, "deliverNo", { mono: true }),
-        edPick(j, "customer", { w: 200 }), ed(j, "zip", { mono: true }),
+        edPick(j, "customer", { w: 200 }), dieselCell(j), ed(j, "zip", { mono: true }),
         ed(j, "pallet", { mono: true, align: "right" }),
         // `weight`, not `kgs`. A KGS column off any sheet imports as `weight` —
         // excel.ts says so where the aliases are — so a grid bound to `kgs`
@@ -1437,6 +1439,26 @@ export function Workspace(p: Props) {
       ed(j, "cs", { mono: true }), stCell(j),
       { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
     ]);
+  };
+
+  /**
+   * เรทน้ำมัน — the diesel price this trip was charged against.
+   *
+   * Editable like any other cell, and blank until somebody fills it. Not
+   * defaulted to today's figure: the column went in after most of this work was
+   * done, and stamping the current pump price onto a trip that ran in July
+   * would be a confident wrong answer rather than a missing one.
+   *
+   * A figure that cannot be a pump price is shown as typed and marked, not
+   * corrected. It is nearly always a cost or a postcode in the wrong column,
+   * and the fix is to move it rather than to round it.
+   */
+  const dieselCell = (j: Job): Cell => {
+    const base = ed(j, "diesel", { mono: true, align: "right" });
+    if (base.kind === "input" || !j.diesel) return base;
+    return looksLikeDiesel(j.diesel)
+      ? base
+      : { ...base, sp: base.sp + "color:#B45309;font-weight:600;" };
   };
 
   /**

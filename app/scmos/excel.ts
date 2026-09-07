@@ -105,6 +105,8 @@ const DELIVERY_COLUMNS: Column[] = [
   { header: "6W", pick: (j) => j.v6 ?? "" },
   { header: "10W", pick: (j) => j.v10 ?? "" },
   { header: "Trailer", pick: (j) => j.vtr ?? "" },
+  // Beside the cost, because it is half of how the cost was arrived at.
+  { header: "Diesel", pick: (j) => j.diesel ?? "" },
   { header: "Transport Cost", pick: (j) => j.cost ?? "" },
   // The return leg goes out as the tick and the money it comes to, not as the
   // tick alone. Whoever opens this file is reconciling an invoice, and half of
@@ -491,6 +493,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   // rate card and never a fact about a trip. The aliases are here so that the
   // day somebody adds it to their workbook, it imports rather than being typed
   // in again over the top.
+  diesel: ["DIESEL", "DIESEL PRICE", "FUEL", "FUEL PRICE", "เรทน้ำมัน", "ราคาน้ำมัน"],
   returnLoad: ["RETURN LOAD", "RETURN", "BACKHAUL", "งานรับกลับ", "รับกลับ"],
   returnFinished: ["RETURN FG", "RETURN FINISHED", "FINISHED GOODS", "FINISH GOODS", "งานรับกลับ FG", "รับกลับ FG"],
   cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง"],

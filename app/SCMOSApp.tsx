@@ -39,6 +39,7 @@ import { Assistant } from "./scmos/screens/Assistant";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
+import { DIESEL } from "./scmos/diesel";
 import { Chemours } from "./scmos/screens/Chemours";
 import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
@@ -717,7 +718,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
 
   // One diesel price for the whole app. Every quoted rate steps with it, so the
   // booking screen and the rate screen must not be able to disagree about it.
-  const [diesel, setDiesel] = useState(32.94);
+  const [diesel, setDiesel] = useState<number>(DIESEL.price);
 
   /*
    * Which half of Rate Quotation is open, held here rather than in the screen.
