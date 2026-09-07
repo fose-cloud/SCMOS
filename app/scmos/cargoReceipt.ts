@@ -219,8 +219,13 @@ export function vehicleLine(counts: ReceiptJob): string {
   ] as [number, string][]) {
     if (count > 0) parts.push(`${count}X${label}`);
   }
-  const line = parts.join(" , ");
   const lift = n(counts.vtl);
+  // A tail lift on its own is a lorry: the register's own TAIL LIFT column is
+  // used instead of a wheel size, never beside one — thirty-seven rows of the
+  // August sheet have no job carrying both. It is priced as a 6-wheel, so it is
+  // written as one here too, which is how the receipts word it.
+  if (lift > 0 && parts.length === 0) return `${lift}X6WH Tail Lift`;
+  const line = parts.join(" , ");
   return line && lift > 0 ? `${line} Tail Lift` : line;
 }
 

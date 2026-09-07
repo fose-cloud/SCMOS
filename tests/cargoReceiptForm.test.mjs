@@ -88,7 +88,9 @@ test("the vehicle line is composed from the counts the grid already carries", ()
 test("a tail lift rides on the line rather than counting as its own truck", () => {
   // It is a property of the truck sent. All seven copies write it this way.
   assert.equal(vehicleLine({ v6: "1", vtl: "1" }), "1X6WH Tail Lift");
-  assert.equal(vehicleLine({ vtl: "1" }), "", "a tail lift with no truck is not a vehicle line");
+  // A tail lift on its own is a lorry — the register uses that column instead
+  // of a wheel size, never beside one — and it is priced as a 6-wheel.
+  assert.equal(vehicleLine({ vtl: "1" }), "1X6WH Tail Lift");
 });
 
 test("zero and blank are not a truck", () => {

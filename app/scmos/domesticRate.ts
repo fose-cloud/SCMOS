@@ -41,16 +41,36 @@ export type RateLaneLike = {
   prices: Record<string, (number | null)[]>;
 };
 
-/** The vehicle sizes the card quotes, and the job field each is counted in. */
-export const SIZES: { vehicle: string; field: keyof RatedJob }[] = [
-  { vehicle: "4W", field: "v4" },
-  { vehicle: "6W", field: "v6" },
-  { vehicle: "10W", field: "v10" },
+/**
+ * The job's vehicle counts, and which of the card's prices each is read at.
+ *
+ * A tail lift is priced as a 6-wheel. Neither card quotes one — the selling
+ * card offers 4W, 6W, 10W and a 20'/40'GP it never priced, and the cost card is
+ * six sheets of the three wheel sizes — so there is no tail-lift rate to read,
+ * and the account team's answer is to use the 6-wheel's.
+ *
+ * `label` is kept apart from `vehicle` so the tooltip can say which column a
+ * figure came from. A trip billed at the 6W rate because it sent a tail lift
+ * should say so, not appear to have sent a 6-wheel.
+ */
+export const SIZES: { label: string; vehicle: string; field: keyof RatedJob }[] = [
+  { label: "4W", vehicle: "4W", field: "v4" },
+  { label: "6W", vehicle: "6W", field: "v6" },
+  { label: "10W", vehicle: "10W", field: "v10" },
+  { label: "TAIL LIFT", vehicle: "6W", field: "vtl" },
 ];
 
+/**
+ * How many of a size went, which is not always a whole number.
+ *
+ * 0.5 in a column means half the trip's rate for that size — a load shared with
+ * somebody else's, which the operators write as a half. So the figure is kept
+ * as typed rather than rounded: rounding turned every 0.5 into a whole truck
+ * and doubled what the trip was billed.
+ */
 const count = (value: string | undefined): number => {
   const number = Number(String(value ?? "").replace(/[,\s]/g, ""));
-  return Number.isFinite(number) && number > 0 ? Math.round(number) : 0;
+  return Number.isFinite(number) && number > 0 ? number : 0;
 };
 
 /** A postcode as the join reads it: digits only, so " 21140" and "21140" meet. */
@@ -124,9 +144,10 @@ export type RatedTrip = {
  * quote. A zero in this column would read as a free trip, and it is the column
  * an invoice gets checked against.
  *
- * A tail lift is not counted as a truck. It is a property of the lorry sent,
- * which is how the cargo receipt writes it too, and the card does not price one
- * separately.
+ * A tail lift counts as a vehicle here, priced at the 6-wheel rate — see SIZES.
+ * In thirty-seven rows of the August register a tail lift and a wheel size never
+ * appear on the same job, so the two are alternatives in practice rather than a
+ * truck and an accessory.
  */
 export function rateTrip(
   job: RatedJob,
@@ -138,7 +159,10 @@ export function rateTrip(
   if (band < 0) return { total: null, parts: [], reason: "no-band" };
 
   const wanted = SIZES
-    .map((size) => ({ vehicle: size.vehicle, trucks: count(job[size.field] as string | undefined) }))
+    .map((size) => ({
+      label: size.label, vehicle: size.vehicle,
+      trucks: count(job[size.field] as string | undefined),
+    }))
     .filter((one) => one.trucks > 0);
   if (wanted.length === 0) return { total: null, parts: [], reason: "no-trucks" };
 
@@ -149,11 +173,14 @@ export function rateTrip(
     // A size the card does not quote is not worth zero. The whole trip goes
     // unpriced rather than being billed for the trucks that happen to be on it.
     if (each === null || each === undefined) return { total: null, parts: [], reason: "not-quoted" };
-    parts.push({ vehicle: one.vehicle, trucks: one.trucks, each });
+    // Labelled by the column it was counted in, priced by the card's own key.
+    parts.push({ vehicle: one.label, trucks: one.trucks, each });
   }
 
   return {
-    total: parts.reduce((sum, part) => sum + part.trucks * part.each, 0),
+    // Whole baht at the end, not per part. A half of an odd price gives satang,
+    // and rounding each line separately would drift from the sum of the lines.
+    total: Math.round(parts.reduce((sum, part) => sum + part.trucks * part.each, 0)),
     parts,
     reason: "",
   };

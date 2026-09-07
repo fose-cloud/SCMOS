@@ -39,11 +39,27 @@ test("a trip sending two sizes pays for both", () => {
   assert.deepEqual(got.parts.map((p) => p.vehicle), ["6W", "10W"]);
 });
 
-test("a tail lift is not a truck", () => {
-  // It is a property of the lorry sent, which is how the receipt writes it,
-  // and the card does not price one separately.
-  assert.equal(rateTrip({ zip: "21140", v10: "1", vtl: "1" }, card, 0).total, 4000);
-  assert.equal(rateTrip({ zip: "20230", vtl: "1" }, card, 0).reason, "no-trucks");
+test("a tail lift is priced as a 6-wheel, because no card quotes one", () => {
+  // The selling card offers 4W, 6W, 10W and a container line it never priced;
+  // the cost card is six sheets of the three wheel sizes. Neither has a
+  // tail-lift rate, and the account team's answer is to use the 6-wheel's.
+  const got = rateTrip({ zip: "21140", vtl: "1" }, card, 0);
+  assert.equal(got.total, 3000, "the 6W price");
+  assert.deepEqual(got.parts, [{ vehicle: "TAIL LIFT", trucks: 1, each: 3000 }],
+    "labelled by the column it came from, not as a 6-wheel it did not send");
+});
+
+test("a half in a column is half the trip, not a whole truck", () => {
+  // A load shared with somebody else's. Rounding turned every 0.5 into a whole
+  // truck and doubled what the trip was billed.
+  assert.equal(rateTrip({ zip: "21140", v10: "0.5" }, card, 0).total, 2000);
+  assert.equal(rateTrip({ zip: "21140", v6: "1.5" }, card, 0).total, 4500);
+});
+
+test("a half of an odd price is rounded once, at the end", () => {
+  // Rounding each line separately drifts from the sum of the lines.
+  const odd = [lane("Unithai (Bangna KM. 23)", "21140", { "4W": [2001], "6W": [3001] })];
+  assert.equal(rateTrip({ zip: "21140", v4: "0.5", v6: "0.5" }, odd, 0).total, 2501);
 });
 
 /* ------------------------------------------- what must not be priced */
