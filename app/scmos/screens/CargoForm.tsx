@@ -277,7 +277,7 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
     // under them are never a render out of step.
     const heads = columnsFor(head.customer);
     setColumns(heads);
-    setItems([{ cells: heads.map((column) => receiptItem(job, column, heads)) }, ...blankItems(heads.length).slice(1)]);
+    setItems([{ cells: heads.map((column) => receiptItem(job, column)) }, ...blankItems(heads.length).slice(1)]);
 
     const missing = [
       !head.customer && "ชื่อลูกค้า",

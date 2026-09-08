@@ -157,9 +157,10 @@ export function receiptDestination(job: ReceiptJob): string {
  */
 export function receiptHead(job: ReceiptJob): ReceiptHead {
   return {
-    // The delivery note is what the consignee's gate checks against, so it
-    // goes where the form asks for an invoice number; the SAP order underneath
-    // is what the customer's own system calls the same movement.
+    // The delivery note is what the consignee's gate checks against, so it goes
+    // where the form asks for an invoice number. The SAP order goes to the item
+    // table's PO NO now, not to B/L: all seven copies leave B/L NO./AWB NO.
+    // empty, because it is an import line and this is a lorry.
     // The grid's "SID NUMBER" column, which is where the LSTH job number
     // actually lives — see the note on jobCode above.
     jobNo: text(job.jobCode) || text(job.jobNo),
@@ -169,7 +170,7 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
     eta: "",
     portOfDischarge: "",
     deliveryDate: text(job.date),
-    blNo: text(job.sapOrder),
+    blNo: "",
     truckNo: receiptTruck(job),
     packages: text(job.pallet),
     grossWeight: text(job.kgs) || text(job.weight),
@@ -198,18 +199,24 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
  * note, the pallets and the kilos; the product name, the PO number and the UN
  * class live in the customer's own paperwork and are typed in.
  */
-export function receiptItem(job: ReceiptJob, column: string, columns: readonly string[] = []): string {
+export function receiptItem(job: ReceiptJob, column: string): string {
   const head = column.replace(/\s+/g, " ").trim().toUpperCase();
-  const heads = columns.map((one) => one.replace(/\s+/g, " ").trim().toUpperCase());
-  const hasOwnDCode = heads.some((one) => /^D-?CODE$/.test(one));
-  // PO NO is filled from the grid's "JOB NO." column, which the caption swap
-  // means is the D-code. Asked for by the department: it is the reference their
-  // consignee's gate checks the delivery against.
-  //
-  // A preset that carries a D-code column of its own gets the value there and
-  // not here, or MERIT's receipt would print the same number twice under two
-  // headings.
-  if (/^PO\s*NO/.test(head)) return hasOwnDCode ? "" : text(job.dCode);
+  /*
+   * PO NO is the SAP order, at the department's direction.
+   *
+   * The seven copies do not agree on it, which is worth writing down. Ampacet's
+   * carries 2100004162 — a SAP order, which is what this now fills. AAT's and
+   * UNIC's carry a D-code under the same heading. MERIT's carries POL2607001,
+   * a purchase order the register does not hold at all, with the D-code beside
+   * it in its own column.
+   *
+   * So this is right for Ampacet, wrong for AAT and UNIC, and unavailable for
+   * MERIT. It is filled anyway because a receipt is checked and signed by a
+   * person before it leaves, and a wrong number they can see beats an empty box
+   * that tells them nothing. If the other customers matter, the fix is to store
+   * the source per customer beside the columns already stored per customer.
+   */
+  if (/^PO\s*NO/.test(head)) return text(job.sapOrder);
   if (/^D-?CODE$/.test(head)) return text(job.dCode);
   if (/^DELIVERY\s*NO/.test(head)) return text(job.deliverNo);
   if (/^PRODUCT/.test(head)) return text(job.product);
