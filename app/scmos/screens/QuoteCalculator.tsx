@@ -683,8 +683,12 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
           </div>
         )}
 
-        <div style={css("overflow-x:auto;margin-bottom:12px;border:1px solid #E3E8EE;border-radius:5px")}>
-          <table style={css("width:100%;border-collapse:collapse;font-size:12px;min-width:780px")}>
+        {/* Through ZoomBox like every other table on a screen: seven columns
+            of inputs is exactly the width somebody ends up reading on a
+            laptop, and the shared box is what makes it shrinkable. */}
+        <div style={css("margin-bottom:12px;border:1px solid #E3E8EE;border-radius:5px")}>
+          <ZoomBox>
+            <table style={css("width:100%;border-collapse:collapse;font-size:12px;min-width:780px")}>
             <thead>
               <tr style={css("background:#F4F8FC")}>
                 {["", "ต้นทาง", "ปลายทาง", "กม.", "จังหวัด", "ผู้ขนส่ง", ""].map((head, at) => (
@@ -762,8 +766,9 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </ZoomBox>
         </div>
         <datalist id="quote-carriers">{carriers.map((name) => <option key={name} value={name} />)}</datalist>
         <datalist id="quote-counties-calc">{counties.map((name) => <option key={name} value={name} />)}</datalist>
