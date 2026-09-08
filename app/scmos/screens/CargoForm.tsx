@@ -136,12 +136,31 @@ const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radiu
  */
 const INK = "#333";
 
+/*
+ * The document's type, taken off the seven signed copies rather than chosen.
+ *
+ * Every one of them embeds Tahoma and Tahoma-Bold, which is the font the Thai
+ * office set the workbook in, and every one of them sets the body at 8pt. The
+ * page sizes differ — 737, 805 and 887 points wide — but each is US Letter
+ * multiplied by exactly the same factor in both directions (1.205, 1.316,
+ * 1.449), so those are one Letter sheet printed at three "fit to page"
+ * settings, not three designs.
+ *
+ * So: Letter, Tahoma, 8pt body, 16pt title, 10pt for the ITEM heading. Sizes
+ * are in points rather than pixels because this is a document that gets
+ * printed and signed, and a point is the same size on paper as the workbook's.
+ */
+const FACE = "Tahoma, 'Leelawadee UI', 'Segoe UI', sans-serif";
+const BODY_PT = "8pt";
+const TITLE_PT = "16pt";
+const ITEM_PT = "10pt";
+
 /** A written-on line. The same ink as the box it sits in, not a paler one. */
 const FIELD = `flex:1;min-width:0;border:none;border-bottom:1px solid ${INK};`
-  + "background:transparent;font-size:11.5px;font-family:inherit;padding:1px 3px;outline:none";
+  + `background:transparent;font-size:${BODY_PT};font-family:inherit;padding:1px 3px;outline:none`;
 const BOX = `border:1px solid ${INK};padding:0`;
-const BOX_INPUT = "width:100%;border:none;background:transparent;font-size:11px;font-family:inherit;padding:3px 5px;outline:none";
-const HEAD_CELL = `border:1px solid ${INK};padding:3px 5px;font-size:10px;text-align:center;line-height:1.25`;
+const BOX_INPUT = `width:100%;border:none;background:transparent;font-size:${BODY_PT};font-family:inherit;padding:1px 4px;outline:none`;
+const HEAD_CELL = `border:1px solid ${INK};padding:1px 4px;font-size:${BODY_PT};text-align:center;line-height:1.2`;
 
 /**
  * The heading block, as the paper form rules it.
@@ -548,9 +567,9 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
   onItem: (row: number, column: number, value: string) => void;
 }) {
   return (
-  <div style={css(`display:flex;flex-direction:column;gap:0;color:${INK};` + SHEET_FRAME)}>
-    <div style={css("text-align:center;font-size:15px;font-weight:700;line-height:1.3")}>CARGO RECEIPT</div>
-    <div style={css("text-align:center;font-size:13px;font-weight:600;line-height:1.3")}>ใบรับ-ส่งสินค้า</div>
+  <div style={css(`display:flex;flex-direction:column;gap:0;color:${INK};font-family:${FACE};` + SHEET_FRAME)}>
+    <div style={css(`text-align:center;font-size:${TITLE_PT};font-weight:700;line-height:1.25`)}>CARGO RECEIPT</div>
+    <div style={css(`text-align:center;font-size:${TITLE_PT};font-weight:600;line-height:1.25`)}>ใบรับ-ส่งสินค้า</div>
 
     {/* The mark, where the paper form carries it. Absolute so it sits beside
         the two title lines without pushing them off centre — they are centred
@@ -563,15 +582,15 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
     <img src="/cargo-receipt-logo.png" alt="Leschaco"
       style={css("position:absolute;top:6px;right:10px;height:26px;width:auto")} />
 
-    <div style={css("display:flex;gap:6px;font-size:10px;margin-top:2px")}>
+    <div style={css(`display:flex;gap:6px;font-size:${BODY_PT};margin-top:2px`)}>
       <span style={css("flex:0 0 58px;font-weight:600")}>Company :</span>
       <span>{COMPANY}</span>
     </div>
-    <div style={css("display:flex;gap:6px;font-size:10px")}>
+    <div style={css(`display:flex;gap:6px;font-size:${BODY_PT}`)}>
       <span style={css("flex:0 0 58px;font-weight:600")}>Address :</span>
       <span>{ADDRESS}</span>
     </div>
-    <div style={css("font-size:10px;margin-bottom:6px")}>{CONTACT}</div>
+    <div style={css(`font-size:${BODY_PT};margin-bottom:6px`)}>{CONTACT}</div>
 
     {/* The heading block, two columns, in the order the paper form reads.
         Most of the left column is blank on this account's work — no vessel,
@@ -584,28 +603,28 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
     <div style={css(`border:1px solid ${INK};border-bottom:none`)}>
       {HEADING_ROWS.map(([left, right]) => (
         <div key={left} style={css("display:grid;grid-template-columns:1fr 1fr")}>
-          <div style={css(`border-bottom:1px solid ${INK};border-right:1px solid ${INK};padding:2px 7px`)}>
+          <div style={css(`border-bottom:1px solid ${INK};border-right:1px solid ${INK};padding:0 6px`)}>
             <Field label={HEADING_LABELS[left] ?? left} value={form[left]}
               onChange={(v) => onField(left, v)} />
           </div>
-          <div style={css(`border-bottom:1px solid ${INK};padding:2px 7px`)}>
+          <div style={css(`border-bottom:1px solid ${INK};padding:0 6px`)}>
             {right
               ? <Field label={HEADING_LABELS[right] ?? right} value={form[right]}
                   onChange={(v) => right === "customer" ? onCustomer(v) : onField(right, v)}
                   list={right === "customer" ? "cargo-customers" : undefined} />
               /* A row with nothing on its right is still a ruled cell. Left as a
                  gap it would break the rule running across the block. */
-              : <span style={css("display:block;height:15px")} />}
+              : <span style={css("display:block;height:14px")} />}
           </div>
         </div>
       ))}
-      <div style={css(`border-bottom:1px solid ${INK};padding:2px 7px`)}>
+      <div style={css(`border-bottom:1px solid ${INK};padding:0 6px`)}>
         <Field label={HEADING_LABELS.remark ?? "REMARK :"} value={form.remark}
           onChange={(v) => onField("remark", v)} />
       </div>
     </div>
 
-    <div style={css("font-size:10px;font-weight:600;margin:6px 0 2px")}>ITEM :</div>
+    <div style={css(`font-size:${ITEM_PT};font-weight:600;margin:6px 0 2px`)}>ITEM :</div>
     <table style={css("width:100%;border-collapse:collapse")}>
       <thead>
         <tr>
@@ -616,7 +635,7 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
       <tbody>
         {items.map((item, row) => (
           <tr key={row}>
-            <td style={css(BOX + ";text-align:center;font-size:10px;color:#555")}>{row + 1}</td>
+            <td style={css(BOX + `;text-align:center;font-size:${BODY_PT};color:${INK}`)}>{row + 1}</td>
             {item.cells.map((value, column) => (
               <td key={column} style={css(BOX)}>
                 <input
@@ -629,7 +648,7 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
           </tr>
         ))}
         <tr>
-          <td colSpan={columns.length + 1} style={css(BOX + ";padding:3px 5px;font-size:10px;font-weight:600")}>
+          <td colSpan={columns.length + 1} style={css(BOX + `;padding:1px 4px;font-size:${BODY_PT};font-weight:600`)}>
             TOTAL
           </td>
         </tr>
@@ -639,7 +658,7 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
     {/* The vehicle block. "หัวลาก" and "รถบรรทุก" are the two kinds of vehicle
         the form offers; the line beside them is composed from the job's own
         truck counts. */}
-    <div style={css("display:flex;gap:16px;align-items:baseline;margin-top:6px;font-size:10.5px;flex-wrap:wrap")}>
+    <div style={css(`display:flex;gap:16px;align-items:baseline;margin-top:6px;font-size:${BODY_PT};flex-wrap:wrap`)}>
       <span style={css("font-weight:600")}>หัวลาก</span>
       <span style={css("font-weight:600")}>รถบรรทุก</span>
       <input value={form.vehicle} onChange={(e) => onField("vehicle", e.target.value)}
@@ -650,7 +669,7 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
     </div>
     {/* One or the other, never both — which a pair of radios says and a pair of
         tick boxes does not. */}
-    <div style={css("display:flex;gap:20px;margin-top:3px;font-size:10.5px")}>
+    <div style={css(`display:flex;gap:20px;margin-top:3px;font-size:${BODY_PT}`)}>
       {([["with", "มีพนักงานยกสินค้า"], ["without", "ไม่มีพนักงานยกสินค้า"]] as const).map(([value, label]) => (
         <label key={value} style={css("display:flex;gap:5px;align-items:center;cursor:pointer")}>
           <input type="radio" name="cargo-crew" checked={form.crew === value}
@@ -660,26 +679,26 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
       ))}
     </div>
 
-    <ol style={css("font-size:8.5px;line-height:1.5;margin:7px 0 0;padding-left:15px")}>
+    <ol style={css(`font-size:${BODY_PT};line-height:1.45;margin:7px 0 0;padding-left:15px`)}>
       {TERMS.map((term) => <li key={term.slice(0, 24)} style={css("margin-bottom:1px")}>{term}</li>)}
     </ol>
 
     {/* Where the form is signed. Left empty for whoever signs — one of the real
         copies has the officer's name typed in, and printing it on every blank
         form would put their signature under work they never saw. */}
-    <div style={css("display:flex;gap:18px;margin-top:30px;margin-bottom:6px")}>
+    <div style={css("display:flex;gap:18px;margin-top:16px;margin-bottom:4px")}>
       {SIGNATURES.map(([thai, english]) => (
         <div key={thai} style={css("flex:1;text-align:center")}>
           <div style={css(`border-bottom:1px dotted ${INK};height:1px;margin-bottom:5px`)} />
-          <div style={css("font-size:10px;letter-spacing:.5px")}>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
-          <div style={css("font-size:9px;color:#333;margin-top:2px")}>{thai}</div>
-          {english && <div style={css("font-size:9px;font-weight:600;margin-top:1px")}>{english}</div>}
+          <div style={css(`font-size:${BODY_PT};letter-spacing:.5px`)}>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+          <div style={css(`font-size:${BODY_PT};color:${INK};margin-top:2px`)}>{thai}</div>
+          {english && <div style={css(`font-size:${BODY_PT};font-weight:600;margin-top:1px`)}>{english}</div>}
         </div>
       ))}
     </div>
 
-    <div style={css(`font-size:8px;line-height:1.45;white-space:pre-line;color:${INK};border-top:1px solid ${INK};padding-top:4px`)}>{NOTE}</div>
-    <div style={css("text-align:right;font-size:9px;color:#333;margin-top:3px")}>{FORM_NO}</div>
+    <div style={css(`font-size:${BODY_PT};line-height:1.4;white-space:pre-line;color:${INK};border-top:1px solid ${INK};padding-top:4px`)}>{NOTE}</div>
+    <div style={css(`text-align:right;font-size:${BODY_PT};color:${INK};margin-top:3px`)}>{FORM_NO}</div>
   </div>
   );
 }
@@ -692,7 +711,7 @@ function Field({ label, value, onChange, list }: {
   list?: string;
 }) {
   return (
-    <div style={css("display:flex;align-items:baseline;gap:5px;font-size:10.5px")}>
+    <div style={css(`display:flex;align-items:baseline;gap:5px;font-size:${BODY_PT}`)}>
       <span style={css("white-space:nowrap;font-weight:600")}>{label}</span>
       <input list={list} value={value} onChange={(e) => onChange(e.target.value)} style={css(FIELD)} />
     </div>

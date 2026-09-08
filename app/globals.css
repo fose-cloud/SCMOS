@@ -279,7 +279,17 @@ button { cursor: pointer; }
   /* The receipt is not worth splitting across a page break. */
   .cargo-page > div { break-inside: avoid; page-break-inside: avoid; }
 
-  @page { size: A4 portrait; margin: 8mm 10mm; }
+  /*
+   * Letter, because that is what the form is.
+   *
+   * The seven signed copies come out at 737, 805 and 887 points wide, which
+   * looks like three different papers until you divide: each is US Letter
+   * multiplied by the same factor in both directions — 1.205, 1.316, 1.449 —
+   * so they are one Letter sheet printed at three "fit to page" settings. On
+   * A4 the sheet is 15mm narrower and 18mm taller than the workbook was ruled
+   * for, which stretches every column and moves the signature line down.
+   */
+  @page { size: Letter portrait; margin: 10mm 12mm; }
 }
 
 
