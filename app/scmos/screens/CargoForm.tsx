@@ -125,10 +125,67 @@ const blankItems = (width: number): Item[] =>
 
 const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600";
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
-const FIELD = "flex:1;min-width:0;border:none;border-bottom:1px solid #CBD5E1;background:transparent;font-size:11.5px;font-family:inherit;padding:1px 3px;outline:none";
-const BOX = "border:1px solid #333;padding:0";
+/*
+ * One ink for every rule on the document.
+ *
+ * The form was drawn with four: #333 around the boxes, #CBD5E1 under the
+ * fields, #999 above the closing note and #000 inside the item table. On a
+ * black-and-white controlled form that reads as lines of different weights
+ * wandering across the page, which is what was reported. There is one line
+ * colour here now, and any rule that is not INK is a mistake.
+ */
+const INK = "#333";
+
+/** A written-on line. The same ink as the box it sits in, not a paler one. */
+const FIELD = `flex:1;min-width:0;border:none;border-bottom:1px solid ${INK};`
+  + "background:transparent;font-size:11.5px;font-family:inherit;padding:1px 3px;outline:none";
+const BOX = `border:1px solid ${INK};padding:0`;
 const BOX_INPUT = "width:100%;border:none;background:transparent;font-size:11px;font-family:inherit;padding:3px 5px;outline:none";
-const HEAD_CELL = "border:1px solid #333;padding:3px 5px;font-size:10px;text-align:center;line-height:1.25";
+const HEAD_CELL = `border:1px solid ${INK};padding:3px 5px;font-size:10px;text-align:center;line-height:1.25`;
+
+/**
+ * The heading block, as the paper form rules it.
+ *
+ * Two columns of labelled lines, and on paper every one of them is a cell of a
+ * ruled table — so the left and right columns line up row for row and the rules
+ * run unbroken across the block. It had been a grid with a one-pixel gap and
+ * each field carrying its own pale underline, which left the two columns ruled
+ * to different lengths at slightly different heights.
+ *
+ * Written as a list of pairs rather than as markup so the ruling is worked out
+ * rather than placed by hand: every row is drawn the same way, and a row with
+ * nothing on its right is still a ruled cell rather than a gap.
+ */
+/** Every field of the form that holds text — which is all of them but the tick. */
+type HeadingKey = Exclude<keyof Form, "crew">;
+
+const HEADING_ROWS: [HeadingKey, HeadingKey | null][] = [
+  ["jobNo", "customer"],
+  ["createDate", null],
+  ["invoiceNo", "receiverName"],
+  ["vessel", "receiverAddress"],
+  ["eta", null],
+  ["portOfDischarge", null],
+  ["deliveryDate", null],
+  ["blNo", "agent"],
+  ["truckNo", "containerNo"],
+  ["packages", "truckIn"],
+  ["grossWeight", "truckOut"],
+];
+
+/** The label each of those keys is printed with, spelled as the form spells it. */
+const HEADING_LABELS: Partial<Record<HeadingKey, string>> = {
+  jobNo: "JOB NO. :", customer: "CUSTOMER'S NAME :",
+  createDate: "CREATE DATE :", invoiceNo: "INVOICE NO. :",
+  receiverName: "RECEIVER'S NAME :", vessel: "VESSEL/FLIGHT :",
+  receiverAddress: "RECEIVER'S ADDRESS :", eta: "ETA :",
+  portOfDischarge: "PORT OF DISCHARGE :", deliveryDate: "DELIVERY DATE :",
+  blNo: "B/L NO./AWB NO. :", agent: "AGENT :",
+  truckNo: "TRUCK NO. :", containerNo: "CONTAINER NO. :",
+  packages: "NO. OF PACKAGE", truckIn: "TIME OF TRUCK IN :",
+  grossWeight: "GROSS WEIGHT (KGM)", truckOut: "TIME OF TRUCK OUT :",
+  remark: "REMARK :",
+};
 
 /** The printed sheet, and the frame the letterhead mark is placed against. */
 const SHEET_FRAME = "position:relative";
@@ -491,7 +548,7 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
   onItem: (row: number, column: number, value: string) => void;
 }) {
   return (
-  <div style={css("display:flex;flex-direction:column;gap:0;color:#111;" + SHEET_FRAME)}>
+  <div style={css(`display:flex;flex-direction:column;gap:0;color:${INK};` + SHEET_FRAME)}>
     <div style={css("text-align:center;font-size:15px;font-weight:700;line-height:1.3")}>CARGO RECEIPT</div>
     <div style={css("text-align:center;font-size:13px;font-weight:600;line-height:1.3")}>ใบรับ-ส่งสินค้า</div>
 
@@ -520,31 +577,31 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
         Most of the left column is blank on this account's work — no vessel,
         no B/L, no port of discharge — and the rows stay because the same
         document covers import work. */}
-    <div style={css("display:grid;grid-template-columns:1fr 1fr;gap:1px 18px;border:1px solid #333;padding:5px 7px")}>
-      <Field label="JOB NO. :" value={form.jobNo} onChange={(v) => onField("jobNo", v)} />
-      <Field label="CUSTOMER'S NAME :" value={form.customer} onChange={onCustomer} list="cargo-customers" />
-      <Field label="CREATE DATE :" value={form.createDate} onChange={(v) => onField("createDate", v)} />
-      <span />
-      <Field label="INVOICE NO. :" value={form.invoiceNo} onChange={(v) => onField("invoiceNo", v)} />
-      <Field label="RECEIVER'S NAME :" value={form.receiverName} onChange={(v) => onField("receiverName", v)} />
-      <Field label="VESSEL/FLIGHT :" value={form.vessel} onChange={(v) => onField("vessel", v)} />
-      <Field label="RECEIVER'S ADDRESS :" value={form.receiverAddress} onChange={(v) => onField("receiverAddress", v)} />
-      <Field label="ETA :" value={form.eta} onChange={(v) => onField("eta", v)} />
-      <span />
-      <Field label="PORT OF DISCHARGE :" value={form.portOfDischarge} onChange={(v) => onField("portOfDischarge", v)} />
-      <span />
-      <Field label="DELIVERY DATE :" value={form.deliveryDate} onChange={(v) => onField("deliveryDate", v)} />
-      <span />
-      <Field label="B/L NO./AWB NO. :" value={form.blNo} onChange={(v) => onField("blNo", v)} />
-      <Field label="AGENT :" value={form.agent} onChange={(v) => onField("agent", v)} />
-      <Field label="TRUCK NO. :" value={form.truckNo} onChange={(v) => onField("truckNo", v)} />
-      <Field label="CONTAINER NO. :" value={form.containerNo} onChange={(v) => onField("containerNo", v)} />
-      <Field label="NO. OF PACKAGE" value={form.packages} onChange={(v) => onField("packages", v)} />
-      <Field label="TIME OF TRUCK IN :" value={form.truckIn} onChange={(v) => onField("truckIn", v)} />
-      <Field label="GROSS WEIGHT (KGM)" value={form.grossWeight} onChange={(v) => onField("grossWeight", v)} />
-      <Field label="TIME OF TRUCK OUT :" value={form.truckOut} onChange={(v) => onField("truckOut", v)} />
-      <div style={css("grid-column:1 / -1")}>
-        <Field label="REMARK :" value={form.remark} onChange={(v) => onField("remark", v)} />
+    {/* One ruled block, drawn row by row from HEADING_ROWS so both columns line
+        up and the rules run unbroken. Most of the left column stays blank on
+        this account's work — no vessel, no B/L, no port of discharge — and the
+        rows remain because the same controlled form covers import work. */}
+    <div style={css(`border:1px solid ${INK};border-bottom:none`)}>
+      {HEADING_ROWS.map(([left, right]) => (
+        <div key={left} style={css("display:grid;grid-template-columns:1fr 1fr")}>
+          <div style={css(`border-bottom:1px solid ${INK};border-right:1px solid ${INK};padding:2px 7px`)}>
+            <Field label={HEADING_LABELS[left] ?? left} value={form[left]}
+              onChange={(v) => onField(left, v)} />
+          </div>
+          <div style={css(`border-bottom:1px solid ${INK};padding:2px 7px`)}>
+            {right
+              ? <Field label={HEADING_LABELS[right] ?? right} value={form[right]}
+                  onChange={(v) => right === "customer" ? onCustomer(v) : onField(right, v)}
+                  list={right === "customer" ? "cargo-customers" : undefined} />
+              /* A row with nothing on its right is still a ruled cell. Left as a
+                 gap it would break the rule running across the block. */
+              : <span style={css("display:block;height:15px")} />}
+          </div>
+        </div>
+      ))}
+      <div style={css(`border-bottom:1px solid ${INK};padding:2px 7px`)}>
+        <Field label={HEADING_LABELS.remark ?? "REMARK :"} value={form.remark}
+          onChange={(v) => onField("remark", v)} />
       </div>
     </div>
 
@@ -613,7 +670,7 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
     <div style={css("display:flex;gap:18px;margin-top:30px;margin-bottom:6px")}>
       {SIGNATURES.map(([thai, english]) => (
         <div key={thai} style={css("flex:1;text-align:center")}>
-          <div style={css("border-bottom:1px dotted #333;height:1px;margin-bottom:5px")} />
+          <div style={css(`border-bottom:1px dotted ${INK};height:1px;margin-bottom:5px`)} />
           <div style={css("font-size:10px;letter-spacing:.5px")}>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
           <div style={css("font-size:9px;color:#333;margin-top:2px")}>{thai}</div>
           {english && <div style={css("font-size:9px;font-weight:600;margin-top:1px")}>{english}</div>}
@@ -621,7 +678,7 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
       ))}
     </div>
 
-    <div style={css("font-size:8px;line-height:1.45;white-space:pre-line;color:#333;border-top:1px solid #999;padding-top:4px")}>{NOTE}</div>
+    <div style={css(`font-size:8px;line-height:1.45;white-space:pre-line;color:${INK};border-top:1px solid ${INK};padding-top:4px`)}>{NOTE}</div>
     <div style={css("text-align:right;font-size:9px;color:#333;margin-top:3px")}>{FORM_NO}</div>
   </div>
   );
