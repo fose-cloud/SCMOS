@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import { DataTable, type TableModel } from "../DataTable";
 import { exportRateSheet } from "../excel";
@@ -147,7 +147,23 @@ export function RateSheet({ canEdit, onToast }: {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   /** Which panel is open above the grid, or none. */
-  const [panel, setPanel] = useState<"none" | "import" | "add">("none");
+  const [panel, setPanel] = useState<"none" | "import" | "add" | "columns">("none");
+
+  /*
+   * Which columns the copy button takes.
+   *
+   * Empty means "the ones with a price on them", worked out from the rows in
+   * front of you each time — see chosenColumns. That is the default because the
+   * sheet prices 29 vehicles and a quotation uses four: measured over 1,169
+   * quotations in the register, 957 of them price five vehicles or fewer, and
+   * only 13 price more than ten. Copying all 41 columns to paste two of them
+   * into a mail is the complaint this answers.
+   *
+   * A non-empty set is a deliberate choice and is obeyed exactly, including
+   * columns that are empty — somebody sending a customer a blank 40' column to
+   * be filled in is asking for it on purpose.
+   */
+  const [copyCols, setCopyCols] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing | null>(null);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -172,7 +188,11 @@ export function RateSheet({ canEdit, onToast }: {
    */
   const [undos, setUndos] = useState<SheetStep[]>([]);
   const [redos, setRedos] = useState<SheetStep[]>([]);
-  const rows = page?.rows ?? [];
+  // A stable array while the page is unchanged. `page?.rows ?? []` builds a
+  // fresh [] on every render when there is no page, which makes anything
+  // memoised against it recompute every time — including the copy's column
+  // list, which walks every row of every price column.
+  const rows = useMemo(() => page?.rows ?? [], [page]);
 
   /*
    * The rectangle, and everything a spreadsheet does with one.
@@ -523,10 +543,27 @@ export function RateSheet({ canEdit, onToast }: {
    * The rectangle still has Ctrl+C. This button has a name, and the name says
    * table.
    */
+  /**
+   * The columns the copy takes, in sheet order.
+   *
+   * With nothing chosen: every detail column, and only the vehicles priced
+   * somewhere in the rows being copied. A vehicle column that is blank all the
+   * way down carries nothing and costs a column of width in whatever it is
+   * pasted into.
+   */
+  const chosenColumns = useMemo(() => {
+    if (copyCols.size > 0) return SHEET_COLUMNS.filter((one) => copyCols.has(one.head));
+    return SHEET_COLUMNS.filter((one) =>
+      one.kind !== "price"
+      || rows.some((row) => String(readCell(row, one) ?? "").trim() !== ""));
+  }, [copyCols, rows]);
+
   async function copyWithHeads() {
-    const heads = SHEET_COLUMNS.map((column) => column.head);
+    const heads = chosenColumns.map((column) => column.head);
     const lines = rows.map((row) =>
-      SHEET_COLUMNS.map((column) => String(readCell(row, column) ?? "")));
+      chosenColumns.map((column) => String(readCell(row, column) ?? "")));
+
+    if (!heads.length) { onToast("ยังไม่ได้เลือกคอลัมน์ — กด “เลือกคอลัมน์” ก่อน"); return; }
 
     if (!lines.length) { onToast("ไม่มีแถวให้คัดลอก"); return; }
 
@@ -536,7 +573,8 @@ export function RateSheet({ canEdit, onToast }: {
       // browser. Saying "50 rows" while the bar says 3,007 would read as the
       // whole thing.
       const missing = (page?.total ?? 0) > lines.length ? (page!.total - lines.length) : 0;
-      onToast(`คัดลอกพร้อมหัวตารางแล้ว ${lines.length} แถว · ${heads.length} คอลัมน์`
+      onToast(`คัดลอกพร้อมหัวตารางแล้ว ${lines.length} แถว · ${heads.length} จาก ${SHEET_COLUMNS.length} คอลัมน์`
+        + (copyCols.size === 0 ? " (เฉพาะรถที่มีราคา)" : " (ตามที่เลือกไว้)")
         + (missing ? ` · ยังเหลืออีก ${missing.toLocaleString()} แถวที่ยังไม่ได้โหลด — ใช้ Export Excel เพื่อเอาครบ` : ""));
     } catch {
       onToast("เบราว์เซอร์ไม่อนุญาตให้คัดลอก — ลองกดที่ตารางก่อนแล้วกดปุ่มอีกครั้ง");
@@ -700,6 +738,14 @@ export function RateSheet({ canEdit, onToast }: {
         go: () => setPanel((was) => (was === "import" ? "none" : "import")),
       },
       {
+        label: panel === "columns"
+          ? "ปิดการเลือกคอลัมน์"
+          : `เลือกคอลัมน์ (${chosenColumns.length}/${SHEET_COLUMNS.length})`,
+        title: "เลือกว่าปุ่มคัดลอกจะเอาคอลัมน์ไหนไปบ้าง",
+        style: "",
+        go: () => setPanel((was) => (was === "columns" ? "none" : "columns")),
+      },
+      {
         label: busy ? "กำลังเตรียมไฟล์…" : "Export Excel",
         title: "บันทึกทุกแถวที่ตัวกรองเหลือไว้ ไม่ใช่เฉพาะหน้านี้",
         disabled: busy,
@@ -757,6 +803,13 @@ export function RateSheet({ canEdit, onToast }: {
             // list until the screen was reopened.
             void loadChoices();
           }} />
+        ) : panel === "columns" ? (
+          <ColumnPicker
+            chosen={copyCols}
+            effective={chosenColumns}
+            rows={rows}
+            onChange={setCopyCols}
+          />
         ) : (
           <AddLane onToast={onToast} onDone={() => {
             setPanel("none");
@@ -995,5 +1048,102 @@ function Box({ label, value, onChange, width, onEnter }: {
         onKeyDown={(event) => { if (event.key === "Enter") onEnter(); }}
         style={css(ADD_CONTROL)} />
     </label>
+  );
+}
+
+/**
+ * Which columns the copy button takes.
+ *
+ * The sheet is 41 columns wide because the workbook it mirrors prices 29
+ * vehicles. A quotation uses four of them: over the 1,169 quotations in the
+ * register, 957 price five vehicles or fewer and only 13 price more than ten.
+ * So the button was copying two useful columns and twenty-seven empty ones,
+ * which is what somebody pasting into a mail had to delete by hand.
+ *
+ * Nothing chosen is not "no columns" — it is the sensible default, the vehicles
+ * actually priced in the rows in front of you. That has to be the default
+ * rather than a preset somebody selects, because it is right without anybody
+ * knowing this panel exists.
+ *
+ * Choosing anything at all switches to obeying the choice exactly, empty
+ * columns included. Sending a customer a blank 40' column to be filled in is a
+ * real thing to want, and a picker that silently dropped it would be wrong.
+ */
+function ColumnPicker(props: {
+  chosen: Set<string>;
+  effective: SheetColumn[];
+  rows: SheetRow[];
+  onChange: (next: Set<string>) => void;
+}) {
+  const { chosen, effective, rows, onChange } = props;
+  const taken = new Set(effective.map((one) => one.head));
+  const details = SHEET_COLUMNS.filter((one) => one.kind !== "price");
+  const prices = SHEET_COLUMNS.filter((one) => one.kind === "price");
+
+  /** Whether any row on the page prices this vehicle — shown so the empty ones are obvious. */
+  const priced = (column: SheetColumn) =>
+    rows.some((row) => String(readCell(row, column) ?? "").trim() !== "");
+
+  function toggle(head: string) {
+    // The first tick has to start from what is on screen, not from nothing.
+    // Starting empty would make one tick mean "only this column", throwing away
+    // the Date and Customer the person could see were included a moment ago.
+    const next = new Set(chosen.size > 0 ? chosen : taken);
+    if (next.has(head)) next.delete(head); else next.add(head);
+    onChange(next);
+  }
+
+  const Box = (column: SheetColumn) => {
+    const on = chosen.size > 0 ? chosen.has(column.head) : taken.has(column.head);
+    const empty = column.kind === "price" && !priced(column);
+    return (
+      <label key={column.head} title={empty ? "ไม่มีราคาในหน้านี้" : undefined}
+        style={css("display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;"
+          + "font-size:11.5px;cursor:pointer;border:1px solid "
+          + (on ? "#9CC2E8;background:#EAF3FC;color:#0A2240" : "#E3E8EE;background:#fff;")
+          + (on ? "" : empty ? "color:#AFBAC6" : "color:#475569"))}>
+        <input type="checkbox" checked={on} onChange={() => toggle(column.head)}
+          style={css("margin:0;cursor:pointer")} />
+        {column.head}
+        {empty && <span style={css("font-size:10px;color:#AFBAC6")}>·ว่าง</span>}
+      </label>
+    );
+  };
+
+  return (
+    <div style={css("display:grid;gap:8px")}>
+      <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
+        <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>
+          คัดลอก {effective.length} จาก {SHEET_COLUMNS.length} คอลัมน์
+        </span>
+        <span style={css("font-size:11px;color:#64748B")}>
+          {chosen.size === 0
+            ? "ค่าเริ่มต้น — เอาเฉพาะรถที่มีราคาในหน้านี้"
+            : "เลือกเองไว้ — จะเอาตามนี้ทุกครั้ง รวมช่องที่ว่าง"}
+        </span>
+        <span style={css("margin-left:auto;display:flex;gap:6px")}>
+          <button type="button" onClick={() => onChange(new Set())}
+            style={css("height:26px;padding:0 10px;border:1px solid #D8E0E8;background:#fff;"
+              + "border-radius:4px;font:inherit;font-size:11.5px;color:#475569;cursor:pointer")}>
+            กลับค่าเริ่มต้น
+          </button>
+          <button type="button" onClick={() => onChange(new Set(SHEET_COLUMNS.map((one) => one.head)))}
+            style={css("height:26px;padding:0 10px;border:1px solid #D8E0E8;background:#fff;"
+              + "border-radius:4px;font:inherit;font-size:11.5px;color:#475569;cursor:pointer")}>
+            เลือกทั้งหมด
+          </button>
+          <button type="button" onClick={() => onChange(new Set(details.map((one) => one.head)))}
+            style={css("height:26px;padding:0 10px;border:1px solid #D8E0E8;background:#fff;"
+              + "border-radius:4px;font:inherit;font-size:11.5px;color:#475569;cursor:pointer")}>
+            เฉพาะรายละเอียด
+          </button>
+        </span>
+      </div>
+
+      <div style={css("display:flex;gap:5px;flex-wrap:wrap")}>{details.map(Box)}</div>
+      <div style={css("border-top:1px solid #E3E8EE;padding-top:7px;display:flex;gap:5px;flex-wrap:wrap")}>
+        {prices.map(Box)}
+      </div>
+    </div>
   );
 }
