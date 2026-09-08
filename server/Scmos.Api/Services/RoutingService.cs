@@ -23,6 +23,19 @@ public record RouteEstimate(bool Ok, int Km, string Message, string FromLabel, s
     IReadOnlyList<double> Path)
 {
     public static RouteEstimate No(string why) => new(false, 0, why, "", "", []);
+
+    /// <summary>
+    /// A failure that still says where the two places were looked up.
+    ///
+    /// Used for everything that goes wrong after geocoding. The commonest
+    /// reason a lorry route cannot be found is that one of the two points is
+    /// not where the person meant — a company name the map does not carry,
+    /// matched to whatever was nearest in the text. Withholding the labels
+    /// leaves them with a failure and no way to see that, which is the state
+    /// this screen was in.
+    /// </summary>
+    public static RouteEstimate No(string why, string fromLabel, string toLabel) =>
+        new(false, 0, why, fromLabel, toLabel, []);
 }
 
 /// <summary>
@@ -156,12 +169,18 @@ public class RoutingService(
                 $"{Host}{DirectionsPath}", body, token);
 
             if (!reply.IsSuccessStatusCode)
-                return RouteEstimate.No(RouteReading.Refusal((int)reply.StatusCode));
+                // 404 here is the router saying it cannot join the two points,
+                // not a service that is down — see RouteReading.NoRoute.
+                return RouteEstimate.No(
+                    (int)reply.StatusCode == StatusCodes.Status404NotFound
+                        ? RouteReading.NoRoute
+                        : RouteReading.Refusal((int)reply.StatusCode),
+                    start.Place.Label, end.Place.Label);
 
             var reply2 = await reply.Content.ReadAsStringAsync(token);
             var measured = RouteReading.Distance(reply2);
             if (!measured.Ok)
-                return RouteEstimate.No("OpenRouteService หาเส้นทางรถบรรทุกระหว่างสองจุดนี้ไม่ได้");
+                return RouteEstimate.No(RouteReading.NoRoute, start.Place.Label, end.Place.Label);
 
             /*
              * The road, thinned.

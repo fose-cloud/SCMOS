@@ -243,6 +243,9 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   const [carriers, setCarriers] = useState<string[]>([]);
   /** Provinces the sheet already uses, offered as suggestions rather than enforced. */
   const [counties, setCounties] = useState<string[]>([]);
+  // Name and whether a measured journey already uses it — the marked ones
+  // are the places most likely to land on a distance that is already known.
+  const [places, setPlaces] = useState<{ name: string; saved: boolean }[]>([]);
   const [loadTypes, setLoadTypes] = useState({ fcl: true, lcl: false, domestic: false });
   const [remark, setRemark] = useState("");
   const [savingQuote, setSavingQuote] = useState(false);
@@ -337,6 +340,27 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   // the inquiry screen next door.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
+
+  /*
+   * The place names SCMOS already uses.
+   *
+   * Not a map search. The register's destinations are "HAZCHEM", "FGL-WH KM9",
+   * "LS WH", "DC.KM39" — this company's own names for gates it has driven to
+   * for years, which no geocoding service will ever find. Offering them here
+   * means a place is typed the way it was typed last time, which is what makes
+   * an already-measured distance findable at all.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch("/api/journeys/places", { headers: { accept: "application/json" } })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = await response.json() as { name: string; saved: boolean }[];
+        if (cancelled) return;
+        setPlaces(Array.isArray(body) ? body : []);
+      }).catch(() => { /* Suggestions are optional; typing a name still works. */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -569,12 +593,21 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
           </Field>
           <Field label="ต้นทาง" width="180px">
             <input value={from} autoComplete="off" placeholder="เช่น LCB Port"
-              onChange={(e) => setFrom(e.target.value)} style={INPUT} />
+              list="quote-places" onChange={(e) => setFrom(e.target.value)} style={INPUT} />
           </Field>
           <Field label="ปลายทาง" width="180px">
             <input value={to} autoComplete="off" placeholder="เช่น Amata City"
-              onChange={(e) => setTo(e.target.value)} style={INPUT} />
+              list="quote-places" onChange={(e) => setTo(e.target.value)} style={INPUT} />
           </Field>
+          {/* One list for both boxes: a place is a place, and anywhere that has
+              been an origin can be a destination. The label marks the ones a
+              measured journey already uses. */}
+          <datalist id="quote-places">
+            {places.map((place) => (
+              <option key={place.name} value={place.name}
+                label={place.saved ? "มีระยะทางบันทึกไว้แล้ว" : undefined} />
+            ))}
+          </datalist>
           <Field label="ระยะทางไป (กม.)" width="130px">
             <input value={km} inputMode="decimal" autoComplete="off" placeholder="เช่น 120"
               onChange={(e) => setKm(e.target.value)} style={INPUT} />
@@ -722,7 +755,19 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
                 </span>
               </div>
             ) : (
-              <span style={css("color:#8A6D1F")}>{measured.message}</span>
+              <div style={css("display:grid;gap:3px")}>
+                <span style={css("color:#8A6D1F")}>{measured.message}</span>
+                {/* Where it actually looked, when it got that far. The usual
+                    reason a lorry route cannot be found is that one of these
+                    two is not the place that was meant — a company name the
+                    map does not carry, matched to whatever was nearest in the
+                    text. Without this the failure is unreadable. */}
+                {(measured.fromLabel || measured.toLabel) && (
+                  <span style={css("color:#94A3B8;font-size:11.5px")}>
+                    ค้นเจอเป็น: {measured.fromLabel || "—"} → {measured.toLabel || "—"}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}

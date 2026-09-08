@@ -131,6 +131,37 @@ public static class RouteCheck
         failed += Say("an outage says the same, without blaming the key",
             RouteReading.Refusal(503).Contains("ApiKey"), false);
 
+        /*
+         * 404 is the one that misled somebody.
+         *
+         * The router answers 404 when it cannot join two points, which is an
+         * ordinary outcome — usually because a company name was matched to the
+         * wrong place. Shown as "HTTP 404" it reads as an outage, and the
+         * quotation screen said exactly that while both places had in fact been
+         * found. The router's 404 is translated at the call site; the generic
+         * wording stays for the geocoder, where a 404 really would mean a path
+         * that does not exist.
+         */
+        failed += Say("the no-route wording tells somebody to check the places found",
+            RouteReading.NoRoute.Contains("ค้นเจอ"), true);
+        failed += Say("it does not blame the service, which is not at fault",
+            RouteReading.NoRoute.Contains("OpenRouteService"), false);
+        failed += Say("a bare 404 still reads as a service problem, for the geocoder",
+            RouteReading.Refusal(404).Contains("404"), true);
+        failed += Say("and is not quietly the same sentence as no-route",
+            RouteReading.Refusal(404) == RouteReading.NoRoute, false);
+
+        // A failure after geocoding has to carry the labels, or the screen has
+        // nothing to show and the person cannot see it looked up the wrong town.
+        var blind = RouteEstimate.No("something went wrong");
+        var seeing = RouteEstimate.No(RouteReading.NoRoute, "Bangkok Port", "Amata City");
+        failed += Say("a failure before geocoding carries no labels",
+            blind.FromLabel.Length == 0 && blind.ToLabel.Length == 0, true);
+        failed += Say("a failure after geocoding carries both",
+            seeing.FromLabel == "Bangkok Port" && seeing.ToLabel == "Amata City", true);
+        failed += Say("and still offers no distance",
+            seeing.Ok || seeing.Km != 0, false);
+
         /* ---- the road itself ---- */
         Console.WriteLine();
         /*

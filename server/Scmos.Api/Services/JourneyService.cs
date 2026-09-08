@@ -33,7 +33,16 @@ public record JourneyResult(bool Ok, string Message, JourneyView? Journey = null
 /// about the same journey, so both are looked up together and the screen shows
 /// them side by side.
 /// </summary>
-public class JourneyService(ScmosDbContext db)
+/// <summary>
+/// One place name SCMOS already knows, offered as a suggestion.
+/// </summary>
+/// <param name="Name">The spelling to put in the box, as somebody already wrote it.</param>
+/// <param name="Used">How many times it appears. The ordering, so the common ones come first.</param>
+/// <param name="Saved">Whether a measured journey already uses it, so picking it is likely to
+/// land on a distance that is already known.</param>
+public record KnownPlace(string Name, int Used, bool Saved);
+
+public class JourneyService(ScmosDbContext db, JobRegisterCache register)
 {
     /// <summary>
     /// How few past prices is too few to read a range from.
@@ -51,6 +60,119 @@ public class JourneyService(ScmosDbContext db)
             .Select(one => new JourneyView(one.Id, one.FromPlace, one.ToPlace, one.Km,
                 one.SetBy, one.SetAt.ToString("dd/MM/yyyy"), one.UsedCount))
             .ToListAsync(token);
+
+    /// <summary>
+    /// The place names this company actually uses, for the two boxes on the
+    /// quotation screen.
+    ///
+    /// <para>
+    /// The reason this exists rather than a better geocoder: the register's
+    /// destinations are "HAZCHEM", "FGL-WH KM9", "LS WH", "DC.KM39", "BPK".
+    /// Those are not places on a map and no geocoding service will ever find
+    /// them — they are this company's own names for gates it has been driving
+    /// to for years. Searched for on a map they either miss, or, worse, match
+    /// something confidently wrong and return a distance to it.
+    /// </para>
+    ///
+    /// <para>
+    /// So the search is over what SCMOS already holds: every place a measured
+    /// journey names, and every destination, yard and plant written on a job.
+    /// Picking a suggestion means typing the same spelling as last time, which
+    /// is what makes a saved distance findable at all — <c>LookAsync</c> matches
+    /// a journey by its key, and "BKK PORT" and "BKK Port " are two lanes to it
+    /// until somebody types one of them the same way twice.
+    /// </para>
+    ///
+    /// <para>
+    /// The whole list at once, not a server-side search. It is a few hundred
+    /// names — the browser filters them as fast as anybody types, and a
+    /// suggestion that appears without a round trip is the difference between a
+    /// box people use and one they type past.
+    /// </para>
+    /// </summary>
+    public async Task<List<KnownPlace>> PlacesAsync(CancellationToken token)
+    {
+        // Case-insensitive, because the point is to stop the same gate existing
+        // under three spellings. The spelling kept is the one used most, so the
+        // list offers what the office already agrees on.
+        // Best is the largest single contribution any one spelling made, and it
+        // is what decides which spelling is displayed. Used is the total across
+        // all of them, which is what decides the order. Keeping both apart
+        // matters: a name written once in the register and fifty times on a
+        // measured journey should show the journey's spelling, not the register's.
+        var seen = new Dictionary<string, (string Name, int Used, int Best, bool Saved)>(
+            StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? raw, bool saved, int weight = 1)
+        {
+            var name = Formats.Clean(raw ?? "");
+            if (name.Length == 0) return;
+
+            if (!seen.TryGetValue(name, out var had))
+            {
+                seen[name] = (name, weight, weight, saved);
+                return;
+            }
+
+            // "Saved" is sticky: a name is worth marking if any journey uses it.
+            seen[name] = weight > had.Best
+                ? (name, had.Used + weight, weight, had.Saved || saved)
+                : (had.Name, had.Used + weight, had.Best, had.Saved || saved);
+        }
+
+        // The measured journeys first, so their spellings win ties and a place
+        // with a known distance is marked as one.
+        var lanes = await db.JourneyDistances.AsNoTracking()
+            .Select(one => new { one.FromPlace, one.ToPlace, one.UsedCount })
+            .ToListAsync(token);
+        foreach (var lane in lanes)
+        {
+            Add(lane.FromPlace, saved: true, weight: Math.Max(1, lane.UsedCount));
+            Add(lane.ToPlace, saved: true, weight: Math.Max(1, lane.UsedCount));
+        }
+
+        // Then the register, read from the snapshot the other first-page
+        // services share rather than with a query of its own.
+        var snapshot = await register.ReadAsync(token);
+        foreach (var row in snapshot.Rows)
+        {
+            if (row.Raw.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+            foreach (var field in PlaceFields)
+            {
+                if (row.Raw.TryGetProperty(field, out var value)
+                    && value.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    Add(value.GetString(), saved: false);
+                }
+            }
+        }
+
+        return [.. seen.Values
+            // The container yard's own block codes — D1, A0, B4, "17", EA — are
+            // written in cyYard beside a real destination, and the same code
+            // appears against a dozen different ones. They are positions inside
+            // a yard, not places a lorry is quoted to, and thirteen of them sat
+            // at the top of this list by sheer frequency. Every real name in the
+            // register is three characters or more, "BPK" included.
+            //
+            // A place a measured journey uses is kept whatever its length:
+            // somebody typed it deliberately and there is a distance against it.
+            .Where(one => one.Saved || one.Name.Length >= 3)
+            .OrderByDescending(one => one.Saved)
+            .ThenByDescending(one => one.Used)
+            .ThenBy(one => one.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(one => new KnownPlace(one.Name, one.Used, one.Saved))];
+    }
+
+    /// <summary>
+    /// The job fields that name a place a lorry goes to.
+    ///
+    /// Read off the blob rather than from <c>JobRecord</c>, which does not
+    /// promote them. Not the customer's name: a customer is not a destination,
+    /// and offering one in the box is how a quotation gets measured to a company
+    /// rather than to the gate it ships from.
+    /// </summary>
+    private static readonly string[] PlaceFields = ["destination", "cyYard", "plant", "returnLoc"];
 
     /// <summary>
     /// Everything known about one journey: how far, and what it has cost.

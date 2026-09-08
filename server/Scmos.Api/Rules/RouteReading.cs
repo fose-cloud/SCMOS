@@ -135,6 +135,28 @@ public static class RouteReading
     /// on, and the two most likely refusals — a key that is wrong and a quota
     /// that is spent — need completely different people to fix them.
     /// </summary>
+    /// <summary>
+    /// What it says when both places were found and no lorry route joins them.
+    ///
+    /// One string, used for both shapes the router says it in: a 404, and a 200
+    /// carrying no distance. They mean the same thing to the person reading the
+    /// screen, and two wordings for one situation is how a support call starts
+    /// with "which message did you get".
+    /// </summary>
+    public const string NoRoute =
+        "หาเส้นทางรถบรรทุกระหว่างสองจุดนี้ไม่ได้ — ดูจุดที่ค้นเจอด้านล่างว่าตรงกับที่ต้องการหรือไม่";
+
+    /// <summary>
+    /// The same, for a route request that came back 404.
+    ///
+    /// OpenRouteService answers 404 when it cannot join two points, which is an
+    /// ordinary outcome and not a fault. Reported as "HTTP 404" it reads as the
+    /// service being broken, and somebody goes looking for an outage that is
+    /// not there — so the router's 404 is translated at the call site, where it
+    /// is known to be a route request. A 404 from the geocoder means something
+    /// else entirely (a path that does not exist) and still falls through to
+    /// the generic wording below.
+    /// </summary>
     public static string Refusal(int status) => status switch
     {
         401 or 403 => "OpenRouteService ปฏิเสธคีย์ — ตรวจสอบ OpenRouteService__ApiKey "

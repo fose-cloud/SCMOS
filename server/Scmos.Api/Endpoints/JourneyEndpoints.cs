@@ -40,6 +40,19 @@ public static class JourneyEndpoints
         });
 
         /*
+         * The place names already in use, for the boxes on the quotation screen.
+         *
+         * Reading, so a signed-in account is enough. See JourneyService.PlacesAsync
+         * for why this exists instead of a better map search.
+         */
+        group.MapGet("/places", async (HttpContext context, IUserAccessor users,
+            JourneyService journeys, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await journeys.PlacesAsync(token));
+        });
+
+        /*
          * What a routing engine makes of the distance.
          *
          * Reading, so it needs only a signed-in account — the same as looking
