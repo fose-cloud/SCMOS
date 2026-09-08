@@ -249,3 +249,13 @@ At SQL timestamp 2026-09-08T04:40:58.2671664Z, the exact scmos database (compati
 Finally cleanup restored the password environment and removed only the new rule. At 2026-09-08T04:41:03.5053715Z, a fresh firewall listing confirmed its absence, four remaining rules and exact equality of all original names/address ranges. No credential was displayed or saved; no migration, deploy, provider call or AI flag change occurred.
 
 Updated the database/QA report with these fresh facts. The read-only schema/history task is complete and temporary access is closed. Audit migration execution, backup/restore readiness, exact release review and authenticated integration remain separately approved work.
+
+## 2026-09-08 — Production Audit migration and AI release
+
+The user explicitly requested AiExecutionAudit / ai_audit_logs, followed by push and deploy. Applied only the reviewed Audit SQL in a guarded transaction at 04:52:21Z; verified 25 columns, primary key, two secondary indexes, receipt and 37/37 applied migrations. Existing business tables/rows were not changed. The temporary single-IP firewall rule was removed in finally; all four original rules were verified unchanged at 04:52:27Z.
+
+Committed/pushed the tested 62-file AI B–E release as 7dce5cb. API run 34188778474 succeeded, including 196 AI checks, no pending migrations and health. Web run 34189285832 succeeded on Production and verified that same commit marker. The tag codex-ai-b-e-20260908-7dce5cb pins the release.
+
+On resumption around 19:30 local time, discovered that the user had already deployed later descendants. Cancelled the just-dispatched duplicate Web run 34226478843 before any deploy step; it did not overwrite those newer versions. Current Production Web marker is 10c8476, which contains the unchanged AI/migration implementation. API health returned 200, unauthenticated AI endpoints returned 401, and the Web AI URL served the sign-in entry without fixture identifiers. No provider execution, feature activation or new database write occurred during this verification.
+
+See SCMOS_AI_RELEASE_20260908.md for exact timestamps, run links, backup metadata, cleanup evidence and limits. Application deployment is complete; real signed-in/provider acceptance and live AI enablement remain next-phase work. The user's later code and generated next-env.d.ts state are preserved.
