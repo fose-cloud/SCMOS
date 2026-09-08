@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { quoteMany, quoteSheetVehicle } from "../quoteBatch";
+import { SEARCH_FROM, pickMatches } from "../pickSearch";
 import { css } from "../theme";
 import { directionsLink, hasRoute } from "../mapsLink";
 import { ATTRIBUTION, TILE, pointsFrom, tileUrl, view } from "../slippyMap";
@@ -254,6 +255,10 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   // Reuse the token on uncertain retries, but not after the quotation changes.
   const saveTicket = useRef<{ key: string; id: string } | null>(null);
   const saveInFlight = useRef(false);
+  /* What has been typed into each picker's search box. The vehicle list is
+     29 long and the carrier register longer; both were scrolling lists. */
+  const [vehicleQuery, setVehicleQuery] = useState("");
+  const [carrierQuery, setCarrierQuery] = useState("");
   const [routeRows, setRouteRows] = useState<DraftRoute[]>([NEW_ROUTE("first")]);
   const [routeKey, setRouteKey] = useState("first");
   const activeRoute = routeRows.find((one) => one.key === routeKey) ?? routeRows[0];
@@ -570,7 +575,21 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
                     style={css("font:inherit;font-size:12px;cursor:pointer")}>เลือกทั้งหมด</button>
                   <button type="button" onClick={() => setVehicles([])} style={css("font:inherit;font-size:12px;cursor:pointer")}>ล้างที่เลือก</button>
                 </div>
-                {card.vehicles.map((one) => {
+                {card.vehicles.length >= SEARCH_FROM && (
+                  <input value={vehicleQuery} onChange={(event) => setVehicleQuery(event.target.value)}
+                    placeholder="พิมพ์เพื่อค้นหา เช่น 40, reefer, DG"
+                    aria-label="ค้นหาประเภทรถ"
+                    style={css("width:100%;height:26px;margin:6px 0 4px;padding:0 8px;border-radius:3px;"
+                      + "border:1px solid #C9D6E2;font:inherit;font-size:12px")} />
+                )}
+                {/* Anything already ticked stays on the list whatever is typed,
+                    or unticking it would mean clearing the search first. */}
+                {card.vehicles.filter((one) =>
+                  vehicles.includes(one.code) || pickMatches(one.label, vehicleQuery)).length === 0 && (
+                  <div style={css("padding:8px 4px;font-size:12px;color:#94A3B8")}>ไม่พบ “{vehicleQuery}”</div>
+                )}
+                {card.vehicles.filter((one) =>
+                  vehicles.includes(one.code) || pickMatches(one.label, vehicleQuery)).map((one) => {
                   // Said before it is chosen. Discovering afterwards that one of
                   // four trucks cannot be quoted — and that it is the reason the
                   // whole set will not save — is the worse order to learn it in.
@@ -648,7 +667,19 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
                     {carriers.length} เจ้าในทะเบียน
                   </span>
                 </div>
-                {carriers.map((name) => (
+                {carriers.length >= SEARCH_FROM && (
+                  <input value={carrierQuery} onChange={(event) => setCarrierQuery(event.target.value)}
+                    placeholder="พิมพ์เพื่อค้นหาผู้ขนส่ง"
+                    aria-label="ค้นหาผู้ขนส่ง"
+                    style={css("width:100%;height:26px;margin:6px 0 4px;padding:0 8px;border-radius:3px;"
+                      + "border:1px solid #C9D6E2;font:inherit;font-size:12px")} />
+                )}
+                {carriers.filter((name) =>
+                  chosenCarriers.includes(name) || pickMatches(name, carrierQuery)).length === 0 && (
+                  <div style={css("padding:8px 4px;font-size:12px;color:#94A3B8")}>ไม่พบ “{carrierQuery}”</div>
+                )}
+                {carriers.filter((name) =>
+                  chosenCarriers.includes(name) || pickMatches(name, carrierQuery)).map((name) => (
                   <label key={name} style={css("display:flex;gap:8px;align-items:center;padding:7px 4px;font-size:12.5px;cursor:pointer")}>
                     <input type="checkbox" checked={chosenCarriers.includes(name)}
                       onChange={(event) => setRouteValue("carriers",

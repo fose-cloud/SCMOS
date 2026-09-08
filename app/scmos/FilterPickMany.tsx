@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PICK_SEP, chosenIn, pickLabel } from "./filterChoices";
+import { SEARCH_FROM, pickMatches } from "./pickSearch";
 import { css } from "./theme";
 
 /**
@@ -30,6 +31,9 @@ export function FilterPickMany({ label, value, options, onPick, render = (option
   emptyValue?: string;
 }) {
   const [open, setOpen] = useState(false);
+  /* What has been typed into the panel's box. Cleared when it closes, so
+     reopening a picker never shows a list narrowed by something invisible. */
+  const [query, setQuery] = useState("");
   const box = useRef<HTMLDivElement | null>(null);
   const chosen = chosenIn(value);
   const set = chosen.length > 0;
@@ -51,10 +55,14 @@ export function FilterPickMany({ label, value, options, onPick, render = (option
     onPick(next.length ? next.join(PICK_SEP) : emptyValue);
   };
 
+  // Anything ticked stays visible whatever is typed, or clearing a tick would
+  // mean clearing the search first to find it again.
+  const shown = options.filter((one) => chosen.includes(one) || pickMatches(render(one), query));
+
   return (
     <div ref={box} style={css("position:relative;display:flex;align-items:center;gap:6px")}>
       <span style={css("font-size:10px;font-weight:700;color:#CFE2F7;letter-spacing:.06em")}>{label}</span>
-      <button type="button" onClick={() => setOpen((was) => !was)}
+      <button type="button" onClick={() => { setOpen((was) => !was); setQuery(""); }}
         title={set ? label + ": " + chosen.map(render).join(", ") : label + ": ทั้งหมด"}
         style={css("height:27px;max-width:190px;border:1px solid " + (set ? "#4E9BE8" : "#24476E")
           + ";background:" + (set ? "#16406E" : "#0A2240")
@@ -75,7 +83,22 @@ export function FilterPickMany({ label, value, options, onPick, render = (option
             ทั้งหมด{set ? " (ล้างที่เลือก " + chosen.length + " รายการ)" : ""}
           </button>
           <div style={css("height:1px;background:#1B3B60;margin:4px 2px")} />
-          {options.map((option) => {
+          {options.length >= SEARCH_FROM && (
+            <input value={query} onChange={(event) => setQuery(event.target.value)}
+              placeholder="พิมพ์เพื่อค้นหา"
+              aria-label={"ค้นหาใน " + label}
+              // Not autofocused: the panel is often opened just to read what is
+              // ticked, and taking the keyboard there stops the arrow keys
+              // scrolling the list.
+              style={css("width:100%;height:26px;margin:2px 0 5px;padding:0 8px;border-radius:3px;"
+                + "border:1px solid #4E7BA8;background:#06182E;color:#fff;font:inherit;font-size:11.5px")} />
+          )}
+          {shown.length === 0 && (
+            <div style={css("padding:8px 9px;font-size:11.5px;color:#8FB4DC")}>
+              ไม่พบ “{query}”
+            </div>
+          )}
+          {shown.map((option) => {
             const on = chosen.includes(option);
             return (
               <label key={option}
