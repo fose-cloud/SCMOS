@@ -32,6 +32,11 @@ on:
         description: "On-time delivery: count how much of the register it can actually score (reads only)"
         type: boolean
         default: false
+      mergePlaces:
+        description: "Place spellings: report what merging would change, write it, or put the last run back"
+        type: choice
+        options: ["no", "report", "apply", "undo"]
+        default: "no"
 
 env:
   DOTNET_VERSION: "10.0.x"
@@ -209,6 +214,29 @@ jobs:
           fi
 
           dotnet publish/Scmos.Api.dll --report-otd
+
+      # One warehouse written ten ways is ten places to anything that groups by
+      # destination, and ten lanes to a saved distance. "report" writes nothing
+      # and "undo" puts the last run back out of the job's own history, so the
+      # only irreversible thing here is not reading the report first.
+      - name: Merge place spellings
+        if: github.event_name == 'workflow_dispatch' && inputs.mergePlaces != 'no'
+        env:
+          ConnectionStrings__ScmosDb: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: |
+          if [ -z "$ConnectionStrings__ScmosDb" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
+            exit 1
+          fi
+
+          case "${{ inputs.mergePlaces }}" in
+            report) extra="" ;;
+            apply)  extra="--apply" ;;
+            undo)   extra="--undo" ;;
+          esac
+
+          dotnet publish/Scmos.Api.dll --merge-places $extra
 
       - name: Deploy API to Azure App Service
         uses: azure/webapps-deploy@v3
