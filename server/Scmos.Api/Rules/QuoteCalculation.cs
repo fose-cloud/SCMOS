@@ -70,32 +70,54 @@ public static class QuoteCalculation
             {
                 var rate = card.Vehicles.FirstOrDefault(one => one.Code == code);
                 if (rate is null) return Refuse($"ไม่พบอัตราสำหรับรถ {code}");
-                var sheet = SheetVehicle(code, body.DangerousGoods);
-                if (sheet is null) return Refuse($"ตารางอัตราไม่มีคอลัมน์สำหรับ {rate.Label} DG กรุณานำประเภทนี้ออกก่อนบันทึก");
                 if (rate.PerKm <= 0 || rate.BaseCharge < 0 || rate.Chill < 1 || rate.DangerousGoods < 0)
                     return Refuse($"อัตราของ {rate.Label} ไม่ถูกต้อง กรุณาตรวจสูตร");
-                var travel = body.Km * rate.PerKm;
-                var cost = Round(travel) + Round(rate.BaseCharge);
-                if (rate.Chill != 1) cost += Round((travel + rate.BaseCharge) * (rate.Chill - 1));
-                if (body.DangerousGoods) cost += Round(rate.DangerousGoods);
-                foreach (var (extra, quantity) in extras.Where(one => one.Rate.Basis != QuoteBasis.Percent))
-                    cost += Round(extra.Basis switch
-                    {
-                        QuoteBasis.Flat => extra.Rate,
-                        QuoteBasis.PerKm => extra.Rate * body.Km,
-                        _ => extra.Rate * quantity,
-                    });
-                var beforeShares = cost;
-                foreach (var (extra, _) in extras.Where(one => one.Rate.Basis == QuoteBasis.Percent))
-                    cost += Round(beforeShares * extra.Rate / 100);
-                var total = cost + Round(cost * body.MarginPercent / 100);
-                if (total < 0 || total > int.MaxValue) return Refuse("ราคาที่คำนวณได้อยู่นอกช่วงที่บันทึกได้");
-                prices.Add(sheet, (int)total);
-                totals.Add(code, (int)total);
+
+                /*
+                 * Both columns when the load is dangerous, not just the DG one.
+                 *
+                 * The sheet prices "4W NON-DG" and "4W DG" side by side and a
+                 * customer asking about a dangerous load is told both — the
+                 * ordinary rate and what the goods add to it. Ticking DG used to
+                 * replace the answer rather than add to it, which left the
+                 * non-DG column of that quotation empty and gave nobody the
+                 * comparison the two columns exist for.
+                 */
+                foreach (var dangerous in body.DangerousGoods ? new[] { false, true } : [false])
+                {
+                    var sheet = SheetVehicle(code, dangerous);
+                    if (sheet is null)
+                        return Refuse($"ตารางอัตราไม่มีคอลัมน์สำหรับ {rate.Label}{(dangerous ? " DG" : "")} "
+                            + "กรุณานำประเภทนี้ออกก่อนบันทึก");
+
+                    var travel = body.Km * rate.PerKm;
+                    var cost = Round(travel) + Round(rate.BaseCharge);
+                    if (rate.Chill != 1) cost += Round((travel + rate.BaseCharge) * (rate.Chill - 1));
+                    if (dangerous) cost += Round(rate.DangerousGoods);
+                    foreach (var (extra, quantity) in extras.Where(one => one.Rate.Basis != QuoteBasis.Percent))
+                        cost += Round(extra.Basis switch
+                        {
+                            QuoteBasis.Flat => extra.Rate,
+                            QuoteBasis.PerKm => extra.Rate * body.Km,
+                            _ => extra.Rate * quantity,
+                        });
+                    var beforeShares = cost;
+                    foreach (var (extra, _) in extras.Where(one => one.Rate.Basis == QuoteBasis.Percent))
+                        cost += Round(beforeShares * extra.Rate / 100);
+                    var total = cost + Round(cost * body.MarginPercent / 100);
+                    if (total < 0 || total > int.MaxValue) return Refuse("ราคาที่คำนวณได้อยู่นอกช่วงที่บันทึกได้");
+
+                    // Keyed by the sheet column, not by the vehicle code. With
+                    // two answers for one lorry the code is no longer unique,
+                    // and the column name already distinguishes them — it is
+                    // also the key the preview is checked against.
+                    prices.Add(sheet, (int)total);
+                    totals.Add(sheet, (int)total);
+                }
             }
         }
         catch (OverflowException) { return Refuse("อัตราหรือจำนวนรายการเพิ่มเติมสูงเกินไป"); }
-        var detail = FormattableString.Invariant($"Rate Calculator · {body.Km} km · margin {body.MarginPercent}% · {(body.DangerousGoods ? "DG" : "NON-DG")} · ราคาขายรวมกำไร/รายการเพิ่มเติม");
+        var detail = FormattableString.Invariant($"Rate Calculator · {body.Km} km · margin {body.MarginPercent}% · {(body.DangerousGoods ? "DG + NON-DG" : "NON-DG")} · ราคาขายรวมกำไร/รายการเพิ่มเติม");
         foreach (var (extra, quantity) in extras)
             detail += FormattableString.Invariant($" · {extra.Label}: {extra.Rate} {extra.Basis} × {quantity}");
         if (!string.IsNullOrWhiteSpace(body.Remark)) detail += " · " + body.Remark.Trim();

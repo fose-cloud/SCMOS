@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
-import { quoteMany, quoteSheetVehicle } from "../quoteBatch";
+import { quoteMany, quoteRowKey, quoteVariants } from "../quoteBatch";
 import { SEARCH_FROM, pickMatches } from "../pickSearch";
+import { SHEET_VEHICLES } from "../rateSheetColumns";
 import { css } from "../theme";
 import { directionsLink, hasRoute } from "../mapsLink";
 import { ATTRIBUTION, TILE, pointsFrom, tileUrl, view } from "../slippyMap";
@@ -290,8 +291,14 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
 }) {
   const [card, setCard] = useState<Card | null>(null);
   const [vehicles, setVehicles] = useState<string[]>(["4W"]);
-  const [detailVehicle, setDetailVehicle] = useState("4W");
-  const vehicle = vehicles.includes(detailVehicle) ? detailVehicle : vehicles[0] ?? "";
+  /*
+   * Which row of the result table the breakdown below is showing.
+   *
+   * A row key rather than a vehicle code: with DG ticked one lorry produces two
+   * rows — the ordinary rate and the dangerous one — and a code no longer picks
+   * out a single answer.
+   */
+  const [detailRow, setDetailRow] = useState("4W");
   const [customer, setCustomer] = useState("");
   const [customers, setCustomers] = useState<string[]>([]);
   /** The registered subcontractors, for the TRUCK picker. Names, as the sheet writes them. */
@@ -384,7 +391,18 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
    */
   const [fetched, setFetched] = useState<{ journey: string; look: Look } | null>(null);
   const [dg, setDg] = useState(false);
-  const historyVehicle = quoteSheetVehicle(vehicle, dg);
+  /*
+   * Which result row the breakdown and the price history are about.
+   *
+   * Worked out from the same rule that builds the rows, so it is settled before
+   * the history fetch below needs it and cannot drift from what the table
+   * shows. It falls back to the first row, which is what makes ticking DG or
+   * changing the lorry leave the panel describing something that exists.
+   */
+  const rowKeys = vehicles.flatMap((code) =>
+    quoteVariants(dg).map((dangerous) => quoteRowKey(code, dangerous)));
+  const focusedKey = rowKeys.includes(detailRow) ? detailRow : rowKeys[0] ?? "";
+  const historyVehicle = SHEET_VEHICLES.includes(focusedKey) ? focusedKey : null;
   const [margin, setMargin] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -537,7 +555,11 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
     marginPercent: Number(margin), options,
   }) }));
   const batch = calculations.find((one) => one.route.key === activeRoute.key)!.batch;
-  const focused = batch.results.find((one) => one.vehicle === vehicle);
+  // Falls back to the first row so the panel always describes something the
+  // table above is showing, including right after DG is ticked or unticked and
+  // the row that was open no longer exists.
+  const focused = batch.results.find((one) => one.key === focusedKey);
+  const vehicle = focused?.vehicle ?? "";
   const answer = focused?.quote ?? { lines: [], cost: 0, margin: 0, total: 0, refusals: batch.refusals };
   const payload = {
     fromPlace: "", toPlace: "", customer: customer.trim(),
@@ -548,7 +570,10 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
     routes: calculations.map(({ route, batch: result }) => ({
       fromPlace: route.from.trim(), toPlace: route.to.trim(), km: Number(route.km.replace(/,/g, "")),
       county: route.county.trim(), carriers: route.carriers.trim(),
-      expectedTotals: Object.fromEntries(result.results.map((one) => [one.vehicle, one.quote.total])),
+      // Keyed by the sheet column, which is what the server recalculates and
+      // compares against — and the only key that stays unique once one lorry
+      // can answer twice.
+      expectedTotals: Object.fromEntries(result.results.map((one) => [one.key, one.quote.total])),
     })),
   };
   const quoteKey = JSON.stringify(payload);
@@ -1052,7 +1077,7 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
             </div></Field>
             <Field label="หมายเหตุ (ถ้ามี)" width="240px"><input aria-label="หมายเหตุสำหรับบันทึกอัตรา" value={remark} maxLength={600} onChange={(event) => setRemark(event.target.value)} style={INPUT} /></Field>
             <button type="button" onClick={() => void saveToSheet()} disabled={!canSave} style={css("height:34px;padding:0 16px;background:" + (canSave ? "#0A2240" : "#8FA3B8") + ";color:#fff;border:0;border-radius:4px;font:inherit;font-size:12.5px;font-weight:650;cursor:" + (canSave ? "pointer" : "default"))}>
-              {savingQuote ? "กำลังบันทึก…" : alreadySaved ? "บันทึกแล้ว" : `บันทึก ${routeRows.length} เส้นทาง · ${batch.results.length} ประเภทรถ`}
+              {savingQuote ? "กำลังบันทึก…" : alreadySaved ? "บันทึกแล้ว" : `บันทึก ${routeRows.length} เส้นทาง · ${batch.results.length} ราคา`}
             </button>
           </div>
           <p style={css("font-size:11.5px;color:#7B8CA0;margin:10px 0 0;line-height:1.6")}>
@@ -1071,7 +1096,9 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
       {/* Each selected truck is an alternative quote, not an amount to sum. */}
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:12px 16px;font-size:13px;font-weight:650;color:#0A2240")}>
-          ผลคำนวณพร้อมกัน · {routeRows.length} เส้นทาง × {batch.results.length} ประเภทรถ
+          {/* Rows, not vehicle types: one lorry answers twice when the load is
+              dangerous, so counting types would say one and show two. */}
+          ผลคำนวณพร้อมกัน · {routeRows.length} เส้นทาง × {batch.results.length} ราคา{dg ? " (DG และ NON-DG)" : ""}
           <span style={css("display:block;margin-top:4px;font-size:11.5px;font-weight:400;color:#7B8CA0")}>ราคาต่อเที่ยว แยกตามประเภทรถ · กดดูรายละเอียดเพื่อดูสูตรและเทียบราคาย้อนหลัง</span>
         </div>
         {batch.refusals.length > 0 && <div role="status" style={css("padding:10px 16px;background:#FFF8F5;color:#9A3412;font-size:12px")}>{batch.refusals.join(" · ")}</div>}
@@ -1082,11 +1109,11 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
             </thead>
             {calculations.map(({ route, batch: result }, index) => <tbody key={route.key}>
               <tr><th colSpan={6} scope="rowgroup" style={css("padding:10px 16px;background:#E5EDF5;text-align:left")}>เส้นทาง {index + 1}: {route.from || "ยังไม่ระบุต้นทาง"} → {route.to || "ยังไม่ระบุปลายทาง"} · {route.km || "—"} กม.</th></tr>
-              {result.results.map((one) => <tr key={one.vehicle} style={css("border-top:1px solid #E9EFF5;background:" + (route.key === activeRoute.key && one.vehicle === vehicle ? "#EDF5FF" : "#fff"))}>
+              {result.results.map((one) => <tr key={one.key} style={css("border-top:1px solid #E9EFF5;background:" + (route.key === activeRoute.key && one.key === focusedKey ? "#EDF5FF" : "#fff"))}>
               <th scope="row" style={css("padding:9px 16px;text-align:left")}>{one.label}{dg ? " · DG" : ""}</th>
               {[one.quote.cost, one.quote.margin, one.quote.total].map((amount, index) => <td key={index} style={css("padding:9px 16px;font-family:ui-monospace,monospace;font-weight:" + (index === 2 ? "700" : "400"))}>{one.quote.refusals.length ? "—" : baht(amount)}</td>)}
               <td style={css("padding:9px 16px;color:" + (one.sheetVehicle ? "#31465C" : "#B45309"))}>{one.sheetVehicle ?? "ยังไม่มีคอลัมน์รองรับ"}</td>
-              <td style={css("padding:9px 16px")}><button type="button" disabled={savingQuote || measuring} onClick={() => { setDetailVehicle(one.vehicle); chooseRoute(route.key); }} aria-pressed={route.key === activeRoute.key && one.vehicle === vehicle} style={css("font:inherit;font-size:11.5px;cursor:pointer")}>ดูรายละเอียด {one.label}</button></td>
+              <td style={css("padding:9px 16px")}><button type="button" disabled={savingQuote || measuring} onClick={() => { setDetailRow(one.key); chooseRoute(route.key); }} aria-pressed={route.key === activeRoute.key && one.key === focusedKey} style={css("font:inherit;font-size:11.5px;cursor:pointer")}>ดูรายละเอียด {one.label}</button></td>
             </tr>)}</tbody>)}
           </table>
         </ZoomBox>}

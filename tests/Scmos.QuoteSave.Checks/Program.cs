@@ -32,7 +32,20 @@ Check(QuoteCalculation.MatchesPreview(calculated, original.ExpectedTotals), "pre
 Check(!QuoteCalculation.MatchesPreview(calculated, new() { ["4W"] = 1, ["6W"] = 5326 }), "changed or forged price refused");
 Check(!QuoteCalculation.MatchesPreview(calculated, new() { ["4W"] = 2697 }), "partial preview refused");
 var dg = QuoteCalculation.Calculate(card, original with { DangerousGoods = true });
-Check(dg.Prices.ContainsKey("4W DG") && !dg.Prices.ContainsKey("4W"), "DG stays in the DG column");
+// A dangerous load is quoted in both columns: the ordinary rate and the
+// dangerous one. What must never happen is the DG price landing in the plain
+// column, so this pins the value of each rather than only their presence —
+// 4W is 2,697 with no surcharge, and 4W DG is that plus 300 with the 10%
+// margin applied to it, 3,027.
+Check(dg.Prices["4W"] == 2697 && dg.Prices["4W DG"] == 3027, "DG is quoted beside NON-DG, each in its own column");
+Check(dg.Prices.Count == 4 && dg.Totals.Count == 4, "both columns for both lorries, and nothing else");
+// The preview the screen sends is keyed by sheet column too, or every DG save
+// would come back 409 with the price on screen matching the one in the file.
+Check(QuoteCalculation.MatchesPreview(dg,
+    new() { ["4W"] = 2697, ["4W DG"] = 3027, ["6W"] = 5326, ["6W DG"] = 5876 }),
+    "a DG preview keyed by sheet column matches the authoritative price");
+Check(!QuoteCalculation.MatchesPreview(dg, new() { ["4W"] = 2697, ["6W"] = 5326 }),
+    "a preview missing the DG columns is still refused");
 var extra = QuoteCalculation.Calculate(card, original with { Options = [new(1, 2), new(2, 1), new(3, 1)] });
 Check(extra.Prices["4W"] == 3735, "percent extras share the same pre-percent cost (2952 + 148 + 295 + 340)");
 var reef = QuoteCalculation.Calculate(card, original with { Vehicles = ["4W RF"], DangerousGoods = true });
