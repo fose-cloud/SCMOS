@@ -34,9 +34,21 @@ export type ReceiptJob = {
   /** The customer's own paperwork: the SAP order and the delivery note. */
   sapOrder?: string;
   deliverNo?: string;
+  /**
+   * The two the customer's own sheet has swapped captions for.
+   *
+   * ops.ts records it: on their summary the D-codes sit under "JOB NO." and the
+   * LSTH job numbers under "SID NUMBER", so the import puts the pair right by
+   * shape rather than by caption. The Domestic grid shows them under the
+   * customer's captions, which is what the operators read — so "the SID NUMBER
+   * column" means jobCode and "the JOB NO. column" means dCode, and this
+   * receipt is filled from the columns as they see them.
+   */
   jobCode?: string;
   dCode?: string;
   sid?: string;
+  /** What is being carried, as the Domestic grid's PRODUCT NAME column holds it. */
+  product?: string;
   pallet?: string;
   kgs?: string;
   weight?: string;
@@ -148,6 +160,8 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
     // The delivery note is what the consignee's gate checks against, so it
     // goes where the form asks for an invoice number; the SAP order underneath
     // is what the customer's own system calls the same movement.
+    // The grid's "SID NUMBER" column, which is where the LSTH job number
+    // actually lives — see the note on jobCode above.
     jobNo: text(job.jobCode) || text(job.jobNo),
     createDate: "",
     invoiceNo: text(job.deliverNo),
@@ -184,11 +198,21 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
  * note, the pallets and the kilos; the product name, the PO number and the UN
  * class live in the customer's own paperwork and are typed in.
  */
-export function receiptItem(job: ReceiptJob, column: string): string {
+export function receiptItem(job: ReceiptJob, column: string, columns: readonly string[] = []): string {
   const head = column.replace(/\s+/g, " ").trim().toUpperCase();
-  if (/^PO\s*NO/.test(head)) return "";
+  const heads = columns.map((one) => one.replace(/\s+/g, " ").trim().toUpperCase());
+  const hasOwnDCode = heads.some((one) => /^D-?CODE$/.test(one));
+  // PO NO is filled from the grid's "JOB NO." column, which the caption swap
+  // means is the D-code. Asked for by the department: it is the reference their
+  // consignee's gate checks the delivery against.
+  //
+  // A preset that carries a D-code column of its own gets the value there and
+  // not here, or MERIT's receipt would print the same number twice under two
+  // headings.
+  if (/^PO\s*NO/.test(head)) return hasOwnDCode ? "" : text(job.dCode);
   if (/^D-?CODE$/.test(head)) return text(job.dCode);
   if (/^DELIVERY\s*NO/.test(head)) return text(job.deliverNo);
+  if (/^PRODUCT/.test(head)) return text(job.product);
   if (/P.?KG|PACKAGE/.test(head)) return text(job.pallet);
   if (/^QTY|NET\s*WEIGHT|WEIGHT/.test(head)) return text(job.kgs) || text(job.weight);
   return "";

@@ -277,7 +277,7 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
     // under them are never a render out of step.
     const heads = columnsFor(head.customer);
     setColumns(heads);
-    setItems([{ cells: heads.map((column) => receiptItem(job, column)) }, ...blankItems(heads.length).slice(1)]);
+    setItems([{ cells: heads.map((column) => receiptItem(job, column, heads)) }, ...blankItems(heads.length).slice(1)]);
 
     const missing = [
       !head.customer && "ชื่อลูกค้า",
@@ -638,10 +638,13 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
             <td style={css(BOX + `;text-align:center;font-size:${BODY_PT};color:${INK}`)}>{row + 1}</td>
             {item.cells.map((value, column) => (
               <td key={column} style={css(BOX)}>
+                {/* Centred, like the row number beside it and the headings
+                    above it. The figures had been pushed right and the text
+                    left, so a table of six columns read as three alignments. */}
                 <input
                   value={value}
                   onChange={(e) => onItem(row, column, e.target.value)}
-                  style={css(BOX_INPUT + (/WEIGHT|QTY|P.?KG/i.test(columns[column] ?? "") ? ";text-align:right" : ""))}
+                  style={css(BOX_INPUT + ";text-align:center")}
                 />
               </td>
             ))}

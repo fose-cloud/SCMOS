@@ -80,14 +80,41 @@ test("the item table is filled per column, because the columns differ per custom
 });
 
 test("what the register does not know is left blank, not invented", () => {
-  // The PO number, the product name and the UN class live in the customer's
-  // own paperwork. A screen that guessed them would be writing a signed
-  // document out of nothing.
+  // The UN class and the IM flag live in the customer's own paperwork. A screen
+  // that guessed them would be writing a signed document out of nothing.
   const one = job();
-  assert.equal(receiptItem(one, "PO NO"), "");
-  assert.equal(receiptItem(one, "PRODUCT NAME"), "");
   assert.equal(receiptItem(one, "UN NUMBER CLASS"), "");
   assert.equal(receiptItem(one, "IM"), "");
+});
+
+test("PO NO and PRODUCT NAME are filled from the Domestic grid", () => {
+  /*
+   * Asked for by the department. On their summary sheet the captions "SID
+   * NUMBER" and "JOB NO." are swapped — ops.ts records it — so the column they
+   * read as "JOB NO." holds the D-code, and that is what goes under PO NO.
+   *
+   * The fixture above carries neither, which is why this needs its own job:
+   * asserting "blank" against a job with nothing on it proves nothing.
+   */
+  const one = job({ dCode: "D10092680", product: "R960 W38 EX55 25KG" });
+  assert.equal(receiptItem(one, "PO NO", ["PO NO", "PRODUCT NAME"]), "D10092680");
+  assert.equal(receiptItem(one, "PRODUCT NAME", ["PO NO", "PRODUCT NAME"]), "R960 W38 EX55 25KG");
+  assert.equal(receiptItem(one, "PRODUCT"), "R960 W38 EX55 25KG", "PRODUCT alone is the same column");
+});
+
+test("a preset with its own D-code column does not print it twice", () => {
+  // MERIT's receipt carries PO NO and Dcode side by side. Filling both from the
+  // same value would put one number under two headings on a signed document.
+  const one = job({ dCode: "D10092680" });
+  const merit = ["PO NO", "Dcode", "PRODUCT NAME", "IM", "UN NUMBER CLASS", "NET WEIGHT (KGS)"];
+  assert.equal(receiptItem(one, "Dcode", merit), "D10092680");
+  assert.equal(receiptItem(one, "PO NO", merit), "");
+});
+
+test("the receipt's JOB NO. is the grid's SID NUMBER column", () => {
+  // Same caption swap, the other way round: what they read as "SID NUMBER" is
+  // the LSTH job number, and that is the job number the receipt carries.
+  assert.equal(receiptHead(job({ jobCode: "260600800773" })).jobNo, "260600800773");
 });
 
 test("a vessel and a container are import lines and stay empty on a lorry", () => {
