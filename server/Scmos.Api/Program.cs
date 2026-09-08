@@ -3,6 +3,7 @@ using Azure.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
+using Scmos.Api.Ai;
 using Scmos.Api.Data;
 using Scmos.Api.Endpoints;
 using Scmos.Api.Services;
@@ -28,6 +29,7 @@ if (!string.IsNullOrWhiteSpace(vault))
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.Section));
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.Section));
 builder.Services.Configure<OpenAiOptions>(builder.Configuration.GetSection(OpenAiOptions.Section));
+builder.Services.AddAiFoundation(builder.Configuration);
 
 var connectionString = builder.Configuration.GetConnectionString("ScmosDb") ?? "";
 builder.Services.AddDbContext<ScmosDbContext>(options =>
@@ -274,6 +276,7 @@ app.MapOperationalIssues();
 app.MapRotation();
 app.MapOperations();
 app.MapAiExtract();
+app.MapAiFoundation();
 app.MapCustomerDocuments();
 app.MapDiesel();
 app.MapLine();

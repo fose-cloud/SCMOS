@@ -36,6 +36,7 @@ import { Audit, NotBuilt } from "./scmos/screens/Audit";
 import { Suppliers } from "./scmos/screens/Suppliers";
 import { Incidents } from "./scmos/screens/Incidents";
 import { Assistant } from "./scmos/screens/Assistant";
+import { AiControlTower } from "./scmos/screens/AiControlTower";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
@@ -71,7 +72,7 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
  * lies about what it does, so listing them here suppresses it.
  */
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
-  subcontractors: true, carpar: true, incident: true, assistant: true,
+  subcontractors: true, carpar: true, incident: true, assistant: true, ai: true,
   vendor: true, evaluation: true, quotation: true,
   // Reports offered the fallback Export Excel, which raises a toast and exports
   // nothing. Every report inside the catalogue carries its own export, next to
@@ -184,11 +185,13 @@ type Props = {
   signOutHref: string | null;
   /** Whether the passwordless demo gate is available. Never true in a deployed build. */
   demo: boolean;
+  /** Optional authenticated entry route; normal home still follows landing preferences. */
+  initialScreen?: Screen;
 };
 
-export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
+export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Props) {
   // ---- chrome / navigation -----------------------------------------------
-  const [screen, setScreen] = useState<Screen>("dashboard");
+  const [screen, setScreen] = useState<Screen>(initialScreen ?? "dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [gq, setGq] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -515,8 +518,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
     const stored = loadPrefs();
     setPrefs(stored);
     setCollapsed(stored.collapsed);
-    setScreen(stored.landing);
-  }, []);
+    setScreen(initialScreen ?? stored.landing);
+  }, [initialScreen]);
 
   // The profile is stored per sign-in name, so switching demo accounts loads
   // that person's own picture and details.
@@ -2901,6 +2904,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo }: Props) {
             )}
             {screen === "assistant" && (
               <Assistant canApprove={isSupervisor} onToast={setToast}
+                onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
+            )}
+            {screen === "ai" && !isCarrier && (
+              <AiControlTower key={signedInAs + ":" + me.role + ":" + identity?.opId + ":" + able("ViewDashboard") + ":" + able("ViewAudit") + ":" + able("ViewTeam")}
+                canViewDashboard={able("ViewDashboard")} canViewAudit={able("ViewAudit")} canViewMonitor={isSupervisor}
+                onNavigate={go}
                 onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
             )}
             {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}

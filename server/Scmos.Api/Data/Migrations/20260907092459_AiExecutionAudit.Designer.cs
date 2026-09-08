@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Scmos.Api.Data;
 
@@ -11,9 +12,11 @@ using Scmos.Api.Data;
 namespace Scmos.Api.Data.Migrations
 {
     [DbContext(typeof(ScmosDbContext))]
-    partial class ScmosDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907092459_AiExecutionAudit")]
+    partial class AiExecutionAudit
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -903,55 +906,6 @@ namespace Scmos.Api.Data.Migrations
                         .HasDatabaseName("delay_job_idx");
 
                     b.ToTable("delay_records", (string)null);
-                });
-
-            modelBuilder.Entity("Scmos.Api.Data.DieselPrice", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("EffectiveDate")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)")
-                        .HasColumnName("effective_date");
-
-                    b.Property<decimal>("Price")
-                        .HasPrecision(6, 2)
-                        .HasColumnType("decimal(6,2)")
-                        .HasColumnName("price");
-
-                    b.Property<DateTimeOffset>("RecordedAt")
-                        .HasColumnType("datetimeoffset")
-                        .HasColumnName("recorded_at");
-
-                    b.Property<string>("RecordedBy")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)")
-                        .HasDefaultValue("")
-                        .HasColumnName("recorded_by");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)")
-                        .HasDefaultValue("")
-                        .HasColumnName("source");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EffectiveDate")
-                        .IsUnique()
-                        .HasDatabaseName("diesel_prices_date_idx");
-
-                    b.ToTable("diesel_prices", (string)null);
                 });
 
             modelBuilder.Entity("Scmos.Api.Data.Driver", b =>

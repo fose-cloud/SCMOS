@@ -10,6 +10,9 @@ import tseslint from "typescript-eslint";
 const eslintConfig = defineConfig([
   globalIgnores([
     ".next/**",
+    // The isolated AI browser QA app has its own generated Next output.
+    "tests/ai-preview-app/.next/**",
+    "tests/ai-preview-app/next-env.d.ts",
     "out/**",
     "next-env.d.ts",
     // The API is C# and the migration scripts are one-shot Node.

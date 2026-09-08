@@ -1,7 +1,7 @@
 export type Screen =
   | "dashboard" | "workspace" | "booking" | "monitoring" | "prerun" | "docverify"
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
-  | "audit" | "documents" | "reports" | "assistant"
+  | "audit" | "documents" | "reports" | "assistant" | "ai"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
@@ -27,6 +27,7 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["audit", "Audit", "ประวัติการใช้งาน", [[2, 2, 12, 2], [2, 6, 12, 2], [2, 10, 8, 2]]],
   ["documents", "Document Center", "ศูนย์เอกสาร", [[3, 2, 10, 12], [5, 5, 6, 1], [5, 8, 6, 1], [5, 11, 4, 1]]],
   ["reports", "Reports", "รายงาน", [[2, 2, 12, 2], [2, 6, 12, 1.5], [2, 9.5, 9, 1.5], [2, 13, 6, 1.5]]],
+  ["ai", "AI Control Tower", "ศูนย์ควบคุมงานและ AI", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
   ["assistant", "AI Assistant", "ผู้ช่วย AI", [[4, 3, 8, 8], [6, 12, 4, 2], [2, 5, 2, 2], [12, 5, 2, 2]]],
   // A heading, not a destination. ABS used to sit here on its own; three more
   // systems arrived and four flat entries would have pushed the process out of
@@ -180,6 +181,7 @@ export const META: Record<string, [string, string, string]> = {
   carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR", "ทะเบียนเดียวกับหน้า Incident — ระบบไม่ยอมให้ข้ามขั้น: ไม่มีสาเหตุที่แท้จริงก็กำหนดการแก้ไขไม่ได้ ไม่มีผู้รับผิดชอบและกำหนดเสร็จก็ติดตามไม่ได้ และปิดเคสได้เฉพาะระดับหัวหน้างานขึ้นไป"],
   incident: ["Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข", "เปิดเคสจากเหตุที่เกิดจริง บันทึก 5W1H สาเหตุที่แท้จริง การแก้ไขและการป้องกัน แล้วเดินตามขั้นจนปิดเคสด้วยลายเซ็นของคน"],
   audit: ["Audit Trail", "ประวัติการใช้งาน", "ใครแก้อะไร เมื่อไหร่ จากค่าเดิมเป็นค่าใหม่อะไร — อ่านจากประวัติที่ผูกกับงานแต่ละใบ"],
+  ai: ["SCMOS AI Control Tower", "ศูนย์ควบคุมงานและ AI", "ภาพรวมงานจาก SCMOS · ถาม Operations AI แบบอ่านอย่างเดียว · ตรวจสอบหลักฐานและประวัติการทำงาน"],
   assistant: ["AI Assistant", "ผู้ช่วย AI", "สิทธิ์ของผู้ช่วยอ่านจาก API ที่บังคับใช้จริง — อ่านและร่างได้เลย เปลี่ยนข้อมูลจริงต้องมีคนอนุมัติ และการลบไม่มีอยู่ในระบบเลย"],
   vendor: ["Add New Vendor", "เพิ่มผู้ขนส่งใหม่", "ลงทะเบียนผู้ขนส่งรายใหม่เข้าทะเบียนเดียวกับที่ Workspace และ KPI ใช้ — เริ่มที่สถานะร่าง จ่ายงานได้ต่อเมื่ออนุมัติแล้ว"],
   evaluation: ["Annual Evaluation", "ประเมินผู้ขนส่งประจำปี", "คะแนนตรงเวลา ตอบยืนยัน และความล่าช้า ดึงจาก KPI Engine ส่วนความปลอดภัยและเอกสารเป็นดุลพินิจของผู้ประเมิน"],

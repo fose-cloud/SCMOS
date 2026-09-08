@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Scmos.Api.Ai;
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
 using Scmos.Api.Data;
@@ -37,6 +38,11 @@ public record ApprovalView(
 /// </summary>
 public class AiGateway(ScmosDbContext db)
 {
+    // Additive chat entry; legacy tools/approval/extraction behavior is unchanged.
+    public AiStatus Status(AppUser user, AgentOrchestrator orchestrator) => orchestrator.Status(user);
+    public Task<AiChatOutcome> ChatAsync(AiChatRequest? request, AppUser? user, AgentOrchestrator orchestrator, CancellationToken token)
+        => orchestrator.RunAsync(request, user, token);
+
     public async Task<IReadOnlyList<ToolView>> ToolsAsync(CancellationToken token)
     {
         var stored = await db.AiTools.AsNoTracking().OrderBy(tool => tool.Agent).ThenBy(tool => tool.Name)

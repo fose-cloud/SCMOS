@@ -88,6 +88,10 @@ jobs:
       - name: Calculated quotation checks
         run: dotnet run --project tests/Scmos.QuoteSave.Checks/Scmos.QuoteSave.Checks.csproj --configuration Release
 
+      # In-memory SDK transport and a loopback-only mock host: no secrets or SQL.
+      - name: AI foundation, Operations and audit checks
+        run: dotnet run --project tests/Scmos.Ai.Checks/Scmos.Ai.Checks.csproj --configuration Release
+
       - name: Publish
         run: dotnet publish ${{ env.PROJECT }} --configuration Release --no-build --output publish
 

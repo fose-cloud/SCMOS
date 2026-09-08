@@ -38,6 +38,7 @@
   ],
   "exclude": [
     "node_modules",
+    "tests/ai-preview-app/.next",
     "server",
     "migration"
   ]
