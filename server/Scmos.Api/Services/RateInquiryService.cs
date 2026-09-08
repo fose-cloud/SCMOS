@@ -175,7 +175,7 @@ public class RateInquiryService(ScmosDbContext db)
     /// </summary>
     public record SheetQuery(
         string Search = "", string Customer = "", string Requestor = "",
-        string Carrier = "", string County = "",
+        string Carrier = "", string County = "", string Number = "",
         string Year = "", string Month = "", string Day = "",
         int Page = 1, int Per = 50);
 
@@ -190,6 +190,7 @@ public class RateInquiryService(ScmosDbContext db)
     public record SheetChoices(
         IReadOnlyList<string> Customers, IReadOnlyList<string> Requestors,
         IReadOnlyList<string> Carriers, IReadOnlyList<string> Counties,
+        IReadOnlyList<string> Numbers,
         IReadOnlyList<string> Years, IReadOnlyList<string> Months,
         IReadOnlyList<string> Dates, int Undated);
 
@@ -211,6 +212,30 @@ public class RateInquiryService(ScmosDbContext db)
 
         var counties = AnyOfFilter.Wanted(query.County);
         if (counties.Length > 0) lanes = lanes.Where(row => counties.Contains(row.lane.County));
+
+        /*
+         * The quotation number.
+         *
+         * Compared as an int, not as text: "9" and "09" are the same quotation
+         * and would not match as strings, and an IN over the column SQL already
+         * stores as an int is what it is for.
+         *
+         * The empty check is on what was asked for, not on what parsed. Asking
+         * for a number and getting none out of it has to match nothing —
+         * testing the parsed list instead would drop every value and then fall
+         * through to "no filter", answering a narrow question with the whole
+         * register. That is the reading a filter must never take.
+         */
+        var asked = AnyOfFilter.Wanted(query.Number);
+        if (asked.Length > 0)
+        {
+            var numbers = asked
+                .Select(one => int.TryParse(one, out var value) ? value : (int?)null)
+                .Where(one => one is not null)
+                .Select(one => one!.Value)
+                .ToArray();
+            lanes = lanes.Where(row => numbers.Contains(row.inquiry.Number));
+        }
 
         var wanted = query.Search.Trim();
         if (wanted.Length > 0)
@@ -319,6 +344,8 @@ public class RateInquiryService(ScmosDbContext db)
             .Select(one => one.InquiredOn).Distinct().ToListAsync(token);
         var counties = await db.RateInquiryLanes.AsNoTracking()
             .Select(one => one.County).Distinct().ToListAsync(token);
+        var numbers = await db.RateInquiries.AsNoTracking()
+            .Select(one => one.Number).Distinct().ToListAsync(token);
         // Distinct over the whole column first, so the split below runs over a
         // hundred strings rather than three thousand.
         var carrierLists = await db.RateInquiryLanes.AsNoTracking()
@@ -342,6 +369,9 @@ public class RateInquiryService(ScmosDbContext db)
 
         return new SheetChoices(
             Named(customers), Named(requestors), Named(carriers), Named(counties),
+            // Highest first, so this month's quotations are at the top of the
+            // list — and sorted as numbers, because as text 9 comes after 100.
+            [.. numbers.OrderByDescending(one => one).Select(one => one.ToString())],
             [.. years], [.. months],
             // Newest first, the way the sheet itself is ordered.
             [.. days.Distinct().OrderByDescending(Rank)],

@@ -45,6 +45,8 @@ type Choices = {
   requestors: string[];
   carriers: string[];
   counties: string[];
+  /** Quotation numbers, highest first. Strings, because every picker takes strings. */
+  numbers: string[];
   years: string[];
   months: string[];
   dates: string[];
@@ -66,6 +68,8 @@ type Filters = {
   requestor: string;
   carrier: string;
   county: string;
+  /** The quotation's No. — one number is one request, and its lanes are its rows. */
+  number: string;
   year: string;
   month: string;
   day: string;
@@ -73,7 +77,7 @@ type Filters = {
 
 const NO_FILTERS: Filters = {
   customer: "ALL", requestor: "ALL", carrier: "ALL", county: "ALL",
-  year: "ALL", month: "ALL", day: "ALL",
+  number: "ALL", year: "ALL", month: "ALL", day: "ALL",
 };
 
 /**
@@ -228,7 +232,7 @@ export function RateSheet({ canEdit, onToast }: {
   const query = useCallback((extra: Record<string, string>) => new URLSearchParams({
     q: search.trim(),
     customer: filters.customer, requestor: filters.requestor,
-    carrier: filters.carrier, county: filters.county,
+    carrier: filters.carrier, county: filters.county, number: filters.number,
     year: filters.year, month: filters.month, day: filters.day,
     ...extra,
   }), [search, filters]);
@@ -646,6 +650,12 @@ export function RateSheet({ canEdit, onToast }: {
       <FilterPickMany label="SUBCON" value={filters.carrier}
         options={choices?.carriers ?? []}
         onPick={(value) => narrow({ carrier: value })} />
+      {/* Beside COUNTY rather than with the dates, because it is a thing you
+          pick, not a period you narrow to. One No. is one quotation, which is
+          the unit somebody copies rows for. */}
+      <FilterPickMany label="No." value={filters.number}
+        options={choices?.numbers ?? []}
+        onPick={(value) => narrow({ number: value })} />
       <FilterPickMany label="COUNTY" value={filters.county}
         options={choices?.counties ?? []}
         onPick={(value) => narrow({ county: value })} />

@@ -75,14 +75,15 @@ public static class RateInquiryEndpoints
          * twenty-eight price columns is a quarter of a million cells.
          */
         group.MapGet("/sheet", async (string? q, string? customer, string? requestor,
-            string? carrier, string? county, string? year, string? month, string? day,
+            string? carrier, string? county, string? number,
+            string? year, string? month, string? day,
             int? page, int? per, HttpContext context, IUserAccessor users,
             RateInquiryService inquiries, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
             return Results.Json(await inquiries.SheetAsync(new RateInquiryService.SheetQuery(
                 q ?? "", customer ?? "", requestor ?? "", carrier ?? "", county ?? "",
-                year ?? "", month ?? "", day ?? "", page ?? 1, per ?? 50), token));
+                number ?? "", year ?? "", month ?? "", day ?? "", page ?? 1, per ?? 50), token));
         });
 
         /*
