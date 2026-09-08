@@ -69,6 +69,60 @@ type DraftRoute = {
 const NEW_ROUTE = (key: string): DraftRoute =>
   ({ key, from: "", to: "", km: "", county: "", carriers: "" });
 
+/**
+ * How many routes one quotation may carry here.
+ *
+ * Twenty, which is what the screen has always allowed. The register's largest
+ * real quotation is thirty routes, so this does turn some away — but the limit
+ * is the save endpoint's as much as the screen's, and raising it is a change to
+ * both rather than a number edited here.
+ */
+const MAX_ROUTES = 20;
+
+const PASTE_HINT = "LCB Port\tAmata City\t120\tชลบุรี\tWEALTHY";
+
+/**
+ * Routes read out of a block pasted from a spreadsheet.
+ *
+ * Tab separated, because that is what a spreadsheet puts on the clipboard.
+ * Commas are not offered as an alternative: the carrier column is itself a
+ * comma-separated list, so a comma-delimited reading would split "SANGJA,SSL"
+ * into two columns and quietly shift everything after it.
+ *
+ * Columns are positional — origin, destination, km, county, carriers — and
+ * short rows are allowed, so pasting just two columns of places works and the
+ * rest is filled in on the screen.
+ *
+ * A header row is skipped by recognising it rather than by counting: people
+ * paste with and without one, and a row whose first cell is the word for
+ * "origin" is not a place anybody ships from. A row with nothing in either
+ * place column is dropped, which is what a trailing blank line from Excel is.
+ */
+function readPastedRoutes(text: string): DraftRoute[] {
+  const routes: DraftRoute[] = [];
+  for (const line of (text ?? "").split(/\r?\n/)) {
+    if (line.trim().length === 0) continue;
+    const cells = line.split("\t").map((one) => one.trim());
+    const [from = "", to = "", km = "", county = "", carriers = ""] = cells;
+    if (from.length === 0 && to.length === 0) continue;
+    if (HEADER_WORDS.has(from.toLowerCase())) continue;
+    routes.push({
+      key: crypto.randomUUID(),
+      from, to,
+      // Whatever a spreadsheet put around the number — "1,250 km" — comes off
+      // here rather than being carried into a field the calculator parses.
+      km: km.replace(/[^\d.]/g, ""),
+      county, carriers,
+    });
+  }
+  return routes;
+}
+
+/** First-cell words that mean the row is a heading, not a route. */
+const HEADER_WORDS = new Set([
+  "from", "origin", "ต้นทาง", "จาก", "ต้นทาง/from",
+]);
+
 /*
  * The Subcon column is one field holding a list.
  *
@@ -257,6 +311,9 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
   const saveInFlight = useRef(false);
   /* What has been typed into each picker's search box. The vehicle list is
      29 long and the carrier register longer; both were scrolling lists. */
+  /* The Excel paste box: whether it is open, and what is in it. */
+  const [pasting, setPasting] = useState(false);
+  const [pasteText, setPasteText] = useState("");
   const [vehicleQuery, setVehicleQuery] = useState("");
   const [carrierQuery, setCarrierQuery] = useState("");
   const [routeRows, setRouteRows] = useState<DraftRoute[]>([NEW_ROUTE("first")]);
@@ -546,20 +603,177 @@ export function QuoteCalculator({ canEditRates, canSaveQuote, onOpenSheet, onToa
       {/* ------------------------------------------------ the question */}
       <fieldset disabled={savingQuote || measuring} style={css("min-width:0;margin:0;background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:14px 16px")}>
         <div style={css("display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #E9EFF5")}>
-          {routeRows.map((one, index) => <button type="button" key={one.key} onClick={() => chooseRoute(one.key)} aria-pressed={one.key === activeRoute.key}
-            style={css("padding:7px 11px;border:1px solid #C9D6E2;border-radius:4px;font:inherit;font-size:12px;cursor:pointer;background:" + (one.key === activeRoute.key ? "#0A2240;color:#fff" : "#fff;color:#31465C"))}>เส้นทาง {index + 1}{one.to ? ` · ${one.to}` : ""}</button>)}
-          <button type="button" disabled={routeRows.length >= 20 || measuring} onClick={() => {
+          <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>
+            เส้นทางในชุดนี้ · {routeRows.length}
+          </span>
+          <button type="button" disabled={routeRows.length >= MAX_ROUTES || measuring} onClick={() => {
             const key = crypto.randomUUID();
             setRouteRows((was) => [...was, NEW_ROUTE(key)]);
             chooseRoute(key);
-          }} style={css("padding:7px 11px;border:1px solid #2D7BB6;border-radius:4px;background:#fff;color:#2D7BB6;font:inherit;font-size:12px;cursor:pointer")}>+ เพิ่มเส้นทาง</button>
-          {routeRows.length > 1 && <button type="button" disabled={measuring} onClick={() => {
-            const remaining = routeRows.filter((one) => one.key !== activeRoute.key);
-            setRouteRows(remaining); chooseRoute(remaining[0].key);
-          }} style={css("padding:7px 11px;border:1px solid #E4B4AF;border-radius:4px;background:#fff;color:#B42318;font:inherit;font-size:12px;cursor:pointer")}>นำเส้นทางนี้ออกจากชุด</button>}
-          <span style={css("font-size:11.5px;color:#7B8CA0")}>สูงสุด 20 เส้นทาง · ประเภทรถและกำไรใช้ร่วมกันทั้งชุด · ต้นทาง ปลายทาง จังหวัด และผู้ขนส่ง แยกตามเส้นทาง</span>
+          }} style={css("padding:6px 11px;border:1px solid #2D7BB6;border-radius:4px;background:#fff;color:#2D7BB6;font:inherit;font-size:12px;cursor:pointer")}>+ เพิ่มเส้นทาง</button>
+          <button type="button" disabled={measuring} onClick={() => setPasting((was) => !was)}
+            style={css("padding:6px 11px;border:1px solid #C9D6E2;border-radius:4px;background:#fff;color:#31465C;font:inherit;font-size:12px;cursor:pointer")}>
+            {pasting ? "ปิดการวาง" : "วางจาก Excel"}
+          </button>
+          <span style={css("margin-left:auto;font-size:11.5px;color:#7B8CA0")}>สูงสุด {MAX_ROUTES} เส้นทาง · ประเภทรถและกำไรใช้ร่วมกันทั้งชุด</span>
+        </div>
+
+        {/*
+         * Every route at once, as rows.
+         *
+         * They were tabs, one route open at a time. 62% of the quotations in
+         * the register carry two routes or more and one carries thirty, so the
+         * common case was filling a form, pressing a button, and filling the
+         * same form again — with no way to see what had already been entered or
+         * to compare two of them. The fields are the same ones; what changed is
+         * that they are all on screen at once.
+         *
+         * The selected row still drives the panel underneath — the map, the
+         * carrier tick-list and the measured distance — because those need more
+         * room than a cell can give them.
+         */}
+        {pasting && (
+          <div style={css("margin-bottom:12px;padding:10px 12px;background:#F4F8FC;border:1px solid #D8E0E8;border-radius:5px")}>
+            <div style={css("font-size:12px;color:#31465C;margin-bottom:6px")}>
+              วางจาก Excel ได้เลย — คอลัมน์ตามลำดับ: <b>ต้นทาง · ปลายทาง · กม. · จังหวัด · ผู้ขนส่ง</b>
+              <span style={css("color:#7B8CA0")}> (มีหัวตารางมาด้วยก็ได้ ระบบข้ามให้)</span>
+            </div>
+            <textarea value={pasteText} onChange={(event) => setPasteText(event.target.value)}
+              rows={4} placeholder={PASTE_HINT}
+              style={css("width:100%;font:inherit;font-size:12px;font-family:ui-monospace,monospace;"
+                + "border:1px solid #C9D6E2;border-radius:4px;padding:7px 8px;resize:vertical")} />
+            <div style={css("display:flex;gap:8px;align-items:center;margin-top:7px")}>
+              <button type="button" disabled={!pasteText.trim()} onClick={() => {
+                const added = readPastedRoutes(pasteText);
+                if (added.length === 0) { onToast("ไม่พบเส้นทางในข้อความที่วาง"); return; }
+                /*
+                 * Replaces a set nobody has touched, appends to one they have.
+                 * A first row still blank is scaffolding rather than data, and
+                 * leaving it sitting above thirty pasted rows is an empty line
+                 * somebody has to notice and delete.
+                 *
+                 * Worked out here rather than inside the state updater. Reading
+                 * a count back out of an updater looked right and reported
+                 * "added 0, dropped 4" while putting four rows on the screen:
+                 * React does not promise to have run it by the time the next
+                 * line does, and in development it runs it twice.
+                 */
+                const blank = routeRows.length === 1
+                  && !routeRows[0].from && !routeRows[0].to && !routeRows[0].km;
+                const base = blank ? [] : routeRows;
+                const kept = Math.max(0, Math.min(added.length, MAX_ROUTES - base.length));
+                setRouteRows([...base, ...added.slice(0, kept)]);
+                onToast(kept === added.length
+                  ? `เพิ่ม ${kept} เส้นทางจากที่วาง`
+                  : `เพิ่ม ${kept} เส้นทาง · เกิน ${MAX_ROUTES} เส้นทางจึงตัดออก ${added.length - kept}`);
+                setPasteText("");
+                setPasting(false);
+              }} style={css("padding:6px 12px;border-radius:4px;font:inherit;font-size:12px;border:1px solid "
+                + (pasteText.trim()
+                  ? "#2D7BB6;background:#2D7BB6;color:#fff;cursor:pointer"
+                  : "#E3E8EE;background:#F4F6F8;color:#9AA7B4;cursor:default"))}>
+                เพิ่มเข้าชุด
+              </button>
+              <span style={css("font-size:11.5px;color:#7B8CA0")}>
+                {pasteText.trim()
+                  ? `อ่านได้ ${readPastedRoutes(pasteText).length} เส้นทาง`
+                  : "คัดลอกจาก Excel แล้ววางในช่องนี้"}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div style={css("overflow-x:auto;margin-bottom:12px;border:1px solid #E3E8EE;border-radius:5px")}>
+          <table style={css("width:100%;border-collapse:collapse;font-size:12px;min-width:780px")}>
+            <thead>
+              <tr style={css("background:#F4F8FC")}>
+                {["", "ต้นทาง", "ปลายทาง", "กม.", "จังหวัด", "ผู้ขนส่ง", ""].map((head, at) => (
+                  <th key={at} scope="col"
+                    style={css("text-align:left;padding:7px 9px;font-size:11px;color:#5A6B7D;font-weight:600;white-space:nowrap")}>
+                    {head}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {routeRows.map((one, index) => {
+                const here = one.key === activeRoute.key;
+                const cellStyle = css("padding:4px 6px;border-top:1px solid #E9EFF5");
+                const edit = (field: keyof Omit<DraftRoute, "key">, value: string) =>
+                  setRouteRows((was) => was.map((row) => row.key === one.key ? { ...row, [field]: value } : row));
+                return (
+                  <tr key={one.key} onFocusCapture={() => { if (!here) chooseRoute(one.key); }}
+                    style={css("background:" + (here ? "#EDF5FF" : "#fff"))}>
+                    <td style={cellStyle}>
+                      <button type="button" onClick={() => chooseRoute(one.key)}
+                        title={here ? "เส้นทางที่กำลังดูรายละเอียดอยู่" : "ดูรายละเอียดเส้นทางนี้"}
+                        aria-pressed={here}
+                        style={css("min-width:24px;border:none;background:transparent;font:inherit;font-size:12px;"
+                          + "font-weight:600;cursor:pointer;color:" + (here ? "#0A2240" : "#94A3B8"))}>
+                        {index + 1}
+                      </button>
+                    </td>
+                    <td style={cellStyle}>
+                      <input value={one.from} list="quote-places" placeholder="เช่น LCB Port"
+                        aria-label={"ต้นทางเส้นทาง " + (index + 1)}
+                        onChange={(event) => edit("from", event.target.value)}
+                        style={{ ...INPUT, width: "175px" }} />
+                    </td>
+                    <td style={cellStyle}>
+                      <input value={one.to} list="quote-places" placeholder="เช่น Amata City"
+                        aria-label={"ปลายทางเส้นทาง " + (index + 1)}
+                        onChange={(event) => edit("to", event.target.value)}
+                        style={{ ...INPUT, width: "175px" }} />
+                    </td>
+                    <td style={cellStyle}>
+                      <input value={one.km} inputMode="decimal" placeholder="120"
+                        aria-label={"ระยะทางเส้นทาง " + (index + 1)}
+                        onChange={(event) => edit("km", event.target.value)}
+                        style={{ ...INPUT, width: "80px", textAlign: "right" }} />
+                    </td>
+                    <td style={cellStyle}>
+                      <input value={one.county} list="quote-counties-calc" placeholder="เช่น ชลบุรี"
+                        aria-label={"จังหวัดเส้นทาง " + (index + 1)}
+                        onChange={(event) => edit("county", event.target.value)}
+                        style={{ ...INPUT, width: "125px" }} />
+                    </td>
+                    <td style={cellStyle}>
+                      {/* Typed here, ticked in the panel below. The tick-list
+                          needs more room than a cell, and the register holds
+                          this as the comma-separated text either way. */}
+                      <input value={one.carriers} list="quote-carriers" placeholder="— ยังไม่ระบุ —"
+                        aria-label={"ผู้ขนส่งเส้นทาง " + (index + 1)}
+                        onChange={(event) => edit("carriers", event.target.value)}
+                        style={{ ...INPUT, width: "175px" }} />
+                    </td>
+                    <td style={cellStyle}>
+                      {routeRows.length > 1 && (
+                        <button type="button" disabled={measuring}
+                          title={"นำเส้นทาง " + (index + 1) + " ออกจากชุด"}
+                          onClick={() => {
+                            const remaining = routeRows.filter((row) => row.key !== one.key);
+                            setRouteRows(remaining);
+                            if (here) chooseRoute(remaining[0].key);
+                          }}
+                          style={css("border:1px solid #E4B4AF;background:#fff;color:#B42318;border-radius:3px;"
+                            + "font:inherit;font-size:11px;padding:3px 8px;cursor:pointer")}>ลบ</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <datalist id="quote-carriers">{carriers.map((name) => <option key={name} value={name} />)}</datalist>
+        <datalist id="quote-counties-calc">{counties.map((name) => <option key={name} value={name} />)}</datalist>
+
+        <div style={css("font-size:11.5px;color:#7B8CA0;margin-bottom:9px;padding-top:2px;border-top:1px solid #E9EFF5")}>
+          <b style={css("color:#31465C")}>เส้นทางที่ {routeRows.findIndex((one) => one.key === activeRoute.key) + 1}</b>
+          {" "}— วัดระยะทางจากถนนจริง เลือกผู้ขนส่งเป็นรายชื่อ และดูแผนที่
         </div>
         <div style={css("display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end")}>
+
           <Field label="ประเภทรถ · เลือกได้หลายแบบ" width="240px">
             <details style={css("position:relative")}>
               <summary style={{ ...INPUT, height: "auto", minHeight: 30, padding: "6px 8px", cursor: "pointer" }}>
