@@ -118,9 +118,18 @@ const LEAD = 1;
 const MAX_DELETE = 100;
 
 /** The heading cell, shared by the tick box and the workbook's own columns. */
+/*
+ * The heading row.
+ *
+ * Centred, including over the price columns, which the figures beneath them
+ * are not — a column of baht reads right-aligned so the digits line up, but
+ * a heading right-aligned above it sits away from the column it names and
+ * next to the one before. Forty-one narrow columns made that plain.
+ */
 const HEAD = "padding:7px 9px;background:#F4F7FA;font-size:10.5px;letter-spacing:.04em;"
   + "text-transform:uppercase;color:#465A6E;border-bottom:1px solid #D8E0E8;"
-  + "white-space:nowrap;user-select:none;position:sticky;top:0;z-index:1;";
+  + "white-space:nowrap;user-select:none;position:sticky;top:0;z-index:1;"
+  + "text-align:center;";
 
 /** What one request may fetch when the whole filtered set is wanted, for the export. */
 const BULK = 500;
@@ -842,13 +851,12 @@ export function RateSheet({ canEdit, onToast }: {
         // The same header the workspace uses to tick a page: a box that is
         // drawn full when the page is, and empties it when it is pressed again.
         label: allPagePicked ? "☑" : "☐",
-        style: HEAD + "text-align:center;min-width:34px;width:34px;cursor:pointer;",
+        style: HEAD + "min-width:34px;width:34px;cursor:pointer;",
         sort: () => togglePage(allPagePicked),
       },
       ...SHEET_COLUMNS.map((column) => ({
         label: column.head,
-        style: HEAD + `min-width:${column.width ?? 110}px;`
-          + (column.kind === "price" ? "text-align:right;" : ""),
+        style: HEAD + `min-width:${column.width ?? 110}px;`,
         sort: () => undefined,
       })),
     ],
