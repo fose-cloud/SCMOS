@@ -86,6 +86,11 @@ public static class PlaceMerge
             "Hazchemwarehouse.",
             "HazchemWH",
             "HAZCHEM WAREHOUSE",
+            // Found on production by the "left alone" list below, which is what
+            // it is for: the development copy has neither of these, and a list
+            // written against a stale copy would have missed four rows.
+            "Hazchem",
+            "HAZCHEM WH",
             "Hazchem warehouse",
             "Hazchem warehouse.",
             $"Hazchem{Nbsp}warehouse",
