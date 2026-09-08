@@ -75,7 +75,7 @@ Next free bit after the LINE plan's two is **19**.
 - `ViewMailbox = 1 << 19` — see the Communication Center
 - `AdministerMailbox = 1 << 20` — connect a mailbox, manage subscriptions
 
-### 3.3 Eleven tables → six
+### 3.3 Ten tables → seven
 
 The spec lists `mailboxes, emails, email_participants, email_attachments,
 email_entities, email_job_links, email_ai_analysis, email_actions,
@@ -92,6 +92,19 @@ created in the MVP.
 
 Leaving: `Mailbox`, `Email`, `EmailParticipant`, `EmailAttachment`,
 `EmailEntity`, `EmailJobLink`, `GraphSubscription`.
+
+That is seven, not six, and the heading said six until the tables were written.
+The arithmetic counted `email_attachments` as covered by `StoredDocument` +
+Blob, but what moved to Blob is the **bytes**: a row is still needed to say the
+file's name, size and type, which message it arrived on, and which stored
+document holds it. The spec also listed ten, not eleven.
+
+**Built 2026-09-08**, migration `20260908170406_CommunicationCenter` — seven
+tables, seventeen indexes, nothing existing touched. Applied to LocalDB and the
+`(MailboxId, GraphMessageId)` unique key exercised: a redelivered Graph message
+is refused, and the same id in a second mailbox is still a separate message.
+Nothing else is wired to these tables yet; they are step 2 of the order of work
+below.
 
 ### 3.4 Keep the unique constraint exactly as specified
 
@@ -153,7 +166,7 @@ before anything else works, and it is an Azure change — yours to make.
 The spec's own sequence, adjusted for the architecture:
 
 1. Discovery and this document ✅
-2. Six tables + migration
+2. Seven tables + migration ✅ (20260908170406_CommunicationCenter)
 3. `GraphAuth` — client credentials, token cache
 4. **Mailbox connection test** — one endpoint that reads one message and reports
    what came back. This is the step that proves sections 4 and 5 before any

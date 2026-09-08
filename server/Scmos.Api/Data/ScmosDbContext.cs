@@ -16,6 +16,16 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<LineUser> LineUsers => Set<LineUser>();
     public DbSet<LineEvent> LineEvents => Set<LineEvent>();
 
+    /* The Communication Center. Seven tables — see MailEntities for why that is
+       not the six the plan's heading claims. */
+    public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
+    public DbSet<Email> Emails => Set<Email>();
+    public DbSet<EmailParticipant> EmailParticipants => Set<EmailParticipant>();
+    public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
+    public DbSet<EmailEntity> EmailEntities => Set<EmailEntity>();
+    public DbSet<EmailJobLink> EmailJobLinks => Set<EmailJobLink>();
+    public DbSet<GraphSubscription> GraphSubscriptions => Set<GraphSubscription>();
+
     /// <summary>Published diesel prices, one row per change. The monthly
     /// average is computed from these — see dieselMonth.ts.</summary>
     public DbSet<DieselPrice> DieselPrices => Set<DieselPrice>();
@@ -227,6 +237,157 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => new { e.ProcessingStatus, e.ReceivedAt }).HasDatabaseName("line_events_queue_idx");
             // And what the review screen asks for.
             entry.HasIndex(e => new { e.LineGroupId, e.ReceivedAt }).HasDatabaseName("line_events_group_idx");
+        });
+
+        /* ---------------------------------------------------- the mailbox */
+
+        model.Entity<Mailbox>(entry =>
+        {
+            entry.ToTable("mailboxes");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(320);
+            entry.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.GraphUserId).HasColumnName("graph_user_id").HasMaxLength(64).HasDefaultValue("");
+            entry.Property(e => e.FolderId).HasColumnName("folder_id").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(false);
+            entry.Property(e => e.LastSyncedAt).HasColumnName("last_synced_at");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            // One row per address. Two would be two places the same mail lands,
+            // and a message would be stored, extracted and linked twice.
+            entry.HasIndex(e => e.Address).IsUnique().HasDatabaseName("mailboxes_address_idx");
+        });
+
+        model.Entity<Email>(entry =>
+        {
+            entry.ToTable("emails");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.MailboxId).HasColumnName("mailbox_id");
+            entry.Property(e => e.GraphMessageId).HasColumnName("graph_message_id").HasMaxLength(255);
+            entry.Property(e => e.ConversationId).HasColumnName("conversation_id").HasMaxLength(255).HasDefaultValue("");
+            entry.Property(e => e.InternetMessageId).HasColumnName("internet_message_id").HasMaxLength(255).HasDefaultValue("");
+            entry.Property(e => e.Subject).HasColumnName("subject").HasMaxLength(500).HasDefaultValue("");
+            entry.Property(e => e.FromAddress).HasColumnName("from_address").HasMaxLength(320).HasDefaultValue("");
+            entry.Property(e => e.FromName).HasColumnName("from_name").HasMaxLength(200).HasDefaultValue("");
+            // No length on either body. A shipping line's mail is whatever they
+            // sent, and truncating the only copy would take the evidence out of
+            // the record a person reviews a link against.
+            entry.Property(e => e.BodyText).HasColumnName("body_text").HasDefaultValue("");
+            entry.Property(e => e.BodyHtml).HasColumnName("body_html").HasDefaultValue("");
+            entry.Property(e => e.SentAt).HasColumnName("sent_at");
+            entry.Property(e => e.ReceivedAt).HasColumnName("received_at");
+            entry.Property(e => e.HasAttachments).HasColumnName("has_attachments").HasDefaultValue(false);
+            entry.Property(e => e.ProcessingStatus).HasColumnName("processing_status").HasMaxLength(16).HasDefaultValue(MailProcessing.Received);
+            entry.Property(e => e.ProcessedAt).HasColumnName("processed_at");
+            entry.Property(e => e.ErrorCode).HasColumnName("error_code").HasMaxLength(40).HasDefaultValue("");
+            entry.Property(e => e.ErrorMessage).HasColumnName("error_message").HasMaxLength(500).HasDefaultValue("");
+            entry.Property(e => e.RetryCount).HasColumnName("retry_count").HasDefaultValue(0);
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+
+            // The whole of idempotency, exactly as the specification asks. Graph
+            // redelivers a notification it did not get a prompt answer to, so
+            // the same message arrives more than once.
+            entry.HasIndex(e => new { e.MailboxId, e.GraphMessageId }).IsUnique().HasDatabaseName("emails_message_idx");
+            // What the worker asks for: the oldest thing not yet dealt with.
+            entry.HasIndex(e => new { e.ProcessingStatus, e.ReceivedAt }).HasDatabaseName("emails_queue_idx");
+            // And what the inbox screen asks for.
+            entry.HasIndex(e => new { e.MailboxId, e.ReceivedAt }).HasDatabaseName("emails_inbox_idx");
+            entry.HasIndex(e => e.ConversationId).HasDatabaseName("emails_conversation_idx");
+        });
+
+        model.Entity<EmailParticipant>(entry =>
+        {
+            entry.ToTable("email_participants");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.EmailId).HasColumnName("email_id");
+            entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(8).HasDefaultValue(MailParticipant.To);
+            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(320);
+            entry.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(200).HasDefaultValue("");
+            entry.HasIndex(e => e.EmailId).HasDatabaseName("email_participants_email_idx");
+            // "Which messages went to this customer" is the question this table
+            // exists to answer.
+            entry.HasIndex(e => e.Address).HasDatabaseName("email_participants_address_idx");
+        });
+
+        model.Entity<EmailAttachment>(entry =>
+        {
+            entry.ToTable("email_attachments");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.EmailId).HasColumnName("email_id");
+            entry.Property(e => e.GraphAttachmentId).HasColumnName("graph_attachment_id").HasMaxLength(255).HasDefaultValue("");
+            entry.Property(e => e.FileName).HasColumnName("file_name").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.SizeBytes).HasColumnName("size_bytes").HasDefaultValue(0L);
+            entry.Property(e => e.StoredDocumentId).HasColumnName("stored_document_id").HasDefaultValue(0L);
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.HasIndex(e => e.EmailId).HasDatabaseName("email_attachments_email_idx");
+            // A re-fetch of the same attachment must not store it twice.
+            entry.HasIndex(e => new { e.EmailId, e.GraphAttachmentId }).IsUnique().HasDatabaseName("email_attachments_graph_idx");
+        });
+
+        model.Entity<EmailEntity>(entry =>
+        {
+            entry.ToTable("email_entities");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.EmailId).HasColumnName("email_id");
+            entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(24);
+            entry.Property(e => e.Value).HasColumnName("value").HasMaxLength(120);
+            entry.Property(e => e.InSubject).HasColumnName("in_subject").HasDefaultValue(false);
+            entry.Property(e => e.Labelled).HasColumnName("labelled").HasDefaultValue(false);
+            entry.Property(e => e.WellFormed).HasColumnName("well_formed").HasDefaultValue(true);
+            entry.HasIndex(e => e.EmailId).HasDatabaseName("email_entities_email_idx");
+            // The matcher's own question: which messages name this container.
+            entry.HasIndex(e => new { e.Kind, e.Value }).HasDatabaseName("email_entities_value_idx");
+            // One find of one kind per message. The extractor already reports a
+            // value once; this is the database saying so too.
+            entry.HasIndex(e => new { e.EmailId, e.Kind, e.Value }).IsUnique().HasDatabaseName("email_entities_once_idx");
+        });
+
+        model.Entity<EmailJobLink>(entry =>
+        {
+            entry.ToTable("email_job_links");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.EmailId).HasColumnName("email_id");
+            entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(80);
+            entry.Property(e => e.MatchedOn).HasColumnName("matched_on").HasMaxLength(24).HasDefaultValue("");
+            entry.Property(e => e.MatchedValue).HasColumnName("matched_value").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.Confidence).HasColumnName("confidence").HasDefaultValue(0d);
+            entry.Property(e => e.Status).HasColumnName("status").HasMaxLength(16).HasDefaultValue(MailLink.Suggested);
+            entry.Property(e => e.ConfirmedBy).HasColumnName("confirmed_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.ConfirmedAt).HasColumnName("confirmed_at");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.HasIndex(e => e.EmailId).HasDatabaseName("email_job_links_email_idx");
+            // "What mail is there about this job" — the reason the job screen
+            // will want this table at all.
+            entry.HasIndex(e => e.JobKey).HasDatabaseName("email_job_links_job_idx");
+            // One link between a message and a job. A second row would let the
+            // same message be both suggested and rejected against one job.
+            entry.HasIndex(e => new { e.EmailId, e.JobKey }).IsUnique().HasDatabaseName("email_job_links_once_idx");
+        });
+
+        model.Entity<GraphSubscription>(entry =>
+        {
+            entry.ToTable("graph_subscriptions");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.MailboxId).HasColumnName("mailbox_id");
+            entry.Property(e => e.SubscriptionId).HasColumnName("subscription_id").HasMaxLength(120);
+            entry.Property(e => e.Resource).HasColumnName("resource").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.NotificationUrl).HasColumnName("notification_url").HasMaxLength(500).HasDefaultValue("");
+            entry.Property(e => e.ClientState).HasColumnName("client_state").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.ExpiresAt).HasColumnName("expires_at");
+            entry.Property(e => e.LastRenewedAt).HasColumnName("last_renewed_at");
+            entry.Property(e => e.Status).HasColumnName("status").HasMaxLength(16).HasDefaultValue(MailSubscription.Active);
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.HasIndex(e => e.SubscriptionId).IsUnique().HasDatabaseName("graph_subscriptions_id_idx");
+            // What the renewal loop asks for: the live ones, soonest to die first.
+            entry.HasIndex(e => new { e.Status, e.ExpiresAt }).HasDatabaseName("graph_subscriptions_renew_idx");
         });
 
         model.Entity<SupplierRequest>(entry =>
