@@ -39,21 +39,6 @@ public static class LineParser
     /// </summary>
     public const double AutoThreshold = 0.90;
 
-    /// <summary>
-    /// What a SCMOS job number looks like.
-    ///
-    /// Twelve digits, as the register writes them — 260600800773. Deliberately
-    /// not "any run of digits": a message carries SAP orders, delivery notes and
-    /// SID numbers too, and all of those are ten digits. A looser pattern would
-    /// match the delivery note and update whatever job happened to have that
-    /// number.
-    ///
-    /// The boundaries are explicit rather than <c>\b</c> so that a longer run of
-    /// digits does not yield a twelve-digit match inside it.
-    /// </summary>
-    private static readonly Regex JobNumber =
-        new(@"(?<!\d)\d{12}(?!\d)", RegexOptions.Compiled);
-
     /// <summary>A time of day: 10:25, 10.25, 1025 is not accepted.</summary>
     private static readonly Regex Clock =
         new(@"(?<!\d)([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)", RegexOptions.Compiled);
@@ -185,14 +170,13 @@ public static class LineParser
     /// that — it queues for review, which is the whole point of having a review
     /// queue.
     /// </summary>
-    public static (string? Number, int Found) FindJobNumber(string normalised)
-    {
-        var matches = JobNumber.Matches(normalised)
-            .Select(one => one.Value)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        return (matches.Length == 1 ? matches[0] : null, matches.Length);
-    }
+    /// <remarks>
+    /// The rule itself lives in <see cref="JobCodes"/>, because the mail
+    /// extractor reads the same twelve digits out of a subject line, and two
+    /// readings of "what is a job number" would drift apart.
+    /// </remarks>
+    public static (string? Number, int Found) FindJobNumber(string normalised) =>
+        JobCodes.FindOne(normalised);
 
     /// <summary>The status a message reports, and the keyword that said so.</summary>
     public static (string? Status, string? Keyword) FindStatus(string normalised)

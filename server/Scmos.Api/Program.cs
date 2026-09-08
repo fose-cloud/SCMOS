@@ -182,6 +182,7 @@ if (CapabilityCheck.Run(args) is int capabilityExit) return capabilityExit;
 if (SignInCheck.Run(args) is int signInExit) return signInExit;
 if (ReportCheck.Run(args) is int reportExit) return reportExit;
 if (LineParserCheck.Run(args) is int lineExit) return lineExit;
+if (EmailExtractionCheck.Run(args) is int emailExit) return emailExit;
 
 if (args.Contains("--seed"))
 {
