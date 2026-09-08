@@ -208,6 +208,14 @@ if (args.Contains("--report-otd"))
     return await OtdCoverage.RunAsync(app, args);
 }
 
+// Reports by default; --apply writes; --undo puts the last run back. Merges the
+// spellings of one place into one, so a saved distance is findable from all of
+// them. See PlaceMerge for why the mapping is written out by hand.
+if (args.Contains("--merge-places"))
+{
+    return await PlaceMerge.RunAsync(app, args);
+}
+
 // Reports by default; --apply writes. See IssueLinkFix for why old issues need
 // it and new ones do not.
 if (args.Contains("--link-issues"))
