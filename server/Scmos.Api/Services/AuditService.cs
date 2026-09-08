@@ -27,6 +27,12 @@ public record AuditPage(IReadOnlyList<AuditView> Entries, int Total);
 /// </summary>
 public class AuditService(ScmosDbContext db, IHttpContextAccessor context, ILogger<AuditService> log)
 {
+    /// <summary>Stage an event in the caller's atomic SaveChanges; failure must abort the change.</summary>
+    public void Stage(AppUser user, string action, string entity, string entityId,
+        string entityLabel, string field, string oldValue, string newValue, string reason)
+        => db.AuditEvents.Add(Build(user, action, entity, entityId, entityLabel,
+            field, oldValue, newValue, reason, "web"));
+
     /// <summary>Records one change. Returns false when it could not be written.</summary>
     public async Task<bool> RecordAsync(AppUser user, string action, string entity, string entityId,
         string entityLabel, string field, string oldValue, string newValue, string reason,

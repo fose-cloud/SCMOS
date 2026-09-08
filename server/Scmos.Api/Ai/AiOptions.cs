@@ -8,6 +8,8 @@ public sealed class AiOptions
     public bool ChatEnabled { get; set; }
     public bool MockMode { get; set; }
     public bool OperationsAgentEnabled { get; set; }
+    // Server-side emergency stop always wins over the durable UI switch.
+    public bool OperationsEmergencyDisabled { get; set; }
     public bool VendorAgentEnabled { get; set; }
     public bool RateAgentEnabled { get; set; }
     public bool KpiAgentEnabled { get; set; }

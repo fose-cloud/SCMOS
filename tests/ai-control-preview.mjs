@@ -13,6 +13,8 @@ process.env.SCMOS_API_PROXY_KEY = "local-fixture-not-a-secret";
 process.env.NEXT_TELEMETRY_DISABLED = "1";
 const calls = [];
 let mode = "ready";
+let controlEnabled = false;
+let controlRevision = 0;
 const send = (res, body, code = 200) => {
   res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
@@ -22,13 +24,24 @@ const api = createServer(async (req, res) => {
   if (url.pathname === "/__fixture") {
     if (req.method === "POST") {
       const requested = url.searchParams.get("mode");
-      if (!["ready", "disabled", "audit-missing", "no-access", "empty", "slow", "error", "mock", "operator", "carrier"].includes(requested))
+      if (!["ready", "disabled", "audit-missing", "no-access", "empty", "slow", "error", "mock", "operator", "carrier", "control", "control-unready", "control-conflict"].includes(requested))
         return send(res, { error: "unknown fixture" }, 400);
       mode = requested; calls.length = 0;
+      controlEnabled = false; controlRevision = 0;
     }
     return send(res, { fixture: "scmos-ai-local-qa", mode, calls });
   }
   calls.push({ method: req.method, path: url.pathname });
+  if (url.pathname === "/api/ai/operations-control" && req.method === "POST" && mode.startsWith("control")) {
+    let body = "";
+    for await (const chunk of req) { body += chunk; if (body.length > 1024) return send(res, {}, 413); }
+    const value = JSON.parse(body);
+    if (req.headers["x-scmos-ai-control"] !== "1") return send(res, {}, 400);
+    if (mode === "control-conflict" || value.revision !== controlRevision) return send(res, { code: "control_conflict" }, 409);
+    if (mode === "control-unready") return send(res, { code: "control_not_ready" }, 503);
+    controlEnabled = value.enabled; controlRevision++;
+    return send(res, { saved: true });
+  }
   if (req.method !== "GET" && !(url.pathname === "/api/ai/chat" && req.method === "POST"))
     return send(res, { error: "fixture refuses writes" }, 405);
   if (url.pathname === "/api/me") return send(res, {
@@ -40,6 +53,12 @@ const api = createServer(async (req, res) => {
     ...status, enabled: mode !== "disabled", auditReady: mode !== "audit-missing",
     agents: mode === "no-access" || mode === "carrier" ? [] : status.agents,
     mock: mode === "mock", liveToolsReady: mode !== "mock" && mode !== "audit-missing",
+    ...(mode.startsWith("control") ? {
+      enabled: controlEnabled, chatEnabled: controlEnabled,
+      agents: status.agents.map(a => a.id === "operations-agent" ? { ...a, enabled: controlEnabled } : a),
+      operationsControl: { available: true, enabled: controlEnabled, revision: controlRevision, canManage: true,
+        canEnable: mode !== "control-unready", emergencyDisabled: false, blockReason: mode === "control-unready" ? "control_not_ready" : "" },
+    } : {}),
   });
   if (mode === "no-access" && ["/api/dashboard/today", "/api/dashboard/briefing", "/api/ai/audit"].includes(url.pathname))
     return send(res, { code: "forbidden" }, 403);

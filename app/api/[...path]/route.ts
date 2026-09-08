@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { allowedOperationsControlRequest } from "../../scmos/aiControlRequest";
 
 /**
  * The browser's way through to the .NET API.
@@ -33,7 +34,7 @@ const IDENTITY_HEADERS = [
 ];
 
 /** Passed through because the request needs them; everything else is dropped. */
-const REQUEST_HEADERS = ["content-type", "accept", "accept-language", "range"];
+const REQUEST_HEADERS = ["content-type", "accept", "accept-language", "range", "x-scmos-ai-control"];
 
 /**
  * Passed back because the browser needs them; everything else is dropped.
@@ -63,6 +64,12 @@ function devUserCookie(header: string | null): string {
 }
 
 async function forward(request: Request, path: string[]): Promise<Response> {
+  // Only this administrative control is in scope; do not alter other workflows.
+  if (path.join("/") === "ai/operations-control" && request.method !== "GET") {
+    if (!allowedOperationsControlRequest(request)) {
+      return Response.json({ error: "Same-origin control request required" }, { status: 403 });
+    }
+  }
   if (!API_BASE) {
     return Response.json(
       { error: "SCMOS_API_BASE_URL is not set — the web app does not know where the API is." },

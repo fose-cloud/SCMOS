@@ -44,7 +44,37 @@ async function load(value) {
   await expect(tower.getByText("กำลังตรวจสถานะ AI…", { exact: true })).toHaveCount(0);
 }
 try {
+  await load("control");
+  const toggle = () => tower.getByRole("button", { name: "เปิด Operations AI", exact: true });
+  await expect(toggle()).toBeEnabled();
+  await question().fill("FIXTURE ONLY งานวันนี้");
+  await expect(ask()).toBeDisabled();
+  await toggle().click();
+  await tower.getByRole("button", { name: "ยกเลิก", exact: true }).click();
+  assert.equal((await inspect()).calls.filter(c => c.path === "/api/ai/operations-control").length, 0);
+  await toggle().click();
+  await tower.getByRole("button", { name: "ยืนยัน", exact: true }).click();
+  await expect(tower.getByRole("button", { name: "ปิด Operations AI", exact: true })).toBeVisible();
+  await expect(ask()).toBeEnabled();
+  await page.reload();
+  await expect(tower.getByRole("button", { name: "ปิด Operations AI", exact: true })).toBeVisible();
+  await tower.getByRole("button", { name: "ปิด Operations AI", exact: true }).click();
+  await tower.getByRole("button", { name: "ยืนยัน", exact: true }).click();
+  await expect(toggle()).toBeVisible();
+  await expect(ask()).toBeDisabled();
+  assert.equal((await inspect()).calls.filter(c => c.path === "/api/ai/chat").length, 0);
+  await page.screenshot({ path: "outputs/ai-qa/operations-switch-desktop.png", fullPage: true });
+  pass("Operations switch: explicit confirm/cancel, persistence, disable, no automatic chat");
+  await load("control-unready");
+  await expect(toggle()).toBeDisabled();
+  await load("control-conflict");
+  await toggle().click();
+  await tower.getByRole("button", { name: "ยืนยัน", exact: true }).click();
+  await expect(tower.getByText("มีผู้เปลี่ยนสถานะแล้ว กรุณาตรวจสถานะล่าสุดก่อนลองใหม่", { exact: true })).toBeVisible();
+  await expect(ask()).toBeDisabled();
+  pass("Operations switch: readiness and conflict fail closed");
   await load("ready");
+  await expect(toggle()).toHaveCount(0);
   await expect(tower.getByText("Operations AI พร้อมรับคำถาม", { exact: true })).toBeVisible();
   await expect(tower.getByRole("heading", { name: "Priority Queue", exact: true })).toBeVisible();
   await expect(tower.getByText("N/A", { exact: true }).first()).toBeVisible();

@@ -104,9 +104,14 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<AiReply | null>(null);
   const [askError, setAskError] = useState("");
+  const [confirmSwitch, setConfirmSwitch] = useState<boolean | null>(null);
+  const [switchBusy, setSwitchBusy] = useState(false);
+  const [switchMessage, setSwitchMessage] = useState("");
+  const switchRequest = useRef<AbortController | null>(null);
+  const control = status.data?.operationsControl;
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; request.current?.abort(); request.current = null; };
+    return () => { mounted.current = false; request.current?.abort(); request.current = null; switchRequest.current?.abort(); };
   }, []);
 
   function focusAsk() {
@@ -115,6 +120,30 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   }
   function refresh() {
     status.refresh(); board.refresh(); brief.refresh(); activity.refresh(); detail.refresh();
+  }
+  async function saveSwitch() {
+    if (confirmSwitch === null || switchRequest.current || !control?.canManage || !control.available
+      || (confirmSwitch && !control.canEnable)) return;
+    const controller = new AbortController();
+    switchRequest.current = controller;
+    setSwitchBusy(true); setSwitchMessage("");
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await apiFetch("/api/ai/operations-control", {
+        method: "POST", headers: { "content-type": "application/json", "X-SCMOS-AI-Control": "1" },
+        body: JSON.stringify({ enabled: confirmSwitch, revision: control.revision }), signal: controller.signal,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new ControlError(typeof result.code === "string" ? result.code : "unavailable");
+      if (result.saved !== true) throw new ControlError("invalid_response");
+      if (mounted.current) setSwitchMessage(confirmSwitch ? "บันทึกเปิด Operations AI แล้ว · อ่านอย่างเดียว" : "บันทึกปิด Operations AI แล้ว · ไม่รับคำถามใหม่");
+    } catch (error) {
+      if (mounted.current) setSwitchMessage(controller.signal.aborted
+        ? "ยังยืนยันผลการบันทึกไม่ได้ กรุณารีเฟรชตรวจสถานะก่อนลองใหม่" : errorText(error));
+    } finally {
+      clearTimeout(timer); switchRequest.current = null;
+      if (mounted.current) { setSwitchBusy(false); setConfirmSwitch(null); status.refresh(); }
+    }
   }
   async function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -167,6 +196,26 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
         <p>{status.error || ready.detail}</p></div>
       <Badge tone={ready.tone}>{status.data?.mock ? "MOCK · ไม่ใช่ข้อมูลจริง" : "READ ONLY"}</Badge>
     </div>
+
+    {control?.canManage && <section className={s.status} aria-label="ควบคุม Operations AI">
+      <div><strong>Operations AI · {control.available ? control.enabled ? "สวิตช์เปิด" : "สวิตช์ปิด" : "ยังไม่ทราบสถานะสวิตช์"}</strong>
+        <p>Administrator เท่านั้น · ใช้กับทุกบัญชีตามสิทธิ์เดิม · ไม่เปิดสิทธิ์เขียนข้อมูลงาน</p>
+        <p>การปิดหยุดรับคำถามใหม่ รอบที่เริ่มแล้วอาจทำงานต่อจนจบ · ประวัติการเปลี่ยนอยู่ในเมนู Audit</p>
+        {!!control.blockReason && <p>{errorText(new ControlError(control.blockReason))}</p>}
+        {!!switchMessage && <p role="status">{switchMessage}</p>}
+        {confirmSwitch !== null && <div role="group" aria-label="ยืนยันเปลี่ยนสถานะ Operations AI">
+          <p>{confirmSwitch ? "ยืนยันเปิดให้ผู้มีสิทธิ์ส่งคำถามไปยังผู้ให้บริการ AI? อาจมีค่าใช้จ่ายตามการใช้งาน" : "ยืนยันปิดรับคำถาม Operations AI ใหม่สำหรับทุกบัญชี?"}</p>
+          <div className={s.actions}>
+            <button className={s.button} disabled={switchBusy || (confirmSwitch && !control.canEnable)} onClick={() => void saveSwitch()}>{switchBusy ? "กำลังบันทึก…" : "ยืนยัน"}</button>
+            <button className={s.button} disabled={switchBusy} onClick={() => setConfirmSwitch(null)}>ยกเลิก</button>
+          </div>
+        </div>}
+      </div>
+      {confirmSwitch === null && <button className={s.button} disabled={switchBusy || !control.available || (!control.enabled && !control.canEnable)}
+        onClick={() => { setSwitchMessage(""); setConfirmSwitch(!control.enabled); }}>
+        {control.enabled ? "ปิด Operations AI" : "เปิด Operations AI"}
+      </button>}
+    </section>}
 
     <section aria-labelledby="ai-morning">
       <div className={s.sectionTitle}><div><h2 id="ai-morning">Morning Brief</h2>

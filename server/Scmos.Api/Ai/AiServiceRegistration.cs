@@ -25,6 +25,10 @@ public static class AiServiceRegistration
         services.AddSingleton<IAiProvider>(sp => sp.GetRequiredService<IOptions<AiOptions>>().Value.MockMode
             ? sp.GetRequiredService<MockAiProvider>() : sp.GetRequiredService<OpenAiProvider>());
         services.AddScoped<AgentOrchestrator>();
+        services.AddScoped<OperationsControlService>();
+        services.AddHttpContextAccessor();
+        services.TryAddScoped<Scmos.Api.Services.AuditService>();
+        services.AddScoped<IOperationsControl>(sp => sp.GetRequiredService<OperationsControlService>());
         return services;
     }
 }

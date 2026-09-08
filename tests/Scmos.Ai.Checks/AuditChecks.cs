@@ -148,6 +148,7 @@ static class AuditChecks
                 await setup.Database.ExecuteSqlRawAsync("CREATE TABLE phase_d_sentinel (id int NOT NULL PRIMARY KEY); INSERT INTO phase_d_sentinel VALUES (42);");
             }
             check(await Sink().CheckReadyAsync(default), "D SQL: installed mapped audit shape is ready");
+            await OperationsControlChecks.SqlAsync(options, check);
             var start = Start();
             var tool = Tool(start);
             var finish = Finish(tool);
@@ -237,6 +238,8 @@ static class AuditChecks
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddAiFoundation(builder.Configuration);
+        // This host tests execution audit; switch persistence has its own real SQL checks above.
+        builder.Services.AddSingleton<IOperationsControl>(new TestOperationsControl(new(true, true, 0, false)));
         builder.Services.AddSingleton(options);
         builder.Services.AddScoped(_ => new ScmosDbContext(options));
         builder.Services.AddSingleton<IUserAccessor>(users);

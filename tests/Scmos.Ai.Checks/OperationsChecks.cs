@@ -204,11 +204,13 @@ static class OperationsChecks
         builder.Configuration.Sources.Clear();
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["AI:Enabled"] = "true", ["AI:ChatEnabled"] = "true", ["AI:OperationsAgentEnabled"] = "true",
+            // Durable Operations switch can enable only this specialist while old feature flags stay off.
+            ["AI:Enabled"] = "false", ["AI:ChatEnabled"] = "false", ["AI:OperationsAgentEnabled"] = "false",
         });
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddAiFoundation(builder.Configuration);
+        builder.Services.AddSingleton<IOperationsControl>(new TestOperationsControl(new(true, true, 0, false)));
         builder.Services.AddSingleton<IOperationsSource>(source);
         builder.Services.AddSingleton<IAiProvider>(provider);
         var httpAudit = new OperationsTestAudit();

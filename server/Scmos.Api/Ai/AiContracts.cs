@@ -30,7 +30,7 @@ public sealed record AiChatOutcome(int Status, AiChatResponse Response);
 public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,
     bool ConfigurationValid, bool LiveToolsReady, bool WriteToolsReady, IReadOnlyList<AiAgentStatus> Agents,
-    bool AuditReady = false);
+    bool AuditReady = false, OperationsControlView? OperationsControl = null);
 
 public static class AiRequestValidator
 {

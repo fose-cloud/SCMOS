@@ -170,6 +170,7 @@ builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
 builder.Logging.ClearProviders();
 builder.WebHost.UseUrls("http://127.0.0.1:0");
 builder.Services.AddAiFoundation(builder.Configuration);
+builder.Services.AddSingleton<IOperationsControl>(new TestOperationsControl(new(true, true, 0, false)));
 builder.Services.Configure<OpenAiOptions>(_ => { });
 builder.Services.AddDbContext<ScmosDbContext>();
 builder.Services.AddMemoryCache();
@@ -185,6 +186,23 @@ try
 {
     using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
     async Task<HttpResponseMessage> Post(string json) => await http.PostAsync("/api/ai/chat", new StringContent(json, Encoding.UTF8, "application/json"));
+    async Task<HttpResponseMessage> Switch(string json, bool header = true)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, "/api/ai/operations-control")
+        { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+        if (header) message.Headers.Add("X-SCMOS-AI-Control", "1");
+        return await http.SendAsync(message);
+    }
+    Check((int)(await Switch("{}")).StatusCode == 401, "control HTTP: anonymous refused");
+    users.User = op;
+    Check((int)(await Switch("{}")).StatusCode == 403, "control HTTP: operator refused before body parsing");
+    users.User = admin;
+    Check((int)(await Switch("{}", false)).StatusCode == 400, "control HTTP: custom header required");
+    foreach (var invalid in new[] { "{}", "null", "{\"enabled\":true}", "{\"revision\":0}", "{\"enabled\":false,\"revision\":-1}", "{\"enabled\":true,\"revision\":0,\"writeToolsEnabled\":true}" })
+        Check((int)(await Switch(invalid)).StatusCode == 400, "control HTTP: invalid or expanded switch refused");
+    Check((int)(await Switch(new string('x', 1025))).StatusCode == 413, "control HTTP: bounded body");
+    Check((int)(await Switch("{\"enabled\":true,\"revision\":0}")).StatusCode == 503, "control HTTP: unready provider/audit cannot enable");
+    users.User = null;
     Check((int)(await Post("{}")).StatusCode == 401, "HTTP chat requires authentication before parsing");
     Check((int)(await http.GetAsync("/api/ai/status")).StatusCode == 401, "HTTP status requires authentication");
     users.User = carrier;
@@ -213,6 +231,7 @@ try
 }
 finally { await app.StopAsync(); }
 await OperationsChecks.RunAsync(Check);
+await OperationsControlChecks.RunAsync(Check);
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));
 Console.WriteLine($"All {count} AI foundation/Operations/audit checks passed. No production data or live OpenAI calls.");
 

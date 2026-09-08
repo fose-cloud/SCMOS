@@ -6,9 +6,30 @@ import {
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
 import { status, today, brief, reply, run, audit } from "./fixtures/ai-control.mjs";
+import { allowedOperationsControlRequest } from "../app/scmos/aiControlRequest.ts";
 const copy = value => structuredClone(value);
 const rejects = (parser, value) => assert.throws(() => parser(value), /invalid_response/);
 const response = (body, code = 200) => new Response(JSON.stringify(body), { status: code });
+
+test("control CSRF guard handles reverse proxy Host and refuses cross-origin requests", () => {
+  const headers = { host: "scmos.example.invalid", origin: "https://scmos.example.invalid",
+    "x-forwarded-proto": "https", "x-scmos-ai-control": "1", "sec-fetch-site": "same-origin" };
+  const allowed = patch => allowedOperationsControlRequest(new Request("http://localhost:3000/api/ai/operations-control", { headers: { ...headers, ...patch } }));
+  assert.equal(allowed({}), true);
+  for (const patch of [{ origin: "https://evil.example" }, { origin: "null" }, { "sec-fetch-site": "cross-site" },
+    { "sec-fetch-site": "same-site" }, { "x-scmos-ai-control": "" }, { origin: "http://scmos.example.invalid" }])
+    assert.equal(allowed(patch), false);
+});
+
+test("Operations switch is strictly parsed and overrides stale ready flags", () => {
+  const operationsControl = { available: true, enabled: true, revision: 1, canManage: true,
+    canEnable: true, emergencyDisabled: false, blockReason: "" };
+  assert.equal(parseStatus({ ...status, operationsControl }).operationsControl.revision, 1);
+  for (const patch of [{ available: false }, { enabled: false }, { emergencyDisabled: true }])
+    assert.equal(availability({ ...status, operationsControl: { ...operationsControl, ...patch } }).ready, false);
+  for (const patch of [{ revision: -1 }, { revision: "1" }, { canManage: "true" }, { enabled: 1 }, { blockReason: null }])
+    rejects(parseStatus, { ...status, operationsControl: { ...operationsControl, ...patch } });
+});
 
 test("Control Tower accepts current dashboard/AI/audit contracts", () => {
   for (const [parser, fixture] of [[parseStatus, status], [parseToday, today], [parseBrief, brief], [parseReply, reply], [parseAuditRun, run], [parseAuditPage, audit]])

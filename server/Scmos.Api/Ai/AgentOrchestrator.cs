@@ -8,7 +8,7 @@ namespace Scmos.Api.Ai;
 /// <summary>Foundation runtime behind the existing gateway, not a second public authority.</summary>
 public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironment environment,
     IAiProvider provider, AgentRegistry agents, AiRunLimiter limiter, ILogger<AgentOrchestrator> log,
-    OperationsAgent? operations = null)
+    OperationsAgent? operations = null, IOperationsControl? control = null)
 {
     private readonly AiOptions _options = options.Value;
     private const string Instructions = "You are an SCMOS assistant. Approved SCMOS rules and source evidence are authoritative. "
@@ -26,6 +26,27 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
 
     public async Task<AiStatus> StatusAsync(AppUser user, CancellationToken token)
     {
+        if (control is not null)
+        {
+            var state = await control.ReadAsync(token);
+            var enabled = OperationsControlService.Effective(state);
+            var manage = OperationsControlService.CanManage(user);
+            var canEnable = false;
+            if (state.Available && !state.EmergencyDisabled && _options.Valid && !_options.MockMode
+                && provider.Configured && !provider.IsMock && operations?.Connected == true && (enabled || manage))
+                canEnable = await operations.CheckAuditReadyAsync(token) && operations.Ready;
+            var view = new OperationsControlView(state.Available, state.Enabled, state.Revision, manage,
+                canEnable, state.EmergencyDisabled, !state.Available ? "control_unavailable"
+                : state.EmergencyDisabled ? "emergency_disabled" : !canEnable ? "control_not_ready" : "");
+            var baseline = Status(user);
+            return baseline with
+            {
+                Enabled = baseline.Enabled || enabled,
+                ChatEnabled = baseline.ChatEnabled || enabled,
+                Agents = baseline.Agents.Select(a => a.Id == "operations-agent" ? a with { Enabled = enabled } : a).ToArray(),
+                OperationsControl = view,
+            };
+        }
         // Disabled/mock foundation never requires SQL, including before the migration is installed.
         if (_options.Enabled && _options.ChatEnabled && !_options.MockMode && operations is not null)
             await operations.CheckAuditReadyAsync(token);
@@ -43,13 +64,18 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         if (!AiPermissionPolicy.Authenticated(user)) return Reply(401, "unauthenticated", "Sign in is required.");
         if (!AiPermissionPolicy.InternalUser(user!)) return Reply(403, "forbidden", "AI is not available for this account scope.");
         if (!AiRequestValidator.Valid(request)) return Reply(400, "invalid_request", "Provide a message of 1–4000 characters and a valid page/agent.");
-        if (!_options.Enabled || !_options.ChatEnabled) return Reply(503, "disabled", "SCMOS AI chat is disabled. Core SCMOS remains available.");
+        var isOperations = agents.Resolve(request!)?.Id == "operations-agent";
+        var controlled = isOperations && control is not null;
+        if (isOperations && _options.OperationsEmergencyDisabled)
+            return Reply(503, "disabled", "Operations AI is stopped by the server.");
+        if (controlled ? !OperationsControlService.Effective(await control!.ReadAsync(token)) : !_options.Enabled || !_options.ChatEnabled)
+            return Reply(503, "disabled", "SCMOS AI chat is disabled. Core SCMOS remains available.");
         if (!_options.Valid || (_options.MockMode && !environment.IsDevelopment()))
             return Reply(503, "configuration_invalid", "AI configuration is unavailable; mock mode is development-only.");
         agent = agents.Resolve(request!);
         if (agent is null) return Reply(400, "unknown_agent", "This page or agent is not registered.");
         if (!AiPermissionPolicy.CanUse(user!, agent)) return Reply(403, "forbidden", "The requested data scope is not available to this account.");
-        if (!AgentRegistry.Enabled(agent, _options)) return Reply(503, "agent_disabled", "This specialist is disabled.");
+        if (!controlled && !AgentRegistry.Enabled(agent, _options)) return Reply(503, "agent_disabled", "This specialist is disabled.");
         if (!_options.MockMode)
         {
             if (agent.Id != "operations-agent" || operations is null || !operations.Connected)

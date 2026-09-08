@@ -1,9 +1,14 @@
 /** Phase E contracts. No credentials, persistent chat cache, business scoring or tool execution here. */
 export type AiAgent = { id: string; name: string; enabled: boolean; connected: boolean };
+export type OperationsControl = {
+  available: boolean; enabled: boolean; revision: number; canManage: boolean;
+  canEnable: boolean; emergencyDisabled: boolean; blockReason: string;
+};
 export type AiStatus = {
   enabled: boolean; chatEnabled: boolean; providerConfigured: boolean; mock: boolean;
   configurationValid: boolean; liveToolsReady: boolean; writeToolsReady: boolean; auditReady: boolean;
   agents: AiAgent[];
+  operationsControl?: OperationsControl | null;
 };
 export type Figure = { id: string; english: string; thai: string; value: number | null; base: number; unit: string; note: string };
 export type TodayBoard = { date: string; computedAt: string; volume: Figure[]; performance: Figure[]; attention: Figure[] };
@@ -48,7 +53,10 @@ function accept<T>(v: unknown, valid: boolean): T {
 export function parseStatus(v: unknown): AiStatus {
   return accept(v, obj(v) && bools(v, ["enabled", "chatEnabled", "providerConfigured", "mock", "configurationValid", "liveToolsReady", "writeToolsReady", "auditReady"])
     && Array.isArray(v.agents) && v.agents.length <= 8 && v.agents.every(a =>
-      obj(a) && strings(a, ["id", "name"]) && bools(a, ["enabled", "connected"])));
+      obj(a) && strings(a, ["id", "name"]) && bools(a, ["enabled", "connected"]))
+    && (v.operationsControl == null || obj(v.operationsControl)
+      && bools(v.operationsControl, ["available", "enabled", "canManage", "canEnable", "emergencyDisabled"])
+      && count(v.operationsControl.revision) && text(v.operationsControl.blockReason)));
 }
 const figure = (f: unknown) => obj(f) && strings(f, ["id", "english", "thai", "unit", "note"])
   && count(f.base) && (f.value === null || typeof f.value === "number" && Number.isFinite(f.value) && f.value >= 0);
@@ -104,6 +112,8 @@ export function askBody(message: string) {
 export function availability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
   const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });
   if (!status) return blocked("ยังไม่ทราบสถานะ AI", "รีเฟรชสถานะก่อนส่งคำถาม");
+  if (status.operationsControl && (!status.operationsControl.available || !status.operationsControl.enabled || status.operationsControl.emergencyDisabled))
+    return blocked("Operations AI ยังปิดอยู่", "Administrator ควบคุมสวิตช์ได้จากหน้านี้ · ไม่มีสิทธิ์เขียนข้อมูลงาน");
   if (!status.enabled || !status.chatEnabled) return blocked("SCMOS AI ยังปิดอยู่", "ดูสรุปจากระบบเดิมได้ตามปกติ การเปิด AI ต้องตั้งค่าที่ฝั่งเซิร์ฟเวอร์");
   if (!status.configurationValid) return blocked("การตั้งค่า AI ยังไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์", "red");
   const operations = status.agents.find(a => a.id === "operations-agent");
@@ -136,6 +146,10 @@ export class ControlError extends Error {
   constructor(code: string) { super(code); this.code = code; }
 }
 const ERRORS: Record<string, string> = {
+  control_unavailable: "ที่เก็บสวิตช์ยังไม่พร้อม ต้องติดตั้ง migration หรือกู้การเชื่อมต่อก่อน",
+  control_conflict: "มีผู้เปลี่ยนสถานะแล้ว กรุณาตรวจสถานะล่าสุดก่อนลองใหม่",
+  emergency_disabled: "เซิร์ฟเวอร์สั่งหยุดฉุกเฉินอยู่ จึงเปิดจากหน้านี้ไม่ได้",
+  control_not_ready: "Provider เครื่องมืออ่าน หรือ Audit ยังไม่พร้อม จึงยังเปิดไม่ได้",
   unauthenticated: "กรุณาเข้าสู่ระบบอีกครั้ง", forbidden: "บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลส่วนนี้",
   unavailable: "อ่านข้อมูลไม่สำเร็จ กรุณาลองใหม่", invalid_response: "ข้อมูลตอบกลับไม่ตรงรูปแบบ จึงไม่แสดงตัวเลข",
   disabled: "SCMOS AI ยังปิดอยู่", invalid_request: "กรอกคำถาม 1–4,000 ตัวอักษร",
