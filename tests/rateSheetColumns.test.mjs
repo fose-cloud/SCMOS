@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { SHEET_COLUMNS, SHEET_VEHICLES } from "../app/scmos/rateSheetColumns.ts";
+import { LANE_REQUIRED, SHEET_COLUMNS, SHEET_VEHICLES, missingForLane } from "../app/scmos/rateSheetColumns.ts";
 
 /** The vehicle codes the register actually prices, read out of the C#. */
 function registerCodes() {
@@ -76,4 +76,39 @@ test("dangerous goods is a surcharge on a row, not a row of its own", () => {
     assert.ok(SHEET_VEHICLES.includes(base),
       `the sheet prices "${code}" with no plain "${base}" for the tick to start from`);
   }
+});
+
+/*
+ * When a row typed into the grid becomes a lane.
+ *
+ * The sheet inserts the way My Job does — a blank row at the top, typed into
+ * directly — but a rate lane cannot be persisted blank the way a job can: the
+ * API refuses an inquiry with no customer and a lane with no route. So the row
+ * is held in the browser until it has all three, and this is the rule that
+ * decides when that is.
+ */
+test("a part-typed row names what it is still missing, in typing order", () => {
+  assert.deepEqual(missingForLane({}), ["ลูกค้า", "ต้นทาง", "ปลายทาง"]);
+  assert.deepEqual(missingForLane({ customer: "ALLNEX" }), ["ต้นทาง", "ปลายทาง"]);
+  assert.deepEqual(missingForLane({ customer: "ALLNEX", fromPlace: "LCB Port" }), ["ปลายทาง"]);
+});
+
+test("a row with all three is ready to be created", () => {
+  assert.deepEqual(
+    missingForLane({ customer: "ALLNEX", fromPlace: "LCB Port", toPlace: "Amata City" }), []);
+});
+
+test("whitespace is not a value, because the server trims before it checks", () => {
+  // Accepted here and refused there is the worst of both: the row would be sent
+  // and fail, with nothing on screen to say which field was at fault.
+  assert.deepEqual(
+    missingForLane({ customer: "  ", fromPlace: "LCB Port", toPlace: "Amata City" }), ["ลูกค้า"]);
+});
+
+test("the price columns are not among them", () => {
+  // A lane is created from a customer and a route. A price typed before the row
+  // exists has nowhere to go, which is why the screen refuses it with a reason
+  // rather than accepting it and dropping it.
+  assert.equal(LANE_REQUIRED.some((one) => one.field.startsWith("price")), false);
+  assert.equal(LANE_REQUIRED.length, 3);
 });

@@ -119,6 +119,35 @@ export type SheetRow = {
   prices: Record<string, number>;
 };
 
+/**
+ * The fields a lane cannot be created without, in the order they are typed.
+ *
+ * The API refuses an inquiry with no customer and a lane with no route, so a
+ * row typed straight into the grid is held in the browser until it has all
+ * three and created the moment it does. Here rather than in the screen because
+ * it is the API's rule, not the grid's, and because a rule that decides when a
+ * commercial record comes into existence should be checkable on its own.
+ */
+export const LANE_REQUIRED: { field: SheetField; label: string }[] = [
+  { field: "customer", label: "ลูกค้า" },
+  { field: "fromPlace", label: "ต้นทาง" },
+  { field: "toPlace", label: "ปลายทาง" },
+];
+
+/**
+ * Which of those a part-typed row is still missing.
+ *
+ * Empty means it can be created. Whitespace does not count as filled: the
+ * server trims before it checks, so a row holding " " would be accepted here
+ * and refused there, and the operator would watch it fail for no visible
+ * reason.
+ */
+export function missingForLane(row: Partial<Record<SheetField, unknown>>): string[] {
+  return LANE_REQUIRED
+    .filter((one) => String(row[one.field] ?? "").trim().length === 0)
+    .map((one) => one.label);
+}
+
 /** What a column reads out of a row. */
 export function readCell(row: SheetRow, column: SheetColumn): string | number | boolean {
   if (column.kind === "price") return row.prices[column.vehicle!] ?? "";

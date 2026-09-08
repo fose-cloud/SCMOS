@@ -9,7 +9,7 @@ import { chosenIn } from "../filterChoices";
 import { editHistoryShortcut } from "../editHistory";
 import { writeClipboardTable } from "../pasteBlock";
 import { NO_DATE, monthLabel, partsOf } from "../period";
-import { SHEET_COLUMNS, readCell, type SheetColumn, type SheetRow } from "../rateSheetColumns";
+import { SHEET_COLUMNS, missingForLane, readCell, type SheetColumn, type SheetRow } from "../rateSheetColumns";
 import { css } from "../theme";
 import { useGridRange } from "../useGridRange";
 import { cell, nowHM, type Cell } from "../util";
@@ -114,6 +114,22 @@ const PER = 50;
  */
 const LEAD = 1;
 
+/**
+ * The laneId a row not yet on the server carries.
+ *
+ * Negative so it can never collide with a real one, and so anything that
+ * reaches the API with it is obviously wrong rather than quietly editing lane
+ * zero.
+ */
+const DRAFT = -1;
+
+/** A blank sheet row, for typing into before it exists anywhere else. */
+const blankDraft = (): SheetRow => ({
+  laneId: DRAFT, inquiryId: 0, date: "", no: 0, requestor: "", customer: "",
+  fuelBand: "", fromPlace: "", toPlace: "", county: "", carriers: "",
+  fcl: true, lcl: false, domestic: false, remark: "", prices: {},
+});
+
 /** What one press may remove. The API refuses more; this is so the screen says so first. */
 const MAX_DELETE = 100;
 
@@ -160,7 +176,7 @@ export function RateSheet({ canEdit, onToast }: {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   /** Which panel is open above the grid, or none. */
-  const [panel, setPanel] = useState<"none" | "import" | "add" | "columns">("none");
+  const [panel, setPanel] = useState<"none" | "import" | "columns">("none");
 
   /*
    * Which columns the copy button takes.
@@ -178,6 +194,17 @@ export function RateSheet({ canEdit, onToast }: {
    */
   const [copyCols, setCopyCols] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing | null>(null);
+  /*
+   * A row being typed into that the server has not got yet.
+   *
+   * My Job inserts straight into its grid: a blank row appears at the top,
+   * pinned there, with the first cell already open. This does the same, and the
+   * only reason it is not the same code is that My Job holds its whole register
+   * in the browser and can persist a blank row, while a rate lane is refused
+   * without a customer, an origin and a destination. So the row lives here
+   * until it has those three, and is created the moment it does.
+   */
+  const [draft, setDraft] = useState<SheetRow | null>(null);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   /**
@@ -205,7 +232,11 @@ export function RateSheet({ canEdit, onToast }: {
   // fresh [] on every render when there is no page, which makes anything
   // memoised against it recompute every time — including the copy's column
   // list, which walks every row of every price column.
+  // The draft sits above the page, the way My Job's new row sits above the
+  // register — it is what somebody is working on, and a row that sorted itself
+  // into 3,005 others the moment it was created would be lost.
   const rows = useMemo(() => page?.rows ?? [], [page]);
+  const shown = useMemo(() => (draft ? [draft, ...rows] : rows), [draft, rows]);
 
   /*
    * The rectangle, and everything a spreadsheet does with one.
@@ -215,7 +246,11 @@ export function RateSheet({ canEdit, onToast }: {
    * register is the only copy and the browser holds none of it.
    */
   const grid = useGridRange<SheetRow, string>({
-    rowsOf: () => rows,
+    // The rows as drawn, draft included. The cells are rendered from `shown`
+    // and addressed by their position in it, so a range reading `rows` instead
+    // would move every index down by one the moment a draft existed — a paste
+    // would land a row above where it was dropped.
+    rowsOf: () => shown,
     // The tick box leads with no field of its own, which is what keeps a
     // dragged rectangle, a paste and a Delete off it.
     fieldsOf: () => [undefined, ...SHEET_COLUMNS.map((column) => (canEdit ? fieldOf(column) : undefined))],
@@ -377,6 +412,21 @@ export function RateSheet({ canEdit, onToast }: {
     edits: { row: SheetRow; field: string; value: string }[],
     how: "paste" | "clear",
   ) {
+    /*
+     * A block never reaches the unsaved row.
+     *
+     * The endpoint writes cells by lane id and the draft has none, so an edit
+     * carrying it would either be refused by the server or, worse, addressed to
+     * whatever lane -1 resolved to. It is dropped here and said out loud, so a
+     * paste that covered it is not silently one row short.
+     */
+    const inDraft = edits.filter((one) => one.row.laneId === DRAFT).length;
+    edits = edits.filter((one) => one.row.laneId !== DRAFT);
+    if (inDraft > 0) {
+      onToast(`แถวใหม่ยังไม่ได้บันทึก — ข้าม ${inDraft} ช่องในแถวนั้น กรอกลูกค้า ต้นทาง ปลายทางก่อน`);
+    }
+    if (edits.length === 0) return;
+
     // Filed before the write, because afterwards the page is re-read and the
     // old values are gone from the browser as well as from the register.
     remember(how === "clear" ? "ล้างช่อง" : "วางข้อมูล", edits.map((one) => ({
@@ -414,7 +464,69 @@ export function RateSheet({ canEdit, onToast }: {
    * not a number, a date that is not a date, an account that may not change a
    * rate — so a refusal is shown as it comes back and the old value stays.
    */
+  /**
+   * A cell of the draft row, which is not saved one cell at a time.
+   *
+   * It is held here until it has the three fields the server refuses a lane
+   * without, and created in one request the moment it does — so the operator
+   * types across the row exactly as they would in My Job, and the lane appears
+   * when it is a lane rather than after a form is filled and a button pressed.
+   *
+   * Prices are not sent on creation: the endpoint takes a customer and a route,
+   * and anything typed into a price column before the row exists would be
+   * silently dropped. So they are refused with a reason rather than accepted
+   * and lost.
+   */
+  async function saveDraft(column: SheetColumn, value: string) {
+    if (column.kind === "price") {
+      onToast("กรอกลูกค้า ต้นทาง และปลายทางก่อน แล้วจึงใส่ราคาได้");
+      return;
+    }
+    const next: SheetRow = column.kind === "tick"
+      ? { ...draft!, [column.field!]: !readCell(draft!, column) }
+      : { ...draft!, [column.field!]: value };
+    setDraft(next);
+
+    if (missingForLane(next).length > 0) return;
+
+    setSaving(true);
+    try {
+      const today = new Date();
+      const dd = String(today.getDate()).padStart(2, "0");
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const response = await apiFetch("/api/rate-inquiries", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          inquiredOn: `${dd}/${mm}/${today.getFullYear()}`,
+          customer: String(next.customer).trim(),
+          lanes: [{
+            fromPlace: String(next.fromPlace).trim(),
+            toPlace: String(next.toPlace).trim(),
+            county: String(next.county).trim(),
+            carriers: String(next.carriers).trim(),
+            remark: String(next.remark).trim(),
+            fcl: next.fcl, lcl: next.lcl, domestic: next.domestic,
+          }],
+        }),
+      });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      if (!response.ok) {
+        // The row stays on screen with what was typed in it. Clearing it here
+        // would throw the work away over a refusal the operator can fix.
+        onToast(reply.error ?? `เพิ่มแถวไม่สำเร็จ (${response.status})`);
+        return;
+      }
+      setDraft(null);
+      setEditing(null);
+      onToast(reply.message ?? "เพิ่มแถวแล้ว — ใส่ราคาได้เลย");
+      setAt(1);
+      await load();
+    } finally { setSaving(false); }
+  }
+
   async function save(row: SheetRow, column: SheetColumn, value: string) {
+    if (row.laneId === DRAFT) { await saveDraft(column, value); return; }
     const field = column.kind === "price" ? `price:${column.vehicle}` : column.field!;
     const before = readCell(row, column);
     if (value.trim() === String(before).trim()) return;
@@ -742,13 +854,27 @@ export function RateSheet({ canEdit, onToast }: {
             disabled: saving, style: "", go: () => void redo() }]
         : []),
       {
-        label: panel === "add" ? "ปิดการเพิ่มแถว" : "+ แทรกแถว",
+        // Inline, the way My Job inserts: the row appears at the top of the
+        // grid with its first cell already open, instead of a panel above the
+        // grid that has to be filled and submitted before anything appears.
+        label: draft ? "ยกเลิกแถวใหม่" : "+ แทรกแถว",
         title: canEdit
-          ? "เพิ่มเส้นทางใหม่เข้าตาราง"
+          ? draft
+            ? "ทิ้งแถวที่ยังไม่ได้บันทึก"
+            : "แทรกแถวเปล่าไว้บนสุด แล้วพิมพ์ในตารางได้เลย"
           : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง",
-        disabled: !canEdit,
+        disabled: !canEdit || saving,
         style: "background:#0A2240",
-        go: () => setPanel((was) => (was === "add" ? "none" : "add")),
+        go: () => {
+          if (draft) { setDraft(null); setEditing(null); onToast("ทิ้งแถวใหม่แล้ว"); return; }
+          setPanel("none");
+          setDraft(blankDraft());
+          // Straight into the first thing that has to be filled, so the row is
+          // typed into rather than looked at.
+          const at = SHEET_COLUMNS.findIndex((one) => one.field === "customer");
+          setEditing({ laneId: DRAFT, column: at, value: "" });
+          onToast("แทรกแถวแล้ว — กรอกลูกค้า ต้นทาง ปลายทาง แถวจะบันทึกเองเมื่อครบ");
+        },
       },
       {
         label: panel === "import" ? "ปิดการนำเข้า" : "Import from Excel",
@@ -829,14 +955,7 @@ export function RateSheet({ canEdit, onToast }: {
             rows={rows}
             onChange={setCopyCols}
           />
-        ) : (
-          <AddLane onToast={onToast} onDone={() => {
-            setPanel("none");
-            setAt(1);
-            void load();
-            void loadChoices();
-          }} />
-        )}
+        ) : null}
       </div>
         )}
       </>
@@ -861,13 +980,15 @@ export function RateSheet({ canEdit, onToast }: {
       })),
     ],
     noSelect: grid.dragSelecting,
-    rows: page.rows.map((row, r) => ({
+    rows: shown.map((row, r) => ({
       key: String(row.laneId),
       // A ticked row is coloured and edged, as it is in My Job — the bar acts
       // on rows, so which rows it will act on has to be visible.
-      style: picked.has(row.laneId)
-        ? "background:#FFF7DE;border-left:3px solid #D89614"
-        : "border-left:3px solid transparent",
+      style: row.laneId === DRAFT
+        ? "background:#EDF5FF;border-left:3px solid #2E7DD1"
+        : picked.has(row.laneId)
+          ? "background:#FFF7DE;border-left:3px solid #D89614"
+          : "border-left:3px solid transparent",
       cells: [
         pickCell(row),
         ...SHEET_COLUMNS.map((column, index) => ({
@@ -890,7 +1011,9 @@ export function RateSheet({ canEdit, onToast }: {
     const c = cell("", {});
     c.kind = "check";
     c.checked = picked.has(row.laneId);
-    c.disabled = !canEdit || busy;
+    // A row the server has not got cannot be selected for deletion — there is
+    // nothing to delete, and the tick would sit beside a count that is wrong.
+    c.disabled = !canEdit || busy || row.laneId === DRAFT;
     c.td = "padding:4px 6px 4px 10px;border-bottom:1px solid #EDF1F5;text-align:center;vertical-align:middle;width:34px;";
     c.title = canEdit ? "เลือกแถวนี้" : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง";
     c.onCheck = () => togglePick(row.laneId);
@@ -974,98 +1097,6 @@ export function RateSheet({ canEdit, onToast }: {
         onPage={(next) => { setEditing(null); setAt(next); }}
         onTool={(label) => { if (label === "คัดลอกพร้อมหัวตาราง") void copyWithHeads(); }} />
     </div>
-  );
-}
-
-/**
- * A new row, asking for the four things the register will not do without.
- *
- * A blank row cannot be written: an inquiry needs a customer to be for and a
- * lane needs two ends and a load type, and the API refuses anything less
- * — rightly, because a rate against nowhere is a rate nobody can ever use.
- * Everything else on the row is typed into the grid afterwards, which is the
- * point of the grid.
- *
- * The date and the requestor are not asked for. Today, and whoever is signed
- * in: those are facts about the act of adding the row, not decisions.
- */
-function AddLane({ onToast, onDone }: { onToast: (m: string) => void; onDone: () => void }) {
-  const [customer, setCustomer] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [load, setLoad] = useState<"fcl" | "lcl">("fcl");
-  const [sending, setSending] = useState(false);
-
-  const ready = customer.trim() && from.trim() && to.trim();
-
-  async function send() {
-    if (!ready || sending) return;
-    setSending(true);
-    try {
-      const today = new Date();
-      const dd = String(today.getDate()).padStart(2, "0");
-      const mm = String(today.getMonth() + 1).padStart(2, "0");
-      const response = await apiFetch("/api/rate-inquiries", {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({
-          inquiredOn: `${dd}/${mm}/${today.getFullYear()}`,
-          customer: customer.trim(),
-          lanes: [{
-            fromPlace: from.trim(), toPlace: to.trim(),
-            fcl: load === "fcl", lcl: load === "lcl",
-          }],
-        }),
-      });
-      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
-      if (!response.ok) { onToast(reply.error ?? `เพิ่มแถวไม่สำเร็จ (${response.status})`); return; }
-      onToast(reply.message ?? "เพิ่มแถวแล้ว");
-      setCustomer(""); setFrom(""); setTo("");
-      onDone();
-    } finally { setSending(false); }
-  }
-
-  return (
-    <div style={css("display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap")}>
-      <Box label="ลูกค้า" value={customer} onChange={setCustomer} width="220px" onEnter={send} />
-      <Box label="ต้นทาง" value={from} onChange={setFrom} width="180px" onEnter={send} />
-      <Box label="ปลายทาง" value={to} onChange={setTo} width="180px" onEnter={send} />
-      <label style={css("display:flex;flex-direction:column;gap:3px")}>
-        <span style={css("font-size:11px;color:#7B8CA0")}>ประเภทงาน</span>
-        <select value={load} onChange={(event) => setLoad(event.target.value as "fcl" | "lcl")}
-          style={css(ADD_CONTROL + ";cursor:pointer")}>
-          <option value="fcl">FCL</option>
-          <option value="lcl">LCL</option>
-        </select>
-      </label>
-      <button onClick={() => void send()} disabled={!ready || sending}
-        style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:"
-          + (ready && !sending ? "#0A2240" : "#8FA3B8")
-          + ";color:#fff;border-radius:4px;font-size:12px;font-weight:600;font-family:inherit;cursor:"
-          + (ready && !sending ? "pointer" : "default"))}>
-        {sending ? "กำลังเพิ่ม…" : "เพิ่มแถว"}
-      </button>
-      <span style={css("font-size:11px;color:#7B8CA0;flex:1;min-width:200px")}>
-        วันที่และผู้ขอถูกเติมให้เอง — วันนี้ และบัญชีที่เข้าใช้งานอยู่ · ราคาและคอลัมน์อื่นพิมพ์ในตารางได้เลย
-      </span>
-    </div>
-  );
-}
-
-const ADD_CONTROL = "height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;"
-  + "font-size:12.5px;font-family:inherit;background:#fff;width:100%";
-
-function Box({ label, value, onChange, width, onEnter }: {
-  label: string; value: string; onChange: (v: string) => void;
-  width: string; onEnter: () => void;
-}) {
-  return (
-    <label style={css(`display:flex;flex-direction:column;gap:3px;min-width:${width}`)}>
-      <span style={css("font-size:11px;color:#7B8CA0")}>{label}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => { if (event.key === "Enter") onEnter(); }}
-        style={css(ADD_CONTROL)} />
-    </label>
   );
 }
 
