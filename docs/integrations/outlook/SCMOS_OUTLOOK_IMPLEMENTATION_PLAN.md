@@ -177,7 +177,7 @@ The spec's own sequence, adjusted for the architecture:
 8. The worker
 9. Persistence and deduplication
 10. Deterministic entity extraction — job code, container, booking, B/L
-11. Matching, with the spec's confidence thresholds
+11. Matching, with the spec's confidence thresholds ✅ (`EmailMatching`)
 12. Inbox UI, then the detail page
 13. Attachments to Blob
 
@@ -197,6 +197,25 @@ This matches how SCMOS already treats uncertainty — the KPI engine refuses to
 score below a minimum sample rather than guessing, and the report writer's
 output is a draft nobody has agreed to. An email silently linked to the wrong
 job is worse than one left unmatched, because the second is visible.
+
+**Built 2026-09-09** as `Rules/EmailMatching.cs`, checked by `--check-email`.
+What each kind of identifier is worth was measured on the register rather than
+chosen: of 1,522 distinct container numbers 1,383 sit on exactly one job (91%),
+against 802 of 1,038 job codes (77%) and 299 of 448 bookings (67%). A container
+is the sharpest identifier the register holds — sharper than our own job number,
+because a job number is a booking and a booking can be several containers.
+
+Two rules do the work. A value that reaches several jobs has its weight divided
+between them, because the evidence really is split. Independent identifiers
+agreeing on one job combine by multiplying what is left to doubt, so two signals
+each leaving 4% leave 0.16% together — which is where auto-linking comes from,
+and why a single soft signal never gets there.
+
+One consequence worth deciding rather than discovering: **a value the register
+holds against two jobs offers neither**, because 0.96 split two ways is 0.48 and
+the floor is 0.70. The message stays in the queue with the identifiers it named,
+for a person to resolve. Lowering the floor would surface those candidates and
+is a change to the specification's numbers, so it is left as a question.
 
 ---
 

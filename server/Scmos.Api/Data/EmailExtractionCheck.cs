@@ -210,6 +210,168 @@ public static class EmailExtractionCheck
         }
         Console.WriteLine();
 
+
+        /* ------------------------------------------------ matching a job */
+
+        Console.WriteLine("Which job a message points at, and how sure.");
+        Console.WriteLine();
+
+        static EmailMatching.Evidence Ev(string kind, string value, bool inSubject, bool wellFormed, params string[] keys) =>
+            new(new EmailExtraction.Found(kind, value, inSubject, false, wellFormed), keys);
+
+        var matchCases = new (string Why, EmailMatching.Evidence[] Evidence, string Key, string Want)[]
+        {
+            ("a container in the subject naming one job is linked",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1")],
+                "J1", EmailMatching.Decision.Link),
+
+            ("the same container from the body alone is only offered",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", false, true, "J1")],
+                "J1", EmailMatching.Decision.Suggest),
+
+            ("a container whose check digit fails is offered, not linked",
+                [Ev(EmailExtraction.Kind.Container, "CCAU2296185", true, false, "J1")],
+                "J1", EmailMatching.Decision.Suggest),
+
+            ("our own job number naming one job is linked",
+                [Ev(EmailExtraction.Kind.JobCode, "260600800773", true, true, "J1")],
+                "J1", EmailMatching.Decision.Link),
+
+            ("a booking naming one job is offered — a booking is several containers",
+                [Ev(EmailExtraction.Kind.Booking, "BKKGG8920900", true, true, "J1")],
+                "J1", EmailMatching.Decision.Suggest),
+
+            ("a bill of lading alone is offered at most",
+                [Ev(EmailExtraction.Kind.BillOfLading, "A15GA02185", true, true, "J1")],
+                "J1", EmailMatching.Decision.Suggest),
+
+            /* ---- the two that must not become links ---- */
+            ("a booking covering three jobs is not linked to any of them",
+                [Ev(EmailExtraction.Kind.Booking, "BKKGG8920900", true, true, "J1", "J2", "J3")],
+                "J1", EmailMatching.Decision.Unmatched),
+
+            // 0.96 split two ways is 0.48, under the specification's 0.70 floor.
+            // So a value the register holds against two jobs offers neither —
+            // the message stays in the queue with what it named on it, and a
+            // person chooses. Pinned because it is a real consequence of the
+            // thresholds and somebody should decide it deliberately, not
+            // discover it.
+            ("a container the register holds against two jobs offers neither",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1", "J2")],
+                "J1", EmailMatching.Decision.Unmatched),
+
+            /* ---- corroboration ---- */
+            ("a container and a job number agreeing are linked",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1"),
+                 Ev(EmailExtraction.Kind.JobCode, "260600800773", true, true, "J1")],
+                "J1", EmailMatching.Decision.Link),
+
+            // A booking and a bill of lading, both quoted in a thread, reach
+            // 0.9447 together — corroboration lifts them a long way, and still
+            // not over the bar. That is the intended shape: two soft signals
+            // from the body do not add up to certainty.
+            ("two weak signals from the body agreeing are offered, not linked",
+                [Ev(EmailExtraction.Kind.Booking, "BKKGG8920900", false, true, "J1"),
+                 Ev(EmailExtraction.Kind.BillOfLading, "A15GA02185", false, true, "J1")],
+                "J1", EmailMatching.Decision.Suggest),
+        };
+
+        foreach (var (why, ev, key, want) in matchCases)
+        {
+            var got = EmailMatching.Match(ev).FirstOrDefault(one => one.JobKey == key);
+            var decision = got?.Decision ?? EmailMatching.Decision.Unmatched;
+            var ok = decision == want;
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          want {want}, got {decision} at {got?.Confidence.ToString() ?? "no match"}");
+        }
+        Console.WriteLine();
+
+        /* -------------------------------------- the arithmetic, exactly */
+
+        Console.WriteLine("The numbers behind those decisions.");
+        Console.WriteLine();
+
+        var pairs = new (string Why, EmailMatching.Evidence[] Evidence, double Want)[]
+        {
+            ("one well-formed container in the subject is 0.96",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1")], 0.96),
+            ("from the body it is 0.912",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", false, true, "J1")], 0.912),
+            ("split across two jobs it is 0.48 each",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1", "J2")], 0.48),
+            // 1 - (0.04 x 0.04). Doubt multiplies; weights do not add.
+            ("a container and a job number together leave 0.16% doubt",
+                [Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1"),
+                 Ev(EmailExtraction.Kind.JobCode, "260600800773", true, true, "J1")], 0.9984),
+        };
+
+        foreach (var (why, ev, want) in pairs)
+        {
+            var got = EmailMatching.Match(ev).First(one => one.JobKey == "J1").Confidence;
+            var ok = Math.Abs(got - want) < 0.0001;
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          want {want}, got {got}");
+        }
+        Console.WriteLine();
+
+        /* ------------------------------------------- what it refuses to do */
+
+        Console.WriteLine("Where it refuses to choose.");
+        Console.WriteLine();
+
+        // Two jobs each named by their own strong identifier. Both clear the
+        // bar, and picking the higher would be reading a difference the
+        // arithmetic never meant to carry.
+        var twoWinners = EmailMatching.Match([
+            Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1"),
+            Ev(EmailExtraction.Kind.JobCode, "260600800773", true, true, "J2"),
+        ]);
+        var bothLinked = twoWinners.Count(one => one.Decision == EmailMatching.Decision.Link) == 2;
+        if (!bothLinked) failed++;
+        Console.WriteLine($"  {(bothLinked ? "ok  " : "FAIL")}  two jobs can each be confident on their own evidence");
+
+        var refused = EmailMatching.OnlyLink(twoWinners) is null;
+        if (!refused) failed++;
+        Console.WriteLine($"  {(refused ? "ok  " : "FAIL")}  but nothing is linked automatically when two qualify");
+
+        var single = EmailMatching.OnlyLink(EmailMatching.Match(
+            [Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true, "J1")]));
+        var acted = single?.JobKey == "J1";
+        if (!acted) failed++;
+        Console.WriteLine($"  {(acted ? "ok  " : "FAIL")}  one clear winner is acted on");
+
+        var unknown = EmailMatching.Match([Ev(EmailExtraction.Kind.Container, "TEMU0404097", true, true)]);
+        if (unknown.Count != 0) failed++;
+        Console.WriteLine($"  {(unknown.Count == 0 ? "ok  " : "FAIL")}  a value the register does not know yields no match at all");
+
+        var nothing = EmailMatching.Match([]);
+        if (nothing.Count != 0) failed++;
+        Console.WriteLine($"  {(nothing.Count == 0 ? "ok  " : "FAIL")}  and neither does an email naming nothing");
+        Console.WriteLine();
+
+        /* ------------------------------------------ the thresholds are one */
+
+        Console.WriteLine("The rule and the column that stores it read the same thresholds.");
+        Console.WriteLine();
+        var atLink = EmailMatching.DecisionFor(MailLink.AutoLink) == EmailMatching.Decision.Link;
+        if (!atLink) failed++;
+        Console.WriteLine($"  {(atLink ? "ok  " : "FAIL")}  exactly {MailLink.AutoLink} links");
+
+        var justUnder = EmailMatching.DecisionFor(MailLink.AutoLink - 0.0001) == EmailMatching.Decision.Suggest;
+        if (!justUnder) failed++;
+        Console.WriteLine($"  {(justUnder ? "ok  " : "FAIL")}  a hair under it only suggests, unrounded");
+
+        var atSuggest = EmailMatching.DecisionFor(MailLink.Suggest) == EmailMatching.Decision.Suggest;
+        if (!atSuggest) failed++;
+        Console.WriteLine($"  {(atSuggest ? "ok  " : "FAIL")}  exactly {MailLink.Suggest} suggests");
+
+        var under = EmailMatching.DecisionFor(MailLink.Suggest - 0.0001) == EmailMatching.Decision.Unmatched;
+        if (!under) failed++;
+        Console.WriteLine($"  {(under ? "ok  " : "FAIL")}  and below it nothing is offered");
+        Console.WriteLine();
+
         Console.WriteLine(failed == 0
             ? "All mail extraction checks passed."
             : $"{failed} mail extraction check(s) failed.");
