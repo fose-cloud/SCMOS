@@ -107,7 +107,7 @@ if (args.Contains("--local-db"))
         var storedPrices = await setup.RateInquiryPrices.AsNoTracking().Where(one => laneIds.Contains(one.LaneId)).ToListAsync();
         Check(storedPrices.Single(one => one.LaneId == routeLanes[0].Id && one.Vehicle == "4W").Price == 2697 &&
             storedPrices.Single(one => one.LaneId == routeLanes[1].Id && one.Vehicle == "4W").Price == 3410, "each route price uses its own distance");
-        var sheetPage = await new RateInquiryService(setup).SheetAsync(new("", "", "", "", "", "", "", "", 1, 50), CancellationToken.None);
+        var sheetPage = await new RateInquiryService(setup).SheetAsync(new(Page: 1, Per: 50), CancellationToken.None);
         var displayed = sheetPage.Rows.Where(one => one.InquiryId == multiple.Receipt!.Id).ToList();
         Check(displayed.Count == 2 && displayed.Select(one => one.No).Distinct().Count() == 1 && displayed.Select(one => one.Date).Distinct().Count() == 1, "Rate Sheet reads both rows with shared DATE and NO");
         var badSet = routeSet with { RequestId = Guid.NewGuid().ToString(), Routes = [routeSet.Routes![0], routeSet.Routes[1] with { Km = 0 }] };
