@@ -132,11 +132,17 @@ export function planPaste<TField>(
 /**
  * The type a copied table is set in.
  *
- * <p>Written out rather than imported, because this file is checked by the node
- * test runner and a value import of a sibling would have to carry a `.ts`
- * extension the compiler refuses. It is not a second definition: `tableFont.ts`
- * holds the one the screen uses, and a test asserts the two strings are equal —
- * so the pair cannot drift without a failure that names them.</p>
+ * <p>Angsana New at 18 point, because a table copied out of here is pasted into
+ * Word or Excel and that is the face and size the department's documents are
+ * written in. The clipboard's HTML used to say Segoe UI at 13px, so every
+ * pasted table had to be selected and restyled by hand.</p>
+ *
+ * <p><b>The screen is not this.</b> The grid stays in its own face at its own
+ * size — a table on a screen and a table in a letter are not the same object,
+ * and this changes only what leaves.</p>
+ *
+ * <p>Points, not pixels: Word and Excel read a point size and ignore a pixel
+ * one, and 18 has to mean 18 in the document somebody pastes into.</p>
  */
 export const COPY_FONT_CSS = "font-family:'Angsana New','AngsanaUPC','Cordia New',serif;font-size:18pt";
 
