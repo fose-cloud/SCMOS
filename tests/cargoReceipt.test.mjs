@@ -89,26 +89,51 @@ test("what the register does not know is left blank, not invented", () => {
 
 test("PO NO and PRODUCT NAME are filled from the Domestic grid", () => {
   /*
-   * PO NO is the SAP order, at the department's direction. Ampacet's real copy
-   * carries 2100004162 under that heading, which is the shape of a SAP order.
+   * PO NO is the D-code — the grid's JOB NO. column — at the department's
+   * direction, and their second word on it: it was the SAP order before.
+   * AAT's and UNIC's real copies carry a D-code under this heading.
    *
    * The fixture above carries no product, which is why this needs its own job:
    * asserting "blank" against a job with nothing on it proves nothing, which is
    * what the test this replaced had quietly become.
    */
-  const one = job({ product: "R960 W38 EX55 25KG" });
-  assert.equal(receiptItem(one, "PO NO"), "8505076096");
+  const one = job({ dCode: "D15440886", product: "R960 W38 EX55 25KG" });
+  assert.equal(receiptItem(one, "PO NO"), "D15440886");
   assert.equal(receiptItem(one, "PRODUCT NAME"), "R960 W38 EX55 25KG");
   assert.equal(receiptItem(one, "PRODUCT"), "R960 W38 EX55 25KG", "PRODUCT alone is the same column");
 });
 
-test("the D-code column still holds the D-code, beside PO NO", () => {
-  // MERIT's receipt carries both. They are two different references and must
-  // not collapse into one value under two headings.
+test("PO NO is the JOB NO. column, not the SID NUMBER one", () => {
+  // On the account's summary sheet the D-codes sit under "JOB NO." and the LSTH
+  // job numbers under "SID NUMBER". Reading the caption rather than the field
+  // would put the wrong one of the pair on a signed document.
+  const one = job({ dCode: "D15440886", jobCode: "LSTH_J_2609001" });
+  assert.equal(receiptItem(one, "PO NO"), "D15440886");
+  assert.notEqual(receiptItem(one, "PO NO"), "LSTH_J_2609001");
+});
+
+test("PO NO no longer carries the SAP order", () => {
+  // It did until the department said otherwise. Asserted rather than assumed,
+  // because this is the second time the source has changed and a stale mapping
+  // prints a wrong number onto a document somebody signs.
+  const one = job({ dCode: "D15440886", sapOrder: "8505076096" });
+  assert.notEqual(receiptItem(one, "PO NO"), "8505076096");
+});
+
+test("MERIT's form shows the same D-code under both of its headings", () => {
+  /*
+   * Written down rather than hidden. MERIT's copy is the one shape that carries
+   * a PO NO column *and* a Dcode column, and its real PO NO is POL2607001 — a
+   * purchase order the register does not hold at all. With PO NO now reading
+   * the D-code, that form repeats one value under two headings.
+   *
+   * The fix, if it matters, is to store the source per customer beside the
+   * columns already stored per customer — not to change everybody's mapping a
+   * third time.
+   */
   const one = job({ dCode: "D10092680" });
   assert.equal(receiptItem(one, "Dcode"), "D10092680");
-  assert.equal(receiptItem(one, "PO NO"), "8505076096");
-  assert.notEqual(receiptItem(one, "Dcode"), receiptItem(one, "PO NO"));
+  assert.equal(receiptItem(one, "PO NO"), "D10092680");
 });
 
 test("B/L stays empty, because a lorry has no bill of lading", () => {
@@ -133,12 +158,14 @@ test("a vessel and a container are import lines and stay empty on a lorry", () =
 
 test("the delivery note goes where the form asks for an invoice number", () => {
   // It is what the consignee's gate checks against. The SAP order used to sit
-  // under B/L beside it; it goes to the item table's PO NO now, and B/L is
-  // blank on all seven signed copies because it is an import line.
+  // under B/L beside it, and B/L is blank on all seven signed copies because it
+  // is an import line. The SAP order is on no part of this document now — PO NO
+  // reads the D-code — which is asserted rather than left implied.
   const head = receiptHead(job({ deliverNo: "6317309804", sapOrder: "8505076096" }));
   assert.equal(head.invoiceNo, "6317309804");
   assert.equal(head.blNo, "");
-  assert.equal(receiptItem(job({ sapOrder: "8505076096" }), "PO NO"), "8505076096");
+  assert.equal(receiptItem(job({ sapOrder: "8505076096" }), "PO NO"), "",
+    "a job with no D-code leaves PO NO empty rather than falling back to the SAP order");
 });
 
 test("the vehicle line is composed onto the form from the job's truck counts", () => {

@@ -227,21 +227,26 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
 export function receiptItem(job: ReceiptJob, column: string): string {
   const head = column.replace(/\s+/g, " ").trim().toUpperCase();
   /*
-   * PO NO is the SAP order, at the department's direction.
+   * PO NO is the D-code — the Domestic grid's JOB NO. column.
    *
-   * The seven copies do not agree on it, which is worth writing down. Ampacet's
-   * carries 2100004162 — a SAP order, which is what this now fills. AAT's and
-   * UNIC's carry a D-code under the same heading. MERIT's carries POL2607001,
-   * a purchase order the register does not hold at all, with the D-code beside
-   * it in its own column.
+   * At the department's direction, and their second word on it: it was the SAP
+   * order before this. Both are defensible from the seven signed copies, which
+   * do not agree with each other. AAT's and UNIC's carry a D-code under this
+   * heading; Ampacet's carries 2100004162, a SAP order; MERIT's carries
+   * POL2607001, a purchase order the register does not hold at all, with the
+   * D-code beside it in a column of its own.
    *
-   * So this is right for Ampacet, wrong for AAT and UNIC, and unavailable for
-   * MERIT. It is filled anyway because a receipt is checked and signed by a
-   * person before it leaves, and a wrong number they can see beats an empty box
-   * that tells them nothing. If the other customers matter, the fix is to store
-   * the source per customer beside the columns already stored per customer.
+   * So two of the seven are now right where one was, and the department reads
+   * these documents daily. Note which field this is: on their summary sheet the
+   * D-codes sit under "JOB NO." and the LSTH job numbers under "SID NUMBER", so
+   * the column they asked for is `dCode` and not `jobCode` — see the note on
+   * ReceiptJob.
+   *
+   * If the remaining customers matter, the fix is to store the source per
+   * customer beside the columns already stored per customer, rather than to
+   * change everybody's again.
    */
-  if (/^PO\s*NO/.test(head)) return text(job.sapOrder);
+  if (/^PO\s*NO/.test(head)) return text(job.dCode);
   if (/^D-?CODE$/.test(head)) return text(job.dCode);
   if (/^DELIVERY\s*NO/.test(head)) return text(job.deliverNo);
   if (/^PRODUCT/.test(head)) return text(job.product);
