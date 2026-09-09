@@ -54,12 +54,30 @@ export const NOTE = "หมายเหตุ :\n"
   + "ข้อ 1.1.4.2.1 : คือเราไม่ใช่ผู้ขนส่งสินค้าตามข้อกำหนด ADR และเอกสารชุดนี้ไม่สามารถนำไปใช้เป็นเอกสารการขนส่งตามข้อกำหนดของ ADR";
 
 /**
+ * Which of the three lines is ours.
+ *
+ * Named rather than found by position, so that adding a fourth signatory or
+ * reordering these cannot silently move the officer's name onto the driver's
+ * line.
+ */
+export const OFFICER_SIGNATURE = "LESCHACO OFFICER";
+
+/**
  * Who signs, left to right.
  *
- * The lines stay blank. One of the seven copies has the officer's name typed
- * in — it was that officer signing that delivery — and printing a name onto
- * every blank form afterwards would put somebody's signature under work they
- * never saw.
+ * <b>No name is written here, and the check enforces that.</b> One of the seven
+ * copies has an officer's name typed in; carrying that name into this list
+ * would print one person under every delivery, including the ones they never
+ * saw.
+ *
+ * The officer's bracket is filled at render time from the job's own owner —
+ * see <c>ReceiptHead.officer</c> — so the name on a receipt is the name of
+ * whoever the register says the job belongs to, and a blank job prints a blank
+ * bracket. The other two lines stay empty: the driver and the customer sign for
+ * themselves, and the register does not know who will be standing there.
+ *
+ * The bracket is the <i>printed</i> name, under a dotted line that is still
+ * signed by hand. Naming who is expected to sign is not the same as signing.
  */
 export const SIGNATURES: [string, string][] = [
   ["ลายมือชื่อของพนักงานเลสชาโก้", "LESCHACO OFFICER"],

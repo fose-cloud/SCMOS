@@ -215,3 +215,28 @@ test("a plate with no haulier is still a plate", () => {
   assert.equal(receiptTruck(job({ trucker: "", licence: "70-1234 กรุงเทพ" })), "70-1234 กรุงเทพ");
   assert.equal(receiptTruck(job({ trucker: "", licence: "" })), "");
 });
+
+/* -------------------------------------------- who is named as the officer */
+
+test("the officer is the job's own owner", () => {
+  const head = receiptHead({ customer: "AAT", op: "Watsana" });
+  assert.equal(head.officer, "Watsana");
+});
+
+test("a different job names a different officer", () => {
+  // The point of reading it off the job rather than off a list: one person's
+  // name must not end up printed under every delivery.
+  assert.equal(receiptHead({ op: "Watsana" }).officer, "Watsana");
+  assert.equal(receiptHead({ op: "Uthai" }).officer, "Uthai");
+});
+
+test("a job with no owner leaves the bracket blank rather than guessing", () => {
+  assert.equal(receiptHead({ customer: "AAT" }).officer, "");
+  assert.equal(receiptHead({ op: "" }).officer, "");
+  assert.equal(receiptHead({ op: "   " }).officer, "");
+});
+
+test("the name is tidied the same way every other field is", () => {
+  // Whatever the staff register holds, spaced as it was typed.
+  assert.equal(receiptHead({ op: "  Watsana   Timrattana " }).officer, "Watsana Timrattana");
+});

@@ -7,7 +7,7 @@ import {
   receiptChoices, receiptHead, receiptLabel, receiptItem, type ReceiptJob,
 } from "../cargoReceipt";
 import {
-  ADDRESS, COMPANY, CONTACT, FORM_NO, ITEM_ROWS, NOTE, SIGNATURES, TERMS, itemColumns,
+  ADDRESS, COMPANY, CONTACT, FORM_NO, ITEM_ROWS, NOTE, OFFICER_SIGNATURE, SIGNATURES, TERMS, itemColumns,
 } from "../cargoReceiptForm";
 
 /**
@@ -108,6 +108,8 @@ type Form = {
   plate: string;
   /** "" until somebody ticks one — the form offers both and neither by default. */
   crew: "" | "with" | "without";
+  /** The job owner, printed under LESCHACO OFFICER. Empty leaves the bracket blank. */
+  officer: string;
 };
 
 /** One line of the item table: a cell per column, and the columns vary. */
@@ -117,7 +119,7 @@ const BLANK: Form = {
   jobNo: "", createDate: "", invoiceNo: "", vessel: "", eta: "", portOfDischarge: "",
   deliveryDate: "", blNo: "", truckNo: "", packages: "", grossWeight: "", remark: "",
   customer: "", receiverName: "", receiverAddress: "", agent: "", containerNo: "",
-  truckIn: "", truckOut: "", vehicle: "", plate: "", crew: "",
+  truckIn: "", truckOut: "", vehicle: "", plate: "", crew: "", officer: "",
 };
 
 const blankItems = (width: number): Item[] =>
@@ -423,7 +425,14 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
 
     TERMS.forEach((term, i) => put(`${i + 1}. ${term}`));
     put();
-    put("(                    )", "", "(                    )", "", "(                    )");
+    // Built the same way as the two rows under it, and carrying the officer's
+    // name for the same reason the printed sheet does. A workbook whose
+    // brackets are blank while the printout names somebody is two versions of
+    // one controlled document.
+    put(...SIGNATURES.flatMap(([, english]) => [
+      english === OFFICER_SIGNATURE && form.officer ? `( ${form.officer} )` : "(                    )",
+      "",
+    ]));
     put(...SIGNATURES.flatMap(([thai]) => [thai, ""]));
     put(...SIGNATURES.flatMap(([, english]) => [english, ""]));
     put();
@@ -686,14 +695,25 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
       {TERMS.map((term) => <li key={term.slice(0, 24)} style={css("margin-bottom:1px")}>{term}</li>)}
     </ol>
 
-    {/* Where the form is signed. Left empty for whoever signs — one of the real
-        copies has the officer's name typed in, and printing it on every blank
-        form would put their signature under work they never saw. */}
+    {/* Where the form is signed. The dotted line above each bracket is signed by
+        hand; the bracket is the printed name beneath it.
+
+        Ours carries the job's owner, because the person the register says the
+        delivery belongs to is the person expected to sign for it. It comes from
+        the job rather than from this list, so a receipt drawn for a different
+        job names a different officer, and a job with no owner prints the blank
+        bracket this form has always had. The driver and the customer stay blank
+        — they sign for themselves, and the register does not know who will be
+        standing there. */}
     <div style={css("display:flex;gap:18px;margin-top:16px;margin-bottom:4px")}>
       {SIGNATURES.map(([thai, english]) => (
         <div key={thai} style={css("flex:1;text-align:center")}>
           <div style={css(`border-bottom:1px dotted ${INK};height:1px;margin-bottom:5px`)} />
-          <div style={css(`font-size:${BODY_PT};letter-spacing:.5px`)}>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+          <div style={css(`font-size:${BODY_PT};letter-spacing:.5px`)}>
+            {english === OFFICER_SIGNATURE && form.officer
+              ? <>({form.officer})</>
+              : <>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</>}
+          </div>
           <div style={css(`font-size:${BODY_PT};color:${INK};margin-top:2px`)}>{thai}</div>
           {english && <div style={css(`font-size:${BODY_PT};font-weight:600;margin-top:1px`)}>{english}</div>}
         </div>

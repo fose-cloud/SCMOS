@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  DEFAULT_ITEM_COLUMNS, FORM_NO, ITEM_PRESETS, NOTE, SIGNATURES, TERMS, itemColumns,
+  DEFAULT_ITEM_COLUMNS, FORM_NO, ITEM_PRESETS, NOTE, OFFICER_SIGNATURE, SIGNATURES, TERMS, itemColumns,
 } from "../app/scmos/cargoReceiptForm.ts";
 // The vehicle line reads the job's own truck counts, so it lives with the
 // job-to-receipt mapping rather than with the document's fixed text.
@@ -40,11 +40,24 @@ test("the ADR note is spelled as Thai, not as the PDF extractor read it", () => 
 });
 
 test("three signature lines, and none of them carries a name", () => {
-  // One of the seven copies has the officer's name typed in. Printing it on
-  // every blank form would put somebody's signature under work they never saw.
+  // One of the seven copies has the officer's name typed in. Carrying it into
+  // this list would print that one person under every delivery, including the
+  // ones they never saw. The officer's bracket is filled from the job's own
+  // owner at render time instead — see cargoReceipt's ReceiptHead.officer.
   assert.equal(SIGNATURES.length, 3);
   assert.deepEqual(SIGNATURES.map((one) => one[1]), ["LESCHACO OFFICER", "TRUCK DRIVER", "CUSTOMER"]);
   assert.ok(!/Jiratchaya|Timrattana/.test(JSON.stringify(SIGNATURES)));
+});
+
+test("the officer's line is named, not found by its position", () => {
+  // The render fills one bracket and leaves two blank. Picking it by index
+  // would move the officer's name onto the driver's line the day a fourth
+  // signatory is added or these are reordered.
+  assert.equal(OFFICER_SIGNATURE, "LESCHACO OFFICER");
+  assert.ok(SIGNATURES.some((one) => one[1] === OFFICER_SIGNATURE),
+    "the named line is not one of the three actually drawn");
+  assert.equal(SIGNATURES.filter((one) => one[1] === OFFICER_SIGNATURE).length, 1,
+    "two lines answer to the officer's name");
 });
 
 /* ------------------------------------------------------- the item table */

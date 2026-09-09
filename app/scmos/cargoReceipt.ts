@@ -60,6 +60,15 @@ export type ReceiptJob = {
   vtr?: string;
   vtl?: string;
   jobNo?: string;
+  /**
+   * Who the job belongs to — the operator whose name the register holds.
+   *
+   * Printed under the LESCHACO OFFICER signature line, because the person
+   * responsible for the delivery is the person expected to sign for it. It is
+   * the printed name in brackets, not the signature: the line above it is still
+   * signed by hand.
+   */
+  op?: string;
 };
 
 export type ReceiptHead = {
@@ -85,6 +94,8 @@ export type ReceiptHead = {
   vehicle: string;
   plate: string;
   crew: "" | "with" | "without";
+  /** The job owner's name, printed in the bracket under LESCHACO OFFICER. */
+  officer: string;
 };
 
 const text = (value: unknown): string => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -188,6 +199,9 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
     vehicle: vehicleLine(job),
     plate: text(job.licence),
     crew: "",
+    // Whoever the register says owns the job. Empty when it says nobody, which
+    // prints the blank bracket the form has always had rather than a guess.
+    officer: text(job.op),
   };
 }
 
