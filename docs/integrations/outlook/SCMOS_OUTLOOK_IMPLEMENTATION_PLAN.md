@@ -307,14 +307,41 @@ The spec's own sequence, adjusted for the architecture:
    which messages were lost, so nothing there can fetch them; the recovery is
    the catch-up read forward from `Mailbox.LastSyncedAt`, which the worker
    owns. It is logged loudly because it is the one fault this integration
-   cannot otherwise detect — mail that silently never arrived. **Step 8 must
-   implement that catch-up, or `missed` is only a log line.**
+   cannot otherwise detect — mail that silently never arrived. **Step 8 owes
+   that catch-up, or `missed` is only a log line** — and step 8 has since
+   delivered it.
 
    Easy Auth exclusion paths are now written down in
    `docs/integrations/SETUP.md`, whose Graph section was rewritten: it was
    still asking for an app registration, a client secret, and four app settings
    that no longer exist.
-8. The worker
+8. The worker ✅ (`MailQueue`, `MailWorker`). Claims one row at a time, fetches
+   the message the webhook only heard about, and writes it with everybody on it
+   and what it had attached. The claim-one-row shape is the LINE worker's,
+   including the part that was got wrong there first: **a stale claim is
+   measured from the claim, never from arrival**, because a backlog is full of
+   rows that arrived long ago and are being worked on right now.
+
+   **The catch-up sweep is here**, on a fifteen-minute clock, which is the
+   promise step 7 left behind. It reads each mailbox forward from
+   `Mailbox.LastSyncedAt` and writes a stub for anything the webhook never
+   brought — recovering a `missed` lifecycle event, a subscription that lapsed
+   before the loop caught it, and an App Service that was down when a
+   notification was delivered. The mark moves only over messages actually
+   written down, so a pass that stops half way costs a repeat rather than a
+   gap, and repeats are free because the unique key stores each message once.
+
+   The decision worth naming is **whose fault a failed fetch was**. A message
+   that has been deleted finishes the row rather than retrying — three attempts
+   and a permanent failed entry, for something nobody did wrong. A missing
+   consent or a throttle **stops the pass and spends no retry at all**, because
+   it is true of every row equally: a worker that kept going would burn a
+   thousand messages' retry budget against a five minute configuration job.
+   Only Graph having a bad minute costs an attempt.
+
+   A first read is bounded to seven days rather than the whole mailbox. Moving
+   years of history in is a job somebody asks for, not a side effect of
+   switching the integration on.
 9. Persistence and deduplication
 10. Deterministic entity extraction — job code, container, booking, B/L ✅ (`EmailExtraction`)
 11. Matching, with the spec's confidence thresholds ✅ (`EmailMatching`)
@@ -367,7 +394,7 @@ is a change to the specification's numbers, so it is left as a question.
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
 | **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
-Steps 1, 2, 3, 4, 5, 6, 7, 10 and 11 are done and none of them needed any of the above.
+Steps 1, 2, 3, 4, 5, 6, 7, 8, 10 and 11 are done and none of them needed any of the above.
 
 That table lost a row on 2026-09-09. "How does Graph reach the webhook past
 Easy Auth" was carried as a blocker from the first draft and was never
