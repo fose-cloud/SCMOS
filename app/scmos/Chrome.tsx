@@ -89,7 +89,6 @@ type Props = {
   crumb: string;
   title: string;
   titleTh: string;
-  blurb: string;
   actions: HeaderAction[];
   tabs: TabItem[];
   /**
@@ -514,9 +513,6 @@ export function Chrome(p: Props) {
                     </span>
                   )}
                 </div>
-                {!p.lockScroll && (
-                  <p style={css("margin:6px 0 0;font-size:12.5px;color:#64748B;max-width:900px;text-wrap:pretty")}>{p.blurb}</p>
-                )}
               </div>
               {/*
                 A screen that draws its own controls draws these too.

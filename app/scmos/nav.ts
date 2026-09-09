@@ -160,52 +160,61 @@ export const ALL_NAV: [Screen, string, string, number[][]][] = [
   ...Object.values(SUB_NAV).flat(),
 ];
 
-/** [title, Thai title, blurb] keyed by screen (plus the shipment drill-down). */
-export const META: Record<string, [string, string, string]> = {
-  dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน", "Executive = ภาพรวมทั้งแผน · Operational = สิ่งที่ต้องทำวันนี้ · Wall Board = จอแสดงผลหน้างาน — ทุกตัวเลขคิดจากงานจริงใน Operation Workspace คลิกตัวเลขเพื่อเปิดงานชุดนั้นใน Workspace และกด Export Excel เพื่อดึงออกเป็นไฟล์"],
-  myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ", "Everyone sees the whole team. You edit only the jobs assigned to you."],
-  rotation: ["Job Rotation", "ความรับผิดชอบลูกค้าของแต่ละคน", "ตารางว่าลูกค้ารายไหนเป็นของใคร ใครสำรอง และใช้ผู้ขนส่งรายใด — นำเข้าจากไฟล์ ROTATE ที่ทีมใช้อยู่ · เทียบกับงานจริงในทะเบียนให้เห็นว่ามีงานของลูกค้ารายนั้นอยู่กับคนที่ตารางไม่ได้ระบุไว้หรือไม่"],
-  issues: ["Operational Issues", "บันทึกปัญหาประจำวัน", "ปัญหาที่พบระหว่างวิ่งงาน บันทึกตามฟอร์มที่ทีมใช้อยู่ — เลขงานที่กรอกจะถูกจับคู่กับทะเบียนงานให้เอง จึงเห็นลูกค้าและผู้ขนส่งของงานนั้นทันที · เวลาเป้าหมายมาจากระดับความรุนแรง และนับเฉพาะรายการที่ยังไม่ปิด"],
-  chemours: ["The Chemours", "งานกระจายสินค้า ค่าขนส่ง และใบรับ-ส่งสินค้า", "แก้ไขงาน Domestic ได้ในตาราง · การ์ดราคาของลูกค้ารายนี้เก็บแยกจากตารางราคาผู้รับเหมา อ่านราคาตามราคาน้ำมันดีเซลที่กรอก เปิดไฟล์ราคาขายเพิ่มแล้วจะเห็นทุน/ขาย/กำไรในแถวเดียวกัน · ติ๊กงานรับกลับในตาราง Domestic ได้ คิด 50% ของราคาเที่ยว หรือ 80% เมื่อเป็น Finished goods · ใบรับ-ส่งสินค้าเลือกงาน Domestic แล้วกรอกให้เอง เหลือเวลารถเข้า-ออกให้กรอกหน้างาน"],
-  postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก", "งานที่แผนเปลี่ยนไปจากที่จองไว้ — เลื่อนวันโหลด/ส่ง หรือยกเลิก · เปิดจาก My Job แล้วกดปุ่ม “เลื่อนวัน” หรือ “ยกเลิกงาน” · งานที่ยกเลิกไม่ถูกลบ ยังค้นและนับได้"],
-  detail: ["Shipment Detail", "รายละเอียดงานขนส่ง", "Full operational traceability: planned vs actual at every milestone, with communication and exception history."],
-  booking: ["Truck Booking", "การจองรถบรรทุก", "Validate bookings, request capacity and escalate sequentially through carriers A → B → C while tracking confirmation SLA."],
-  prerun: ["Pre-Run Check", "ตรวจก่อนออกงาน", "ยืนยันรถ คนขับ ทะเบียน และเอกสารก่อนวันงาน พร้อมจับเวลาตอบกลับตาม SLA"],
-  subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง", "Approved carrier register with fleet, insurance, licence and safety validity."],
-  capacity: ["Capacity Planning", "การวางแผนกำลังรถ", "ประเภทรถและตู้ที่คอลัมน์ TYPE เลือกได้ · และกำลังรถรายวันเทียบกับงานที่รับไว้"],
-  rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง", "Cost vs selling rate with fuel adjustment and margin control per lane."],
-  billing: ["Billing Control", "การควบคุมการวางบิล", "Supplier invoices must be received within 4 calendar days after delivery / loading completion."],
-  oilrate: ["Oil Rate", "เรทน้ำมัน", "กรอกเฉพาะวันที่ราคาเปลี่ยน ระบบกระจายเป็นรายวันแล้วหาค่าเฉลี่ยทั้งเดือนให้ — ค่าเฉลี่ยคือตัวที่ใช้เลือกช่วงราคาในการ์ดค่าขนส่ง"],
-  monitoring: ["Shipment Monitoring", "ติดตามการขนส่ง", "ติดตามงานตั้งแต่จ่ายงานจนปิดงาน — แผนกับเวลาจริงของทุกขั้นตอน พร้อมบันทึกความล่าช้าและสาเหตุ"],
-  kpi: ["Operational KPI", "ตัวชี้วัดการปฏิบัติงาน", "ทุกตัวเลขคำนวณจากทะเบียนงานจริงฝั่ง .NET ตามกฎชุดเดียวกับที่หน้า Workspace ใช้ — เปลี่ยนช่วงเวลาแล้วทุกค่าคิดใหม่ทั้งหมด"],
-  carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR", "ทะเบียนเดียวกับหน้า Incident — ระบบไม่ยอมให้ข้ามขั้น: ไม่มีสาเหตุที่แท้จริงก็กำหนดการแก้ไขไม่ได้ ไม่มีผู้รับผิดชอบและกำหนดเสร็จก็ติดตามไม่ได้ และปิดเคสได้เฉพาะระดับหัวหน้างานขึ้นไป"],
-  incident: ["Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข", "เปิดเคสจากเหตุที่เกิดจริง บันทึก 5W1H สาเหตุที่แท้จริง การแก้ไขและการป้องกัน แล้วเดินตามขั้นจนปิดเคสด้วยลายเซ็นของคน"],
-  audit: ["Audit Trail", "ประวัติการใช้งาน", "ใครแก้อะไร เมื่อไหร่ จากค่าเดิมเป็นค่าใหม่อะไร — อ่านจากประวัติที่ผูกกับงานแต่ละใบ"],
-  ai: ["SCMOS AI Control Tower", "ศูนย์ควบคุมงานและ AI", "ภาพรวมงานจาก SCMOS · ถาม Operations AI แบบอ่านอย่างเดียว · ตรวจสอบหลักฐานและประวัติการทำงาน"],
-  assistant: ["AI Assistant", "ผู้ช่วย AI", "สิทธิ์ของผู้ช่วยอ่านจาก API ที่บังคับใช้จริง — อ่านและร่างได้เลย เปลี่ยนข้อมูลจริงต้องมีคนอนุมัติ และการลบไม่มีอยู่ในระบบเลย"],
-  vendor: ["Add New Vendor", "เพิ่มผู้ขนส่งใหม่", "ลงทะเบียนผู้ขนส่งรายใหม่เข้าทะเบียนเดียวกับที่ Workspace และ KPI ใช้ — เริ่มที่สถานะร่าง จ่ายงานได้ต่อเมื่ออนุมัติแล้ว"],
-  evaluation: ["Annual Evaluation", "ประเมินผู้ขนส่งประจำปี", "คะแนนตรงเวลา ตอบยืนยัน และความล่าช้า ดึงจาก KPI Engine ส่วนความปลอดภัยและเอกสารเป็นดุลพินิจของผู้ประเมิน"],
-  quotation: ["Rate Quotation", "ขอใบเสนอราคา", "เทียบราคาผู้ขนส่งสำหรับเส้นทางและประเภทรถที่ต้องการ ตามราคาน้ำมันปัจจุบัน — อ่านจากตารางราคาใน Azure SQL"],
-  documents: ["Document Register", "ทะเบียนเอกสาร", "Controlled operational and compliance documents with expiry monitoring."],
-  // Was "with daily, weekly, monthly, yearly and custom periods", which the
-  // catalogue has never offered — the period belongs to each report, beside the
-  // filters that decide what it covers.
-  reports: ["Management Reports", "รายงานผู้บริหาร",
-    "รายงานที่อ่านจากทะเบียนงานจริง — ปริมาณงาน ผลงานผู้ขนส่ง ความล่าช้า และ CAR/PAR · แต่ละใบมีช่วงเวลาและตัวกรองของตัวเอง"],
-  partners: ["Subcontractor", "ผู้รับเหมาช่วง", "ทะเบียนผู้ขนส่ง การอบรม กำลังรถ และการประเมิน"],
-  commercial: ["Rate & Billing", "ราคาและการวางบิล", "อัตราค่าขนส่ง ใบเสนอราคา และการควบคุมการวางบิล"],
-  quality: ["Incident & CAR/PAR", "คุณภาพและข้อบกพร่อง", "เหตุผิดปกติที่เกิดขึ้นจริง และการแก้ไขป้องกันที่ตามมา"],
-  training: ["Customer Training Control", "การอบรมพนักงานขับรถ", "ข้อกำหนดของลูกค้าแต่ละราย ใบรับรองของคนขับ และวันหมดอายุ — สถานะคำนวณจากวันที่ทุกครั้งที่เปิดหน้า ไม่มีงานเบื้องหลังที่ต้องรัน และคนขับที่หลักสูตรบังคับหมดอายุจะรับงานของลูกค้ารายนั้นไม่ได้"],
-  carrier: ["งานของบริษัท", "Carrier Portal", "งานที่ลูกค้าส่งมาให้บริษัทนี้ กดรับพร้อมแจ้งทะเบียนรถ คนขับ และเบอร์โทร แล้วข้อมูลจะขึ้นที่หน้างานของเจ้าของงานทันที"],
-  loreal: ["L'OREAL Truck Report", "รายงานรถลูกค้า L'OREAL", "ฟอร์มเดียวกับที่ส่งลูกค้าทุกเดือน ดึงจากทะเบียนงานจริง — ช่องที่ระบบยังไม่มีที่มาจะเว้นว่างและบอกไว้ ไม่เดาแทน"],
-  // The four integration screens describe themselves from externalSystems.ts;
-  // these are the page headings above them.
-  integrations: ["Integrations", "เชื่อมต่อระบบ", "ระบบอื่นที่ SCMOS ต้องคุยด้วย — หน้าจอพร้อมแล้ว รอต่อข้อมูลเข้ามา"],
-  abs: ["ABS", "ระบบ ABS", "หน้าจอยังว่าง รอเชื่อมกับ API ของโปรแกรม ABS — เมนู เส้นทาง และการตรวจสิทธิ์พร้อมแล้ว"],
-  ccs: ["CCS", "ระบบพิธีการศุลกากร", "รอต่อ API ของ Custom Clearance System เพื่อดึงงานมาคิด KPI รายลูกค้า"],
-  outlook: ["Outlook", "ศูนย์รวมอีเมล", "รออ่านกล่องจดหมายกลางผ่าน Microsoft Graph แล้วผูกอีเมลเข้ากับงาน"],
-  line: ["LINE", "อัปเดตงานผ่าน LINE", "รอรับสถานะรถจากกลุ่ม LINE ของผู้รับเหมา พร้อมประวัติที่ตรวจสอบได้"],
-  admin: ["Administration", "การดูแลระบบ", "Role-based access control and audit trail."],
+/**
+ * [title, Thai title] keyed by screen (plus the shipment drill-down).
+ *
+ * There was a third entry, a paragraph drawn under the heading of every screen
+ * saying what the screen was for. It is gone, on every screen rather than the
+ * five that were pointed at one at a time.
+ *
+ * A dashboard that explains itself in a paragraph is not reading as one, and
+ * the same is true of a KPI page and an issues log: the figures are the point,
+ * and prose above them is the first thing a room full of people has to scroll
+ * past. Where a blurb carried a rule anybody actually needs — the four days a
+ * supplier invoice has, the 50% on a return leg — the rule lives in the code
+ * that enforces it and on the screen that applies it, not in a caption.
+ */
+export const META: Record<string, [string, string]> = {
+  dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน"],
+  myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ"],
+  rotation: ["Job Rotation", "ความรับผิดชอบลูกค้าของแต่ละคน"],
+  issues: ["Operational Issues", "บันทึกปัญหาประจำวัน"],
+  chemours: ["The Chemours", "งานกระจายสินค้า ค่าขนส่ง และใบรับ-ส่งสินค้า"],
+  postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก"],
+  detail: ["Shipment Detail", "รายละเอียดงานขนส่ง"],
+  booking: ["Truck Booking", "การจองรถบรรทุก"],
+  prerun: ["Pre-Run Check", "ตรวจก่อนออกงาน"],
+  subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง"],
+  capacity: ["Capacity Planning", "การวางแผนกำลังรถ"],
+  rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง"],
+  billing: ["Billing Control", "การควบคุมการวางบิล"],
+  oilrate: ["Oil Rate", "เรทน้ำมัน"],
+  monitoring: ["Shipment Monitoring", "ติดตามการขนส่ง"],
+  kpi: ["Operational KPI", "ตัวชี้วัดการปฏิบัติงาน"],
+  carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR"],
+  incident: ["Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข"],
+  audit: ["Audit Trail", "ประวัติการใช้งาน"],
+  ai: ["SCMOS AI Control Tower", "ศูนย์ควบคุมงานและ AI"],
+  assistant: ["AI Assistant", "ผู้ช่วย AI"],
+  vendor: ["Add New Vendor", "เพิ่มผู้ขนส่งใหม่"],
+  evaluation: ["Annual Evaluation", "ประเมินผู้ขนส่งประจำปี"],
+  quotation: ["Rate Quotation", "ขอใบเสนอราคา"],
+  documents: ["Document Register", "ทะเบียนเอกสาร"],
+  reports: ["Management Reports", "รายงานผู้บริหาร"],
+  partners: ["Subcontractor", "ผู้รับเหมาช่วง"],
+  commercial: ["Rate & Billing", "ราคาและการวางบิล"],
+  quality: ["Incident & CAR/PAR", "คุณภาพและข้อบกพร่อง"],
+  training: ["Customer Training Control", "การอบรมพนักงานขับรถ"],
+  carrier: ["งานของบริษัท", "Carrier Portal"],
+  loreal: ["L'OREAL Truck Report", "รายงานรถลูกค้า L'OREAL"],
+  // The four integration screens say what they are waiting for themselves,
+  // from externalSystems.ts; these are only the page headings above them.
+  integrations: ["Integrations", "เชื่อมต่อระบบ"],
+  abs: ["ABS", "ระบบ ABS"],
+  ccs: ["CCS", "ระบบพิธีการศุลกากร"],
+  outlook: ["Outlook", "ศูนย์รวมอีเมล"],
+  line: ["LINE", "อัปเดตงานผ่าน LINE"],
+  admin: ["Administration", "การดูแลระบบ"],
 };
 
 export const TAB_DEFS: Record<string, string[]> = {

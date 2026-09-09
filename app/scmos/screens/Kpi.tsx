@@ -516,12 +516,6 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
         first, so the number and the names behind it come from one reckoning.
       */}
 
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-left:3px solid #1D5FA8;border-radius:5px;padding:12px 16px;font-size:12.5px;color:#465A6E")}>
-        ทุกตัวเลขคำนวณฝั่ง .NET จากทะเบียนงานใน Azure SQL ด้วยกฎชุดเดียวกับหน้า Workspace ·
-        อ่านค่าที่ <b>เก็บจริง</b> ไม่ใช่ค่าที่แก้รูปแบบให้อัตโนมัติตอนแสดงผล — ตัวเลข “รูปแบบข้อมูลผิด”
-        จะลดลงเมื่อกด <b>ล้างข้อมูล</b> ใน Settings → Data เพื่อเขียนการแก้ลงฐานข้อมูล
-      </div>
-
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start")}>
         <Panel title="ภาระงานแต่ละคน" note="เปิดค้าง · ต้องดำเนินการ · ล่าช้า">
           <Table

@@ -533,7 +533,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   // ---- derived -----------------------------------------------------------
   const isDetail = sel !== null;
   const metaKey = isDetail ? "detail" : screen;
-  const meta = META[metaKey] || ["", "", ""];
+  const meta = META[metaKey] || ["", ""];
 
   // The header search is a launcher now, not a filter: it opens the record where
   // it lives instead of quietly narrowing whatever table happens to be on screen.
@@ -2572,7 +2572,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           : "SCMOS / " + meta[0]).toUpperCase()}
         title={meta[0]}
         titleTh={meta[1]}
-        blurb={meta[2]}
         actions={actions}
         tabs={tabs}
         // Only while the workspace is actually drawing, because only then is

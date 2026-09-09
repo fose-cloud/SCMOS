@@ -517,18 +517,6 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:11px;min-height:0;flex:1")}>
-      {/* Said once, above the grid: what these times are and where they go.
-          Hidden in full screen, which is the one place every pixel is the
-          table's. */}
-      {!full && (
-        <div style={css("background:#FFF8F0;border:1px solid #F0D8B8;border-left:3px solid #B45309;border-radius:5px;padding:10px 15px;font-size:12px;color:#8A5A12;line-height:1.6")}>
-          เวลาที่กรอกที่นี่บันทึกลงเป็นขั้นตอนเดินรถของงานนั้น (<code style={css("font-family:ui-monospace,monospace")}>shipment_milestones</code>)
-          จึงเป็นค่าเดียวกับที่หน้า Shipment Monitor แสดง ไม่ใช่ข้อมูลคนละชุด ·
-          เวลาที่กรอกถือตามเวลาไทย (+07:00) เสมอ ไม่ขึ้นกับนาฬิกาของเครื่องที่เปิด ·
-          ช่อง PACKAGE, CARD, Estimated Delivery และ Truck Arrival ยังแก้ที่นี่ไม่ได้ — ดูคำอธิบายเมื่อชี้ที่ช่อง
-        </div>
-      )}
-
       <div className="grid-only" style={css("flex:1;min-height:0;display:flex;flex-direction:column")}>
         <DataTable model={model} full={full} onFull={() => setFull((on) => !on)}
           onPage={setPage} onTool={() => undefined} />
