@@ -17,7 +17,8 @@ and Prisma-style migrations. SCMOS is:
   the API. No ORM, no database client, no business logic.
 - **.NET 10 minimal APIs + EF Core 10 + Azure SQL** as the actual back end.
 
-So `POST /api/webhooks/microsoft-graph` **cannot** be a Next.js route handler
+So the webhook — `POST /api/integrations/graph/notify`, as it was eventually
+built — **cannot** be a Next.js route handler
 that writes to a database, because from Next.js there is no database to write
 to. It becomes an endpoint in `server/Scmos.Api/Endpoints/`, and the Next.js
 proxy forwards to it — or, better, Graph is pointed straight at the API host and
@@ -268,7 +269,39 @@ The spec's own sequence, adjusted for the architecture:
    `validationToken` back within ten seconds. That 400 is reported as a
    sentence naming the handshake and the Easy Auth exclusion rather than as a
    status code.
-7. Webhook + validationToken + clientState + Easy Auth exclusion
+7. Webhook + validationToken + clientState + Easy Auth exclusion ✅
+   (`GraphNotifications`, `GraphWebhookEndpoints`). Two paths, mapped at the
+   same constants the subscription is built from, so the URL Graph is handed
+   and the route this API serves cannot drift into a 404 nobody would ever see.
+
+   **The handshake runs before anything else** — before the body is read,
+   before the database is touched. Graph waits ten seconds during a create and
+   every later step depends on that answer, so nothing that can fail happens
+   ahead of it. The token is checked for being a token first: this repeats an
+   unauthenticated caller's own input back at them, and the smallest version of
+   that is the safest.
+
+   `clientState` is checked **per item, not per request** — a delivery is a
+   batch, each item carrying its own subscription and secret. A failure is
+   counted and never explained; an unauthenticated caller told why they failed
+   is being told how to get closer. Everything answers 202 either way.
+
+   The webhook writes a stub row in `emails` rather than a queue table of its
+   own, because the schema already has one: `(MailboxId, GraphMessageId)`
+   unique is the idempotency the specification asked for, and `emails_queue_idx`
+   is described in the model as what the worker asks for.
+
+   **`missed` is left for step 8 on purpose.** Nothing at the webhook can say
+   which messages were lost, so nothing there can fetch them; the recovery is
+   the catch-up read forward from `Mailbox.LastSyncedAt`, which the worker
+   owns. It is logged loudly because it is the one fault this integration
+   cannot otherwise detect — mail that silently never arrived. **Step 8 must
+   implement that catch-up, or `missed` is only a log line.**
+
+   Easy Auth exclusion paths are now written down in
+   `docs/integrations/SETUP.md`, whose Graph section was rewritten: it was
+   still asking for an app registration, a client secret, and four app settings
+   that no longer exist.
 8. The worker
 9. Persistence and deduplication
 10. Deterministic entity extraction — job code, container, booking, B/L ✅ (`EmailExtraction`)
@@ -323,7 +356,7 @@ is a change to the specification's numbers, so it is left as a question.
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
 | **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
-Steps 1, 2, 3, 4, 5, 6, 10 and 11 are done and none of them needed any of the above.
+Steps 1, 2, 3, 4, 5, 6, 7, 10 and 11 are done and none of them needed any of the above.
 
 **Step 4 is the one to run first** once the grant is made. `POST
 /api/integrations/graph/test` will say which of the two remaining rows is still

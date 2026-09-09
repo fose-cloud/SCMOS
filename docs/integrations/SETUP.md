@@ -15,7 +15,7 @@ nothing in it should ever be edited to contain one.
 ## How SCMOS reads configuration
 
 App settings on the API App Service, or Key Vault references. **A double
-underscore maps to a colon**, so `Graph__ClientId` in Azure is `Graph:ClientId`
+underscore maps to a colon**, so `Graph__Mailboxes` in Azure is `Graph:Mailboxes`
 in the application.
 
 **Changing an app setting restarts the container.** Budget about 90 seconds and
@@ -68,14 +68,38 @@ on the first real day.
 
 ## 2. Outlook / Microsoft Graph
 
+**There is no app registration and no client secret.** This section used to ask
+for both. The API already holds a system-assigned managed identity and already
+calls Graph with it — that is how the Administration screen invites a colleague
+— so `Mail.Read` goes on that same identity. Nothing here is a secret, and
+there is nothing to send anybody.
+
 ### In Entra ID — you run these
 
-1. **App registrations → New registration.** Single tenant. Note the
-   **Directory (tenant) ID** and **Application (client) ID**.
-2. **API permissions → Microsoft Graph → Application permissions → `Mail.Read`.**
-   Then **Grant admin consent.** Delegated permissions are not usable here —
-   there is no signed-in user in a background worker.
-3. **Certificates & secrets** — a certificate if you can, a client secret if not.
+1. Find the API App Service's **system-assigned managed identity** (App Service
+   → Identity → System assigned). Note its **Object (principal) ID**.
+2. Grant it **Microsoft Graph → `Mail.Read` as an application permission**, and
+   **admin-consent it**. Delegated permissions are not usable here — there is
+   no signed-in user in a background worker.
+
+   A managed identity has no "API permissions" blade, so this is a PowerShell
+   grant rather than a portal click:
+
+   ```powershell
+   Connect-MgGraph -Scopes AppRoleAssignment.ReadWrite.All,Application.Read.All
+   $graph = Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'"
+   $role  = $graph.AppRole | Where-Object { $_.Value -eq 'Mail.Read' -and $_.AllowedMemberTypes -contains 'Application' }
+   New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId <object-id> `
+       -PrincipalId <object-id> -ResourceId $graph.Id -AppRoleId $role.Id
+   ```
+
+3. Nothing else. No secret to create, store, rotate, or hand over.
+
+**The cost of this choice, stated rather than buried:** that one identity then
+holds both `User.ReadWrite.All` and `Mail.Read`. A separate registration would
+keep them apart, at the price of a secret somebody has to look after. The
+Exchange scoping below narrows `Mail.Read` either way. If you would rather have
+the separation, say so — it is a small change to `GraphAuth`.
 
 ### Then scope it, in Exchange Online PowerShell
 
@@ -84,7 +108,7 @@ mailbox in the tenant**. For a forwarding company's mail that is not a
 theoretical concern.
 
 ```powershell
-New-ServicePrincipal -AppId <client-id> -ServiceId <object-id> -DisplayName "SCMOS Mail Reader"
+New-ServicePrincipal -AppId <managed-identity-app-id> -ServiceId <object-id> -DisplayName "SCMOS Mail Reader"
 New-ManagementScope -Name "SCMOS Mailboxes" -RecipientRestrictionFilter "CustomAttribute1 -eq 'SCMOS'"
 New-ManagementRoleAssignment -App <service-principal> -Role "Application Mail.Read" -CustomResourceScope "SCMOS Mailboxes"
 ```
@@ -95,27 +119,58 @@ refused — that test is the point of the exercise.
 
 ### App settings on the API
 
+Two, and neither is a secret.
+
 | Setting | What it is |
 |---|---|
-| `Graph__Enabled` | `true` / `false` |
-| `Graph__TenantId` | Directory (tenant) ID. Not secret |
-| `Graph__ClientId` | Application (client) ID. Not secret |
-| `Graph__ClientSecret` | Key Vault reference |
-| `Graph__Mailboxes` | Comma-separated addresses SCMOS may read |
-| `Graph__NotificationUrl` | The public webhook URL Graph will call |
-| `Graph__ClientState` | Key Vault reference. A random string SCMOS checks on every notification |
+| `Graph__Mailboxes` | Comma-separated addresses SCMOS may read. **Empty approves nothing**, deliberately — the alternative reading is how every mailbox in the tenant becomes readable because somebody forgot a setting |
+| `Graph__WebhookBase` | The origin Graph will call, e.g. `https://scmos-api-3936.azurewebsites.net`. Origin only — the paths are fixed in code so they cannot be mistyped here |
+
+`clientState` is **not** an app setting. SCMOS generates 256 bits per
+subscription, stores it, and checks it in fixed time on every delivery — one
+secret per mailbox, so a leak from one does not authenticate deliveries for
+another.
 
 ### An Azure decision that blocks everything else
 
 The API sits behind **Easy Auth**, which will reject an unauthenticated POST
-from Microsoft. Graph will not sign in. So either:
+from Microsoft. Graph will not sign in, and the very first thing it does is call
+the webhook during subscription creation and wait ten seconds for an answer. So
+either:
 
-- exclude `/api/webhooks/microsoft-graph*` from Easy Auth, and let `clientState`
-  plus the subscription id be the authentication; or
-- give the webhook a separate ingress that is not behind Easy Auth.
+- exclude these two paths from Easy Auth, and let `clientState` be the
+  authentication (which is what it is for):
+
+  ```
+  /api/integrations/graph/notify
+  /api/integrations/graph/lifecycle
+  ```
+
+  In App Service → Authentication → Edit → **Excluded paths**, or as
+  `globalValidation.excludedPaths` in the auth config; or
+
+- give the webhook a separate ingress that is not behind Easy Auth, and point
+  `Graph__WebhookBase` at it.
 
 This has to be settled before a single notification arrives. It is an Azure
 change and it is yours to make.
+
+### Checking it worked, in order
+
+Each of these tells you something the next one cannot, so run them in order.
+Both endpoints are Administrator-only.
+
+1. `GET /api/integrations/graph/status` — configuration and consent, without
+   touching a mailbox. Says which of "no mailboxes set", "not an address", "no
+   token" or "no `Mail.Read` consent" is in the way.
+2. `POST /api/integrations/graph/test` with `{"mailbox":"ops@leschaco.co.th"}`
+   — reads one real message. A 403 here means the **Exchange scoping**, because
+   consent was already proved in step 1; the answer says so and names
+   `New-ManagementRoleAssignment`.
+3. Once both pass, set `Graph__WebhookBase`. The API restarts, and an hourly
+   loop creates and renews the subscriptions from then on. If the Easy Auth
+   exclusion is missing, the create fails with a message saying exactly that.
+
 
 ---
 

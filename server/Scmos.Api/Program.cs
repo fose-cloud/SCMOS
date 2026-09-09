@@ -201,6 +201,7 @@ if (EmailExtractionCheck.Run(args) is int emailExit) return emailExit;
 if (GraphAuthCheck.Run(args) is int graphExit) return graphExit;
 if (GraphMessagesCheck.Run(args) is int messagesExit) return messagesExit;
 if (GraphSubscriptionsCheck.Run(args) is int subscriptionsExit) return subscriptionsExit;
+if (GraphNotificationsCheck.Run(args) is int notificationsExit) return notificationsExit;
 
 if (args.Contains("--seed"))
 {
@@ -300,6 +301,7 @@ app.MapCustomerDocuments();
 app.MapDiesel();
 app.MapLine();
 app.MapGraph();
+app.MapGraphWebhook();
 
 await app.RunAsync();
 return 0;
