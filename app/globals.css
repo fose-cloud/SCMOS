@@ -262,6 +262,10 @@ button { cursor: pointer; }
     background: transparent !important;
     resize: none !important;
   }
+  /* Except the name inside a signature bracket. The bracket is already the
+     frame, and the rule above would print ( ____ ) on a form that has never had
+     a line there — the signature's own line is the dotted one above it. */
+  .cargo-page input.sign-name { border-bottom: none !important; }
   .no-print { display: none !important; }
   /*
    * The receipt is one page, and no longer needs shrinking to get there.

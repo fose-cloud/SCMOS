@@ -710,9 +710,26 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
         <div key={thai} style={css("flex:1;text-align:center")}>
           <div style={css(`border-bottom:1px dotted ${INK};height:1px;margin-bottom:5px`)} />
           <div style={css(`font-size:${BODY_PT};letter-spacing:.5px`)}>
-            {english === OFFICER_SIGNATURE && form.officer
-              ? <>({form.officer})</>
-              : <>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</>}
+            {english === OFFICER_SIGNATURE ? (
+              // Typed over where it is read, rather than in a field elsewhere on
+              // the screen. The job's owner is who it should usually be, and is
+              // filled in from the job; the person issuing the receipt is the
+              // one who knows when it should not be — somebody covering a shift,
+              // or a delivery handed over halfway.
+              <>(<input
+                className="sign-name"
+                value={form.officer}
+                onChange={(e) => onField("officer", e.target.value)}
+                aria-label={`${thai} — ชื่อผู้ลงนาม`}
+                // The tint says "you may type here" on screen and is dropped in
+                // print by the rule that clears every input's background, so the
+                // paper shows a name in a bracket and nothing else.
+                style={css(`width:76%;border:none;background:#F6F9FC;text-align:center;`
+                  + `font-size:${BODY_PT};font-family:inherit;color:${INK};padding:0;outline:none`)}
+              />)</>
+            ) : (
+              <>(&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;)</>
+            )}
           </div>
           <div style={css(`font-size:${BODY_PT};color:${INK};margin-top:2px`)}>{thai}</div>
           {english && <div style={css(`font-size:${BODY_PT};font-weight:600;margin-top:1px`)}>{english}</div>}
