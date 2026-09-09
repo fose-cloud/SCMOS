@@ -95,7 +95,11 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<PreRunOptions>(builder.Configuration.GetSection(PreRunOptions.Section));
 builder.Services.AddScoped<IUserAccessor, UserAccessor>();
 builder.Services.AddScoped<StaffService>();
-builder.Services.AddHttpClient("graph");
+// One way to authenticate to Microsoft Graph, for the whole API. Sign-in
+// account creation and the Communication Center both go through it, so
+// there is one answer to "who is SCMOS" rather than two that drift.
+builder.Services.AddHttpClient(GraphAuth.ClientName);
+builder.Services.AddSingleton<GraphAuth>();
 // A short timeout on purpose. This sits behind a button somebody presses while
 // typing a quotation; ten seconds of nothing and they should be told to type
 // the distance themselves rather than watch a spinner.
@@ -183,6 +187,7 @@ if (SignInCheck.Run(args) is int signInExit) return signInExit;
 if (ReportCheck.Run(args) is int reportExit) return reportExit;
 if (LineParserCheck.Run(args) is int lineExit) return lineExit;
 if (EmailExtractionCheck.Run(args) is int emailExit) return emailExit;
+if (GraphAuthCheck.Run(args) is int graphExit) return graphExit;
 
 if (args.Contains("--seed"))
 {

@@ -113,29 +113,72 @@ spec is right about it. Graph will deliver the same notification more than once.
 
 ---
 
-## 4. Authentication — and the part I cannot do
+## 4. Authentication — no secret, and the part I cannot do
 
-Application permissions, client credentials, `Mail.Read`. No user sign-in, no
-stored password. Tokens live server-side only and never reach the browser; the
-Communication Center calls SCMOS's own API, which calls Graph.
+Application permissions, `Mail.Read`. No user sign-in, no stored password.
+Tokens live server-side only and never reach the browser; the Communication
+Center calls SCMOS's own API, which calls Graph.
 
-**Restrict the app to approved mailboxes with Exchange Online RBAC for
+**Built 2026-09-09** as `Services/GraphAuth.cs`, checked by `--check-graph`.
+
+### What changed, and why it is now shorter
+
+This section used to ask for a new app registration with a client secret. **It
+does not need one.** The API already holds a system-assigned managed identity
+and already calls Graph with it — that is how the Administration screen invites
+a colleague (`SignInAccountService`, `User.ReadWrite.All`). Granting `Mail.Read`
+to that same identity means there is no secret to create, store, rotate, or hand
+to anybody, and no `Graph__ClientSecret` app setting at all. A secret that does
+not exist cannot leak and cannot expire on a Sunday.
+
+The plan also asked for a token cache. There is not one and should not be:
+`DefaultAzureCredential` caches what it fetches and renews it near expiry, and a
+second cache in front of it is a second opinion about when a token dies.
+
+**The cost, stated rather than buried:** one identity then holds both
+`User.ReadWrite.All` and `Mail.Read`. A separate registration would keep them
+apart, at the price of a secret somebody has to look after. Exchange RBAC
+narrows `Mail.Read` to the approved mailboxes either way, so the separation buys
+less than the secret costs — but it is a security posture, and it is yours to
+overrule. Overruling it means adding a `ClientSecretCredential` to `GraphAuth`
+and a secret to Key Vault; nothing else changes.
+
+### Two fences, not one
+
+**Restrict the identity to approved mailboxes with Exchange Online RBAC for
 Applications.** Without it, `Mail.Read` as an application permission reads
 *every* mailbox in the tenant. That is not a theoretical concern for a
 forwarding company's mail.
 
-The following are yours to run — **I cannot enter or handle credentials, and
-this holds even if you paste them to me:**
+`Graph__Mailboxes` is the second fence, in code: the list of addresses this
+deployment may read at all, checked by `GraphMailboxes` before anything is asked
+of Graph. It does not replace the RBAC scoping — a wrong answer still gets
+refused by Exchange — but it means a mistaken row in the `mailboxes` table
+cannot reach a mailbox the deployment never approved. **An empty list approves
+nothing**, deliberately: the other reading is how every mailbox in the tenant
+becomes readable because somebody forgot an app setting.
 
-1. Register the application in Entra ID; note the tenant id and client id.
-2. Grant `Mail.Read` as an **application** permission and admin-consent it.
-3. Create a client secret or, better, a certificate.
-4. Scope it with `New-ServicePrincipal` / `New-ManagementRoleAssignment` in
-   Exchange Online so it can read only the approved mailboxes.
-5. Put the values in the API's app settings or Key Vault:
-   `Graph__TenantId`, `Graph__ClientId`, `Graph__ClientSecret`,
-   `Graph__Mailboxes`. `__` maps to `:` on App Service, and changing app
-   settings restarts the container.
+### Yours to run — I cannot enter or handle credentials
+
+1. Grant `Mail.Read` as an **application** permission to the API App Service's
+   system-assigned managed identity, and admin-consent it. There is no app
+   registration to create and no secret to generate.
+2. Scope it with `New-ServicePrincipal` / `New-ManagementRoleAssignment` in
+   Exchange Online, against that identity's object id, so it can read only the
+   approved mailboxes.
+3. Set one app setting: `Graph__Mailboxes`, the approved addresses, separated by
+   commas. `__` maps to `:` on App Service, and changing app settings restarts
+   the container.
+
+### How you will know it worked
+
+`GraphAuth.ReadyAsync()` reads the `roles` claim off the token and says which of
+the several faults it is — nothing configured, an entry that is not an address,
+no token at all, or a token without `Mail.Read` — **without touching a
+mailbox**. That matters because a 403 from a mailbox read means missing consent,
+or missing RBAC scope, or a mailbox that is not there, and the three look
+identical. Step 4 is what tells those apart; this tells apart the two that come
+before them.
 
 ---
 
@@ -167,7 +210,9 @@ The spec's own sequence, adjusted for the architecture:
 
 1. Discovery and this document ✅
 2. Seven tables + migration ✅ (20260908170406_CommunicationCenter)
-3. `GraphAuth` — client credentials, token cache
+3. `GraphAuth` — the managed identity, and the approved-mailbox fence ✅
+   (`GraphAuth`, `GraphMailboxes`, `GraphToken`). No client secret and no
+   token cache — see section 4 for why both turned out to be unnecessary.
 4. **Mailbox connection test** — one endpoint that reads one message and reports
    what came back. This is the step that proves sections 4 and 5 before any
    pipeline exists, and it is where this work will actually get stuck.
@@ -176,7 +221,7 @@ The spec's own sequence, adjusted for the architecture:
 7. Webhook + validationToken + clientState + Easy Auth exclusion
 8. The worker
 9. Persistence and deduplication
-10. Deterministic entity extraction — job code, container, booking, B/L
+10. Deterministic entity extraction — job code, container, booking, B/L ✅ (`EmailExtraction`)
 11. Matching, with the spec's confidence thresholds ✅ (`EmailMatching`)
 12. Inbox UI, then the detail page
 13. Attachments to Blob
@@ -223,10 +268,13 @@ is a change to the specification's numbers, so it is left as a question.
 
 | Blocked on | Needed |
 |---|---|
-| **You** | The Entra app registration, `Mail.Read` admin consent, and the Exchange RBAC scoping. I cannot handle credentials. |
+| **You** | `Mail.Read` admin consent on the API's managed identity, and the Exchange RBAC scoping. No app registration and no secret — see section 4. |
 | **You** | An Azure decision: how Graph reaches the webhook past Easy Auth. |
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
-| **The operations team** | Twenty real emails per category, before the extractor is written. |
+| **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
-Sections 2, 3 and 7 — the schema, the capability bits, the deterministic
-extractor and its tests — are not blocked and can be built now.
+Steps 1, 2, 3, 10 and 11 are done and none of them needed any of the above. What
+is left that is **not** blocked is small: step 4 can be written now and will
+simply report "no consent yet" until the grant is made, and steps 6–9 can be
+built against a mailbox that returns nothing. Everything that proves the
+integration actually works waits on the first two rows of this table.

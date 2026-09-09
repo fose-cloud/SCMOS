@@ -1,8 +1,5 @@
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Azure.Core;
-using Azure.Identity;
 
 namespace Scmos.Api.Services;
 
@@ -33,12 +30,10 @@ namespace Scmos.Api.Services;
 /// once and never stores it.
 /// </summary>
 public class SignInAccountService(
-    IHttpClientFactory factory,
-    IConfiguration configuration,
-    ILogger<SignInAccountService> log)
+    GraphAuth graphAuth,
+    IConfiguration configuration)
 {
-    private const string Graph = "https://graph.microsoft.com/v1.0";
-    private static readonly string[] Scope = ["https://graph.microsoft.com/.default"];
+    private const string Graph = GraphAuth.Endpoint;
 
     /// <summary>
     /// Why an account could not be created, in words an administrator can act
@@ -47,35 +42,12 @@ public class SignInAccountService(
     public record Outcome(bool Ok, string Message, string SignInName = "", string TempPassword = "");
 
     /// <summary>
-    /// Built once. <see cref="DefaultAzureCredential"/> probes several sources
-    /// on construction, and this service is scoped — a new one per request
-    /// would put that probe in front of every screen that lists staff.
-    /// </summary>
-    private static readonly TokenCredential Shared = new DefaultAzureCredential();
-
-    private async Task<HttpClient?> GraphClientAsync(CancellationToken token)
-    {
-        try
-        {
-            var access = await Shared.GetTokenAsync(new TokenRequestContext(Scope), token);
-            var client = factory.CreateClient("graph");
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", access.Token);
-            return client;
-        }
-        catch (Exception problem)
-        {
-            log.LogError(problem, "Could not get a Microsoft Graph token for the managed identity.");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Whether this API can create sign-ins at all, so the screen can say so
     /// before an administrator fills in a form that cannot succeed.
     /// </summary>
     public async Task<(bool Ready, string Why)> ReadyAsync(CancellationToken token)
     {
-        var client = await GraphClientAsync(token);
+        var client = await graphAuth.ClientAsync(token);
         if (client is null)
             return (false, "API ยังไม่มี managed identity หรือขอ token จาก Microsoft Graph ไม่ได้");
 
@@ -102,7 +74,7 @@ public class SignInAccountService(
     /// </summary>
     public async Task<Outcome> InviteAsync(string email, string displayName, CancellationToken token)
     {
-        var client = await GraphClientAsync(token);
+        var client = await graphAuth.ClientAsync(token);
         if (client is null) return new Outcome(false, "ต่อ Microsoft Graph ไม่ได้");
 
         var redirect = configuration["SignIn:InviteRedirectUrl"];
@@ -150,7 +122,7 @@ public class SignInAccountService(
     public async Task<Outcome> CreateTenantAccountAsync(string displayName, string account,
         CancellationToken token)
     {
-        var client = await GraphClientAsync(token);
+        var client = await graphAuth.ClientAsync(token);
         if (client is null) return new Outcome(false, "ต่อ Microsoft Graph ไม่ได้");
 
         var domain = configuration["SignIn:TenantDomain"];
@@ -206,7 +178,7 @@ public class SignInAccountService(
                 "บัญชีนี้เป็นผู้ใช้ภายนอกที่ได้รับเชิญ รหัสผ่านเป็นของบัญชี Microsoft ส่วนตัวของเขา " +
                 "องค์กรตั้งรหัสให้ไม่ได้ — ให้เจ้าตัวเปลี่ยนเองที่ account.live.com");
 
-        var client = await GraphClientAsync(token);
+        var client = await graphAuth.ClientAsync(token);
         if (client is null) return new Outcome(false, "ต่อ Microsoft Graph ไม่ได้");
 
         var temporary = TemporaryPassword();
