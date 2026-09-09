@@ -14,7 +14,7 @@ import { ExecutiveBoard } from "./ExecutiveBoard";
 import { apiFetch } from "../api";
 import { byStage } from "../incidentStages";
 import { FilterPickMany } from "../FilterPickMany";
-import { ALL_DASHBOARD_FILTERS, filterDashboardJobs, type DashboardFilters } from "../dashboardFilters";
+import { ALL_DASHBOARD_FILTERS, dashboardOptions, filterDashboardJobs, type DashboardFilters } from "../dashboardFilters";
 
 /**
  * The three dashboard tabs answer three different questions, so they are three
@@ -363,21 +363,38 @@ export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, per
   }
 
   const dimensionsActive = filters.customer !== "ALL" || filters.trucker !== "ALL";
-  const options = (field: "customer" | "trucker") =>
-    [...new Set(allJobs.map(job => job[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const bar = <>
-    <div style={css("background:#0A2240;border-radius:5px;padding:12px 14px;display:flex;align-items:center;gap:18px;flex-wrap:wrap")}>
-      <FilterPickMany label="CUSTOMER" value={filters.customer} options={options("customer")}
-        onPick={customer => onFilters({ ...filters, customer })} />
-      <FilterPickMany label="TRUCKER" value={filters.trucker} options={options("trucker")}
-        onPick={trucker => onFilters({ ...filters, trucker })} />
-      {dimensionsActive && <button type="button" onClick={() => onFilters(ALL_DASHBOARD_FILTERS)}
-        style={css("border:1px solid #6FA8DC;background:transparent;color:#fff;border-radius:4px;padding:5px 12px;cursor:pointer")}>
-        ล้าง CUSTOMER / TRUCKER
-      </button>}
-    </div>
-    <PeriodBar allJobs={filterDashboardJobs(allJobs, filters)} shown={total} period={period} onPeriod={onPeriod} />
-  </>;
+  /*
+   * Each picker offers what the other one leaves possible — see
+   * dashboardOptions. Both lists used to be built from the whole register, so a
+   * customer and a haulier who have never worked together could both be chosen
+   * and the dashboard would go blank with nothing saying why.
+   */
+  const options = (field: "customer" | "trucker") => dashboardOptions(allJobs, field, filters);
+  /*
+   * One row, not two. The pickers sat in a navy bar of their own above the
+   * period bar, which spent two rows on one question — which jobs are we
+   * looking at, and over what period. They go into the period bar's own row
+   * now, and it takes the navy the pickers are drawn for.
+   */
+  const bar = (
+    <PeriodBar
+      allJobs={filterDashboardJobs(allJobs, filters)}
+      shown={total}
+      period={period}
+      onPeriod={onPeriod}
+      tone="dark"
+      dimensions={<>
+        <FilterPickMany label="CUSTOMER" value={filters.customer} options={options("customer")}
+          onPick={customer => onFilters({ ...filters, customer })} />
+        <FilterPickMany label="TRUCKER" value={filters.trucker} options={options("trucker")}
+          onPick={trucker => onFilters({ ...filters, trucker })} />
+        {dimensionsActive && <button type="button" onClick={() => onFilters(ALL_DASHBOARD_FILTERS)}
+          style={css("border:1px solid #6FA8DC;background:transparent;color:#fff;border-radius:4px;height:27px;padding:0 10px;font-size:11.5px;font-family:inherit;cursor:pointer")}>
+          ล้าง CUSTOMER / TRUCKER
+        </button>}
+      </>}
+    />
+  );
 
   if (!total) {
     return (
