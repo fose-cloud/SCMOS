@@ -141,6 +141,21 @@ const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radiu
 const INK = "#333";
 
 /*
+ * The line a signature goes on, and the box it occupies.
+ *
+ * Written once because two different elements draw it: the officer's is an
+ * input, so that a receipt sent as a PDF can be typed on, and the driver's and
+ * the customer's are plain rules they sign by hand. An input carries a height
+ * of its own and a bare rule does not, so without one geometry the three
+ * columns of the signature block do not start on the same line.
+ *
+ * `box-sizing` is part of it rather than an afterthought: the height has to
+ * include the border, or the input and the div are a pixel apart again.
+ */
+const SIGN_LINE = `display:block;width:100%;height:15px;box-sizing:border-box;`
+  + `border:none;border-bottom:1px dotted ${INK};margin-bottom:5px`;
+
+/*
  * The document's type, taken off the seven signed copies rather than chosen.
  *
  * Every one of them embeds Tahoma and Tahoma-Bold, which is the font the Thai
@@ -719,18 +734,22 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
               way, because that is the line the paper form has. Nothing fills it
               from the job — naming who should sign is one act, signing is
               another, and SCMOS does the first only. */}
+          {/* One geometry for all three, whichever element draws it. Ours is an
+              input and has a height of its own; the other two were a one-pixel
+              rule, so the officer's column stood taller and its bracket and
+              caption sat a line below the two beside it. On a document that is
+              three columns of the same thing, that reads as a mistake. */}
           {english === OFFICER_SIGNATURE ? (
             <input
               className="sign-line"
               value={form.officerSigned}
               onChange={(e) => onField("officerSigned", e.target.value)}
               aria-label={`${thai} — ลายมือชื่อ`}
-              style={css(`width:100%;border:none;border-bottom:1px dotted ${INK};`
-                + `background:#F6F9FC;text-align:center;margin-bottom:4px;`
-                + `font-size:${BODY_PT};font-family:inherit;color:${INK};padding:0 0 1px;outline:none`)}
+              style={css(`${SIGN_LINE};background:#F6F9FC;text-align:center;`
+                + `font-size:${BODY_PT};font-family:inherit;color:${INK};padding:0;outline:none`)}
             />
           ) : (
-            <div style={css(`border-bottom:1px dotted ${INK};height:1px;margin-bottom:5px`)} />
+            <div style={css(`${SIGN_LINE};background:transparent`)} />
           )}
           <div style={css(`font-size:${BODY_PT};letter-spacing:.5px`)}>
             {english === OFFICER_SIGNATURE ? (
