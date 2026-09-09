@@ -120,6 +120,26 @@ jobs:
         github.ref == 'refs/heads/azure-dotnet-migration'
       )
 
+    # One deploy to the API App Service at a time. Two runs raced here on
+    # 2026-09-09 — two commits pushed minutes apart, both deploying at once —
+    # and the only reason production ended up correct is that the newer one
+    # happened to finish last. Had the order gone the other way, the App
+    # Service would be running the older build with nothing to say so.
+    #
+    # The group is deliberately not keyed on the branch or the event. There is
+    # one API App Service, and a workflow_dispatch and a push are two ways to
+    # reach the same one, so anything that deploys queues behind anything else
+    # that is deploying.
+    #
+    # cancel-in-progress is false because this job applies EF migrations and
+    # restarts the App Service. A superseded deploy is waste; a migration
+    # interrupted halfway is a schema nobody has a name for. Waiting is the
+    # cheaper mistake. GitHub keeps only the newest waiting run and drops the
+    # ones it passed, so a burst of pushes still ends on the newest build.
+    concurrency:
+      group: api-app-service
+      cancel-in-progress: false
+
     runs-on: ubuntu-latest
 
     environment: production
