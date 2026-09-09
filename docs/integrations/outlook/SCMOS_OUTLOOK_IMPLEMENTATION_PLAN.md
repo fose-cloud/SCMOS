@@ -345,7 +345,31 @@ The spec's own sequence, adjusted for the architecture:
 9. Persistence and deduplication
 10. Deterministic entity extraction — job code, container, booking, B/L ✅ (`EmailExtraction`)
 11. Matching, with the spec's confidence thresholds ✅ (`EmailMatching`)
-12. Inbox UI, then the detail page
+12. Inbox UI, then the detail page ✅ (`MailReview`, `MailEndpoints`,
+    `mailInbox.ts`, `Outlook.tsx`). One screen, master and detail, replacing the
+    placeholder that stood at Integrations → Outlook. It opens on what is
+    waiting, because that is the reason to visit it.
+
+    **Reading is `ViewMailbox = 1 << 19`**, held from Operation User upward and
+    deliberately not by the Subcontractor role — one shared mailbox holds our
+    correspondence with every haulier. **Deciding is `EditAnyJob`**, as section
+    3.2 said: confirming which job a message belongs to changes what the
+    register says about that job. Both bits of that are asserted in
+    `--check-capability`.
+
+    The message's status is *derived* from its links after every decision
+    rather than nudged, so the badge, the list and the page cannot disagree.
+    The identifiers the extractor read are shown beside the suggestion, because
+    the first thing anybody checks is whether the number the machine matched on
+    is the number in front of them.
+
+    Two faults were found by running it that no pure check could have. The list
+    answered 500 because a non-nullable `int` from the query string is required
+    in a minimal API, so a caller wanting the first page was refused. And
+    confirming a suggestion left the message in the waiting list with a
+    confirmed link on it: the status query ran before the save and read the row
+    it was about to change, so the message still carried the SUGGESTED it had a
+    moment earlier.
 13. Attachments to Blob
 
 AI classification is Phase 2 and is not in this plan.
@@ -394,7 +418,8 @@ is a change to the specification's numbers, so it is left as a question.
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
 | **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
-Steps 1, 2, 3, 4, 5, 6, 7, 8, 10 and 11 are done and none of them needed any of the above.
+Steps 1 to 12 are done; only 13 — attachments to Blob — is left, and none of
+them needed any of the above.
 
 That table lost a row on 2026-09-09. "How does Graph reach the webhook past
 Easy Auth" was carried as a blocker from the first draft and was never

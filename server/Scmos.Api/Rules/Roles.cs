@@ -115,6 +115,32 @@ public enum Capability
     AdministerMailbox = 1 << 20,
 
     /// <summary>
+    /// Read the Communication Center — the shared mailbox, and which job each
+    /// message is about.
+    ///
+    /// <para>
+    /// Held from Operation User upward. The mail in question is arrival notices
+    /// and delivery queries about the jobs those operators are already working,
+    /// and a screen that showed them a message they may not read would be a
+    /// screen they have to ask somebody else about.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Deliberately not the Subcontractor role.</b> That account belongs to a
+    /// carrier, and one shared mailbox holds our correspondence with all of
+    /// them — a carrier reading it would be reading seventeen competitors' mail,
+    /// which is the same reason they cannot see the rate book.
+    /// </para>
+    ///
+    /// <para>
+    /// Reading is this; <b>acting</b> is not. Confirming or rejecting which job
+    /// a message belongs to is <see cref="EditAnyJob"/>, because it changes what
+    /// the register says about a job rather than what somebody can see.
+    /// </para>
+    /// </summary>
+    ViewMailbox = 1 << 19,
+
+    /// <summary>
     /// Keep the training register, and go past its refusal when the day
     /// requires it.
     ///
@@ -169,7 +195,8 @@ public static class Roles
      */
     private const Capability OperationGrants =
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
-        | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet;
+        | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet
+        | Capability.ViewMailbox;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar

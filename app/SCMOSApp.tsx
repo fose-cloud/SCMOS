@@ -10,6 +10,7 @@ import { buildDb, type Ship } from "./scmos/demo";
 import { ACCOUNTS, CARRIER_SCREENS, HEADINGS, META, opIdForName, SCREENS_WITH_FILTERS, SUB_NAV, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { categoryForNewRow } from "./scmos/newRowCategory";
+import { ALL_DASHBOARD_FILTERS, filterDashboardJobs } from "./scmos/dashboardFilters";
 import { bookingStats } from "./scmos/booking";
 import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
@@ -99,6 +100,7 @@ import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
 import { Training } from "./scmos/screens/Training";
+import { Outlook } from "./scmos/screens/Outlook";
 import { Login } from "./scmos/overlays/Login";
 import { APP_VERSION } from "./scmos/version";
 import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toast, type Field, type StoredDoc } from "./scmos/overlays/Overlays";
@@ -202,6 +204,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const [f, setF] = useState<Filters>(EMPTY_FILTERS);
   /** Day / month / year the dashboard reports on. */
   const [period, setPeriod] = useState<Period>(ALL_PERIOD);
+  const [dashboardFilters, setDashboardFilters] = useState(ALL_DASHBOARD_FILTERS);
   const [sel, setSel] = useState<number | null>(null);
   /**
    * A real job for the shipment monitor to open on arrival.
@@ -856,6 +859,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     () => filterPeriod(ops?.jobs ?? [], period),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [ops, period, revision],
+  );
+
+  const dashboardJobs = useMemo(
+    () => filterDashboardJobs(periodJobs, dashboardFilters),
+    [periodJobs, dashboardFilters],
   );
 
   const searchGroups = useMemo(
@@ -1993,7 +2001,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   /** Writes the dashboard itself — one sheet per panel — not just a row dump. */
   function handleDashboardExport() {
     // Exports what the screen is showing, period and all.
-    const jobs = periodJobs;
+    const jobs = dashboardJobs;
     if (!jobs.length) { setToast("ยังไม่มีข้อมูลงานให้ส่งออก"); return; }
     try {
       const scope = activeTab.replace(/\s+/g, "") + "_" + periodLabel(period).replace(/\s+/g, "-");
@@ -2672,7 +2680,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
             {screen === "dashboard" && activeTab !== "TODAY" && (
               <Dashboard filtered={filtered}
-                jobs={periodJobs}
+                jobs={dashboardJobs}
+                filters={dashboardFilters}
+                onFilters={setDashboardFilters}
                 allJobs={ops?.jobs ?? []}
                 period={period}
                 onPeriod={setPeriod}
@@ -2681,7 +2691,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 tab={activeTab}
                 // Every figure on the dashboard is a way into the workspace:
                 // clicking one lands on the same jobs it counted.
-                onDrill={openTarget}
+                onDrill={(target) => {
+                  openTarget(target);
+                  setWs(prev => ({ ...prev, cust: dashboardFilters.customer, trucker: dashboardFilters.trucker,
+                    year: period.year, month: period.month,
+                    date: target.date ?? (period.day === "ALL" ? "ALL" : [...new Set(dashboardJobs.map(job => job.date))].join("|")) }));
+                }}
                 onOpenKpi={() => go("kpi")}
               />
             )}
@@ -2810,7 +2825,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {/* One screen, three systems. `systemById` is the only thing that
                 decides which — a screen id with no definition renders nothing
                 rather than an empty frame pretending to be a page. */}
-            {screen !== "line" && systemById(screen) && <ExternalSystemScreen system={systemById(screen)!} />}
+            {/* Two of the four "integrations" screens are real now and draw
+                themselves; the placeholder is what the other two still are. */}
+            {screen !== "line" && screen !== "outlook" && systemById(screen)
+              && <ExternalSystemScreen system={systemById(screen)!} />}
+            {screen === "outlook" && (
+              <Outlook canDecide={able("EditAnyJob")} onToast={setToast} />
+            )}
             {screen === "oilrate" && <OilRate canEdit={able("EditRates")} onToast={setToast} />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (

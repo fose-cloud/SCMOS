@@ -121,6 +121,30 @@ public static class CapabilityCheck
         failed += Holds("Administrators", Capability.AdministerMailbox, false);
 
         /*
+         * Reading the shared mailbox is the operators' work; the carrier's
+         * account must never be near it.
+         *
+         * One mailbox holds our correspondence with every haulier, so a
+         * Subcontractor account with this flag would be reading seventeen
+         * competitors' mail — the same reason that role cannot see the rate
+         * book, and the same way it would arrive: by being added to a grant
+         * that already contained the thing next to it.
+         */
+        Console.WriteLine();
+        Console.WriteLine("The shared mailbox is the operators', and never a carrier's.");
+        Console.WriteLine();
+        failed += Holds(Roles.Operation, Capability.ViewMailbox, true);
+        failed += Holds(Roles.Supervisor, Capability.ViewMailbox, true);
+        failed += Holds(Roles.Manager, Capability.ViewMailbox, true);
+        failed += Holds(Roles.Admin, Capability.ViewMailbox, true);
+        failed += Holds(Roles.Subcontractor, Capability.ViewMailbox, false);
+        failed += Holds(Roles.Viewer, Capability.ViewMailbox, false);
+        // Reading is one permission; saying which job a message belongs to is
+        // another, and Operation User does not hold the second.
+        failed += Holds(Roles.Operation, Capability.EditAnyJob, false);
+        failed += Holds(Roles.Supervisor, Capability.EditAnyJob, true);
+
+        /*
          * The screen's list and this enum are the same list written twice.
          *
          * The map in Administration.tsx already carries a comment saying two
