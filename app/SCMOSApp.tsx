@@ -533,7 +533,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   // ---- derived -----------------------------------------------------------
   const isDetail = sel !== null;
   const metaKey = isDetail ? "detail" : screen;
-  const meta = META[metaKey] || ["", ""];
+  const meta = META[metaKey] ?? "";
 
   // The header search is a launcher now, not a filter: it opens the record where
   // it lives instead of quietly narrowing whatever table happens to be on screen.
@@ -1467,7 +1467,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   ];
 
   // ---- document store ----------------------------------------------------
-  const moduleLabel = (META[screen] || ["Module"])[0];
+  const moduleLabel = META[screen] || "Module";
   let recordLabel = "General / module level";
   if (drawer && ops) {
     const j = ops.jobs.find((x) => x.key === drawer);
@@ -2568,10 +2568,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         alertCount={String(alerts.length)}
         alertTone={criticalAlerts ? "red" : alerts.length ? "amber" : "blue"}
         onToggleNotif={() => { setNotif((v) => !v); setProfileOpen(false); }}
-        crumb={(isDetail && selectedShip ? "SCMOS / " + (META[screen]?.[0] ?? "") + " / " + selectedShip.abs
-          : "SCMOS / " + meta[0]).toUpperCase()}
-        title={meta[0]}
-        titleTh={meta[1]}
+        crumb={(isDetail && selectedShip ? "SCMOS / " + (META[screen] ?? "") + " / " + selectedShip.abs
+          : "SCMOS / " + meta).toUpperCase()}
+        title={meta}
         actions={actions}
         tabs={tabs}
         // Only while the workspace is actually drawing, because only then is

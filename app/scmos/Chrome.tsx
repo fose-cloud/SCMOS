@@ -88,7 +88,6 @@ type Props = {
   onToggleNotif: () => void;
   crumb: string;
   title: string;
-  titleTh: string;
   actions: HeaderAction[];
   tabs: TabItem[];
   /**
@@ -506,7 +505,6 @@ export function Chrome(p: Props) {
                 <div style={css("display:flex;align-items:baseline;gap:12px;flex-wrap:wrap")}>
                   <h1 style={css("margin:0;font-weight:600;color:#0A2240;letter-spacing:-.01em;font-size:"
                     + (p.lockScroll ? "17px" : "22px"))}>{p.title}</h1>
-                  <span style={css("color:#64748B;font-weight:400;font-size:" + (p.lockScroll ? "12.5px" : "14px"))}>{p.titleTh}</span>
                   {p.lockScroll && (
                     <span style={css("font-size:10.5px;color:#A6B4C2;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace")}>
                       {p.crumb}
@@ -521,8 +519,18 @@ export function Chrome(p: Props) {
                 grid — so the one place you would want to import from was the
                 one place they were not.
               */}
+              {/*
+                Pushed down to the title's line, not the top of the column.
+
+                The column above them is two lines — the breadcrumb, then the
+                title — so the actions clear the breadcrumb's 14px line and its
+                5px margin, then centre themselves on the 29px the title
+                occupies. It was 10px, which left every export and import
+                button riding a few pixels above the heading it belongs to; on
+                a screen shown to the customer that reads as a slip.
+              */}
               {!p.lockScroll && (
-                <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:10px")}>
+                <div className="page-actions" style={css("display:flex;gap:8px;align-items:center;padding-top:17px")}>
                   {p.actions.map((a) => (
                     <button key={a.label} title={a.title} onClick={a.go} style={css(a.style)}>{a.label}</button>
                   ))}

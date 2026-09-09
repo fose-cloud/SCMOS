@@ -161,60 +161,68 @@ export const ALL_NAV: [Screen, string, string, number[][]][] = [
 ];
 
 /**
- * [title, Thai title] keyed by screen (plus the shipment drill-down).
+ * The heading of each screen (plus the shipment drill-down). One line.
  *
- * There was a third entry, a paragraph drawn under the heading of every screen
- * saying what the screen was for. It is gone, on every screen rather than the
- * five that were pointed at one at a time.
+ * It used to be three: the name, the same name in Thai, and a paragraph saying
+ * what the screen was for. Both of the others are gone, on every screen rather
+ * than the handful that were pointed at one at a time.
  *
  * A dashboard that explains itself in a paragraph is not reading as one, and
  * the same is true of a KPI page and an issues log: the figures are the point,
  * and prose above them is the first thing a room full of people has to scroll
- * past. Where a blurb carried a rule anybody actually needs — the four days a
+ * past. The Thai name went with it — a heading said twice is still a heading
+ * said twice, and the menu the reader arrived through already carries it.
+ *
+ * Where a blurb carried a rule anybody actually needs — the four days a
  * supplier invoice has, the 50% on a return leg — the rule lives in the code
  * that enforces it and on the screen that applies it, not in a caption.
+ *
+ * One screen is headed in Thai: the carrier portal, whose heading was already
+ * the Thai one with the English beneath it. Whichever language a screen's h1
+ * was in is the one that stays. Searching for a screen by its Thai name is
+ * unaffected — that reads ALL_NAV, the menu's own labels, not this.
  */
-export const META: Record<string, [string, string]> = {
-  dashboard: ["Executive & Operational Dashboard", "ภาพรวมการปฏิบัติงาน"],
-  myjob: ["Operation Workspace", "พื้นที่ทำงานฝ่ายปฏิบัติการ"],
-  rotation: ["Job Rotation", "ความรับผิดชอบลูกค้าของแต่ละคน"],
-  issues: ["Operational Issues", "บันทึกปัญหาประจำวัน"],
-  chemours: ["The Chemours", "งานกระจายสินค้า ค่าขนส่ง และใบรับ-ส่งสินค้า"],
-  postpone: ["Postpone / Cancel", "งานที่เลื่อนวันและงานที่ยกเลิก"],
-  detail: ["Shipment Detail", "รายละเอียดงานขนส่ง"],
-  booking: ["Truck Booking", "การจองรถบรรทุก"],
-  prerun: ["Pre-Run Check", "ตรวจก่อนออกงาน"],
-  subcontractors: ["Subcontractor Master", "ทะเบียนผู้รับเหมาช่วง"],
-  capacity: ["Capacity Planning", "การวางแผนกำลังรถ"],
-  rates: ["Transportation Rate Management", "การจัดการอัตราค่าขนส่ง"],
-  billing: ["Billing Control", "การควบคุมการวางบิล"],
-  oilrate: ["Oil Rate", "เรทน้ำมัน"],
-  monitoring: ["Shipment Monitoring", "ติดตามการขนส่ง"],
-  kpi: ["Operational KPI", "ตัวชี้วัดการปฏิบัติงาน"],
-  carpar: ["CAR / PAR Management", "การจัดการ CAR / PAR"],
-  incident: ["Incident & CAR / PAR", "เหตุผิดปกติและการแก้ไข"],
-  audit: ["Audit Trail", "ประวัติการใช้งาน"],
-  ai: ["SCMOS AI Control Tower", "ศูนย์ควบคุมงานและ AI"],
-  assistant: ["AI Assistant", "ผู้ช่วย AI"],
-  vendor: ["Add New Vendor", "เพิ่มผู้ขนส่งใหม่"],
-  evaluation: ["Annual Evaluation", "ประเมินผู้ขนส่งประจำปี"],
-  quotation: ["Rate Quotation", "ขอใบเสนอราคา"],
-  documents: ["Document Register", "ทะเบียนเอกสาร"],
-  reports: ["Management Reports", "รายงานผู้บริหาร"],
-  partners: ["Subcontractor", "ผู้รับเหมาช่วง"],
-  commercial: ["Rate & Billing", "ราคาและการวางบิล"],
-  quality: ["Incident & CAR/PAR", "คุณภาพและข้อบกพร่อง"],
-  training: ["Customer Training Control", "การอบรมพนักงานขับรถ"],
-  carrier: ["งานของบริษัท", "Carrier Portal"],
-  loreal: ["L'OREAL Truck Report", "รายงานรถลูกค้า L'OREAL"],
+export const META: Record<string, string> = {
+  dashboard: "Executive & Operational Dashboard",
+  myjob: "Operation Workspace",
+  rotation: "Job Rotation",
+  issues: "Operational Issues",
+  chemours: "The Chemours",
+  postpone: "Postpone / Cancel",
+  detail: "Shipment Detail",
+  booking: "Truck Booking",
+  prerun: "Pre-Run Check",
+  subcontractors: "Subcontractor Master",
+  capacity: "Capacity Planning",
+  rates: "Transportation Rate Management",
+  billing: "Billing Control",
+  oilrate: "Oil Rate",
+  monitoring: "Shipment Monitoring",
+  kpi: "Operational KPI",
+  carpar: "CAR / PAR Management",
+  incident: "Incident & CAR / PAR",
+  audit: "Audit Trail",
+  ai: "SCMOS AI Control Tower",
+  assistant: "AI Assistant",
+  vendor: "Add New Vendor",
+  evaluation: "Annual Evaluation",
+  quotation: "Rate Quotation",
+  documents: "Document Register",
+  reports: "Management Reports",
+  partners: "Subcontractor",
+  commercial: "Rate & Billing",
+  quality: "Incident & CAR/PAR",
+  training: "Customer Training Control",
+  carrier: "งานของบริษัท",
+  loreal: "L'OREAL Truck Report",
   // The four integration screens say what they are waiting for themselves,
   // from externalSystems.ts; these are only the page headings above them.
-  integrations: ["Integrations", "เชื่อมต่อระบบ"],
-  abs: ["ABS", "ระบบ ABS"],
-  ccs: ["CCS", "ระบบพิธีการศุลกากร"],
-  outlook: ["Outlook", "ศูนย์รวมอีเมล"],
-  line: ["LINE", "อัปเดตงานผ่าน LINE"],
-  admin: ["Administration", "การดูแลระบบ"],
+  integrations: "Integrations",
+  abs: "ABS",
+  ccs: "CCS",
+  outlook: "Outlook",
+  line: "LINE",
+  admin: "Administration",
 };
 
 export const TAB_DEFS: Record<string, string[]> = {
