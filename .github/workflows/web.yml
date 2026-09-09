@@ -79,6 +79,26 @@ jobs:
   deploy:
     needs: build
     if: github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+
+    # One deploy per slot at a time. The same guard api.yml gained after two of
+    # its runs raced, with one difference: this one is keyed on the slot,
+    # because that is what the job actually targets. Two deploys to the same
+    # slot overwrite each other; a staging deploy and a production one are
+    # different endpoints and have no reason to wait for one another.
+    #
+    # The slot expression is repeated from the env block below rather than read
+    # from it — concurrency is evaluated before a job's env exists, so `SLOT`
+    # is not available here.
+    #
+    # cancel-in-progress is false for the reason it is false in api.yml, minus
+    # the migrations: this job replaces the running package, and a package
+    # deploy interrupted halfway is the failure this project has actually
+    # shipped — /api answering 500 with a BadImageFormatException until
+    # somebody restarts it. Better to wait than to be the one who caused it.
+    concurrency:
+      group: web-app-service-${{ github.event_name == 'push' && 'production' || inputs.slot }}
+      cancel-in-progress: false
+
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
     permissions:
