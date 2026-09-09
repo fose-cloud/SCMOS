@@ -9,6 +9,7 @@ import { DataTable } from "./scmos/DataTable";
 import { buildDb, type Ship } from "./scmos/demo";
 import { ACCOUNTS, CARRIER_SCREENS, HEADINGS, META, opIdForName, SCREENS_WITH_FILTERS, SUB_NAV, TAB_DEFS, type Account, type Screen } from "./scmos/nav";
 import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
+import { categoryForNewRow } from "./scmos/newRowCategory";
 import { bookingStats } from "./scmos/booking";
 import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
@@ -2211,8 +2212,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     }
 
     // The category the grid is already showing, so the row lands in the section
-    // the person is looking at rather than a different one.
-    const cat = ws.cat !== "ALL" ? ws.cat : "IMPORT";
+    // the person is looking at rather than a different one — and, before that,
+    // the one the grid is locked to. This read the filter alone, which on The
+    // Chemours' domestic grid is always "ALL" because that grid hides the
+    // filter chips: a row inserted there was created as an IMPORT job and
+    // surfaced under Import in My Job, with nothing on the Chemours screen to
+    // show where it had gone. Every other reader of this grid already asks for
+    // `lockedCat ?? ws.cat`; this was the one that did not.
+    const cat = categoryForNewRow(lockedCat, ws.cat);
     const key = "N" + Date.now();
     /*
      * No date, and every other field blank with it.
