@@ -245,7 +245,29 @@ The spec's own sequence, adjusted for the architecture:
    than at the parser. And **`@odata.nextLink` is checked before it is
    followed**, because following it attaches the bearer token to whatever host
    it names.
-6. Subscription create / renew / delete + the renewal loop
+6. Subscription create / renew / delete + the renewal loop ✅
+   (`GraphSubscriptions`, `GraphSubscriptionService`, `GraphSubscriptionScheduler`).
+   Hourly, the `ReportScheduler` shape: renew anything inside a
+   twenty-four-hour window, recreate anything already gone, and say why when it
+   can do neither.
+
+   **The clock is believed over the row.** Graph never says it has stopped, so
+   a subscription still marked ACTIVE goes on claiming to be active long after
+   it is not — and a mailbox that has quietly stopped being read looks exactly
+   like a mailbox nobody has written to. Expiry is checked before status for
+   that reason, and `--check-subscriptions` walks a clock past every case.
+
+   One app setting, `Graph__WebhookBase`. The two paths are constants, so a
+   path cannot be mistyped into a portal — `/api/integrations/graph/notify` and
+   `/api/integrations/graph/lifecycle`, which step 7 must answer. The scheduler
+   is only registered once that setting exists, so a deployment without it runs
+   no loop at all.
+
+   **Creating a subscription will fail until step 7 exists**, because Graph
+   calls the notification URL during the create and wants the
+   `validationToken` back within ten seconds. That 400 is reported as a
+   sentence naming the handshake and the Easy Auth exclusion rather than as a
+   status code.
 7. Webhook + validationToken + clientState + Easy Auth exclusion
 8. The worker
 9. Persistence and deduplication
@@ -301,7 +323,7 @@ is a change to the specification's numbers, so it is left as a question.
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
 | **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
-Steps 1, 2, 3, 4, 5, 10 and 11 are done and none of them needed any of the above.
+Steps 1, 2, 3, 4, 5, 6, 10 and 11 are done and none of them needed any of the above.
 
 **Step 4 is the one to run first** once the grant is made. `POST
 /api/integrations/graph/test` will say which of the two remaining rows is still

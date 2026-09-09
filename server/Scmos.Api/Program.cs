@@ -101,6 +101,16 @@ builder.Services.AddScoped<StaffService>();
 builder.Services.AddHttpClient(GraphAuth.ClientName);
 builder.Services.AddSingleton<GraphAuth>();
 builder.Services.AddScoped<GraphMailReader>();
+builder.Services.AddScoped<GraphSubscriptionService>();
+// Graph expires a mail subscription in under three days and stops delivering
+// without saying so, so something has to renew them. Registered only once
+// somebody has said where the webhook is, for the reason the LINE worker is
+// registered conditionally: otherwise every deployment runs an hourly loop
+// against a table that will always be empty.
+if (!string.IsNullOrWhiteSpace(builder.Configuration[GraphSubscriptionService.WebhookBaseKey]))
+{
+    builder.Services.AddHostedService<GraphSubscriptionScheduler>();
+}
 // A short timeout on purpose. This sits behind a button somebody presses while
 // typing a quotation; ten seconds of nothing and they should be told to type
 // the distance themselves rather than watch a spinner.
@@ -190,6 +200,7 @@ if (LineParserCheck.Run(args) is int lineExit) return lineExit;
 if (EmailExtractionCheck.Run(args) is int emailExit) return emailExit;
 if (GraphAuthCheck.Run(args) is int graphExit) return graphExit;
 if (GraphMessagesCheck.Run(args) is int messagesExit) return messagesExit;
+if (GraphSubscriptionsCheck.Run(args) is int subscriptionsExit) return subscriptionsExit;
 
 if (args.Contains("--seed"))
 {
