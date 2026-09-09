@@ -77,6 +77,7 @@ const CAPABILITY_TH: Record<string, string> = {
   ManageTraining: "จัดการทะเบียนอบรมคนขับ",
   ApproveRetention: "อนุมัติการเก็บ/ทำลายเอกสาร",
   AdministerData: "จัดการผู้ใช้และข้อมูลทั้งระบบ",
+  AdministerMailbox: "เชื่อมต่อและทดสอบตู้จดหมาย Outlook",
 };
 
 export function Administration({ jobs, me, onToast }: {

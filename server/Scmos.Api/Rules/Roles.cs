@@ -94,6 +94,27 @@ public enum Capability
     AdministerData = 1 << 13,
 
     /// <summary>
+    /// Connect a shared mailbox and test what it can read.
+    ///
+    /// <para>
+    /// Administrator only, and deliberately not a supervisory grant. The
+    /// connection test returns the subject and sender of a real message so that
+    /// whoever is wiring it up can see they have reached the right mailbox —
+    /// which makes this the capability to read company mail, however narrow the
+    /// window. It sits beside <see cref="AdministerData"/> because it is the
+    /// same kind of act: pointing the system at something, not working in it.
+    /// </para>
+    ///
+    /// <para>
+    /// Bit 19 is left free for <c>ViewMailbox</c>, which the Communication
+    /// Center screen will need. It is not declared here because nothing asks it
+    /// yet, and a capability nothing asks is a capability that gets granted by
+    /// habit before anybody decides what it means.
+    /// </para>
+    /// </summary>
+    AdministerMailbox = 1 << 20,
+
+    /// <summary>
     /// Keep the training register, and go past its refusal when the day
     /// requires it.
     ///
@@ -167,7 +188,7 @@ public static class Roles
     public static readonly RoleDefinition[] All =
     [
         new(Admin, "Full System", "ดูแลระบบทั้งหมด",
-            ManagerGrants | Capability.AdministerData),
+            ManagerGrants | Capability.AdministerData | Capability.AdministerMailbox),
 
         new(Manager, "Department Overview", "ภาพรวมทั้งแผนก",
             ManagerGrants),

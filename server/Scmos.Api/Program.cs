@@ -286,6 +286,7 @@ app.MapAiFoundation();
 app.MapCustomerDocuments();
 app.MapDiesel();
 app.MapLine();
+app.MapGraph();
 
 await app.RunAsync();
 return 0;

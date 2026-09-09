@@ -96,11 +96,86 @@ public static class CapabilityCheck
         // An unrecognised role must not pick up the new flag either.
         failed += Holds("Operation Users", Capability.QuoteToSheet, false);
 
+        /*
+         * Reading a shared mailbox is an Administrator act.
+         *
+         * It went to Administrator alone rather than following ManagerGrants,
+         * because the mailbox connection test returns the subject and sender of
+         * a real message. Every role below reads company mail the moment this
+         * flag drifts down to them, and it would drift the way every other one
+         * nearly did: by being added to a grant that already contained the
+         * thing next to it.
+         */
+        Console.WriteLine();
+        Console.WriteLine("Connecting a mailbox is the Administrator's alone.");
+        Console.WriteLine();
+        failed += Holds(Roles.Admin, Capability.AdministerMailbox, true);
+        failed += Holds(Roles.Manager, Capability.AdministerMailbox, false);
+        failed += Holds(Roles.Supervisor, Capability.AdministerMailbox, false);
+        failed += Holds(Roles.Operation, Capability.AdministerMailbox, false);
+        // A carrier reading the shared mailbox would be reading every other
+        // carrier's correspondence with us.
+        failed += Holds(Roles.Subcontractor, Capability.AdministerMailbox, false);
+        failed += Holds(Roles.CustomerService, Capability.AdministerMailbox, false);
+        failed += Holds(Roles.Viewer, Capability.AdministerMailbox, false);
+        failed += Holds("Administrators", Capability.AdministerMailbox, false);
+
+        /*
+         * The screen's list and this enum are the same list written twice.
+         *
+         * The map in Administration.tsx already carries a comment saying two
+         * capabilities were once held by roles and shown by nothing, because
+         * the permission matrix renders that map's keys — so a capability
+         * missing from it is a permission the screen quietly denies having
+         * granted. That was found by hand. This finds it in CI.
+         */
+        Console.WriteLine();
+        Console.WriteLine("The permissions screen lists every capability there is.");
+        Console.WriteLine();
+
+        var screen = FindScreen();
+        if (screen is null)
+        {
+            failed++;
+            Console.WriteLine("  FAIL  could not find app/scmos/screens/Administration.tsx to check against");
+        }
+        else
+        {
+            var listed = File.ReadAllText(screen);
+            foreach (var name in Enum.GetNames<Capability>())
+            {
+                if (name == nameof(Capability.None)) continue;
+                // The key as the map writes it, so a name appearing only in a
+                // comment or a call elsewhere in the file does not count.
+                var ok = listed.Contains($"  {name}: \"", StringComparison.Ordinal);
+                if (!ok) failed++;
+                Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {name}");
+                if (!ok) Console.WriteLine("        Held by a role, shown by nothing — add it to CAPABILITY_LABELS.");
+            }
+        }
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "No capability is granted by accident."
             : $"{failed} problem(s) — a permission is being granted by accident.");
         return failed == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The permissions screen, found by walking up from the binary until the
+    /// repository root shows itself. Null when this is not running inside a
+    /// checkout, which the caller reports rather than skips — a check that goes
+    /// quiet when it cannot find its subject is not a check.
+    /// </summary>
+    private static string? FindScreen()
+    {
+        var here = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var up = 0; up < 8 && here is not null; up++, here = here.Parent)
+        {
+            var candidate = Path.Combine(here.FullName, "app", "scmos", "screens", "Administration.tsx");
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
     }
 
     private static int Holds(string role, Capability capability, bool want)

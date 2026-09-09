@@ -214,8 +214,24 @@ The spec's own sequence, adjusted for the architecture:
    (`GraphAuth`, `GraphMailboxes`, `GraphToken`). No client secret and no
    token cache — see section 4 for why both turned out to be unnecessary.
 4. **Mailbox connection test** — one endpoint that reads one message and reports
-   what came back. This is the step that proves sections 4 and 5 before any
-   pipeline exists, and it is where this work will actually get stuck.
+   what came back ✅ (`GraphEndpoints`, `GraphDiagnosis`). `GET
+   /api/integrations/graph/status` answers without touching a mailbox; `POST
+   /api/integrations/graph/test` reads the newest message in one approved
+   mailbox. Administrator only — `AdministerMailbox = 1 << 20`, which is also
+   the first capability added since the mail work began.
+
+   The reason this step exists is that **three faults return 403** — no
+   consent, no Exchange scope, wrong mailbox — and an administrator reading
+   "403 Forbidden" learns nothing. Reading the `roles` claim removes the first
+   before any call is made, so a 403 that arrives afterwards means the RBAC
+   scoping, and the answer names `New-ManagementRoleAssignment` rather than a
+   status code.
+
+   Verified locally as far as it can be without consent: both routes refuse an
+   anonymous caller, refuse an unknown account, refuse a Supervisor, answer an
+   Administrator, and refuse a mailbox that is not on the approved list
+   *before* a token is requested. The live Graph leg is what the two rows in
+   section 8 are blocking.
 5. Message retrieval
 6. Subscription create / renew / delete + the renewal loop
 7. Webhook + validationToken + clientState + Easy Auth exclusion
@@ -273,8 +289,9 @@ is a change to the specification's numbers, so it is left as a question.
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
 | **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
-Steps 1, 2, 3, 10 and 11 are done and none of them needed any of the above. What
-is left that is **not** blocked is small: step 4 can be written now and will
-simply report "no consent yet" until the grant is made, and steps 6–9 can be
-built against a mailbox that returns nothing. Everything that proves the
-integration actually works waits on the first two rows of this table.
+Steps 1, 2, 3, 4, 10 and 11 are done and none of them needed any of the above.
+
+**Step 4 is the one to run first** once the grant is made. `POST
+/api/integrations/graph/test` will say which of the two remaining rows is still
+in the way, in a sentence, rather than leaving somebody to read a 403. Until
+then it reports the fault it can already see.

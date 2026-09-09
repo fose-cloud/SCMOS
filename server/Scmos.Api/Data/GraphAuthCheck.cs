@@ -152,6 +152,78 @@ public static class GraphAuthCheck
         Check(everyPadding, "a payload of any length decodes — every base64url padding case");
 
         Console.WriteLine();
+        Console.WriteLine("What Graph's answer is turned into, for somebody who has to fix it.");
+        Console.WriteLine();
+
+        // The whole reason GraphDiagnosis exists. One status code, two
+        // completely different jobs to do about it, and the token is what tells
+        // them apart. Getting this backwards sends an administrator to grant a
+        // permission that was already granted.
+        var withoutConsent = GraphDiagnosis.ForStatus(403, consented: false);
+        Check(withoutConsent.Code == GraphDiagnosis.Code.NoConsent,
+            "403 without Mail.Read in the token is missing consent");
+
+        var withConsent = GraphDiagnosis.ForStatus(403, consented: true);
+        Check(withConsent.Code == GraphDiagnosis.Code.NotScoped,
+            "403 WITH Mail.Read in the token is Exchange scoping, not consent");
+
+        Check(withoutConsent.Code != withConsent.Code,
+            "so one status code gives two different answers, which is the point");
+
+        // Somebody reads this at the moment something is broken. It has to name
+        // what to do, not restate the number they already have.
+        Check(withConsent.Message.Contains("New-ManagementRoleAssignment"),
+            "and the scoping answer names the cmdlet that fixes it");
+
+        Check(GraphDiagnosis.ForStatus(200, true).Code == GraphDiagnosis.Code.Connected, "200 is connected");
+        Check(GraphDiagnosis.ForStatus(204, true).Ok, "so is any other 2xx");
+        Check(GraphDiagnosis.ForStatus(404, true).Code == GraphDiagnosis.Code.NotFound,
+            "404 is a mailbox Graph does not know");
+        Check(GraphDiagnosis.ForStatus(401, true).Code == GraphDiagnosis.Code.Rejected,
+            "401 is the identity, not the permission");
+        Check(GraphDiagnosis.ForStatus(429, true).Code == GraphDiagnosis.Code.Throttled,
+            "429 is throttling");
+        Check(GraphDiagnosis.ForStatus(500, true).Code == GraphDiagnosis.Code.GraphError,
+            "500 is Graph's own trouble");
+        Check(GraphDiagnosis.ForStatus(503, true).Code == GraphDiagnosis.Code.GraphError,
+            "and so is 503");
+
+        // Neither is a setting anybody should go and change.
+        Check(GraphDiagnosis.ForStatus(429, true).Message.Contains("ไม่ใช่ปัญหาการตั้งค่า"),
+            "throttling says plainly that nothing is misconfigured");
+        Check(GraphDiagnosis.ForStatus(503, true).Message.Contains("ไม่ใช่ปัญหาการตั้งค่า"),
+            "and so does an outage — nobody should re-grant a permission over either");
+
+        var odd = GraphDiagnosis.ForStatus(418, true);
+        Check(odd.Code == GraphDiagnosis.Code.Unexpected && odd.Message.Contains("418"),
+            "anything else is reported with the number it actually returned");
+
+        Console.WriteLine();
+        Console.WriteLine("And which of those count as working.");
+        Console.WriteLine();
+
+        // An empty mailbox is a working connection. Reporting it as a fault
+        // sends somebody to fix a permission on the day they connected a
+        // mailbox that simply has no mail in it yet.
+        Check(GraphDiagnosis.Empty.Ok, "a mailbox with nothing in it is still connected");
+        Check(GraphDiagnosis.Connected.Ok, "and so is one with a message");
+        Check(!GraphDiagnosis.NotApproved.Ok, "a mailbox off the approved list is not");
+        Check(!GraphDiagnosis.NoToken.Ok, "and neither is no token");
+
+        // Every branch has to say something. A blank message is a screen that
+        // reports a failure and no reason for it.
+        var everyStatus = new[] { 200, 201, 400, 401, 403, 404, 409, 429, 500, 502, 503, 418 };
+        var spoke = true;
+        foreach (var status in everyStatus)
+            foreach (var consented in new[] { true, false })
+            {
+                var finding = GraphDiagnosis.ForStatus(status, consented);
+                if (string.IsNullOrWhiteSpace(finding.Message) || string.IsNullOrWhiteSpace(finding.Code))
+                    spoke = false;
+            }
+        Check(spoke, "every status, consented or not, comes back with a code and a sentence");
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "All Graph authentication checks passed."
             : $"{failed} Graph authentication check(s) failed.");
