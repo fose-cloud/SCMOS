@@ -146,6 +146,7 @@ export class ControlError extends Error {
   constructor(code: string) { super(code); this.code = code; }
 }
 const ERRORS: Record<string, string> = {
+  second_factor_required: "นโยบายระบบกำหนดให้ Administrator เข้าสู่ระบบด้วยการยืนยันสองขั้นตอนก่อนเปลี่ยนสถานะ",
   control_unavailable: "ที่เก็บสวิตช์ยังไม่พร้อม ต้องติดตั้ง migration หรือกู้การเชื่อมต่อก่อน",
   control_conflict: "มีผู้เปลี่ยนสถานะแล้ว กรุณาตรวจสถานะล่าสุดก่อนลองใหม่",
   emergency_disabled: "เซิร์ฟเวอร์สั่งหยุดฉุกเฉินอยู่ จึงเปิดจากหน้านี้ไม่ได้",

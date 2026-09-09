@@ -24,6 +24,8 @@ The Dashboard overview and Operations answers do not necessarily share a data sc
 
 ## Interaction and safeguards
 
+The Administrator-only durable Operations switch, confirmation, emergency stop and release boundary are documented in [Operations AI switch](SCMOS_AI_OPERATIONS_CONTROL.md). The switch starts disabled and grants no write tools.
+
 - Prompt chips fill the input without submitting. Submit or Ctrl/Cmd+Enter sends one request; IME composition does not submit.
 - Maximum 4,000 characters. Only message, agentId and context.page leave this form. No role, owner, model, key or tool override fields.
 - In-flight submissions are guarded synchronously. No automatic POST retry on provider limits or failures.

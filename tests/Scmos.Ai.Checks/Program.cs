@@ -197,6 +197,12 @@ try
     users.User = op;
     Check((int)(await Switch("{}")).StatusCode == 403, "control HTTP: operator refused before body parsing");
     users.User = admin;
+    users.Refusal = "test policy requires MFA";
+    Check((int)(await Switch("{\"enabled\":true,\"revision\":0}")).StatusCode == 403,
+        "control HTTP: existing administrator MFA policy enforced before enabling");
+    Check((int)(await Switch("{\"enabled\":false,\"revision\":0}")).StatusCode == 403,
+        "control HTTP: existing administrator MFA policy enforced before disabling");
+    users.Refusal = null;
     Check((int)(await Switch("{}", false)).StatusCode == 400, "control HTTP: custom header required");
     foreach (var invalid in new[] { "{}", "null", "{\"enabled\":true}", "{\"revision\":0}", "{\"enabled\":false,\"revision\":-1}", "{\"enabled\":true,\"revision\":0,\"writeToolsEnabled\":true}" })
         Check((int)(await Switch(invalid)).StatusCode == 400, "control HTTP: invalid or expanded switch refused");
@@ -244,11 +250,12 @@ sealed class TestEnvironment : IHostEnvironment
 }
 sealed class TestUsers : IUserAccessor
 {
+    public string? Refusal { get; set; }
     public AppUser? User { get; set; }
     public AppUser? Current(HttpContext context) => User;
     public AppUser? Identity(HttpContext context) => User;
     public SignInPolicy Policy => SignInPolicy.Record;
-    public string? Refuses(AppUser user, Capability capability) => null;
+    public string? Refuses(AppUser user, Capability capability) => Refusal;
 }
 sealed class StubProvider(Func<AiProviderRequest, CancellationToken, Task<AiProviderResult>> complete) : IAiProvider
 {

@@ -64,6 +64,13 @@ try {
   await expect(ask()).toBeDisabled();
   assert.equal((await inspect()).calls.filter(c => c.path === "/api/ai/chat").length, 0);
   await page.screenshot({ path: "outputs/ai-qa/operations-switch-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await toggle().click();
+  await expect(tower.getByRole("button", { name: "ยืนยัน", exact: true })).toBeVisible();
+  assert.ok(await tower.evaluate(element => element.scrollWidth <= element.clientWidth), "switch confirmation fits mobile");
+  await page.screenshot({ path: "outputs/ai-qa/operations-switch-mobile.png", fullPage: true });
+  await tower.getByRole("button", { name: "ยกเลิก", exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 1000 });
   pass("Operations switch: explicit confirm/cancel, persistence, disable, no automatic chat");
   await load("control-unready");
   await expect(toggle()).toBeDisabled();

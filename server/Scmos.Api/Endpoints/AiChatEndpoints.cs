@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Scmos.Api.Ai;
 using Scmos.Api.Auth;
 using Scmos.Api.Services;
+using Scmos.Api.Rules;
 
 namespace Scmos.Api.Endpoints;
 
@@ -22,6 +23,8 @@ public static class AiChatEndpoints
             var user = users.Current(context);
             if (!AiPermissionPolicy.Authenticated(user)) return ApiResults.SignInRequired;
             if (!OperationsControlService.CanManage(user)) return ApiResults.Error("Administrator only", 403);
+            if (users.Refuses(user!, Capability.AdministerData) is not null)
+                return Results.Json(new { code = "second_factor_required", error = "Second-factor sign-in required" }, statusCode: 403);
             if (!context.Request.HasJsonContentType()) return ApiResults.Error("Expected application/json", 415);
             // Required custom header cannot be sent by a cross-site HTML form.
             if (context.Request.Headers["X-SCMOS-AI-Control"] != "1") return ApiResults.Error("Invalid control request", 400);
