@@ -132,7 +132,11 @@ test("the html flavour carries a heading row, so a mail renders it as a table", 
   const { html } = copyBlockPayload([["A", "1"]], ["Name", "Qty"]);
   assert.match(html, /<thead>/);
   assert.match(html, /<th[^>]*>.*Name.*<\/th>/);
-  assert.match(html, /<td[^>]*>1<\/td>/);
+  // The value is inside the cell, wrapped rather than bare: Outlook renders
+  // through Word, which will not carry a font down from the table into a cell's
+  // text, so every value now sits in a span that names the face. What matters
+  // here is that it is in a td at all.
+  assert.match(html, /<td[^>]*>.*>1<.*<\/td>/);
 });
 
 test("a value that looks like markup is escaped, not rendered", () => {

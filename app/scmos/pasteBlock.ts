@@ -189,17 +189,24 @@ export function copyBlockPayload(lines: string[][], heads: string[] | null) {
     // to be bold. `bgcolor` and a `color` on the cell as well as the style:
     // Outlook and Excel each drop one or other of them, and a white word on a
     // white cell is worse than no colour at all.
-    const style = "border:1px solid " + (head ? HEAD_BG : "#D8E0E8") + ";padding:4px 9px;text-align:left"
+    //
+    // The font is repeated for the same reason, and it is repeated twice.
+    // Outlook renders HTML through Word, which does not carry a face down from
+    // the <table> element into the text inside a cell — a table pasted into a
+    // new mail came out in Calibri 11, the message's own default, with the
+    // table-level rule ignored entirely. So it goes on every cell and again on
+    // a span around the value. Verbose, and the only version that survives.
+    const style = "border:1px solid " + (head ? HEAD_BG : "#D8E0E8") + `;padding:4px 9px;text-align:left;${COPY_FONT_CSS}`
       + (head ? `;background-color:${HEAD_BG};color:${HEAD_FG};font-weight:600` : "");
     const attrs = head ? ` bgcolor="${HEAD_BG}"` : "";
+    const text = esc(value) || "&nbsp;";
     const inner = head
-      ? `<font color="${HEAD_FG}">${esc(value) || "&nbsp;"}</font>`
-      : (esc(value) || "&nbsp;");
+      ? `<span style="${COPY_FONT_CSS};color:${HEAD_FG};font-weight:600"><font color="${HEAD_FG}">${text}</font></span>`
+      : `<span style="${COPY_FONT_CSS}">${text}</span>`;
     return `<${tag}${attrs} style="${style}">${inner}</${tag}>`;
   };
-  // The same face and size the grid is drawn in, from the same constant. These
-  // were a different face at a different size, so a table pasted into a mail
-  // looked nothing like the table it was copied from.
+  // Kept on the table as well. Word ignores it, but the clients that do read it
+  // are the ones where a single rule is the tidier answer.
   const html = `<table style="border-collapse:collapse;${COPY_FONT_CSS}">`
     + (heads ? `<thead><tr>${heads.map((h) => box(h, true)).join("")}</tr></thead>` : "")
     + `<tbody>${lines.map((line) => `<tr>${line.map((v) => box(v, false)).join("")}</tr>`).join("")}</tbody>`
