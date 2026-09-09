@@ -219,8 +219,19 @@ export function ZoomBox({ children, height, capped = true, zoomable = true }: {
    * scrolls. Two scrollbars for one list is worse than the problem the cap was
    * added to fix.
    *
-   * Only pass false when the lists are short enough to read whole. A capped box
-   * is still the right answer for anything that could run to hundreds of rows.
+   * False for the whole of KPI, at the department's request: they read that
+   * page in full rather than a window at a time, and a scrollbar inside a page
+   * that already scrolls hid the bottom of the scorecard. It is safe there
+   * because the cap's own reason has gone with the zoom — a capped box exists
+   * so the controls on its bottom edge stay reachable, and with `zoomable`
+   * false there is no control on that edge to keep. What is left is the
+   * sideways scrollbar, which on an uncapped box sits at the foot of the table
+   * rather than the foot of the window; a wide table is still dragged sideways
+   * over the rows themselves.
+   *
+   * Otherwise only pass false when the lists are short enough to read whole. A
+   * capped box is still the right answer for anything that could run to
+   * hundreds of rows.
    */
   capped?: boolean;
   /**
