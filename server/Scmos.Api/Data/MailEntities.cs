@@ -68,10 +68,18 @@ public class Mailbox
 ///
 /// <para>
 /// The body is stored because the extractor reads it and because a person
-/// reviewing a link has to see what it was read from. It is stored as text and
-/// as HTML where Graph gives both: the text is what rules run over, the HTML is
-/// what a person is shown, and deriving one from the other in either direction
-/// loses something.
+/// reviewing a link has to see what it was read from. Two columns, because the
+/// text is what rules run over and the HTML is what a person is shown, and
+/// deriving one from the other in either direction loses something.
+/// </para>
+///
+/// <para>
+/// <b>Graph gives one at a time, not both.</b> The pipeline asks for text —
+/// <c>Prefer: outlook.body-content-type="text"</c> — because an extractor
+/// handed markup reads container numbers with tags in the middle of them. So
+/// <see cref="BodyHtml"/> is empty on arrival and filled when somebody actually
+/// opens the message, which is also the only time it is worth a second call:
+/// most mail that arrives here is never read by a person at all.
 /// </para>
 /// </summary>
 public class Email
@@ -102,7 +110,7 @@ public class Email
     /// <summary>The plain text the extractor reads.</summary>
     public string BodyText { get; set; } = "";
 
-    /// <summary>The HTML a person is shown. Empty when Graph gave only text.</summary>
+    /// <summary>The HTML a person is shown. Empty until somebody opens the message.</summary>
     public string BodyHtml { get; set; } = "";
 
     /// <summary>When the sender sent it, and when it reached the mailbox.</summary>
@@ -288,6 +296,41 @@ public class GraphSubscription
     public string Status { get; set; } = MailSubscription.Active;
 
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+/// <summary>
+/// How wide the mail columns are.
+///
+/// <para>
+/// Here rather than as literals in the model, because two places need the same
+/// numbers: the database, and the parser that has to cut a value down before it
+/// gets there. Graph will hand back a subject longer than any column — a
+/// forwarded thread carries every previous subject — and a value one character
+/// too long does not fail at the parser, it fails at <c>SaveChanges</c>, after
+/// the message has been fetched and the work done.
+/// </para>
+///
+/// <para>
+/// Written twice, they would eventually differ, and the symptom would be a
+/// mailbox that stops taking mail on the day somebody sends a long enough
+/// subject line.
+/// </para>
+/// </summary>
+public static class MailText
+{
+    /// <summary>An email address. 320 is the RFC maximum: 64 local, @, 255 domain.</summary>
+    public const int Address = 320;
+
+    /// <summary>A person's display name as the mail client wrote it.</summary>
+    public const int PersonName = 200;
+
+    public const int Subject = 500;
+
+    /// <summary>Graph's own identifiers — message, conversation, attachment.</summary>
+    public const int GraphId = 255;
+
+    public const int FileName = 400;
+    public const int ContentType = 200;
 }
 
 /// <summary>Where a message has got to. The same ladder the LINE queue uses.</summary>

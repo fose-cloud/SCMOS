@@ -246,8 +246,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.ToTable("mailboxes");
             entry.HasKey(e => e.Id);
             entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
-            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(320);
-            entry.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(MailText.Address);
+            entry.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(MailText.PersonName).HasDefaultValue("");
             entry.Property(e => e.GraphUserId).HasColumnName("graph_user_id").HasMaxLength(64).HasDefaultValue("");
             entry.Property(e => e.FolderId).HasColumnName("folder_id").HasMaxLength(200).HasDefaultValue("");
             entry.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(false);
@@ -265,12 +265,12 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasKey(e => e.Id);
             entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entry.Property(e => e.MailboxId).HasColumnName("mailbox_id");
-            entry.Property(e => e.GraphMessageId).HasColumnName("graph_message_id").HasMaxLength(255);
-            entry.Property(e => e.ConversationId).HasColumnName("conversation_id").HasMaxLength(255).HasDefaultValue("");
-            entry.Property(e => e.InternetMessageId).HasColumnName("internet_message_id").HasMaxLength(255).HasDefaultValue("");
-            entry.Property(e => e.Subject).HasColumnName("subject").HasMaxLength(500).HasDefaultValue("");
-            entry.Property(e => e.FromAddress).HasColumnName("from_address").HasMaxLength(320).HasDefaultValue("");
-            entry.Property(e => e.FromName).HasColumnName("from_name").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.GraphMessageId).HasColumnName("graph_message_id").HasMaxLength(MailText.GraphId);
+            entry.Property(e => e.ConversationId).HasColumnName("conversation_id").HasMaxLength(MailText.GraphId).HasDefaultValue("");
+            entry.Property(e => e.InternetMessageId).HasColumnName("internet_message_id").HasMaxLength(MailText.GraphId).HasDefaultValue("");
+            entry.Property(e => e.Subject).HasColumnName("subject").HasMaxLength(MailText.Subject).HasDefaultValue("");
+            entry.Property(e => e.FromAddress).HasColumnName("from_address").HasMaxLength(MailText.Address).HasDefaultValue("");
+            entry.Property(e => e.FromName).HasColumnName("from_name").HasMaxLength(MailText.PersonName).HasDefaultValue("");
             // No length on either body. A shipping line's mail is whatever they
             // sent, and truncating the only copy would take the evidence out of
             // the record a person reviews a link against.
@@ -304,8 +304,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entry.Property(e => e.EmailId).HasColumnName("email_id");
             entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(8).HasDefaultValue(MailParticipant.To);
-            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(320);
-            entry.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(MailText.Address);
+            entry.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(MailText.PersonName).HasDefaultValue("");
             entry.HasIndex(e => e.EmailId).HasDatabaseName("email_participants_email_idx");
             // "Which messages went to this customer" is the question this table
             // exists to answer.
@@ -318,9 +318,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasKey(e => e.Id);
             entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entry.Property(e => e.EmailId).HasColumnName("email_id");
-            entry.Property(e => e.GraphAttachmentId).HasColumnName("graph_attachment_id").HasMaxLength(255).HasDefaultValue("");
-            entry.Property(e => e.FileName).HasColumnName("file_name").HasMaxLength(400).HasDefaultValue("");
-            entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.GraphAttachmentId).HasColumnName("graph_attachment_id").HasMaxLength(MailText.GraphId).HasDefaultValue("");
+            entry.Property(e => e.FileName).HasColumnName("file_name").HasMaxLength(MailText.FileName).HasDefaultValue("");
+            entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(MailText.ContentType).HasDefaultValue("");
             entry.Property(e => e.SizeBytes).HasColumnName("size_bytes").HasDefaultValue(0L);
             entry.Property(e => e.StoredDocumentId).HasColumnName("stored_document_id").HasDefaultValue(0L);
             entry.Property(e => e.CreatedAt).HasColumnName("created_at");

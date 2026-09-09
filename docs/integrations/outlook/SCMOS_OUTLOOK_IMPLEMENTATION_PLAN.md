@@ -232,7 +232,19 @@ The spec's own sequence, adjusted for the architecture:
    Administrator, and refuse a mailbox that is not on the approved list
    *before* a token is requested. The live Graph leg is what the two rows in
    section 8 are blocking.
-5. Message retrieval
+5. Message retrieval ✅ (`GraphMessages`, `GraphMailReader`). A page from a
+   mailbox oldest-first from a point in time, one message by the id a
+   notification names, and an attachment list. Nothing is saved — that is step
+   9, and keeping the fetch separate is what lets the same message be fetched
+   twice and stored once.
+
+   Two things worth naming. **Every value is cut to the width of its column**
+   by the parser, against `MailText`, which the model now reads too: a
+   forwarded subject on its fourth hop runs past 500 characters, and a value
+   one character too long fails at `SaveChanges` after the work is done rather
+   than at the parser. And **`@odata.nextLink` is checked before it is
+   followed**, because following it attaches the bearer token to whatever host
+   it names.
 6. Subscription create / renew / delete + the renewal loop
 7. Webhook + validationToken + clientState + Easy Auth exclusion
 8. The worker
@@ -289,7 +301,7 @@ is a change to the specification's numbers, so it is left as a question.
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
 | **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
-Steps 1, 2, 3, 4, 10 and 11 are done and none of them needed any of the above.
+Steps 1, 2, 3, 4, 5, 10 and 11 are done and none of them needed any of the above.
 
 **Step 4 is the one to run first** once the grant is made. `POST
 /api/integrations/graph/test` will say which of the two remaining rows is still

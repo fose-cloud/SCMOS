@@ -40,6 +40,7 @@ public static class GraphDiagnosis
         public const string Throttled = "throttled";
         public const string GraphError = "graph_error";
         public const string Unexpected = "unexpected";
+        public const string BadLink = "bad_link";
         public const string Connected = "connected";
         public const string Empty = "empty";
     }
@@ -56,6 +57,15 @@ public static class GraphDiagnosis
     /// <summary>Entra would not issue a token at all.</summary>
     public static readonly Finding NoToken = new(Code.NoToken,
         "ขอ token จาก Microsoft Graph ไม่ได้ — API ยังไม่มี managed identity หรือยังต่อ Entra ไม่ได้", false);
+
+    /// <summary>
+    /// A paging link that does not point at Graph, and so was not followed.
+    ///
+    /// Its own answer rather than a status code, because no status was ever
+    /// received — the call was never made, on purpose.
+    /// </summary>
+    public static readonly Finding BadLink = new(Code.BadLink,
+        "ลิงก์หน้าถัดไปไม่ได้ชี้ไปที่ Microsoft Graph — ไม่ตามลิงก์นั้น", false);
 
     /// <summary>Connected, and the mailbox is genuinely empty — which is a pass.</summary>
     public static readonly Finding Empty = new(Code.Empty,
