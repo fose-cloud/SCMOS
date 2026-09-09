@@ -101,6 +101,7 @@ builder.Services.AddScoped<StaffService>();
 builder.Services.AddHttpClient(GraphAuth.ClientName);
 builder.Services.AddSingleton<GraphAuth>();
 builder.Services.AddScoped<GraphMailReader>();
+builder.Services.AddScoped<MailLinker>();
 builder.Services.AddScoped<GraphSubscriptionService>();
 // Fills in the messages the webhook only heard about, and reads each mailbox
 // forward on a slower clock so a `missed` lifecycle event is recovered rather
@@ -211,6 +212,7 @@ if (GraphMessagesCheck.Run(args) is int messagesExit) return messagesExit;
 if (GraphSubscriptionsCheck.Run(args) is int subscriptionsExit) return subscriptionsExit;
 if (GraphNotificationsCheck.Run(args) is int notificationsExit) return notificationsExit;
 if (MailQueueCheck.Run(args) is int queueExit) return queueExit;
+if (MailLinkPlanCheck.Run(args) is int linksExit) return linksExit;
 
 if (args.Contains("--seed"))
 {

@@ -108,6 +108,9 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ScmosDbContext>();
         var reader = scope.ServiceProvider.GetRequiredService<GraphMailReader>();
+        // The same scope, so the linker writes through the context this pass
+        // already holds rather than opening a second one beside it.
+        var linker = scope.ServiceProvider.GetRequiredService<MailLinker>();
 
         // Anything claimed and then dropped goes back first. The test is the
         // claim time — see the note on this class.
@@ -142,15 +145,15 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
                     .SetProperty(one => one.ProcessedAt, now), stopping);
             if (claimed == 0) continue;
 
-            if (!await FillAsync(db, reader, id, stopping)) return;
+            if (!await FillAsync(db, reader, linker, id, stopping)) return;
         }
     }
 
     /// <summary>
     /// Fetch one message and write what came back. False means stop the pass.
     /// </summary>
-    private async Task<bool> FillAsync(ScmosDbContext db, GraphMailReader reader, long id,
-        CancellationToken stopping)
+    private async Task<bool> FillAsync(ScmosDbContext db, GraphMailReader reader, MailLinker linker,
+        long id, CancellationToken stopping)
     {
         var row = await db.Emails.FirstOrDefaultAsync(one => one.Id == id, stopping);
         if (row is null) return true;
@@ -227,7 +230,7 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
             return true;
         }
 
-        await StoreAsync(db, reader, row, mailbox, message, stopping);
+        await StoreAsync(db, reader, linker, row, mailbox, message, stopping);
         return true;
     }
 
@@ -243,8 +246,8 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
     /// duplicate.
     /// </para>
     /// </summary>
-    private async Task StoreAsync(ScmosDbContext db, GraphMailReader reader, Email row, Mailbox mailbox,
-        GraphMessages.Read message, CancellationToken stopping)
+    private async Task StoreAsync(ScmosDbContext db, GraphMailReader reader, MailLinker linker,
+        Email row, Mailbox mailbox, GraphMessages.Read message, CancellationToken stopping)
     {
         row.ConversationId = message.Message.ConversationId;
         row.InternetMessageId = message.Message.InternetMessageId;
@@ -298,6 +301,50 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
         row.ProcessingStatus = MailProcessing.Processed;
         row.ProcessedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(stopping);
+
+        await LinkAsync(db, linker, row, stopping);
+    }
+
+    /// <summary>
+    /// Read what the message names and attach it to the job it is about.
+    ///
+    /// <para>
+    /// After the message is saved, not with it. A message SCMOS holds is worth
+    /// having even when the matching fails — the identifiers can be read again,
+    /// and a person can link it by hand — so a fault here leaves a stored
+    /// message rather than rolling one back.
+    /// </para>
+    ///
+    /// <para>
+    /// NEED_REVIEW means somebody has a decision to make: a suggestion to
+    /// confirm, or two jobs that both cleared the bar. Mail about no job we hold
+    /// stays PROCESSED, because marking every unmatched message for review is
+    /// how the flag stops meaning anything.
+    /// </para>
+    /// </summary>
+    private async Task LinkAsync(ScmosDbContext db, MailLinker linker, Email row,
+        CancellationToken stopping)
+    {
+        try
+        {
+            var result = await linker.LinkAsync(row, stopping);
+            if (result.NeedsAPerson)
+            {
+                row.ProcessingStatus = MailProcessing.NeedReview;
+                await db.SaveChangesAsync(stopping);
+            }
+            log.LogInformation(
+                "Message {Id}: {Found} identifier(s), {Linked} linked, {Suggested} suggested",
+                row.Id, result.Found, result.Linked, result.Suggested);
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested) { throw; }
+        catch (Exception problem)
+        {
+            // The message is stored either way. Matching it again is what the
+            // next pass over an abandoned claim does, and doing it by hand is
+            // what the Communication Center is for.
+            log.LogError(problem, "Stored message {Id} but could not match it to a job", row.Id);
+        }
     }
 
     /// <summary>
