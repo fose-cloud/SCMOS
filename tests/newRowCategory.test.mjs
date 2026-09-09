@@ -5,6 +5,7 @@ import {
   ANY_CATEGORY,
   DEFAULT_CATEGORY,
   JOB_CATEGORIES,
+  categoriesOfferedOn,
   categoryForNewRow,
 } from "../app/scmos/newRowCategory.ts";
 
@@ -67,4 +68,39 @@ test("a category nobody recognises is ignored rather than written to a job", () 
 test("ALL is a filter, never a category a job can be saved with", () => {
   assert.ok(!JOB_CATEGORIES.includes(ANY_CATEGORY));
   assert.equal(categoryForNewRow(ANY_CATEGORY, ANY_CATEGORY), DEFAULT_CATEGORY);
+});
+
+/*
+ * Keeping the row where it was put. The category is an editable cell, so
+ * creating it as DELIVERY is only half the job — on a grid that shows delivery
+ * work and nothing else, every other option makes the row disappear from the
+ * screen that changed it.
+ */
+test("a locked grid offers only its own category", () => {
+  assert.deepEqual(categoriesOfferedOn("DELIVERY"), ["DELIVERY"]);
+  assert.deepEqual(categoriesOfferedOn(" delivery "), ["DELIVERY"]);
+});
+
+test("so a job inserted on the Chemours grid cannot be moved off it", () => {
+  const offered = categoriesOfferedOn("DELIVERY");
+  assert.ok(!offered.includes("IMPORT"));
+  assert.ok(!offered.includes("EXPORT"));
+  // This is also the list a pasted value is judged against, so pasting
+  // "IMPORT" into that column is refused rather than quietly moving the job.
+  assert.equal(offered.length, 1);
+});
+
+test("My Job still offers every category, because a wrong one has to be fixable", () => {
+  assert.deepEqual(categoriesOfferedOn(undefined), [...JOB_CATEGORIES]);
+  assert.deepEqual(categoriesOfferedOn(null), [...JOB_CATEGORIES]);
+  assert.deepEqual(categoriesOfferedOn(ANY_CATEGORY), [...JOB_CATEGORIES]);
+  assert.deepEqual(categoriesOfferedOn("nonsense"), [...JOB_CATEGORIES]);
+});
+
+test("what a locked grid creates is what it offers, so the two cannot disagree", () => {
+  for (const locked of JOB_CATEGORIES) {
+    const made = categoryForNewRow(locked, ANY_CATEGORY);
+    assert.deepEqual(categoriesOfferedOn(locked), [made],
+      `a grid locked to ${locked} creates ${made} and must offer exactly that`);
+  }
 });

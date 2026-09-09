@@ -105,6 +105,16 @@ test("the dropdown and the paste read one list", () => {
 test("category and status are guarded by the same rule", () => {
   // The three columns asked for are not the only dropdowns. A rule that
   // protected three and left two open is the half-rule that bites later.
-  assert.match(workspace, /case "cat": return \["IMPORT", "EXPORT", "DELIVERY"\];/);
+  assert.match(workspace, /case "cat": return categoriesOfferedOn\(p\.lockedCat\);/);
   assert.match(workspace, /case "status": return STATUS_LADDER\[job\.cat\]/);
+});
+
+test("the category cell reads that list too, rather than writing its own", () => {
+  // It used to carry its own ["IMPORT", "EXPORT", "DELIVERY"] straight into
+  // edChoice. So on a grid locked to one category the paste path could be
+  // narrowed and the dropdown left open — the same half-rule, one column
+  // further along.
+  assert.match(workspace, /const catChoices = choicesFor\("cat", j\)!/);
+  assert.doesNotMatch(workspace, /edChoice\(j, "cat", \["IMPORT"/,
+    "the category cell is building its own option list again");
 });

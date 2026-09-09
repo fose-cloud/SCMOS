@@ -62,6 +62,30 @@ export function categoryForNewRow(
   return DEFAULT_CATEGORY;
 }
 
+/**
+ * Which categories a grid may offer for an existing job.
+ *
+ * <p>The same lock, asked the other way round. Creating a row in the right
+ * category is only half of keeping it there: the category is an editable cell,
+ * and on a locked grid every option except the locked one makes the row vanish
+ * from the screen that changed it. A dropdown like that is not a correction, it
+ * is a trapdoor.</p>
+ *
+ * <p>On My Job it stays open. A job keyed under the wrong category is a real
+ * thing and somebody has to be able to fix it — and a delivery job is reachable
+ * there, under the DELIVERY tab, so locking the Chemours grid strands nothing.
+ * It only stops the move being made by accident from a screen that shows one
+ * kind of job.</p>
+ *
+ * <p>This is the list the paste path is judged against as well, so a pasted
+ * "IMPORT" on a locked grid is refused and reported rather than quietly moving
+ * the job.</p>
+ */
+export function categoriesOfferedOn(lockedCat: string | null | undefined): string[] {
+  const locked = normalise(lockedCat);
+  return locked ? [locked] : [...JOB_CATEGORIES];
+}
+
 /** A recognised category, or empty for "ALL", a blank, or anything unknown. */
 function normalise(value: string | null | undefined): string {
   const text = String(value ?? "").trim().toUpperCase();

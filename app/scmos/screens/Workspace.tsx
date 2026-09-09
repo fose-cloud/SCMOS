@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { resolveBlock } from "../choiceCell";
+import { categoriesOfferedOn } from "../newRowCategory";
 import { badge, css, opTone, STATUS_LADDER, STATUS_TH } from "../theme";
 import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
@@ -994,7 +995,13 @@ export function Workspace(p: Props) {
       case "customer": return ["", ...customers.names];
       case "trucker": return carriers.names;
       case "type": return vehicles.codes;
-      case "cat": return ["IMPORT", "EXPORT", "DELIVERY"];
+      // On a locked grid this is the only category the screen can display, so
+      // it is the only one on offer. The Chemours' domestic grid shows delivery
+      // work and nothing else; a job given any other category there is written,
+      // saved, and then invisible on the screen that changed it. Narrowing the
+      // list closes the dropdown and the paste path at once — resolveBlock
+      // refuses a pasted value that is not on it, and says so.
+      case "cat": return categoriesOfferedOn(p.lockedCat);
       case "status": return STATUS_LADDER[job.cat] || STATUS_LADDER.IMPORT;
       default: return null;
     }
@@ -1410,11 +1417,28 @@ export function Workspace(p: Props) {
       ownCell(j, mine),
     ];
 
-    // Changing the category moves a job to a different grid with different
-    // paperwork, so it is a choice rather than free text — but it is a field on
-    // the job and an operator has to be able to correct it.
-    const catCell = edChoice(j, "cat", ["IMPORT", "EXPORT", "DELIVERY"],
-      { tone: j.cat === "IMPORT" ? "dark" : j.cat === "EXPORT" ? "blue" : "teal" });
+    /*
+     * Changing the category moves a job to a different grid with different
+     * paperwork, so it is a choice rather than free text — and on My Job it
+     * stays a choice, because a job keyed under the wrong category is a real
+     * thing that has to be correctable.
+     *
+     * On a locked grid it is not offered at all. There is one category that
+     * screen can display, and a dropdown whose every other option makes the row
+     * disappear is not a correction, it is a trapdoor. Delivery work is still
+     * reachable from My Job's DELIVERY tab, so nothing here is uncorrectable —
+     * it just cannot be done by accident from the screen that only shows one
+     * kind of job.
+     *
+     * The list comes from `choicesFor` rather than being written again here.
+     * Two lists of the same thing in one file is how the dropdown and the paste
+     * path come to disagree about what a job may be.
+     */
+    const catChoices = choicesFor("cat", j)!;
+    const catTone = j.cat === "IMPORT" ? "dark" : j.cat === "EXPORT" ? "blue" : "teal";
+    const catCell: Cell = p.lockedCat
+      ? { ...cell(j.cat || p.lockedCat, { tone: catTone }), field: "cat" }
+      : edChoice(j, "cat", catChoices, { tone: catTone });
 
     if (layout === "IMPORT") {
       return head.concat([
