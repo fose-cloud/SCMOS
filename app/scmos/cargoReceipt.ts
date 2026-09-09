@@ -247,6 +247,16 @@ export function receiptItem(job: ReceiptJob, column: string): string {
    * change everybody's again.
    */
   if (/^PO\s*NO/.test(head)) return text(job.dCode);
+  /*
+   * SAP ORDER is the column the three main shapes used to head "IM".
+   *
+   * Renamed at the department's direction, and filled from the grid's own SAP
+   * ORDER column. Both spellings are answered: a customer whose stored columns
+   * still say IM keeps working, because the columns are stored per customer and
+   * renaming a preset does not reach back into what was saved before. They are
+   * the same column under two names, not two columns.
+   */
+  if (/^(SAP\s*ORDER|IM)$/.test(head)) return text(job.sapOrder);
   if (/^D-?CODE$/.test(head)) return text(job.dCode);
   if (/^DELIVERY\s*NO/.test(head)) return text(job.deliverNo);
   if (/^PRODUCT/.test(head)) return text(job.product);

@@ -80,11 +80,15 @@ test("the item table is filled per column, because the columns differ per custom
 });
 
 test("what the register does not know is left blank, not invented", () => {
-  // The UN class and the IM flag live in the customer's own paperwork. A screen
-  // that guessed them would be writing a signed document out of nothing.
+  // The UN class lives in the customer's own paperwork. A screen that guessed it
+  // would be writing a signed document out of nothing.
   const one = job();
   assert.equal(receiptItem(one, "UN NUMBER CLASS"), "");
-  assert.equal(receiptItem(one, "IM"), "");
+  // IM was renamed SAP ORDER and now carries the grid's SAP order, so it is no
+  // longer one of the columns the register cannot fill.
+  assert.equal(receiptItem(one, "SAP ORDER"), "8505076096");
+  assert.equal(receiptItem(one, "IM"), "8505076096",
+    "a customer whose stored columns still say IM keeps working — one column, two names");
 });
 
 test("PO NO and PRODUCT NAME are filled from the Domestic grid", () => {

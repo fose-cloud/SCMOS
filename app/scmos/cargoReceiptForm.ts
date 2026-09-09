@@ -101,7 +101,7 @@ export const ITEM_PRESETS: { id: string; label: string; seen: string[]; columns:
     id: "po-packages",
     label: "PO NO. + จำนวนหีบห่อ",
     seen: ["AAT", "UNIC"],
-    columns: ["PO NO", "No. of P'kg (s)", "PRODUCT NAME", "IM", "UN NUMBER CLASS", "NET WEIGHT (KGS)"],
+    columns: ["PO NO", "No. of P'kg (s)", "PRODUCT NAME", "SAP ORDER", "UN NUMBER CLASS", "NET WEIGHT (KGS)"],
   },
   {
     id: "dcode-qty",
@@ -113,13 +113,13 @@ export const ITEM_PRESETS: { id: string; label: string; seen: string[]; columns:
     id: "po-dcode",
     label: "PO NO. + Dcode",
     seen: ["MERIT"],
-    columns: ["PO NO", "Dcode", "PRODUCT NAME", "IM", "UN NUMBER CLASS", "NET WEIGHT (KGS)"],
+    columns: ["PO NO", "Dcode", "PRODUCT NAME", "SAP ORDER", "UN NUMBER CLASS", "NET WEIGHT (KGS)"],
   },
   {
     id: "po-delivery",
     label: "PO NO. + DELIVERY NO.",
     seen: ["Ampacet"],
-    columns: ["PO NO", "DELIVERY NO.", "PRODUCT NAME", "IM", "UN NUMBER CLASS", "NET WEIGHT (KGS)"],
+    columns: ["PO NO", "DELIVERY NO.", "PRODUCT NAME", "SAP ORDER", "UN NUMBER CLASS", "NET WEIGHT (KGS)"],
   },
 ];
 
