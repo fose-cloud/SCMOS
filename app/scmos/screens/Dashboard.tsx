@@ -13,6 +13,8 @@ import { PeriodBar } from "../PeriodBar";
 import { ExecutiveBoard } from "./ExecutiveBoard";
 import { apiFetch } from "../api";
 import { byStage } from "../incidentStages";
+import { FilterPickMany } from "../FilterPickMany";
+import { ALL_DASHBOARD_FILTERS, filterDashboardJobs, type DashboardFilters } from "../dashboardFilters";
 
 /**
  * The three dashboard tabs answer three different questions, so they are three
@@ -34,6 +36,8 @@ type Props = {
   filtered: Ship[];
   /** Real operation jobs, already narrowed to the chosen period. */
   jobs: Job[];
+  filters: DashboardFilters;
+  onFilters: (filters: DashboardFilters) => void;
   /** Everything in the register, so the period pickers can offer every option. */
   allJobs: Job[];
   period: Period;
@@ -345,7 +349,7 @@ function useCarPar(): { stage: string }[] | null {
   return cases ?? null;
 }
 
-export function Dashboard({ filtered: fl, jobs, allJobs, period, onPeriod, loaded, note, tab, onDrill, onOpenKpi }: Props) {
+export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, period, onPeriod, loaded, note, tab, onDrill, onOpenKpi }: Props) {
   const s = opsStats(jobs);
   const total = s.jobs.length;
   const pct = (n: number) => (total ? Math.round((n / total) * 100) + "%" : "—");
@@ -358,14 +362,29 @@ export function Dashboard({ filtered: fl, jobs, allJobs, period, onPeriod, loade
     );
   }
 
-  const bar = <PeriodBar allJobs={allJobs} shown={total} period={period} onPeriod={onPeriod} />;
+  const dimensionsActive = filters.customer !== "ALL" || filters.trucker !== "ALL";
+  const options = (field: "customer" | "trucker") =>
+    [...new Set(allJobs.map(job => job[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const bar = <>
+    <div style={css("background:#0A2240;border-radius:5px;padding:12px 14px;display:flex;align-items:center;gap:18px;flex-wrap:wrap")}>
+      <FilterPickMany label="CUSTOMER" value={filters.customer} options={options("customer")}
+        onPick={customer => onFilters({ ...filters, customer })} />
+      <FilterPickMany label="TRUCKER" value={filters.trucker} options={options("trucker")}
+        onPick={trucker => onFilters({ ...filters, trucker })} />
+      {dimensionsActive && <button type="button" onClick={() => onFilters(ALL_DASHBOARD_FILTERS)}
+        style={css("border:1px solid #6FA8DC;background:transparent;color:#fff;border-radius:4px;padding:5px 12px;cursor:pointer")}>
+        ล้าง CUSTOMER / TRUCKER
+      </button>}
+    </div>
+    <PeriodBar allJobs={filterDashboardJobs(allJobs, filters)} shown={total} period={period} onPeriod={onPeriod} />
+  </>;
 
   if (!total) {
     return (
       <div style={css("display:flex;flex-direction:column;gap:16px")}>
         {bar}
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
-          ไม่มีงานในช่วงเวลา “{periodLabel(period)}” — เลือกช่วงอื่นหรือกดล้างช่วงเวลา
+          ไม่มีงานตรงกับตัวกรอง CUSTOMER / TRUCKER และช่วงเวลา “{periodLabel(period)}” — ล้างตัวกรองหรือเลือกช่วงเวลาอื่น
         </div>
       </div>
     );
@@ -382,7 +401,12 @@ export function Dashboard({ filtered: fl, jobs, allJobs, period, onPeriod, loade
           the view already asking "how are we doing"; the wall board is for a
           screen on the wall and the operational tab is for today's work. */}
       {tab !== "Wall Board" && tab !== "Operational" && onOpenKpi && (
-        <ContractScores period={period} onOpen={onOpenKpi} />
+        <div>
+          {dimensionsActive && <p style={css("font-size:12px;color:#64748B")}>
+            คะแนนตามสัญญาด้านล่างเป็นภาพรวมตามช่วงเวลา ไม่ได้กรองตาม CUSTOMER / TRUCKER
+          </p>}
+          <ContractScores period={period} onOpen={onOpenKpi} />
+        </div>
       )}
     </div>
   );
