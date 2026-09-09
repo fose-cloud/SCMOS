@@ -94,3 +94,30 @@ test("an empty cell still gets the face, so a blank does not reset the row", () 
   assert.equal(cells.length, 2);
   for (const cell of cells) assert.match(cell, /Angsana New/);
 });
+
+/* ---------------------------------------------- where the words sit */
+
+test("headings are centred, values are not", () => {
+  // A column name sits over its column rather than beside it, which is what
+  // makes a heading row read as one. Values stay left: a customer name and an
+  // address are read from their first character.
+  const { html } = copyBlockPayload([["CLARIANT : TANK", "1X20 TK"]], ["CUSTOMER", "TYPE"]);
+
+  // The lookahead again: `<thead>` is not a `<th`.
+  const heads = html.match(/<th(?=[\s>])[^>]*>/g) ?? [];
+  assert.equal(heads.length, 2);
+  for (const head of heads) assert.match(head, /text-align:center/);
+
+  const cells = html.match(/<td[^>]*>/g) ?? [];
+  assert.equal(cells.length, 2);
+  for (const cell of cells) assert.match(cell, /text-align:left/);
+});
+
+test("and the alignment is said twice, because Word drops one of the two ways", () => {
+  // The same reason bgcolor sits beside background-color: Word keeps the old
+  // attribute where it ignores the CSS, and a heading that quietly falls back
+  // to the left is the thing being fixed.
+  const { html } = copyBlockPayload([["A"]], ["Name"]);
+  assert.match(html, /<th align="center"[^>]*text-align:center/);
+  assert.match(html, /<td align="left"[^>]*text-align:left/);
+});

@@ -196,9 +196,17 @@ export function copyBlockPayload(lines: string[][], heads: string[] | null) {
     // new mail came out in Calibri 11, the message's own default, with the
     // table-level rule ignored entirely. So it goes on every cell and again on
     // a span around the value. Verbose, and the only version that survives.
-    const style = "border:1px solid " + (head ? HEAD_BG : "#D8E0E8") + `;padding:4px 9px;text-align:left;${COPY_FONT_CSS}`
+    // Headings centred, values left. A column name sits over its column rather
+    // than beside it, which is what makes a heading row read as one; the values
+    // stay left because a customer name and an address are read from their first
+    // character, not from their middle.
+    const align = head ? "center" : "left";
+    const style = "border:1px solid " + (head ? HEAD_BG : "#D8E0E8") + `;padding:4px 9px;text-align:${align};${COPY_FONT_CSS}`
       + (head ? `;background-color:${HEAD_BG};color:${HEAD_FG};font-weight:600` : "");
-    const attrs = head ? ` bgcolor="${HEAD_BG}"` : "";
+    // `align` as an attribute as well as in the style, for the reason `bgcolor`
+    // is there: Word keeps the old attribute where it drops the CSS, and a
+    // heading that quietly falls back to the left is the thing being fixed.
+    const attrs = ` align="${align}"` + (head ? ` bgcolor="${HEAD_BG}"` : "");
     const text = esc(value) || "&nbsp;";
     const inner = head
       ? `<span style="${COPY_FONT_CSS};color:${HEAD_FG};font-weight:600"><font color="${HEAD_FG}">${text}</font></span>`
