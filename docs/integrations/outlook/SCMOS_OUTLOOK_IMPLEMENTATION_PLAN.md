@@ -198,10 +198,22 @@ response is a delta re-read of the mailbox, not ignoring it — otherwise mail
 goes silently unprocessed and nothing says so.
 
 **A caveat the spec does not raise:** the webhook must be reachable from
-Microsoft's network. The API app currently sits behind Easy Auth, which will
-reject an unauthenticated Graph POST. Either the webhook path is excluded from
-Easy Auth, or Graph is pointed at a separate ingress. This must be settled
-before anything else works, and it is an Azure change — yours to make.
+Microsoft's network. This document said for months that the API sits behind
+Easy Auth, which would reject an unauthenticated Graph POST, and called it the
+Azure change blocking everything else.
+
+**Measured on 2026-09-09, and it was wrong.** An unauthenticated POST from the
+public internet to `/api/integrations/graph/notify?validationToken=…` returns
+200 with the token echoed as plain text — the application's own answer. A gated
+endpoint returns the application's own `Sign in is required` rather than a
+platform challenge. Nothing intercepts these requests before the application
+sees them: identity arrives through the web app's proxy key, and each endpoint
+decides for itself.
+
+So there is no Azure change needed here, and `clientState` is the
+authentication, as intended. If Easy Auth is ever put in front of this App
+Service, the two webhook paths must be excluded — written down in
+`docs/integrations/SETUP.md`.
 
 ---
 
@@ -352,13 +364,17 @@ is a change to the specification's numbers, so it is left as a question.
 | Blocked on | Needed |
 |---|---|
 | **You** | `Mail.Read` admin consent on the API's managed identity, and the Exchange RBAC scoping. No app registration and no secret — see section 4. |
-| **You** | An Azure decision: how Graph reaches the webhook past Easy Auth. |
 | **The operations team** | Which shared mailboxes, and how long attachments are kept. |
 | **The operations team** | Twenty real emails per category, before the extractor is trusted. |
 
 Steps 1, 2, 3, 4, 5, 6, 7, 10 and 11 are done and none of them needed any of the above.
 
+That table lost a row on 2026-09-09. "How does Graph reach the webhook past
+Easy Auth" was carried as a blocker from the first draft and was never
+measured; when it finally was, nothing was in the way. **One thing now blocks
+this integration, not two: the `Mail.Read` consent and the Exchange scoping.**
+
 **Step 4 is the one to run first** once the grant is made. `POST
-/api/integrations/graph/test` will say which of the two remaining rows is still
-in the way, in a sentence, rather than leaving somebody to read a 403. Until
+/api/integrations/graph/test` will say which of consent and scoping is still in
+the way, in a sentence, rather than leaving somebody to read a 403. Until
 then it reports the fault it can already see.

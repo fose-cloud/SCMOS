@@ -131,29 +131,44 @@ subscription, stores it, and checks it in fixed time on every delivery — one
 secret per mailbox, so a leak from one does not authenticate deliveries for
 another.
 
-### An Azure decision that blocks everything else
+### Easy Auth — measured, and it turns out not to be in the way
 
-The API sits behind **Easy Auth**, which will reject an unauthenticated POST
-from Microsoft. Graph will not sign in, and the very first thing it does is call
-the webhook during subscription creation and wait ten seconds for an answer. So
-either:
+This was written down for months as the Azure decision blocking everything
+else: the API sits behind Easy Auth, Graph cannot sign in, so the webhook would
+be rejected before it arrived.
 
-- exclude these two paths from Easy Auth, and let `clientState` be the
-  authentication (which is what it is for):
+**Checked on 2026-09-09 against the deployed API, and it is not true of this
+deployment.** An unauthenticated `POST` from the public internet to
+
+```
+https://<api>/api/integrations/graph/notify?validationToken=probe123
+```
+
+returns `200`, `text/plain`, and the token echoed back — the application's own
+answer, not a platform redirect. A request to a gated endpoint returns the
+application's `{"error":"Sign in is required"}` rather than an Easy Auth
+challenge, which is the same thing said the other way round: **nothing is
+intercepting these requests before the application sees them.**
+
+Identity reaches the API through the web app's proxy and the shared
+`Auth__ProxyKey`, and each endpoint decides for itself. So:
+
+- **No Azure change is needed for the webhook.** `clientState` is the
+  authentication, which is what it was always for.
+- If Easy Auth is ever put in front of this App Service, these two paths must
+  be excluded — App Service → Authentication → Edit → **Excluded paths**, or
+  `globalValidation.excludedPaths`:
 
   ```
   /api/integrations/graph/notify
   /api/integrations/graph/lifecycle
   ```
 
-  In App Service → Authentication → Edit → **Excluded paths**, or as
-  `globalValidation.excludedPaths` in the auth config; or
-
-- give the webhook a separate ingress that is not behind Easy Auth, and point
-  `Graph__WebhookBase` at it.
-
-This has to be settled before a single notification arrives. It is an Azure
-change and it is yours to make.
+Worth being clear about the other half of that measurement: every `/api/...`
+route on this App Service is reachable from the internet, and what protects
+them is the application's own capability checks rather than the platform. That
+is the existing design, not something the mail work introduced — but it is the
+reason those checks are not optional.
 
 ### Checking it worked, in order
 
