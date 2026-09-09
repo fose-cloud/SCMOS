@@ -23,7 +23,8 @@ public static class BriefingCheck
         string topDelayParty = "", int topDelayCases = 0, bool showTeam = true) =>
         new(live, overdue, missingBeforeRun, withProblem, arrivedLate, JobRules.LateMinutes,
             incidents, openDelays, unmeasurable,
-            busiestOwner, busiestOwnerFlagged, topDelayParty, topDelayCases, showTeam);
+            default, new Briefing.OwnerLoad(busiestOwner, busiestOwnerFlagged),
+            topDelayParty, topDelayCases, showTeam);
 
     public static int? Run(string[] args)
     {
@@ -95,6 +96,46 @@ public static class BriefingCheck
             alone.First(one => one.Kind == "today").Detail.Contains("Uthai"), false);
         failed += Say("but still learns there is work to do",
             alone.Any(one => one.Kind == "today"), true);
+
+        /* ---- owner counts belong to the card's subset, never the whole load ---- */
+        var overdueRows = new[] { ("a", "Ananya"), ("b", "Uthai"), ("b", "Uthai") };
+        var missingRows = Enumerable.Repeat(("a", "Ananya"), 48)
+            .Concat(Enumerable.Repeat(("", ""), 86)).ToArray();
+        failed += Say("regression fixture has 49 total flagged jobs for Ananya",
+            overdueRows.Concat(missingRows).Count(row => row.Item1 == "a"), 49);
+        var scopedFacts = Facts(overdue: 3, missingBeforeRun: 134) with
+        {
+            OverdueOwner = Briefing.LargestOwner(overdueRows),
+            MissingOwner = Briefing.LargestOwner(missingRows),
+        };
+        var scoped = Briefing.Read(scopedFacts);
+        failed += Say("overdue owner is chosen from the three overdue jobs only",
+            scopedFacts.OverdueOwner, new Briefing.OwnerLoad("Uthai", 2));
+        failed += Say("missing-before-run excludes that owner's overdue job",
+            scopedFacts.MissingOwner, new Briefing.OwnerLoad("Ananya", 48));
+        failed += Say("overdue detail quotes the scoped owner count",
+            scoped.Single(one => one.Kind == "overdue").Detail.Contains("Uthai รับผิดชอบ 2 งาน"), true);
+        failed += Say("missing detail quotes its own scoped owner count",
+            scoped.Single(one => one.Kind == "today").Detail.Contains("Ananya รับผิดชอบ 48 งาน"), true);
+        failed += Say("the global count never leaks into either card",
+            scoped.Any(one => one.Detail.Contains("49")), false);
+        failed += Say("team names are hidden on both cards without team permission",
+            Briefing.Read(scopedFacts with { ShowTeam = false })
+                .Any(one => one.Detail.Contains("Ananya") || one.Detail.Contains("Uthai")), false);
+        failed += Say("equal display names do not merge distinct staff identities",
+            Briefing.LargestOwner(new[] { ("a", "Same"), ("b", "Same") }).Count, 1);
+        failed += Say("staff IDs compare case-insensitively",
+            Briefing.LargestOwner(new[] { ("a", "Ananya"), ("A", "Ananya") }).Count, 2);
+        var tied = new[] { ("b", "Uthai"), ("a", "Ananya") };
+        failed += Say("ties are stable regardless of register ordering",
+            Briefing.LargestOwner(tied), Briefing.LargestOwner(tied.Reverse()));
+        failed += Say("unassigned rows are not attributed to a named person",
+            Briefing.LargestOwner(new[] { ("", "Unknown"), (" ", "Unknown") }).Count, 0);
+        failed += Say("blank display names and empty groups are safe",
+            Briefing.LargestOwner(new[] { ("a", " ") }), Briefing.LargestOwner([]));
+        failed += Say("invalid oversized owner count is omitted rather than clamped",
+            Briefing.Read(scopedFacts with { OverdueOwner = new("Ananya", 49) })
+                .Single(one => one.Kind == "overdue").Detail.Contains("Ananya"), false);
 
         /* ---- the records finding only when it changes how the rest reads ---- */
         Console.WriteLine();

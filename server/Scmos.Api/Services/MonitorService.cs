@@ -8,7 +8,12 @@ namespace Scmos.Api.Services;
 /// <param name="Why">Overdue · Unassigned · NoCarrier · NoTruck.</param>
 /// <param name="DaysAway">Negative once the plan date has passed.</param>
 public record RiskRow(string Key, string Why, int DaysAway, string Cat, string Date,
-    string Customer, string Trucker, string Owner, string Status, string JobCode);
+    string Customer, string Trucker, string Owner, string Status, string JobCode)
+{
+    // Internal grouping identity; leave the public monitor response unchanged.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string OwnerId { get; init; } = "";
+}
 
 public record LoadRow(string OwnerId, string Owner, int Carrying, int Flagged, int OldestDaysWaiting,
     /// <summary>Who is covering for this person today, if anybody.</summary>
@@ -105,7 +110,7 @@ public class MonitorService(ScmosDbContext db, JobRegisterCache register)
             {
                 var job = byKey[flag.Key];
                 return new RiskRow(job.Key, flag.Why.ToString(), flag.DaysAway, job.Cat, job.Date,
-                    job.Customer, job.Trucker, job.Owner, job.Status, job.JobCode);
+                    job.Customer, job.Trucker, job.Owner, job.Status, job.JobCode) { OwnerId = job.OwnerId };
             })
             .ToList();
 
@@ -274,10 +279,14 @@ public class MonitorService(ScmosDbContext db, JobRegisterCache register)
     {
         var board = await ReadAsync(token);
 
-        // The heaviest load, which is the only name the briefing ever uses.
-        // Loads arrive already sorted with the most flagged first.
+        // Count each owner within the same risk subset as the card headline.
         var overdue = board.Risks.Count(risk => risk.Why == nameof(MonitorRules.Risk.Overdue));
-        var busiest = board.Loads.FirstOrDefault();
+        var overdueOwner = Briefing.LargestOwner(board.Risks
+            .Where(risk => risk.Why == nameof(MonitorRules.Risk.Overdue))
+            .Select(risk => (risk.OwnerId, risk.Owner)));
+        var missingOwner = Briefing.LargestOwner(board.Risks
+            .Where(risk => risk.Why != nameof(MonitorRules.Risk.Overdue))
+            .Select(risk => (risk.OwnerId, risk.Owner)));
         var worstParty = board.Blames.FirstOrDefault();
 
         var facts = new Briefing.Facts(
@@ -293,8 +302,8 @@ public class MonitorService(ScmosDbContext db, JobRegisterCache register)
             Incidents: board.Problems.Count(row => row.Problems.Contains(nameof(ProblemRules.Problem.Incident))),
             OpenDelays: board.Problems.Count(row => row.Problems.Contains(nameof(ProblemRules.Problem.DelayOpen))),
             Unmeasurable: board.Tally.Unmeasurable,
-            BusiestOwner: busiest?.Owner ?? "",
-            BusiestOwnerFlagged: busiest?.Flagged ?? 0,
+            OverdueOwner: overdueOwner,
+            MissingOwner: missingOwner,
             TopDelayParty: worstParty?.Thai ?? "",
             TopDelayCases: worstParty?.Cases ?? 0,
             ShowTeam: showTeam);

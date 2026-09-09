@@ -81,8 +81,8 @@ public static class Briefing
     /// <param name="Incidents">Written into the INCIDENT REPORT column by an operator.</param>
     /// <param name="OpenDelays">Delays recorded, categorised, and never closed.</param>
     /// <param name="Unmeasurable">Live jobs whose lateness cannot be worked out at all.</param>
-    /// <param name="BusiestOwner">Whoever is carrying the most flagged work, or empty.</param>
-    /// <param name="BusiestOwnerFlagged">How many of the risk list are theirs.</param>
+    /// <param name="OverdueOwner">Largest assigned workload within overdue jobs only.</param>
+    /// <param name="MissingOwner">Largest assigned workload within missing-before-run jobs only.</param>
     /// <param name="TopDelayParty">Who the month's recorded delays were put down to.</param>
     /// <param name="TopDelayCases">How many cases that was.</param>
     /// <param name="ShowTeam">
@@ -92,9 +92,34 @@ public static class Briefing
     public readonly record struct Facts(
         int Live, int Overdue, int MissingBeforeRun, int WithProblem, int ArrivedLate, int LateMinutes,
         int Incidents, int OpenDelays, int Unmeasurable,
-        string BusiestOwner, int BusiestOwnerFlagged,
+        OwnerLoad OverdueOwner, OwnerLoad MissingOwner,
         string TopDelayParty, int TopDelayCases,
         bool ShowTeam);
+
+    public readonly record struct OwnerLoad(string Owner, int Count);
+
+    // Staff IDs keep people with identical display names separate; stable ties
+    // keep the result independent of register ordering.
+    public static OwnerLoad LargestOwner(IEnumerable<(string OwnerId, string Owner)> rows) =>
+        rows.Where(row => !string.IsNullOrWhiteSpace(row.OwnerId))
+            .GroupBy(row => row.OwnerId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new
+            {
+                Id = group.Key,
+                Name = group.Select(row => row.Owner.Trim()).Where(name => name.Length > 0)
+                    .OrderBy(name => name, StringComparer.Ordinal).FirstOrDefault() ?? "",
+                Count = group.Count(),
+            })
+            .Where(group => group.Name.Length > 0)
+            .OrderByDescending(group => group.Count)
+            .ThenBy(group => group.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new OwnerLoad(group.Name, group.Count))
+            .FirstOrDefault();
+
+    private static string Carrying(OwnerLoad owner, int total, bool showTeam) =>
+        showTeam && !string.IsNullOrWhiteSpace(owner.Owner) && owner.Count > 0 && owner.Count <= total
+            ? $" · ในกลุ่มนี้ {owner.Owner} รับผิดชอบ {owner.Count} งาน"
+            : "";
 
     /// <summary>
     /// Where the records gap stops being a footnote and becomes the finding.
@@ -129,27 +154,21 @@ public static class Briefing
                 "บันทึกไว้พร้อมสาเหตุและผู้รับผิดชอบ แต่ยังไม่มีใครปิดเรื่อง",
                 facts.OpenDelays, "monitoring"));
 
-        // Whose backlog it is, said once, on whichever of the next two appears
-        // first. Repeating a person's name down the list would read as a
-        // complaint about them rather than a fact about the work.
-        var carrying = facts.ShowTeam && facts.BusiestOwner.Length > 0 && facts.BusiestOwnerFlagged > 0
-            ? $" · {facts.BusiestOwnerFlagged} อยู่กับ {facts.BusiestOwner} คนเดียว"
-            : "";
-
         if (facts.Overdue > 0)
         {
             found.Add(new Finding(Urgency.Now, "overdue",
                 $"เลยกำหนดแล้ว {facts.Overdue} งาน",
-                "ยังไม่มีบันทึกว่ารถถึง และวันตามแผนผ่านไปแล้ว" + carrying,
+                "ยังไม่มีบันทึกว่ารถถึง และวันตามแผนผ่านไปแล้ว"
+                    + Carrying(facts.OverdueOwner, facts.Overdue, facts.ShowTeam),
                 facts.Overdue, "monitoring"));
-            carrying = "";
         }
 
         // The rest of the risk list — not yet due, and short of something.
         if (facts.MissingBeforeRun > 0)
             found.Add(new Finding(Urgency.Soon, "today",
                 $"ต้องจัดการก่อนถึงวันวิ่ง {facts.MissingBeforeRun} งาน",
-                "ยังขาดเจ้าของงาน ผู้ขนส่ง หรือรถ" + carrying,
+                "ยังขาดเจ้าของงาน ผู้ขนส่ง หรือรถ"
+                    + Carrying(facts.MissingOwner, facts.MissingBeforeRun, facts.ShowTeam),
                 facts.MissingBeforeRun, "monitoring"));
 
         // Worth knowing, not worth interrupting for.
