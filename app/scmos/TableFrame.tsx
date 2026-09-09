@@ -206,7 +206,7 @@ export function TableFrame({ children, title, meta, actions, note, height }: {
  * screen already put around its table and the control lands on that card's
  * bottom edge — the same place My Job keeps it.
  */
-export function ZoomBox({ children, height, capped = true }: {
+export function ZoomBox({ children, height, capped = true, zoomable = true }: {
   children: ReactNode;
   height?: string;
   /**
@@ -223,10 +223,29 @@ export function ZoomBox({ children, height, capped = true }: {
    * is still the right answer for anything that could run to hundreds of rows.
    */
   capped?: boolean;
+  /**
+   * Whether the reader may resize the type.
+   *
+   * True nearly everywhere: a grid of forty columns is unreadable at one size
+   * and unusable at another, and which is which depends on the screen somebody
+   * is sitting at.
+   *
+   * False for KPI, at the department's request. That screen is a report rather
+   * than a working grid — scorecards and percentages laid out to be read, not
+   * a table to be worked in — and a slider under every panel was a control
+   * offered for a problem it does not have.
+   *
+   * Note that this also stops the box reading the remembered zoom. Leaving the
+   * scaling on while taking the slider away would render KPI at whatever size
+   * somebody last chose on My Job, with nothing on the screen to change it —
+   * which is worse than either answer.
+   */
+  zoomable?: boolean;
 }) {
   const [zoom, setZoom] = useTableZoom();
   const fitted = useFitted(height);
   const box = capped ? fitted : undefined;
+  const scale = zoomable ? zoom : 100;
 
   return (
     <>
@@ -243,11 +262,13 @@ export function ZoomBox({ children, height, capped = true }: {
       */}
       <div ref={box} style={css("overflow:auto")}>
         {/* On a wrapper, not the table: a screen may have put two in here. */}
-        <div style={css("zoom:" + zoom / 100)}>{children}</div>
+        <div style={css("zoom:" + scale / 100)}>{children}</div>
       </div>
-      <div style={css("padding:7px 14px;border-top:1px solid #E9EFF5;display:flex;justify-content:flex-end;background:#FBFCFD")}>
-        <ZoomBar zoom={zoom} onZoom={setZoom} />
-      </div>
+      {zoomable && (
+        <div style={css("padding:7px 14px;border-top:1px solid #E9EFF5;display:flex;justify-content:flex-end;background:#FBFCFD")}>
+          <ZoomBar zoom={zoom} onZoom={setZoom} />
+        </div>
+      )}
     </>
   );
 }
