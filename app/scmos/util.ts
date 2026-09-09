@@ -165,12 +165,19 @@ export function cell(value: unknown, o: CellOpts = {}): Cell {
   // about half was air; this brings it near thirty and puts a third more work
   // on the screen without making anything smaller than it reads at.
   let td =
-    "padding:5px 11px;white-space:nowrap;border-bottom:1px solid #EDF1F5;font-size:12.5px;vertical-align:middle;";
+    "padding:5px 11px;white-space:nowrap;border-bottom:1px solid #EDF1F5;vertical-align:middle;";
   if (o.align) td += "text-align:" + o.align + ";";
   if (o.w) td += "min-width:" + o.w + "px;";
 
-  let sp = "font-size:12.5px;color:" + (o.mute ? "#7C8B9B" : "#16232F") + ";";
-  if (o.mono) sp += "font-family:'IBM Plex Mono',monospace;font-size:12px;";
+  // The face is the table's, set once on the table element — a cell only says
+  // what is different about it. Size stays out of here for the same reason.
+  let sp = "color:" + (o.mute ? "#7C8B9B" : "#16232F") + ";";
+  // `mono` no longer changes the face. It was IBM Plex Mono so digits lined up
+  // in a container column; the department asked for one face across every job
+  // table, and tabular figures keep the alignment without a second face doing
+  // it — where Angsana New has them, and where it does not the column is still
+  // one face rather than two.
+  if (o.mono) sp += "font-variant-numeric:tabular-nums;";
   if (o.bold) sp += "font-weight:600;color:#0A2240;";
   if (o.tone) sp = badge(String(value), o.tone);
   if (o.color) sp += "color:" + o.color + ";font-weight:600;";

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { css } from "./theme";
+import { TABLE_FONT_CSS } from "./tableFont";
 import { ZoomBar, useTableZoom } from "./TableFrame";
 import type { Cell, Col } from "./util";
 
@@ -276,7 +277,7 @@ export function DataTable(p: Props) {
           grid is the browser's copy event, and a page with nothing selectable
           is a poor place to depend on one.
         */}
-        <table style={css("width:100%;border-collapse:separate;border-spacing:0;min-width:100%;zoom:" + (zoom / 100)
+        <table style={css(`width:100%;border-collapse:separate;border-spacing:0;min-width:100%;${TABLE_FONT_CSS};zoom:` + (zoom / 100)
           + (model.noSelect ? ";user-select:none;-webkit-user-select:none" : ""))}>
           <thead>
             <tr>

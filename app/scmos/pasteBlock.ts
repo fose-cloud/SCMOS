@@ -129,6 +129,17 @@ export function planPaste<TField>(
 /* -------------------------------------------------------------- copying out */
 
 /** The heading row of a copied table, in the app's own navy. */
+/**
+ * The type a copied table is set in.
+ *
+ * <p>Written out rather than imported, because this file is checked by the node
+ * test runner and a value import of a sibling would have to carry a `.ts`
+ * extension the compiler refuses. It is not a second definition: `tableFont.ts`
+ * holds the one the screen uses, and a test asserts the two strings are equal —
+ * so the pair cannot drift without a failure that names them.</p>
+ */
+export const COPY_FONT_CSS = "font-family:'Angsana New','AngsanaUPC','Cordia New',serif;font-size:18pt";
+
 const HEAD_BG = "#0A2240";
 const HEAD_FG = "#FFFFFF";
 
@@ -180,7 +191,10 @@ export function copyBlockPayload(lines: string[][], heads: string[] | null) {
       : (esc(value) || "&nbsp;");
     return `<${tag}${attrs} style="${style}">${inner}</${tag}>`;
   };
-  const html = '<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;font-size:13px">'
+  // The same face and size the grid is drawn in, from the same constant. These
+  // were a different face at a different size, so a table pasted into a mail
+  // looked nothing like the table it was copied from.
+  const html = `<table style="border-collapse:collapse;${COPY_FONT_CSS}">`
     + (heads ? `<thead><tr>${heads.map((h) => box(h, true)).join("")}</tr></thead>` : "")
     + `<tbody>${lines.map((line) => `<tr>${line.map((v) => box(v, false)).join("")}</tr>`).join("")}</tbody>`
     + "</table>";
