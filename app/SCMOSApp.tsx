@@ -1373,7 +1373,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           ? [{ label: "↷ ถัดไป", title: "กลับไปข้างหน้า (Ctrl+X หรือ Ctrl+Y)", style: BTN_SECONDARY, go: redo }]
           : []),
         { label: "+ แทรกแถว", style: BTN_SECONDARY, go: insertRow },
-        { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => startAddJob("CHOOSE") },
+        // Straight to the locked category where there is one, rather than
+        // asking. This branch is reached by The Chemours' domestic tab as well
+        // as My Job — `isWorkspace` covers both — which is why the "+ สร้างงาน"
+        // button further down, written to open on DELIVERY for exactly this
+        // screen, has never been the one shown there. Asking which category on
+        // a grid that can only display one is not a question, it is a way to
+        // put the job somewhere the person cannot see it.
+        { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => startAddJob(lockedCat ?? "CHOOSE") },
       ];
     }
     if (screen === "chemours") {

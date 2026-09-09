@@ -1326,7 +1326,13 @@ export function Workspace(p: Props) {
   if (ws.tab !== "PENDING" && WORKSPACE_TABS[ws.tab]) {
     activeFilters.push(["มุมมอง", ws.tab, () => p.set({ tab: "PENDING", page: 1 })]);
   }
-  if (ws.cat !== "ALL") activeFilters.push(["ประเภท", ws.cat, () => p.set({ cat: "ALL", page: 1 })]);
+  // Not on a locked grid. There the category is what the screen *is*, not a
+  // narrowing somebody applied, and the chip came with an ✕ that set it back to
+  // ALL — which the lock overrode again on the next render. A control that
+  // looks like it widens the view and does nothing is worse than no control.
+  if (!p.lockedCat && ws.cat !== "ALL") {
+    activeFilters.push(["ประเภท", ws.cat, () => p.set({ cat: "ALL", page: 1 })]);
+  }
   if (yearWanted.length) activeFilters.push(["ปี", pickLabel(ws.year), () => p.set({ year: "ALL", page: 1 })]);
   if (monthWanted.length) {
     activeFilters.push(["เดือน", pickLabel(ws.month, (month) => monthLabel(month)), () => p.set({ month: "ALL", page: 1 })]);
