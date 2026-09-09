@@ -96,6 +96,16 @@ export type ReceiptHead = {
   crew: "" | "with" | "without";
   /** The job owner's name, printed in the bracket under LESCHACO OFFICER. */
   officer: string;
+  /**
+   * What is written on the signature line itself, above the bracket.
+   *
+   * Always empty from the register. The line is signed by hand on a printed
+   * receipt; it is typed only when the receipt is being sent as a PDF and
+   * nobody is going to hold a pen over it. Filling it from the job would be
+   * SCMOS signing on somebody's behalf, which is a different act from naming
+   * who should sign.
+   */
+  officerSigned: string;
 };
 
 const text = (value: unknown): string => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -202,6 +212,7 @@ export function receiptHead(job: ReceiptJob): ReceiptHead {
     // Whoever the register says owns the job. Empty when it says nobody, which
     // prints the blank bracket the form has always had rather than a guess.
     officer: text(job.op),
+    officerSigned: "",
   };
 }
 

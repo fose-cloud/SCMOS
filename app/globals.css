@@ -266,6 +266,11 @@ button { cursor: pointer; }
      frame, and the rule above would print ( ____ ) on a form that has never had
      a line there — the signature's own line is the dotted one above it. */
   .cargo-page input.sign-name { border-bottom: none !important; }
+  /* And except the signature line itself, which is dotted on the paper form and
+     must stay dotted whether it is signed by hand or typed into. The rule above
+     would quietly turn it solid the moment it became something you can type in,
+     changing a line on a controlled document. */
+  .cargo-page input.sign-line { border-bottom: 1px dotted #333 !important; }
   .no-print { display: none !important; }
   /*
    * The receipt is one page, and no longer needs shrinking to get there.

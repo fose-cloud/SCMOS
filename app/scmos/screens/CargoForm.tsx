@@ -110,6 +110,8 @@ type Form = {
   crew: "" | "with" | "without";
   /** The job owner, printed under LESCHACO OFFICER. Empty leaves the bracket blank. */
   officer: string;
+  /** Typed on the signature line itself. Never filled from a job — see cargoReceipt. */
+  officerSigned: string;
 };
 
 /** One line of the item table: a cell per column, and the columns vary. */
@@ -119,7 +121,7 @@ const BLANK: Form = {
   jobNo: "", createDate: "", invoiceNo: "", vessel: "", eta: "", portOfDischarge: "",
   deliveryDate: "", blNo: "", truckNo: "", packages: "", grossWeight: "", remark: "",
   customer: "", receiverName: "", receiverAddress: "", agent: "", containerNo: "",
-  truckIn: "", truckOut: "", vehicle: "", plate: "", crew: "", officer: "",
+  truckIn: "", truckOut: "", vehicle: "", plate: "", crew: "", officer: "", officerSigned: "",
 };
 
 const blankItems = (width: number): Item[] =>
@@ -425,10 +427,14 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
 
     TERMS.forEach((term, i) => put(`${i + 1}. ${term}`));
     put();
-    // Built the same way as the two rows under it, and carrying the officer's
-    // name for the same reason the printed sheet does. A workbook whose
-    // brackets are blank while the printout names somebody is two versions of
-    // one controlled document.
+    // The signature line, then the bracket, then the captions — the same four
+    // rows the sheet draws, carrying whatever was typed on either for the same
+    // reason. A workbook that is blank where the printout is not is two
+    // versions of one controlled document.
+    put(...SIGNATURES.flatMap(([, english]) => [
+      english === OFFICER_SIGNATURE && form.officerSigned ? form.officerSigned : "",
+      "",
+    ]));
     put(...SIGNATURES.flatMap(([, english]) => [
       english === OFFICER_SIGNATURE && form.officer ? `( ${form.officer} )` : "(                    )",
       "",
@@ -708,7 +714,24 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
     <div style={css("display:flex;gap:18px;margin-top:16px;margin-bottom:4px")}>
       {SIGNATURES.map(([thai, english]) => (
         <div key={thai} style={css("flex:1;text-align:center")}>
-          <div style={css(`border-bottom:1px dotted ${INK};height:1px;margin-bottom:5px`)} />
+          {/* The line itself. Ours can be typed on, for a receipt that is sent
+              as a PDF and never has a pen held over it; it stays dotted either
+              way, because that is the line the paper form has. Nothing fills it
+              from the job — naming who should sign is one act, signing is
+              another, and SCMOS does the first only. */}
+          {english === OFFICER_SIGNATURE ? (
+            <input
+              className="sign-line"
+              value={form.officerSigned}
+              onChange={(e) => onField("officerSigned", e.target.value)}
+              aria-label={`${thai} — ลายมือชื่อ`}
+              style={css(`width:100%;border:none;border-bottom:1px dotted ${INK};`
+                + `background:#F6F9FC;text-align:center;margin-bottom:4px;`
+                + `font-size:${BODY_PT};font-family:inherit;color:${INK};padding:0 0 1px;outline:none`)}
+            />
+          ) : (
+            <div style={css(`border-bottom:1px dotted ${INK};height:1px;margin-bottom:5px`)} />
+          )}
           <div style={css(`font-size:${BODY_PT};letter-spacing:.5px`)}>
             {english === OFFICER_SIGNATURE ? (
               // Typed over where it is read, rather than in a field elsewhere on
