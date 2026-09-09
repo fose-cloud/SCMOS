@@ -24,11 +24,14 @@ export function PeriodBar(p: {
    */
   dimensions?: React.ReactNode;
   /**
-   * Navy, for the row that carries those pickers.
+   * Which bar this is.
    *
-   * FilterPickMany is drawn for a navy bar — it is My Job's control and is
-   * styled for the bar it sits on there — so the row it joins becomes navy
-   * rather than the picker being restyled for three screens at once.
+   * The dashboard's row was navy for a while, because FilterPickMany was drawn
+   * for My Job's navy bar and joining it turned the row that colour. The
+   * department asked for white, the picker gained a light tone of its own, and
+   * the dashboard is back on the same bar every other screen has. Nothing
+   * passes dark today; it is kept because the light half of every pair here
+   * only means something against a dark half.
    */
   tone?: "light" | "dark";
 }) {
@@ -64,7 +67,7 @@ export function PeriodBar(p: {
       {p.dimensions}
       {/* A rule between the two questions, so one long row still reads as
           "which jobs" and then "over what period". */}
-      {p.dimensions && <span style={css("width:1px;align-self:stretch;background:#24476E")} />}
+      {p.dimensions && <span style={css(`width:1px;align-self:stretch;background:${dark ? "#24476E" : "#D8E0E8"}`)} />}
       <span style={css(`font-size:11px;font-weight:700;letter-spacing:.06em;color:${dark ? "#CFE2F7" : "#0A2240"}`)}>ช่วงเวลา</span>
 
       {select("ปี", p.period.year, options.years, (v) => v,

@@ -371,10 +371,10 @@ export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, per
    */
   const options = (field: "customer" | "trucker") => dashboardOptions(allJobs, field, filters);
   /*
-   * One row, not two. The pickers sat in a navy bar of their own above the
-   * period bar, which spent two rows on one question — which jobs are we
-   * looking at, and over what period. They go into the period bar's own row
-   * now, and it takes the navy the pickers are drawn for.
+   * One row, not two. The pickers sat in a bar of their own above the period
+   * bar, which spent two rows on one question — which jobs are we looking at,
+   * and over what period. They go into the period bar's own row now, in white,
+   * which is the bar every other screen shows.
    */
   const bar = (
     <PeriodBar
@@ -382,14 +382,13 @@ export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, per
       shown={total}
       period={period}
       onPeriod={onPeriod}
-      tone="dark"
       dimensions={<>
         <FilterPickMany label="CUSTOMER" value={filters.customer} options={options("customer")}
-          onPick={customer => onFilters({ ...filters, customer })} />
+          onPick={customer => onFilters({ ...filters, customer })} tone="light" />
         <FilterPickMany label="TRUCKER" value={filters.trucker} options={options("trucker")}
-          onPick={trucker => onFilters({ ...filters, trucker })} />
+          onPick={trucker => onFilters({ ...filters, trucker })} tone="light" />
         {dimensionsActive && <button type="button" onClick={() => onFilters(ALL_DASHBOARD_FILTERS)}
-          style={css("border:1px solid #6FA8DC;background:transparent;color:#fff;border-radius:4px;height:27px;padding:0 10px;font-size:11.5px;font-family:inherit;cursor:pointer")}>
+          style={css("border:1px solid #BBD5EE;background:#F4F8FC;color:#1D5FA8;border-radius:4px;height:27px;padding:0 10px;font-size:11.5px;font-family:inherit;cursor:pointer")}>
           ล้าง CUSTOMER / TRUCKER
         </button>}
       </>}
