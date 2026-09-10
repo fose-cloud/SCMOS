@@ -166,9 +166,17 @@ function columnFor(field: string): SheetColumn {
   return SHEET_COLUMNS.find((column) => fieldOf(column) === field) ?? SHEET_COLUMNS[0];
 }
 
-export function RateSheet({ canEdit, onToast }: {
+export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
   /** Whether this account may change a rate. Shown, not guessed at: the API decides. */
   canEdit: boolean;
+  /**
+   * Read-only because of how this session signed in, not because of the role.
+   *
+   * Worth telling apart. "You do not have permission" sends somebody to their
+   * manager; "sign in again with your second factor" is something they can do
+   * in a minute.
+   */
+  needsSecondFactor?: boolean;
   onToast: (message: string) => void;
 }) {
   const [page, setPage] = useState<Page | null>(null);
@@ -834,9 +842,24 @@ export function RateSheet({ canEdit, onToast }: {
           {page.total.toLocaleString()}
         </span>
         <span style={css("font-size:11.5px;color:#CFE2F7")}>เส้นทาง</span>
+        {/*
+          How to start an edit, said first.
+
+          This line listed Ctrl+C, Tab, Enter and Esc — everything you do once
+          you are already editing, and nothing about how to begin. The gesture
+          was only in a cell's tooltip, which nobody hovers long enough to see,
+          so a grid that has always been editable read as a grid that was not.
+        */}
         {canEdit
-          ? <span style={css("font-size:11px;color:#8FB4DC")}>· Ctrl+C / Ctrl+V · Tab ← · Shift+Tab → · Enter บันทึก · Esc ยกเลิก</span>
-          : <span style={css("font-size:11px;color:#E0A33A")}>· อ่านอย่างเดียว</span>}
+          ? <span style={css("font-size:11px;color:#8FB4DC")}>
+              · <b style={css("color:#CFE2F7")}>ดับเบิลคลิกเพื่อแก้ไข</b> หรือเลือกช่องแล้วพิมพ์ทับ
+              · Ctrl+C / Ctrl+V · Tab ← · Shift+Tab → · Enter บันทึก · Esc ยกเลิก
+            </span>
+          : <span style={css("font-size:11px;color:#E0A33A")}>
+              · อ่านอย่างเดียว — {needsSecondFactor
+                ? "การแก้ไขอัตราค่าขนส่งต้องเข้าสู่ระบบด้วยการยืนยันตัวตนสองขั้น (MFA) · ออกจากระบบแล้วเข้าใหม่ด้วย MFA"
+                : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง"}
+            </span>}
       </span>
     </div>
   );

@@ -685,7 +685,31 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         name: identity.name || base.name, init: identity.init || base.init }
     : base;
 
-  const able = (capability: string) => can.has(capability);
+  /*
+   * What this session may actually do, not what the role grants.
+   *
+   * Holding a capability is only half of it. Changing a rate, approving a
+   * retention and the rest of SignIn.Guarded are refused outright when the
+   * deployment's policy is Require and the person signed in with one factor —
+   * the API has always enforced that and has always said so in /api/me, and
+   * the screen has never read it. So Rate Sheet offered every cell for editing
+   * to somebody the server would refuse, and the refusal arrived as a toast
+   * after they had typed, which reads as the grid being broken.
+   *
+   * Only under Require. `wouldRefuse` is deliberately computed against Require
+   * whatever the policy actually is, so that the answer is readable before the
+   * policy is switched on — treating it as a refusal under Record would take
+   * rate editing away from a deployment that never asked for it.
+   */
+  const refusedForWeakSignIn = new Set(
+    identity?.signIn?.policy === "Require" ? identity.signIn.wouldRefuse ?? [] : []);
+
+  const able = (capability: string) =>
+    can.has(capability) && !refusedForWeakSignIn.has(capability);
+
+  /** Held by the role, but refused until this session is stronger. Worth saying so. */
+  const guardedAway = (capability: string) =>
+    can.has(capability) && refusedForWeakSignIn.has(capability);
   const actingFor = identity?.actingFor ?? [];
   /**
    * A carrier's account. Their menu is their own, and the register screens are
@@ -2949,6 +2973,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
               canEditRates={able("EditRates")} canSaveQuote={able("QuoteToSheet")}
+              // Held by the role but refused until the sign-in is stronger.
+              // Different from "no permission", and the screen says which.
+              ratesNeedSecondFactor={guardedAway("EditRates")}
               onToast={setToast} />}
 
             {screen === "postpone" && (

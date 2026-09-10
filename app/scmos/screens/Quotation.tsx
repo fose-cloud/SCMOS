@@ -24,7 +24,7 @@ import { RateSheet } from "./RateSheet";
 
 type View = "calculate" | "sheet" | "terms";
 
-export function Quotation({ view, onView, canEditRates, canSaveQuote, onToast }: {
+export function Quotation({ view, onView, canEditRates, ratesNeedSecondFactor, canSaveQuote, onToast }: {
   /**
    * Which half is showing, owned above this screen.
    *
@@ -44,6 +44,8 @@ export function Quotation({ view, onView, canEditRates, canSaveQuote, onToast }:
    * the arrangement this codebase has had to unpick before.
    */
   canEditRates: boolean;
+  /** The role grants rate editing; this session is not strong enough for it. */
+  ratesNeedSecondFactor?: boolean;
   /**
    * Whether this account may write a finished quotation into the sheet.
    *
@@ -83,7 +85,8 @@ export function Quotation({ view, onView, canEditRates, canSaveQuote, onToast }:
         canSaveQuote={canSaveQuote} onOpenSheet={() => onView("sheet")} onToast={onToast} />}
 
       {/* The register in the workbook's own shape, typed into like My Job. */}
-      {view === "sheet" && <RateSheet canEdit={canEditRates} onToast={onToast} />}
+      {view === "sheet" && <RateSheet canEdit={canEditRates}
+        needsSecondFactor={ratesNeedSecondFactor === true} onToast={onToast} />}
 
       {/* What is charged on top of the rate — a page to read, not to type in. */}
       {view === "terms" && <QuoteTerms onToast={onToast} />}
