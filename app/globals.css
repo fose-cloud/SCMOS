@@ -284,7 +284,7 @@ button { cursor: pointer; }
    * header and footer switched on. Keeping the zoom would only have made a
    * form full of 8pt legal text smaller than it needs to be.
    */
-  .cargo-page { padding: 0 !important; }
+  /* Padding is set with the page margin, further down. */
   /* The receipt is not worth splitting across a page break. */
   .cargo-page > div { break-inside: avoid; page-break-inside: avoid; }
 
@@ -298,7 +298,26 @@ button { cursor: pointer; }
    * A4 the sheet is 15mm narrower and 18mm taller than the workbook was ruled
    * for, which stretches every column and moves the signature line down.
    */
-  @page { size: Letter portrait; margin: 10mm 12mm; }
+  /*
+   * No page margin, and the margin moved onto the page itself.
+   *
+   * The browser draws its own furniture — the date, the tab title, the site's
+   * URL and the page number — inside the @page margin. There is no CSS that
+   * turns those off; the print dialog has a tick box and nobody prints a
+   * controlled document by first remembering to untick something. Leave no
+   * margin and there is nowhere for them to be drawn, so they are not.
+   *
+   * The 10mm and 12mm they used to be are now padding on the page elements
+   * below, so what lands on the paper is in the same place it always was.
+   */
+  @page { size: Letter portrait; margin: 0; }
+
+  /* The paper margin, now that @page has none. box-sizing matters: both pages
+     are width:100% and the padding would otherwise push them off the sheet. */
+  .cargo-page, .report-page {
+    box-sizing: border-box !important;
+    padding: 10mm 12mm !important;
+  }
 }
 
 

@@ -117,6 +117,45 @@ type Form = {
 /** One line of the item table: a cell per column, and the columns vary. */
 type Item = { cells: string[] };
 
+/*
+ * The signature on the LESCHACO OFFICER line, remembered.
+ *
+ * It is the same person signing every receipt, and retyping a name on each one
+ * is the sort of small friction that ends with the line left blank. So it is
+ * kept in this browser and put back on the next receipt, on a new job, and
+ * after the form is cleared.
+ *
+ * Per browser rather than per account, deliberately. A signature says who
+ * signed; storing it against the deployment would mean whoever opened the
+ * receipt next printed a document already signed by somebody else. Whoever
+ * types their own name over it keeps theirs, on their own machine.
+ */
+const SIGN_KEY = "scmos.cargo.officer-signed";
+
+/** What the line starts as before anybody has typed on this machine. */
+const SIGN_DEFAULT = "Jiratchaya Timrattana";
+
+function rememberedSignature(): string {
+  // Storage throws outright in some contexts — a private window, a browser set
+  // to block site data — and a receipt that will not open because of a
+  // signature default is a worse outcome than typing the name.
+  try {
+    const held = window.localStorage.getItem(SIGN_KEY);
+    return held === null ? SIGN_DEFAULT : held;
+  } catch {
+    return SIGN_DEFAULT;
+  }
+}
+
+function rememberSignature(value: string) {
+  try {
+    window.localStorage.setItem(SIGN_KEY, value);
+  } catch {
+    // Nothing to do and nothing worth saying: the name is on the form in front
+    // of them either way, it simply will not be there next time.
+  }
+}
+
 const BLANK: Form = {
   jobNo: "", createDate: "", invoiceNo: "", vessel: "", eta: "", portOfDischarge: "",
   deliveryDate: "", blNo: "", truckNo: "", packages: "", grossWeight: "", remark: "",
@@ -246,7 +285,9 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
   onStore: (rows: FormTemplate[]) => Promise<number>;
   onToast: (message: string) => void;
 }) {
-  const [form, setForm] = useState<Form>(BLANK);
+  // The lazy initialiser runs on the client only, which is where localStorage
+  // exists — reading it in the component body would break the server render.
+  const [form, setForm] = useState<Form>(() => ({ ...BLANK, officerSigned: rememberedSignature() }));
   /**
    * The item table's headings for the customer on the form, and the rows under
    * them.
@@ -290,7 +331,11 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
     if (!job) return;
 
     const head = receiptHead(job);
-    setForm(head);
+    // The job fills the receipt; it does not un-sign it. receiptHead builds a
+    // fresh form from the register and has no signature in it, by design — see
+    // cargoReceipt — so the one on screen is carried across rather than lost
+    // every time somebody picks a different job.
+    setForm({ ...head, officerSigned: form.officerSigned });
     // The customer's own columns, and one row filled as far as the register
     // can. Read here rather than left to an effect so the headings and the row
     // under them are never a render out of step.
@@ -542,7 +587,13 @@ export function CargoForm({ jobs, stored, onStore, onToast }: {
             </button>
           )}
           <button
-            onClick={() => { setForm(BLANK); setItems(blankItems(columns.length)); setFrom(""); }}
+            onClick={() => {
+              // Clear empties the receipt, not the signature: it is the same
+              // person signing the next one.
+              setForm({ ...BLANK, officerSigned: rememberedSignature() });
+              setItems(blankItems(columns.length));
+              setFrom("");
+            }}
             className="ghost-btn"
             style={css("height:32px;padding:0 14px;border:1px solid #D3DBE3;background:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;color:#465A6E")}
           >
@@ -743,7 +794,10 @@ function Receipt({ form, columns, items, onField, onCustomer, onItem }: {
             <input
               className="sign-line"
               value={form.officerSigned}
-              onChange={(e) => onField("officerSigned", e.target.value)}
+              onChange={(e) => {
+                onField("officerSigned", e.target.value);
+                rememberSignature(e.target.value);
+              }}
               aria-label={`${thai} — ลายมือชื่อ`}
               style={css(`${SIGN_LINE};background:#F6F9FC;text-align:center;`
                 + `font-size:${BODY_PT};font-family:inherit;color:${INK};padding:0;outline:none`)}
