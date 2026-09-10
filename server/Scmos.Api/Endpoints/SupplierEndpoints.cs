@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Scmos.Api.Auth;
+using Scmos.Api.Data;
 using Scmos.Api.Rules;
 using Scmos.Api.Services;
 
@@ -55,6 +56,15 @@ public static class SupplierEndpoints
     /// </param>
     public record DirectoryBody(List<string>? Names, List<AliasLine>? Aliases);
 
+    /// <summary>
+    /// The largest ASL/BSL workbook accepted.
+    ///
+    /// The real one is 120 KB for 642 companies, so 16 MB is room for the list
+    /// growing many times over while still refusing whatever was uploaded by
+    /// accident before it is parsed.
+    /// </summary>
+    private const long MaxImportBytes = 16L * 1024 * 1024;
+
     public record AliasLine(string? Alias, string? Company);
     public record InvokeBody(string? Tool, string? Summary, JsonElementPayload? Payload);
     public record DecideBody(bool Approved, string? Note);
@@ -98,6 +108,73 @@ public static class SupplierEndpoints
                 user => service.SetStatusAsync(id, body.Status ?? "", user.Signature, token),
                 AuditActions.StatusChange, "supplier", id.ToString(), "สถานะการอนุมัติ", "",
                 body.Status ?? "", body.Reason ?? ""));
+
+        /*
+         * The ASL/BSL list, straight off procurement's spreadsheet.
+         *
+         * There is a command-line importer for the same file and it is the same
+         * code underneath — this exists because running it needs a connection
+         * string for whichever database is meant, and getting that wrong is
+         * silent: the import reports 642 rows written and the register it was
+         * meant for is untouched. A button on the screen can only mean the
+         * database that screen is already reading.
+         *
+         * It answers with what it *would* do unless `apply` says otherwise, so
+         * the counts and the matched carriers can be read before 642 rows land
+         * in the table that decides who a job may be given to.
+         */
+        suppliers.MapPost("/import-asl", async (HttpContext context, IUserAccessor users,
+            ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ทะเบียนผู้ขนส่ง", StatusCodes.Status403Forbidden);
+
+            var form = await context.Request.ReadFormAsync(token);
+            var file = form.Files.GetFile("file");
+            if (file is null || file.Length == 0)
+                return ApiResults.Error("ยังไม่ได้เลือกไฟล์", StatusCodes.Status400BadRequest);
+            if (file.Length > MaxImportBytes)
+                return ApiResults.Error("ไฟล์ใหญ่เกิน 16 MB", StatusCodes.Status400BadRequest);
+
+            var apply = form["apply"].ToString() is "1" or "true";
+
+            List<AslImporter.Row> rows;
+            int skipped;
+            try
+            {
+                await using var content = file.OpenReadStream();
+                rows = AslImporter.Read(content, out skipped);
+            }
+            catch (Exception problem)
+            {
+                // A .xls, a CSV renamed, a file that is not a workbook at all.
+                // The message says which file and what went wrong rather than
+                // becoming a 500 that reads as SCMOS being broken.
+                return ApiResults.Error($"อ่านไฟล์ {file.FileName} ไม่ได้ — {problem.Message}",
+                    StatusCodes.Status400BadRequest);
+            }
+
+            if (rows.Count == 0)
+                return ApiResults.Error(
+                    "ไม่พบข้อมูลในไฟล์ — ต้องมีหัวคอลัมน์ Supplier_Name และมีอย่างน้อยหนึ่งแถว",
+                    StatusCodes.Status400BadRequest);
+
+            var outcome = await AslImporter.ImportAsync(db, rows, skipped, apply, token);
+
+            // Only a write is worth an audit entry. A preview changes nothing
+            // and recording every look at the file would bury the one line that
+            // says who actually loaded 642 companies into the register.
+            if (apply)
+                await audit.RecordAsync(user, "import", "supplier-register", "asl-bsl",
+                    file.FileName, "", "",
+                    $"เพิ่ม {outcome.Created} · ปรับปรุง {outcome.Updated} · "
+                    + $"จับคู่ผู้ขนส่งเดิม {outcome.MatchedByTradingName} · ผู้ขนส่ง {outcome.Carriers}",
+                    "", token);
+
+            return Results.Json(outcome);
+        }).DisableAntiforgery();
 
         // The agreed list of haulage companies. Pasted in rather than shipped:
         // these names belong to the business the same way the customer list and

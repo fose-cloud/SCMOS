@@ -39,8 +39,28 @@ namespace Scmos.Api.Data;
 /// </summary>
 public static class AslImporter
 {
+    /// <summary>
+    /// What the import did, or would do.
+    ///
+    /// Returned rather than printed, because two callers need it: the command
+    /// line prints it, and the Supplier Register screen shows it as a preview
+    /// before anybody presses the button that writes. Printing from inside the
+    /// import would have meant the screen getting a second implementation, and
+    /// the two would then disagree about what "updated" counts.
+    /// </summary>
+    public sealed record Outcome(
+        int Read, int Skipped, int Created, int Updated, int Unchanged,
+        int Carriers, int RepeatedInFile, int MatchedByTradingName,
+        /// <summary>Register spelling to registered name, for the ones matched by prefix.</summary>
+        IReadOnlyList<string> Matched,
+        /// <summary>Probably the same company; imported separately rather than merged.</summary>
+        IReadOnlyList<string> Unsure,
+        /// <summary>Not matched because more than one company fitted.</summary>
+        IReadOnlyList<string> Ambiguous,
+        bool Applied);
+
     /// <summary>What one spreadsheet row says, after the placeholders are read as empty.</summary>
-    private sealed record Row(
+    public sealed record Row(
         string AbsNo, string ListType, string Name, string Address, string Contact,
         string Telephone, string Fax, string Email, string Website, string CreditTerm,
         string ServicesRequired, string MainSpType, string TypeOfService);
@@ -65,16 +85,61 @@ public static class AslImporter
 
         var apply = args.Contains("--apply");
 
-        var rows = Read(path, out var skipped);
-        Console.WriteLine();
-        Console.WriteLine($"{rows.Count} usable row(s) read from {Path.GetFileName(path)}"
-            + (skipped > 0 ? $", {skipped} skipped for having no company name" : ""));
+        await using var file = File.OpenRead(path);
+        var rows = Read(file, out var skipped);
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ScmosDbContext>();
         await db.Database.MigrateAsync();
 
-        return await ImportAsync(db, rows, apply);
+        var outcome = await ImportAsync(db, rows, skipped, apply, CancellationToken.None);
+        Print(outcome, Path.GetFileName(path));
+        return 0;
+    }
+
+    /// <summary>The outcome, for a terminal. The screen renders the same record itself.</summary>
+    private static void Print(Outcome outcome, string fileName)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"{outcome.Read} usable row(s) read from {fileName}"
+            + (outcome.Skipped > 0 ? $", {outcome.Skipped} skipped for having no company name" : ""));
+
+        Console.WriteLine();
+        Console.WriteLine($"  created    {outcome.Created,5}");
+        Console.WriteLine($"  updated    {outcome.Updated,5}");
+        Console.WriteLine($"  unchanged  {outcome.Unchanged,5}");
+        Console.WriteLine($"  of which carriers: {outcome.Carriers} — the rest are agents, liners and brokers,");
+        Console.WriteLine("                     recorded but kept out of the scorecard and the job pool.");
+        if (outcome.RepeatedInFile > 0)
+            Console.WriteLine($"  {outcome.RepeatedInFile} row(s) repeated a company already in the file; the later one won.");
+
+        if (outcome.Matched.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  {outcome.MatchedByTradingName} carrier(s) matched by trading name. Check these —");
+            Console.WriteLine("  each is the only company in the list that begins with that spelling, which");
+            Console.WriteLine("  is strong but not proof. The register keeps its own name; the legal name");
+            Console.WriteLine("  is recorded beside it and the spelling added as an unconfirmed alias.");
+            Console.WriteLine();
+            foreach (var line in outcome.Matched) Console.WriteLine("    " + line);
+        }
+
+        if (outcome.Unsure.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("  Possibly the same company, imported separately rather than merged:");
+            foreach (var line in outcome.Unsure) Console.WriteLine("    " + line);
+        }
+
+        if (outcome.Ambiguous.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("  Not matched, because more than one company fits:");
+            foreach (var line in outcome.Ambiguous) Console.WriteLine("    " + line);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(outcome.Applied ? "Written." : "Nothing was written. Add --apply to write it.");
     }
 
     /* ------------------------------------------------------------ reading */
@@ -89,9 +154,9 @@ public static class AslImporter
     /// without a website column, and an import that refuses the whole file over
     /// one absent heading is an import nobody can run.
     /// </summary>
-    private static List<Row> Read(string path, out int skipped)
+    public static List<Row> Read(Stream file, out int skipped)
     {
-        using var book = new XLWorkbook(path);
+        using var book = new XLWorkbook(file);
         var sheet = book.Worksheets.First();
         var used = sheet.RangeUsed() ?? throw new InvalidOperationException("The sheet is empty.");
 
@@ -154,7 +219,8 @@ public static class AslImporter
 
     /* ---------------------------------------------------------- importing */
 
-    private static async Task<int> ImportAsync(ScmosDbContext db, List<Row> rows, bool apply)
+    public static async Task<Outcome> ImportAsync(ScmosDbContext db, List<Row> rows,
+        int skipped, bool apply, CancellationToken token)
     {
         var suppliers = await db.Suppliers.ToListAsync();
         var aliases = await db.SupplierAliases.AsNoTracking().ToListAsync();
@@ -363,57 +429,21 @@ public static class AslImporter
             }
         }
 
-        if (apply) await db.SaveChangesAsync();
+        if (apply) await db.SaveChangesAsync(token);
 
-        Console.WriteLine();
-        Console.WriteLine($"  created    {created,5}");
-        Console.WriteLine($"  updated    {updated,5}");
-        Console.WriteLine($"  unchanged  {unchanged,5}");
-        Console.WriteLine($"  of which carriers: {carriers} — the rest are agents, liners and brokers,");
-        Console.WriteLine($"                     recorded but kept out of the scorecard and the job pool.");
-        if (mergedInFile > 0)
-            Console.WriteLine($"  {mergedInFile} row(s) repeated a company already in the file; the later one won.");
-
-        if (matched.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine($"  {byShortName} carrier(s) in the register matched by trading name. Check these —");
-            Console.WriteLine("  each is the only one of the 642 that begins with that spelling, which is");
-            Console.WriteLine("  strong but not proof. The register keeps its own name; the legal name is");
-            Console.WriteLine("  recorded beside it and the spelling added as an unconfirmed alias.");
-            Console.WriteLine();
-            foreach (var line in matched) Console.WriteLine(line);
-        }
-
-        if (unsure.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("  Possibly the same company, imported separately rather than merged.");
-            Console.WriteLine("  The short name runs into the middle of a word rather than stopping at");
-            Console.WriteLine("  the end of one, which is how W.A.K reaches Wako. Fold them together in");
-            Console.WriteLine("  Supplier Register if they are the same:");
-            Console.WriteLine();
-            foreach (var line in unsure) Console.WriteLine(line);
-        }
-
-        if (ambiguous.Count > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("  Not matched, because more than one company fits:");
-            foreach (var line in ambiguous) Console.WriteLine(line);
-        }
-
-        if (samples.Count > 0)
-        {
-            Console.WriteLine();
-            foreach (var line in samples) Console.WriteLine(line);
-        }
-
-        Console.WriteLine();
-        Console.WriteLine(apply
-            ? "Written."
-            : "Nothing was written. Add --apply to write it.");
-        return 0;
+        return new Outcome(
+            Read: rows.Count,
+            Skipped: skipped,
+            Created: created,
+            Updated: updated,
+            Unchanged: unchanged,
+            Carriers: carriers,
+            RepeatedInFile: mergedInFile,
+            MatchedByTradingName: byShortName,
+            Matched: matched,
+            Unsure: unsure,
+            Ambiguous: ambiguous,
+            Applied: apply);
     }
 
     /// <summary>Copy the list's fields onto a supplier row.</summary>

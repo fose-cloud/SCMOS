@@ -77,6 +77,12 @@ const STATUS_TH: Record<string, string> = {
 
 export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast: (m: string) => void }) {
   const [rows, setRows] = useRemembered<Summary[]>("suppliers");
+  /* The Excel import: the file chosen, what the preview said, and whether a
+     call is in flight. The file is held so "write it" sends the same one that
+     was previewed rather than asking for it twice. */
+  const [aslFile, setAslFile] = useState<File | null>(null);
+  const [asl, setAsl] = useState<AslOutcome | null>(null);
+  const [aslBusy, setAslBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -210,6 +216,40 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
     } finally { setBusy(false); }
   }
 
+  /**
+   * Send the workbook and say what it would do, or do it.
+   *
+   * The same call either way, with `apply` deciding — so what is confirmed is
+   * exactly what was previewed, computed by the same code against the same
+   * database, rather than a preview from one path and a write from another.
+   */
+  async function importAsl(file: File, apply: boolean) {
+    setAslBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      if (apply) form.append("apply", "1");
+
+      const response = await apiFetch("/api/suppliers/import-asl", { method: "POST", body: form });
+      const reply = await response.json().catch(() => null) as (AslOutcome & { error?: string }) | null;
+
+      if (!response.ok) {
+        onToast(reply?.error ?? `นำเข้าไม่สำเร็จ (${response.status})`);
+        return;
+      }
+
+      setAsl(reply);
+      if (apply) {
+        onToast(`นำเข้าแล้ว — เพิ่ม ${reply?.created ?? 0} · ปรับปรุง ${reply?.updated ?? 0}`
+          + ` · ผู้ขนส่ง ${reply?.carriers ?? 0}`);
+        setAslFile(null);
+        await load();
+      }
+    } catch (error) {
+      onToast("นำเข้าไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setAslBusy(false); }
+  }
+
   /** Removes a supplier the register is not using. Refused by the API if it is. */
   async function remove(row: Summary) {
     if (row.attached > 0) {
@@ -341,14 +381,123 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหาชื่อหรือชื่อที่สะกดต่างกัน"
               style={css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;min-width:240px")} />
             {canManage && (
-              <button onClick={() => setShowDirectory((open) => !open)}
-                style={css("height:30px;padding:0 12px;border:1px solid #0A2240;background:" + (showDirectory ? "#0A2240" : "#fff")
-                  + ";color:" + (showDirectory ? "#fff" : "#0A2240") + ";border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
-                นำเข้าทะเบียนผู้ขนส่ง
-              </button>
+              <>
+                {/* The label is the file picker. A button that opens a hidden
+                    input is the only way to have one that looks like the button
+                    beside it — a bare file input cannot be styled to match. */}
+                <label style={css("height:30px;padding:0 12px;border:1px solid #16794C;background:"
+                  + (aslBusy ? "#C3CFDB" : "#16794C") + ";color:#fff;border-radius:4px;font-size:12px;"
+                  + "font-weight:600;cursor:" + (aslBusy ? "default" : "pointer")
+                  + ";font-family:inherit;display:flex;align-items:center")}>
+                  {aslBusy ? "กำลังอ่านไฟล์…" : "นำเข้าจาก Excel (ASL/BSL)"}
+                  <input
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    disabled={aslBusy}
+                    style={css("display:none")}
+                    onChange={(e) => {
+                      const chosen = e.target.files?.[0];
+                      // Cleared so choosing the same file twice fires again —
+                      // which somebody will do after fixing a column in it.
+                      e.target.value = "";
+                      if (!chosen) return;
+                      setAslFile(chosen);
+                      setAsl(null);
+                      void importAsl(chosen, false);
+                    }}
+                  />
+                </label>
+                <button onClick={() => setShowDirectory((open) => !open)}
+                  style={css("height:30px;padding:0 12px;border:1px solid #0A2240;background:" + (showDirectory ? "#0A2240" : "#fff")
+                    + ";color:" + (showDirectory ? "#fff" : "#0A2240") + ";border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                  นำเข้าทะเบียนผู้ขนส่ง
+                </button>
+              </>
             )}
           </div>
         </div>
+
+        {/*
+          What the file would do, before it does it.
+
+          Shown rather than summarised in a toast because the numbers are the
+          decision: 642 created and nothing updated means the carriers already
+          in the register were not recognised and are about to be duplicated,
+          which is the one outcome worth stopping.
+        */}
+        {asl && canManage && (
+          <div style={css("padding:13px 16px;border-bottom:1px solid #E9EFF5;background:"
+            + (asl.applied ? "#F1F8F4" : "#F8FAFC"))}>
+            <div style={css("display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:9px")}>
+              <Figure label="อ่านได้" value={asl.read} />
+              <Figure label="เพิ่มใหม่" value={asl.created} />
+              <Figure label="ปรับปรุง" value={asl.updated} />
+              <Figure label="ไม่เปลี่ยน" value={asl.unchanged} />
+              <Figure label="เป็นผู้ขนส่ง" value={asl.carriers} tone="#16794C" />
+              {asl.skipped > 0 && <Figure label="ข้ามเพราะไม่มีชื่อ" value={asl.skipped} tone="#B45309" />}
+            </div>
+
+            {/* The failure worth naming. Everything else is a number to read;
+                this one means the register is about to gain a second row for
+                every carrier it already has. */}
+            {!asl.applied && asl.updated === 0 && asl.created > 0 && rows && rows.length > 0 && (
+              <div style={css("font-size:11.5px;color:#B42318;line-height:1.7;margin-bottom:8px")}>
+                <b>ไม่มีรายการที่จับคู่กับทะเบียนเดิมได้เลย</b> — ถ้ากดเขียน ผู้ขนส่งที่มีอยู่แล้วจะถูกสร้างซ้ำ
+                และงานกับคะแนนจะแยกกันอยู่คนละแถว ตรวจว่าเป็นไฟล์และฐานข้อมูลที่ถูกต้องก่อน
+              </div>
+            )}
+
+            {asl.matched.length > 0 && (
+              <details style={css("font-size:11.5px;color:#5A6B7D;margin-bottom:6px")}>
+                <summary style={css("cursor:pointer;color:#0A5FA8")}>
+                  จับคู่ผู้ขนส่งเดิมจากชื่อย่อ {asl.matchedByTradingName} ราย — กดดูรายชื่อ
+                </summary>
+                <div style={css("margin-top:6px;font-family:ui-monospace,monospace;font-size:11px;line-height:1.8;max-height:200px;overflow:auto")}>
+                  {asl.matched.map((line, i) => <div key={i}>{line}</div>)}
+                </div>
+              </details>
+            )}
+
+            {asl.unsure.length > 0 && (
+              <div style={css("font-size:11.5px;color:#8A5A12;line-height:1.7;margin-bottom:6px")}>
+                <b>อาจเป็นบริษัทเดียวกัน</b> แต่ระบบไม่เดาให้ — นำเข้าแยกไว้ ถ้าใช่ให้กดรวมทีหลัง:
+                <div style={css("font-family:ui-monospace,monospace;font-size:11px;margin-top:3px")}>
+                  {asl.unsure.map((line, i) => <div key={i}>{line}</div>)}
+                </div>
+              </div>
+            )}
+
+            {asl.ambiguous.length > 0 && (
+              <div style={css("font-size:11.5px;color:#8A5A12;line-height:1.7;margin-bottom:6px")}>
+                ไม่จับคู่เพราะเข้าได้หลายบริษัท:
+                <div style={css("font-family:ui-monospace,monospace;font-size:11px;margin-top:3px")}>
+                  {asl.ambiguous.map((line, i) => <div key={i}>{line}</div>)}
+                </div>
+              </div>
+            )}
+
+            <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px")}>
+              {asl.applied ? (
+                <span style={css("font-size:12px;color:#16794C;font-weight:600")}>เขียนลงทะเบียนแล้ว</span>
+              ) : (
+                <>
+                  <button disabled={aslBusy || !aslFile}
+                    onClick={() => aslFile && void importAsl(aslFile, true)}
+                    style={css("height:30px;padding:0 14px;border:1px solid #16794C;background:"
+                      + (aslBusy ? "#C3CFDB" : "#16794C") + ";color:#fff;border-radius:4px;font-size:12px;"
+                      + "font-weight:600;cursor:pointer;font-family:inherit")}>
+                    {aslBusy ? "กำลังเขียน…" : `เขียนลงทะเบียน (${asl.created + asl.updated} รายการ)`}
+                  </button>
+                  <span style={css("font-size:11.5px;color:#7B8CA0")}>ยังไม่ได้เขียนอะไรลงฐานข้อมูล</span>
+                </>
+              )}
+              <button onClick={() => { setAsl(null); setAslFile(null); }}
+                style={css("height:30px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit")}>
+                ปิด
+              </button>
+            </div>
+          </div>
+        )}
 
         {showDirectory && canManage && (
           <div style={css("padding:13px 16px;border-bottom:1px solid #E9EFF5;background:#F8FAFC")}>
@@ -490,6 +639,16 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
   );
 }
 
+/** One number in the import preview. */
+function Figure({ label, value, tone = "#0A2240" }: { label: string; value: number; tone?: string }) {
+  return (
+    <div>
+      <div style={css(`font-size:16px;font-weight:700;font-family:ui-monospace,monospace;color:${tone}`)}>{value.toLocaleString()}</div>
+      <div style={css("font-size:10.5px;color:#7B8CA0")}>{label}</div>
+    </div>
+  );
+}
+
 const CELL = "padding:8px 12px;vertical-align:top";
 const CELL_S = css(CELL);
 
@@ -546,6 +705,22 @@ const PIN = (i: number) =>
   + ";width:" + PIN_WIDTH[i] + "px;min-width:" + PIN_WIDTH[i] + "px;max-width:" + PIN_WIDTH[i] + "px"
   + ";overflow:hidden;text-overflow:ellipsis"
   + (i === PINNED - 1 ? ";box-shadow:2px 0 0 #F1F5F9" : "");
+
+/**
+ * What the ASL/BSL import did, or would do.
+ *
+ * The same record the command-line importer prints. Read before writing: 642
+ * rows land in the table that decides who a job may be given to, and the
+ * difference between "created 642" and "updated 30, created 612" is the
+ * difference between an import and a duplicate register.
+ */
+type AslOutcome = {
+  read: number; skipped: number;
+  created: number; updated: number; unchanged: number;
+  carriers: number; repeatedInFile: number; matchedByTradingName: number;
+  matched: string[]; unsure: string[]; ambiguous: string[];
+  applied: boolean;
+};
 
 /** What an empty cell shows. 560 of these companies have no fax and no website. */
 const DASH = "—";
