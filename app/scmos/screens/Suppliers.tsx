@@ -544,7 +544,11 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
           SCMOS's own, not the list's, and are what says whether this company
           has ever actually worked for us.
         */}
-        <ZoomBox>
+        {/* No zoom. The register is read across, not squinted at: nineteen
+            columns with three of them pinned, and a slider that shrinks the
+            type does not make the twentieth column reachable. Asked for by the
+            department, the same as on KPI. */}
+        <ZoomBox zoomable={false}>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap")}>
             <thead><tr>{COLUMNS.map((column, i) => (
               <th key={column.head} style={css("position:sticky;top:0;z-index:" + (i < PINNED ? 3 : 2)
