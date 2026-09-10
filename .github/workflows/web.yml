@@ -107,6 +107,11 @@ jobs:
     env:
       SLOT: ${{ github.event_name == 'push' && 'production' || inputs.slot }}
     steps:
+      # The source, for the version the running app is checked against below.
+      # The package itself is the built output and does not carry it in a form
+      # worth grepping.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: web
@@ -130,6 +135,29 @@ jobs:
           package: standalone
           startup-command: "node server.js"
 
+      # The files landing is not the app running them.
+      #
+      # A deploy left the new bundle on disk and the old Node process serving
+      # it: the check below read deployment-version.txt off the file system,
+      # saw the new commit and passed, while every visitor got the previous
+      # build for as long as the worker stayed up. A restart fixed it in
+      # seconds, once somebody noticed — which took a screenshot of a screen
+      # showing columns that had been deployed an hour earlier as empty.
+      - name: Restart the app so it runs what was just deployed
+        # Not fatal on its own. If the restart is refused but the app is
+        # serving the new build anyway, the check below passes and there was
+        # nothing to fix; if it is refused and the app is stale, that check
+        # fails and says so. The restart is the remedy, not the test.
+        continue-on-error: true
+        run: |
+          if [ "$SLOT" = "production" ]; then
+            az webapp restart --name "${{ vars.WEB_APP_NAME }}" \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          else
+            az webapp restart --name "${{ vars.WEB_APP_NAME }}" --slot "$SLOT" \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          fi
+
       - name: Verify the deployed commit
         run: |
           if [ "$SLOT" = "production" ]; then
@@ -144,6 +172,35 @@ jobs:
             exit 1
           fi
           echo "Azure serves commit $actual"
+
+      # What the app answers with, as against what is in its folder. The step
+      # above proves the files; this proves the process. They disagreed once
+      # and nothing in the pipeline noticed.
+      - name: Verify the running app serves this build
+        run: |
+          if [ "$SLOT" = "production" ]; then
+            base="https://${{ vars.WEB_APP_NAME }}.azurewebsites.net"
+          else
+            base="https://${{ vars.WEB_APP_NAME }}-$SLOT.azurewebsites.net"
+          fi
+          want=$(sed -n 's/.*APP_VERSION = "\([^"]*\)".*/\1/p' app/scmos/version.ts)
+          if [ -z "$want" ]; then
+            echo "::error::Could not read APP_VERSION out of app/scmos/version.ts"
+            exit 1
+          fi
+          echo "Expecting $want"
+          agent="Mozilla/5.0 (compatible; SCMOS-smoke/1.0)"
+          # A restart takes a moment, and the first request wakes the worker.
+          for i in $(seq 1 12); do
+            body=$(curl -s --max-time 20 -H "User-Agent: $agent" "$base/?build=$i" || true)
+            case "$body" in
+              *"$want"*) echo "The running app serves $want"; exit 0 ;;
+            esac
+            echo "  attempt $i: not $want yet"
+            sleep 10
+          done
+          echo "::error::$base does not serve $want. The files deployed but the app is still running an older build."
+          exit 1
 
       - name: Smoke test
         run: |
