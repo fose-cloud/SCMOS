@@ -4,6 +4,21 @@ using Scmos.Api.Rules;
 
 namespace Scmos.Api.Services;
 
+/// <summary>
+/// Where one of the five required documents stands for one supplier.
+/// </summary>
+/// <param name="Code">Which requirement — see <see cref="SupplierCompliance.Required"/>.</param>
+/// <param name="DocumentId">The stored file, or null when nothing has been uploaded.</param>
+/// <param name="State">valid · expiring · expired · missing · no-expiry.</param>
+/// <param name="DaysLeft">
+/// Days until it runs out, negative once it has. Null when there is no date to
+/// count to — which is not the same as zero, and a column that shows 0 for
+/// "nobody recorded an expiry" is a column that will be read as "expires today".
+/// </param>
+public record ComplianceItem(
+    string Code, long? DocumentId, string FileName, string ExpiryDate,
+    string State, int? DaysLeft);
+
 public record SupplierSummary(
     int Id, string Code, string Name, string Status, string ServiceType, string ServiceArea,
     bool DgCapable, bool ReeferCapable, bool IsoTankCapable, bool GpsEquipped,
@@ -18,6 +33,18 @@ public record SupplierSummary(
     // chosen fields, because the register screen is now the place people read
     // the approved-supplier list and a column missing here is a column the
     // screen cannot show.
+    /// <summary>
+    /// The five required documents, always all five and in the same order,
+    /// whether or not any are held.
+    ///
+    /// A row per requirement rather than only the ones on file, because the
+    /// gap is the point: a supplier holding four of five and one holding none
+    /// have to look different, and they cannot if the absent ones are absent
+    /// from the answer too.
+    /// </summary>
+    IReadOnlyList<ComplianceItem> Compliance,
+    /// <summary>The worst of the five. See SupplierCompliance.Worst.</summary>
+    string ComplianceStatus,
     string AbsNo, string ListType, string LegalName,
     string ContactPerson, string Telephone, string Fax, string Email, string Website,
     string CreditTerm, string ServicesRequired, string MainSpType, string TypeOfService,
@@ -120,8 +147,21 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             .Select(group => new { Id = group.Key, Count = group.Count() })
             .ToDictionaryAsync(entry => entry.Id, entry => entry.Count, token);
 
+        /*
+         * Every supplier document, not only the ones carrying an expiry.
+         *
+         * This filtered on `ExpiryDate != ""` because its only reader was the
+         * expiring-soon count, for which a document with no date is nothing.
+         * The required-paperwork columns read it too now, and one of the five
+         * — the truck annex — has no expiry by nature: it is a list of
+         * vehicles, not a certificate. Filtered out here it could never show as
+         * held, so the column said "ยังไม่แนบไฟล์" for a file that was sitting
+         * in the container.
+         *
+         * The expiry filter moved to the count that actually wants it, below.
+         */
         var documents = await db.Documents.AsNoTracking()
-            .Where(document => document.SupplierId != null && document.ExpiryDate != "")
+            .Where(document => document.SupplierId != null)
             .ToListAsync(token);
 
         // The rest of what a row can be holding, in bulk. Counted here rather
@@ -159,12 +199,65 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         // count would make it disappear at exactly the wrong moment.
         var expiringBySupplier = documents
             .Where(document => document.SupplierId is not null
+                && document.ExpiryDate.Length > 0
                 && (DocumentService.IsExpiring(document.ExpiryDate)
                     || DocumentService.IsExpired(document.ExpiryDate)))
             .GroupBy(document => document.SupplierId!.Value)
             .ToDictionary(group => group.Key, group => group.Count());
 
         var noAliases = (IReadOnlyList<string>)Array.Empty<string>();
+
+        /*
+         * The five required documents, per supplier.
+         *
+         * From the documents already loaded above, so this costs no extra
+         * query. Newest first within each requirement: a supplier renews an
+         * insurance by uploading the new certificate beside the old one, and it
+         * is the new one that says whether they are covered.
+         */
+        var today = SupplierCompliance.Today();
+        var byRequirement = documents
+            .Where(document => document.SupplierId is not null)
+            .Select(document => (Doc: document, Need: SupplierCompliance.Match(document.Kind)))
+            .Where(pair => pair.Need is not null)
+            .GroupBy(pair => (Supplier: pair.Doc.SupplierId!.Value, pair.Need!.Code))
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(pair => Formats.DateNumber(pair.Doc.ExpiryDate))
+                    .ThenByDescending(pair => pair.Doc.Id)
+                    .First().Doc);
+
+        IReadOnlyList<ComplianceItem> ComplianceFor(int supplierId)
+        {
+            var found = new List<ComplianceItem>(SupplierCompliance.Required.Length);
+            foreach (var need in SupplierCompliance.Required)
+            {
+                byRequirement.TryGetValue((supplierId, need.Code), out var document);
+                var state = SupplierCompliance.StateOf(
+                    document is not null, document?.ExpiryDate ?? "", today, need.Expires);
+                var due = Formats.DateNumber(document?.ExpiryDate ?? "");
+                found.Add(new ComplianceItem(
+                    need.Code,
+                    document?.Id,
+                    document?.FileName ?? "",
+                    document?.ExpiryDate ?? "",
+                    state,
+                    due > 0 ? SupplierCompliance.DaysBetween(today, due) : null));
+            }
+            return found;
+        }
+
+        // Built once per supplier rather than once per field. Two calls in the
+        // projection below would walk the five requirements twice for every
+        // row, which at 641 suppliers is 6,410 lookups to answer 1,282.
+        var complianceOf = suppliers.ToDictionary(
+            supplier => supplier.Id,
+            supplier =>
+            {
+                var items = ComplianceFor(supplier.Id);
+                return (Items: items, Worst: SupplierCompliance.Worst(items.Select(item => item.State)));
+            });
 
         return suppliers.Select(supplier => new SupplierSummary(
             supplier.Id, supplier.Code, supplier.Name, supplier.Status,
@@ -178,6 +271,8 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             aliasesBySupplier.GetValueOrDefault(supplier.Id, noAliases),
             expiringBySupplier.GetValueOrDefault(supplier.Id),
             supplier.VendorNo, supplier.TaxId, supplier.Address,
+            complianceOf[supplier.Id].Items,
+            complianceOf[supplier.Id].Worst,
             supplier.AbsNo, supplier.ListType, supplier.LegalName,
             supplier.ContactPerson, supplier.Telephone, supplier.Fax,
             supplier.Email, supplier.Website, supplier.CreditTerm,

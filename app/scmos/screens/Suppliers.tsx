@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
+import { REQUIREMENTS, STATE_TONE, stateLabel } from "../supplierCompliance";
 
 /**
  * The supplier register.
@@ -29,6 +30,13 @@ type Summary = {
   creditTerm: string; servicesRequired: string; mainSpType: string; typeOfService: string;
   /** Whether this company moves cargo by road. 560 of the 641 do not. */
   isCarrier: boolean;
+  /* The five required documents, always all five, in REQUIREMENTS order. */
+  compliance: {
+    code: string; documentId: number | null; fileName: string;
+    expiryDate: string; state: string; daysLeft: number | null;
+  }[];
+  /** The worst of the five. */
+  complianceStatus: string;
   /**
    * Everything hanging off the row — jobs, rates, documents, evaluations,
    * contacts, lorries, drivers, capacity.
@@ -142,14 +150,18 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
    * point of storing it at all: an insurance certificate with no expiry cannot
    * be watched, and a lapsed one is what the compliance count exists to catch.
    */
-  async function upload(supplierId: number, file: File, folder: string, expiryDate: string) {
+  async function upload(supplierId: number, file: File, folder: string, kind: string, expiryDate: string) {
     if (busy) return;
     setBusy(true);
     try {
       const body = new FormData();
       body.append("supplierId", String(supplierId));
       body.append("folder", folder);
-      body.append("kind", folder);
+      // The kind is what decides which column the file lands under, so it is
+      // the requirement's code rather than the folder — two of the five share
+      // Insurance and two share Contract, and the folder cannot tell them
+      // apart. It was the folder here, which is why nothing ever matched.
+      body.append("kind", kind);
       body.append("expiryDate", expiryDate);
       body.append("file", file);
       const response = await apiFetch("/api/documents", { method: "POST", body });
@@ -609,6 +621,57 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
                     {row.typeOfService || DASH}
                   </td>
 
+                  {/*
+                    One cell per required document: what it says, when it runs
+                    out, and the file itself. A missing one is not blank — a
+                    blank cell reads as "nothing to see", and the whole point of
+                    listing all five is that the gap is visible.
+                  */}
+                  {REQUIREMENTS.map((need) => {
+                    const held = row.compliance?.find((one) => one.code === need.code);
+                    const state = held?.state ?? "missing";
+                    const tone = STATE_TONE[state] ?? STATE_TONE.missing;
+                    return (
+                      <td key={need.code} style={css(CELL + ";white-space:nowrap")}>
+                        <div style={css(`display:inline-block;padding:2px 7px;border-radius:3px;font-size:10.5px;`
+                          + `font-weight:700;background:${tone.bg};color:${tone.ink}`)}>
+                          {need.expires && held?.expiryDate ? held.expiryDate : tone.label}
+                        </div>
+                        {held?.documentId ? (
+                          <div style={css("margin-top:2px")}>
+                            <a href={`/api/documents/${held.documentId}/content`} target="_blank" rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={css("font-size:11px;color:#0A5FA8;text-decoration:none")}
+                              title={held.fileName}>
+                              เปิดไฟล์
+                            </a>
+                            {need.expires && held.expiryDate && (
+                              <span style={css(`font-size:10.5px;color:${tone.ink};margin-left:6px`)}>
+                                {stateLabel(state, held.daysLeft)}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={css("margin-top:2px;font-size:10.5px;color:#C3CFDB")}>ยังไม่แนบไฟล์</div>
+                        )}
+                      </td>
+                    );
+                  })}
+
+                  {/* The worst of the five, so a row can be judged without
+                      reading across all of them. */}
+                  <td style={css(CELL + ";white-space:nowrap")}>
+                    {(() => {
+                      const tone = STATE_TONE[row.complianceStatus] ?? STATE_TONE.missing;
+                      return (
+                        <span style={css(`font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:3px;`
+                          + `background:${tone.bg};color:${tone.ink}`)}>
+                          {tone.label}
+                        </span>
+                      );
+                    })()}
+                  </td>
+
                   <td style={CELL_S}>
                     <span style={css(`font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:3px;color:#fff;background:${STATUS_TONE[row.status] ?? "#7B8CA0"}`)}>
                       {STATUS_TH[row.status] ?? row.status}
@@ -637,7 +700,7 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
           onStatus={(status) => void post(`${picked}/status`, { status })}
           onEvaluate={(period, safety, documents, note) =>
             void post(`${picked}/evaluate`, { period, safety, documents, note })}
-          onUpload={(file, folder, expiryDate) => void upload(picked, file, folder, expiryDate)} />
+          onUpload={(file, folder, kind, expiryDate) => void upload(picked, file, folder, kind, expiryDate)} />
       )}
     </div>
   );
@@ -669,6 +732,9 @@ const COLUMNS: { head: string; right?: boolean }[] = [
   { head: "Telephone" }, { head: "Fax" }, { head: "Email" }, { head: "Website" },
   { head: "Credit Term (Days)", right: true }, { head: "Services Required" },
   { head: "Main SP Type" }, { head: "Type of Service" },
+  // The five the department listed, then Status, which is the worst of them.
+  ...REQUIREMENTS.map((need) => ({ head: `${need.english}\n(${need.thai})` })),
+  { head: "Status" },
   { head: "สถานะ" }, { head: "งาน", right: true }, { head: "เส้นทางราคา", right: true },
   // Kept from before the ASL/BSL columns arrived. Not on the department's list,
   // and not dropped for that: a score and the spellings a company is known by
@@ -760,7 +826,7 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
   onAlias: (alias: string) => void;
   onStatus: (status: string) => void;
   onEvaluate: (period: string, safety: number | null, documents: number | null, note: string) => void;
-  onUpload: (file: File, folder: string, expiryDate: string) => void;
+  onUpload: (file: File, folder: string, kind: string, expiryDate: string) => void;
 }) {
   const [alias, setAlias] = useState("");
   const [period, setPeriod] = useState(String(new Date().getFullYear()));
@@ -827,9 +893,27 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
           เก็บที่ SCMOS/Supplier/{supplier.code}/{folder} — ระบบเลือกที่เก็บให้เอง ไม่ต้องตั้งชื่อพาธ
         </div>
         <div style={css("display:flex;gap:6px;flex-wrap:wrap;align-items:center")}>
+          {/*
+            The five required documents first, then the plain folders.
+
+            Choosing one of the five is what puts the file in its column on the
+            register: the value carries the requirement's code, and the folder
+            follows from it. The loose folders stay for everything that is not
+            one of the five — a rate card, a training record — which still has
+            to go somewhere.
+          */}
           <select value={folder} onChange={(e) => setFolder(e.target.value)}
-            style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff")}>
-            {SUPPLIER_FOLDERS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff;max-width:260px")}>
+            <optgroup label="เอกสารที่ต้องมี">
+              {REQUIREMENTS.map((need) => (
+                <option key={need.code} value={need.code}>
+                  {need.english} ({need.thai})
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="อื่น ๆ">
+              {SUPPLIER_FOLDERS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </optgroup>
           </select>
           <input value={expiry} onChange={(e) => setExpiry(e.target.value)} placeholder="หมดอายุ DD/MM/YYYY"
             style={css("width:150px;height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px")} />
@@ -839,7 +923,12 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = "";
-                if (file) onUpload(file, folder, expiry);
+                if (!file) return;
+                // One of the five, or a loose folder. The requirement decides
+                // both where the file goes and what it is; a folder can only
+                // say where.
+                const need = REQUIREMENTS.find((one) => one.code === folder);
+                onUpload(file, need ? need.folder : folder, need ? need.code : folder, expiry);
               }} />
           </label>
         </div>

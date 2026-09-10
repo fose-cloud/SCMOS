@@ -216,6 +216,7 @@ if (MailLinkPlanCheck.Run(args) is int linksExit) return linksExit;
 if (MailReviewCheck.Run(args) is int reviewExit) return reviewExit;
 if (MailAttachmentsCheck.Run(args) is int attachmentsExit) return attachmentsExit;
 if (SupplierRegisterCheck.Run(args) is int registerExit) return registerExit;
+if (SupplierComplianceCheck.Run(args) is int complianceExit) return complianceExit;
 
 if (args.Contains("--seed"))
 {
