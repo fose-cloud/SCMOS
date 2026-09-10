@@ -27,6 +27,10 @@ const ALLOWED = new Map([
   // Dialogs size themselves and are read for a moment, not worked in.
   ["app/scmos/overlays/DataOverlays.tsx", "a modal with its own height"],
   ["app/scmos/overlays/ExcelOverlays.tsx", "a modal with its own height"],
+  // Zoom taken off at the department's request, the same as KPI and the
+  // Supplier Register. It keeps its own overflow-x so a wide case list still
+  // scrolls sideways — it is the zoom that went, not the scrolling.
+  ["app/scmos/screens/Incidents.tsx", "zoom removed on request; scrolls on its own instead"],
 ]);
 
 test("no screen grows a table outside the shared scroll box", () => {
