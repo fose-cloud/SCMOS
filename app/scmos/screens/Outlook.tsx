@@ -57,7 +57,16 @@ type Detail = {
   participants: { kind: string; address: string; displayName: string }[];
   entities: { kind: string; value: string; inSubject: boolean; wellFormed: boolean }[];
   links: Link[];
-  attachments: { id: number; fileName: string; contentType: string; sizeBytes: number }[];
+  attachments: {
+    id: number; fileName: string; contentType: string; sizeBytes: number;
+    /** The document holding the bytes, or 0 while they have not been fetched. */
+    storedDocumentId: number;
+    /** file · item · reference — only the first ever has bytes. */
+    kind: string;
+    /** Why there is no file, when there is not going to be one. */
+    fetchError: string;
+    fetchedAt: string | null;
+  }[];
 };
 
 export function Outlook({ canDecide, onToast }: {
@@ -300,8 +309,34 @@ export function Outlook({ canDecide, onToast }: {
               <>
                 <div style={css(LABEL)}>ไฟล์แนบ</div>
                 <div style={css("margin:6px 0 14px;font-size:12px;color:#475569")}>
+                  {/*
+                    Three states, and the third is the one worth drawing.
+
+                    A stored file is a link. A file still coming down says so.
+                    A file that is never coming says why — a OneDrive link, an
+                    email inside an email, something too big — because a
+                    paperclip with nothing behind it and no sentence reads as a
+                    fault in SCMOS rather than as a description of what arrived.
+                  */}
                   {detail.attachments.map((file) => (
-                    <div key={file.id}>{file.fileName} · {sizeLabel(file.sizeBytes)}</div>
+                    <div key={file.id} style={css("margin-bottom:4px")}>
+                      {file.storedDocumentId > 0 ? (
+                        <a href={`/api/documents/${file.storedDocumentId}/content`}
+                          target="_blank" rel="noreferrer"
+                          style={css("color:#0A5FA8;text-decoration:none;word-break:break-all")}>
+                          {file.fileName}
+                        </a>
+                      ) : (
+                        <span style={css("word-break:break-all")}>{file.fileName}</span>
+                      )}
+                      <span style={css("color:#94A3B8")}> · {sizeLabel(file.sizeBytes)}</span>
+                      {file.storedDocumentId === 0 && (
+                        <div style={css("font-size:11px;margin-top:1px;color:"
+                          + (file.fetchError ? "#B45309" : "#94A3B8"))}>
+                          {file.fetchError || "กำลังดึงไฟล์เข้าคลังเอกสาร…"}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </>

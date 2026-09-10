@@ -51,6 +51,17 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
     private const int Batch = 20;
 
     /// <summary>
+    /// How many attachments one pass will download.
+    ///
+    /// Far fewer than the message batch, because these are megabytes rather
+    /// than kilobytes. Five 30 MB files is already a long tick; twenty would be
+    /// a pass that never finishes inside the claim window and a container
+    /// holding a lot of disk. Whatever is left is taken on the next tick,
+    /// fifteen seconds later.
+    /// </summary>
+    private const int AttachmentBatch = 5;
+
+    /// <summary>
     /// How many pages one catch-up will read per mailbox.
     ///
     /// Bounded so a first connection, or a long outage, cannot turn one pass
@@ -60,6 +71,9 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
     private const int PagesPerCatchUp = 5;
 
     private DateTimeOffset _lastCatchUp = DateTimeOffset.MinValue;
+
+    /// <summary>Whether the "no storage configured" warning has already been said.</summary>
+    private bool _saidNoStorage;
 
     protected override async Task ExecuteAsync(CancellationToken stopping)
     {
@@ -82,6 +96,12 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
                 }
 
                 await DrainAsync(stopping);
+
+                // After the messages, never instead of them. An attachment is
+                // worth nothing without the message it came on, and a pass that
+                // spent its tick downloading files while the queue filled up
+                // would make mail arrive late to save paperwork arriving early.
+                await FetchAttachmentsAsync(stopping);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
             {
@@ -278,15 +298,46 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
             var attachments = await reader.AttachmentsAsync(mailbox.Address, row.GraphMessageId, stopping);
             if (attachments.Ok && attachments.Value is { } files)
             {
-                var old = await db.EmailAttachments
+                /*
+                 * Matched on Graph's own id rather than replaced wholesale.
+                 *
+                 * This used to delete every row and write the list again, which
+                 * was right while a row was only metadata. It is not right now
+                 * that a row can point at bytes in Blob: a message filled in
+                 * twice — which happens whenever a claim is abandoned and
+                 * recovered — would drop the row holding the document id,
+                 * leaving the blob in the container with nothing referring to
+                 * it, and then download the same file again beside it.
+                 */
+                var held = await db.EmailAttachments
                     .Where(one => one.EmailId == row.Id).ToListAsync(stopping);
-                db.EmailAttachments.RemoveRange(old);
+
                 foreach (var file in files)
                 {
-                    file.EmailId = row.Id;
-                    file.CreatedAt = DateTimeOffset.UtcNow;
-                    db.EmailAttachments.Add(file);
+                    var already = held.FirstOrDefault(one =>
+                        one.GraphAttachmentId == file.GraphAttachmentId);
+                    if (already is null)
+                    {
+                        file.EmailId = row.Id;
+                        file.CreatedAt = DateTimeOffset.UtcNow;
+                        db.EmailAttachments.Add(file);
+                        continue;
+                    }
+
+                    // The description, never the fetch state. Overwriting the
+                    // latter would send an already-stored file down again.
+                    already.FileName = file.FileName;
+                    already.ContentType = file.ContentType;
+                    already.SizeBytes = file.SizeBytes;
+                    already.Kind = file.Kind;
                 }
+
+                // Anything Graph no longer lists, unless we hold its bytes. A
+                // file removed from a message after we stored it is still a
+                // file we have, and forgetting the row would orphan the blob.
+                var listed = files.Select(one => one.GraphAttachmentId).ToHashSet(StringComparer.Ordinal);
+                db.EmailAttachments.RemoveRange(held.Where(one =>
+                    !listed.Contains(one.GraphAttachmentId) && one.StoredDocumentId == 0));
             }
             else
             {
@@ -457,6 +508,197 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
                 log.LogInformation("Catch-up found {Count} message(s) in {Mailbox} the webhook had not",
                     found, mailbox.Address);
         }
+    }
+
+    /* ------------------------------------------------------- attachments */
+
+    /// <summary>
+    /// Pull the bytes of what arrived attached, into Blob.
+    ///
+    /// <para>
+    /// Its own pass, after the message is stored and on the same tick. The
+    /// split is the point: a message has to be readable the moment it lands,
+    /// and a thirty megabyte packing list must not hold the queue behind it
+    /// while it comes down an office line. A row whose document id is still
+    /// zero is the ordinary state between the two, not a fault.
+    /// </para>
+    ///
+    /// <para>
+    /// Bounded per pass and per attachment. Attempts are counted on the
+    /// attachment rather than on the message, because one unreadable file among
+    /// four must not stop the other three or spend what they were owed.
+    /// </para>
+    /// </summary>
+    private async Task FetchAttachmentsAsync(CancellationToken stopping)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ScmosDbContext>();
+        var reader = scope.ServiceProvider.GetRequiredService<GraphMailReader>();
+        // The same scope, so the document row is written through the context
+        // this pass already holds rather than a second one beside it.
+        var documents = scope.ServiceProvider.GetRequiredService<DocumentService>();
+
+        if (!documents.StorageReady)
+        {
+            // Once per process, not once per tick. A container with no storage
+            // configured would otherwise write this line four times a minute
+            // for as long as it runs, which is how a real warning ends up being
+            // filtered out by whoever is reading the log.
+            if (!_saidNoStorage)
+            {
+                _saidNoStorage = true;
+                log.LogWarning("Mail attachments are not being stored: no Storage:ServiceUri is configured");
+            }
+            return;
+        }
+        _saidNoStorage = false;
+
+        var pending = await db.EmailAttachments.AsNoTracking()
+            .Where(one => one.StoredDocumentId == 0 && one.FetchAttempts < MailAttachments.MaxAttempts)
+            .OrderBy(one => one.Id)
+            .Take(AttachmentBatch)
+            .Select(one => one.Id)
+            .ToListAsync(stopping);
+
+        foreach (var id in pending)
+        {
+            if (stopping.IsCancellationRequested) return;
+            if (!await FetchOneAsync(db, reader, documents, id, stopping)) return;
+        }
+    }
+
+    /// <summary>
+    /// Fetch one attachment and file it. False means stop the pass.
+    ///
+    /// <para>
+    /// A refusal spends every attempt at once. That is what a permanent
+    /// decision means here: a OneDrive link and a 60 MB video will not become
+    /// fetchable by being asked for again, so recording one attempt and coming
+    /// back twice more would put the same sentence on the row three times and
+    /// make two calls to learn nothing.
+    /// </para>
+    /// </summary>
+    private async Task<bool> FetchOneAsync(ScmosDbContext db, GraphMailReader reader,
+        DocumentService documents, long id, CancellationToken stopping)
+    {
+        var file = await db.EmailAttachments.FirstOrDefaultAsync(one => one.Id == id, stopping);
+        if (file is null) return true;
+
+        var verdict = MailAttachments.Wanted(file.Kind, file.SizeBytes);
+        if (!verdict.Fetch) return await SettleAsync(db, file, verdict.Why, stopping);
+
+        var message = await db.Emails.AsNoTracking()
+            .FirstOrDefaultAsync(one => one.Id == file.EmailId, stopping);
+        var mailbox = message is null ? null : await db.Mailboxes.AsNoTracking()
+            .FirstOrDefaultAsync(one => one.Id == message.MailboxId, stopping);
+        if (message is null || mailbox is null)
+            return await SettleAsync(db, file,
+                "ไม่พบข้อความหรือตู้จดหมายของไฟล์แนบนี้แล้ว", stopping);
+
+        var bytes = await reader.AttachmentBytesAsync(mailbox.Address, message.GraphMessageId,
+            file.GraphAttachmentId, stopping);
+
+        switch (MailAttachments.Decide(bytes.Finding.Code, bytes.Ok, file.FetchAttempts))
+        {
+            case MailQueue.Next.Pause:
+                // Nothing wrong with this row. Every row in the queue would hit
+                // the same wall, so stop and change nothing.
+                log.LogWarning("Mail attachment fetch paused: {Why}", bytes.Finding.Message);
+                return false;
+
+            case MailQueue.Next.Retry:
+                file.FetchAttempts += 1;
+                file.FetchError = Fit(bytes.Finding.Message);
+                await db.SaveChangesAsync(stopping);
+                return true;
+
+            case MailQueue.Next.GiveUp:
+                file.FetchAttempts += 1;
+                file.FetchError = Fit(bytes.Finding.Message);
+                await db.SaveChangesAsync(stopping);
+                log.LogError("Attachment {Id} on message {Message} failed after {Attempts} attempts: {Why}",
+                    file.Id, file.EmailId, file.FetchAttempts, bytes.Finding.Message);
+                return true;
+
+            case MailQueue.Next.Gone:
+                return await SettleAsync(db, file,
+                    "ไฟล์แนบนี้ถูกลบหรือย้ายไปแล้วก่อนที่ระบบจะดึงมาเก็บได้", stopping);
+        }
+
+        if (bytes.Value is not { } content)
+        {
+            file.FetchAttempts += 1;
+            file.FetchError = "Microsoft Graph ตอบสำเร็จ แต่ไม่มีข้อมูลไฟล์ส่งกลับมา";
+            await db.SaveChangesAsync(stopping);
+            return true;
+        }
+
+        // Disposing the stream deletes the temporary file it spooled into.
+        await using var spooled = content;
+
+        var year = MailAttachments.Year(message.ReceivedAt);
+        var period = MailAttachments.Period(message.ReceivedAt);
+        var key = BlobPaths.ForMail(year, period, file.FileName);
+
+        var stored = await documents.WriteAsync(key, spooled, file.FileName, file.ContentType,
+            file.SizeBytes, MailAttachments.FiledBy, stopping, document =>
+            {
+                document.Scope = MailAttachments.Scope;
+                document.Folder = MailAttachments.Folder;
+                document.Kind = MailAttachments.DocumentKind;
+                document.Year = year;
+                // What the path was built from, which for this tree is the year
+                // and the month. The field is named for the job tree; leaving it
+                // empty would mean the row could not explain its own key, which
+                // is the one thing these fields are for.
+                document.JobRef = period;
+                document.Note = Note(message.Subject, message.FromAddress);
+            });
+
+        if (!stored.Ok || stored.Document is null)
+        {
+            // The blob write or the row failed. Counted as an attempt, because
+            // storage having a bad minute is exactly what retrying is for.
+            file.FetchAttempts += 1;
+            file.FetchError = Fit(stored.Message);
+            await db.SaveChangesAsync(stopping);
+            log.LogWarning("Could not file attachment {Id}: {Why}", file.Id, stored.Message);
+            return true;
+        }
+
+        file.StoredDocumentId = stored.Document.Id;
+        file.FetchedAt = DateTimeOffset.UtcNow;
+        file.FetchError = "";
+        await db.SaveChangesAsync(stopping);
+
+        // The job's own paperwork list, when somebody has already said which job
+        // this message is about. Most mail is not settled that fast, which is
+        // why confirming a link does the same thing — see MailEndpoints.
+        await MailFiling.AttachToJobAsync(db, file.EmailId, stopping);
+        return true;
+    }
+
+    /// <summary>
+    /// Write down why there will be no file, and stop asking.
+    ///
+    /// Every attempt at once — see <see cref="FetchOneAsync"/>. The sentence is
+    /// shown on the message rather than only logged: somebody looking at a
+    /// paperclip with nothing behind it is owed the reason.
+    /// </summary>
+    private static async Task<bool> SettleAsync(ScmosDbContext db, EmailAttachment file,
+        string why, CancellationToken stopping)
+    {
+        file.FetchAttempts = MailAttachments.MaxAttempts;
+        file.FetchError = Fit(why);
+        await db.SaveChangesAsync(stopping);
+        return true;
+    }
+
+    /// <summary>What the document register says this file is, in one line.</summary>
+    private static string Note(string subject, string from)
+    {
+        var line = subject.Trim().Length > 0 ? subject.Trim() : "(ไม่มีหัวข้อ)";
+        return from.Trim().Length > 0 ? $"อีเมลจาก {from.Trim()} · {line}" : line;
     }
 
     /// <summary>Cut to the column, so a long Graph complaint cannot fail the save.</summary>

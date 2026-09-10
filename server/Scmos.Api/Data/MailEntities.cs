@@ -179,8 +179,42 @@ public class EmailAttachment
     public string ContentType { get; set; } = "";
     public long SizeBytes { get; set; }
 
+    /// <summary>
+    /// file · item · reference — see <see cref="Rules.MailAttachments.Kind"/>.
+    ///
+    /// Recorded when the list is read, because only the fetch pass needs it and
+    /// that runs later. Reading the list a second time to find out whether a
+    /// thing has bytes would be a call to Graph to learn something Graph
+    /// already told us.
+    /// </summary>
+    public string Kind { get; set; } = Rules.MailAttachments.Kind.File;
+
     /// <summary>The stored document holding the bytes, or 0 until it has been fetched.</summary>
     public long StoredDocumentId { get; set; }
+
+    /// <summary>
+    /// How many times the bytes have been asked for.
+    ///
+    /// Per attachment, not per message: one unreadable file among four must not
+    /// stop the other three or spend their attempts.
+    /// </summary>
+    public int FetchAttempts { get; set; }
+
+    /// <summary>
+    /// Why there is no file, when there is not going to be one.
+    ///
+    /// <para>
+    /// Set for a permanent refusal as well as for a failure, and the difference
+    /// matters on screen: "this was a OneDrive link, not a file" is a
+    /// description of what arrived, while "Graph refused three times" is a
+    /// fault. Both leave a paperclip with nothing behind it, and somebody
+    /// looking at that is owed the sentence rather than a shrug.
+    /// </para>
+    /// </summary>
+    public string FetchError { get; set; } = "";
+
+    /// <summary>When the bytes landed in Blob. Null while it has not been tried, or failed.</summary>
+    public DateTimeOffset? FetchedAt { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
 }

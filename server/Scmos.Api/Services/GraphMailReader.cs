@@ -41,6 +41,12 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
     /// <summary>Long enough for a slow page, short enough to fail rather than hang a worker.</summary>
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// Longer, for bytes. A page of message headers that takes a minute has
+    /// gone wrong; a 30 MB attachment on a bad line has not.
+    /// </summary>
+    private static readonly TimeSpan Download = TimeSpan.FromMinutes(5);
+
     /// <summary>What came back, and what to say if it did not.</summary>
     /// <param name="Finding">The diagnosis — <see cref="GraphDiagnosis"/>.</param>
     /// <param name="Value">Null whenever <c>Finding.Ok</c> is false.</param>
@@ -144,6 +150,108 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
         var (finding, body) = await GetAsync(url, address, token);
         if (body is null) return new(finding, null);
         using (body) return new(finding, GraphMessages.ReadAttachments(body.RootElement));
+    }
+
+    /// <summary>
+    /// One attachment's bytes, written to a file on disk.
+    ///
+    /// <para>
+    /// To disk rather than to memory. A worker holding thirty megabytes per
+    /// attachment in a byte array, with several in flight, is a container that
+    /// dies of an allocation on a Tuesday afternoon for no reason anybody can
+    /// reconstruct. The file is opened <c>DeleteOnClose</c>, so it goes when the
+    /// stream is disposed — including when the upload throws, and including
+    /// when the process is killed part way through, because Windows and Linux
+    /// both drop the handle.
+    /// </para>
+    ///
+    /// <para>
+    /// <c>/$value</c> rather than reading <c>contentBytes</c> out of the
+    /// attachment JSON: the JSON route base64-encodes the file into a response
+    /// body, which is a third larger and has to be decoded in memory, and Graph
+    /// will not serve it at all past about three megabytes.
+    /// </para>
+    /// </summary>
+    /// <returns>
+    /// A stream positioned at the start, which the caller disposes. Null
+    /// whenever the finding is not Ok.
+    /// </returns>
+    public async Task<Fetched<Stream>> AttachmentBytesAsync(string mailbox, string messageId,
+        string attachmentId, CancellationToken token)
+    {
+        var address = GraphMailboxes.Normalise(mailbox);
+        if (!graph.Approves(address)) return Refused<Stream>(GraphDiagnosis.NotApproved);
+
+        var url = $"{GraphAuth.Endpoint}/users/{Uri.EscapeDataString(address)}"
+            + $"/messages/{Uri.EscapeDataString(messageId)}"
+            + $"/attachments/{Uri.EscapeDataString(attachmentId)}/$value";
+
+        var access = await graph.TokenAsync(token);
+        if (access is null) return Refused<Stream>(GraphDiagnosis.NoToken);
+        var consented = GraphToken.Grants(access, GraphAuth.MailRead);
+
+        var client = await graph.ClientAsync(token);
+        if (client is null) return Refused<Stream>(GraphDiagnosis.NoToken);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var patience = CancellationTokenSource.CreateLinkedTokenSource(token);
+        patience.CancelAfter(Download);
+
+        HttpResponseMessage response;
+        try
+        {
+            // Headers first. Without this the whole file is buffered by
+            // HttpClient before a single line of this method runs again, which
+            // is the allocation the temporary file exists to avoid.
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, patience.Token);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            log.LogWarning("Downloading an attachment from {Mailbox} timed out after {Seconds}s",
+                address, Download.TotalSeconds);
+            return Refused<Stream>(GraphDiagnosis.ForStatus(504, true));
+        }
+        catch (HttpRequestException problem)
+        {
+            log.LogError(problem, "Could not reach Microsoft Graph to download from {Mailbox}", address);
+            return Refused<Stream>(GraphDiagnosis.ForStatus(503, true));
+        }
+
+        using (response)
+        {
+            var finding = GraphDiagnosis.ForStatus((int)response.StatusCode, consented);
+            if (!finding.Ok)
+            {
+                log.LogWarning("Downloading an attachment from {Mailbox}: {Code} ({Status})",
+                    address, finding.Code, (int)response.StatusCode);
+                return Refused<Stream>(finding);
+            }
+
+            var spool = new FileStream(Path.Combine(Path.GetTempPath(), $"scmos-mail-{Guid.NewGuid():N}"),
+                FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                bufferSize: 64 * 1024, FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+            try
+            {
+                await response.Content.CopyToAsync(spool, patience.Token);
+                spool.Position = 0;
+                return new(finding, spool);
+            }
+            catch (Exception problem)
+            {
+                // Dispose here, not by the caller: the caller is handed null and
+                // has nothing to dispose, and the file would otherwise sit in
+                // the temporary directory until the container restarted.
+                await spool.DisposeAsync();
+                if (problem is OperationCanceledException && !token.IsCancellationRequested)
+                {
+                    log.LogWarning("An attachment from {Mailbox} stopped part way down", address);
+                    return Refused<Stream>(GraphDiagnosis.ForStatus(504, true));
+                }
+                if (problem is OperationCanceledException) throw;
+                log.LogError(problem, "Could not write an attachment from {Mailbox} to disk", address);
+                return Refused<Stream>(GraphDiagnosis.ForStatus(502, true));
+            }
+        }
     }
 
     private async Task<Fetched<GraphMessages.Page>> PageAtAsync(string url, string mailbox,

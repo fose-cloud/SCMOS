@@ -194,9 +194,18 @@ public static class MailEndpoints
                         one.MatchedOn, one.MatchedValue, one.ConfirmedBy, one.ConfirmedAt,
                     })
                     .ToListAsync(token),
+                // StoredDocumentId is what the screen turns into a download
+                // link; kind and error are what it says when there is no link.
+                // A paperclip with nothing behind it needs a sentence, not a
+                // blank space that reads as a fault in SCMOS.
                 attachments = await db.EmailAttachments.AsNoTracking()
                     .Where(one => one.EmailId == id)
-                    .Select(one => new { one.Id, one.FileName, one.ContentType, one.SizeBytes, one.StoredDocumentId })
+                    .OrderBy(one => one.Id)
+                    .Select(one => new
+                    {
+                        one.Id, one.FileName, one.ContentType, one.SizeBytes,
+                        one.StoredDocumentId, one.Kind, one.FetchError, one.FetchedAt,
+                    })
                     .ToListAsync(token),
             });
         });
@@ -279,6 +288,19 @@ public static class MailEndpoints
             message.ProcessingStatus = MailReview.StatusAfter(statuses, message.ProcessingStatus);
             await db.SaveChangesAsync(token);
 
+            /*
+             * Now that somebody has said which job this is, the files that came
+             * on the message belong on that job's paperwork list.
+             *
+             * After the save, and reading the links back from the database, so
+             * it sees the decision that was just made rather than the state
+             * before it. Its own no-op guards cover the cases this cannot: a
+             * rejection, a second confirmed job, a message with no stored files
+             * yet. The worker calls the same thing after it stores bytes,
+             * because either of the two can happen first.
+             */
+            var filed = await MailFiling.AttachToJobAsync(db, id, token);
+
             // Who said which message belongs to which job, and when. The link
             // itself records it, but the audit trail is where somebody looks
             // when a job's paperwork is questioned months later.
@@ -286,7 +308,16 @@ public static class MailEndpoints
                 status == MailLink.Confirmed ? AuditActions.Approve : AuditActions.Reject,
                 "email", id.ToString(), message.Subject, "job", "", jobKey, "", token);
 
-            return Results.Json(new { ok = true, status = message.ProcessingStatus, jobKey, link = link.Status });
+            return Results.Json(new
+            {
+                ok = true,
+                status = message.ProcessingStatus,
+                jobKey,
+                link = link.Status,
+                // So the screen can say the files moved with the decision,
+                // rather than the person wondering whether they did.
+                filed,
+            });
         });
     }
 }

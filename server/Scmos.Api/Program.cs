@@ -214,6 +214,7 @@ if (GraphNotificationsCheck.Run(args) is int notificationsExit) return notificat
 if (MailQueueCheck.Run(args) is int queueExit) return queueExit;
 if (MailLinkPlanCheck.Run(args) is int linksExit) return linksExit;
 if (MailReviewCheck.Run(args) is int reviewExit) return reviewExit;
+if (MailAttachmentsCheck.Run(args) is int attachmentsExit) return attachmentsExit;
 
 if (args.Contains("--seed"))
 {

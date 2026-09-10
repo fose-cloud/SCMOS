@@ -146,6 +146,31 @@ public static class BlobPaths
         string.Join('/', Root, "Report", Segment(year, "0000"),
             Segment(period, "unspecified"), FileName(fileName));
 
+    /// <summary>
+    /// A file that arrived attached to an email:
+    /// <c>SCMOS/Mail/{year}/{period}/{file}</c>.
+    ///
+    /// <para>
+    /// Its own tree rather than the job's, because at the moment the bytes are
+    /// fetched nobody has yet said which job the message is about. The matcher
+    /// may have <i>suggested</i> one, and filing a customer's document into
+    /// another customer's folder on a suggestion is not a mistake that shows up
+    /// until somebody goes looking for a file that is not where the path says
+    /// it should be.
+    /// </para>
+    ///
+    /// <para>
+    /// The message is the owner, and the row records it. When a link is
+    /// confirmed the document row gains the job key and the job's paperwork
+    /// list shows the file — but the key it was written under does not move,
+    /// because a key that changes is a key that no longer answers anything on
+    /// its own, which is the one thing this whole file exists to guarantee.
+    /// </para>
+    /// </summary>
+    public static string ForMail(string year, string period, string fileName) =>
+        string.Join('/', Root, "Mail", Segment(year, "0000"),
+            Segment(period, "unspecified"), FileName(fileName));
+
     /* -------------------------------------------------------- sanitising */
 
     /// <summary>

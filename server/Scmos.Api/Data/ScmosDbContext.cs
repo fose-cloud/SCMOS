@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Scmos.Api.Rules;
 
 namespace Scmos.Api.Data;
 
@@ -322,9 +323,18 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.FileName).HasColumnName("file_name").HasMaxLength(MailText.FileName).HasDefaultValue("");
             entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(MailText.ContentType).HasDefaultValue("");
             entry.Property(e => e.SizeBytes).HasColumnName("size_bytes").HasDefaultValue(0L);
+            entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(16).HasDefaultValue(MailAttachments.Kind.File);
             entry.Property(e => e.StoredDocumentId).HasColumnName("stored_document_id").HasDefaultValue(0L);
+            entry.Property(e => e.FetchAttempts).HasColumnName("fetch_attempts").HasDefaultValue(0);
+            entry.Property(e => e.FetchError).HasColumnName("fetch_error").HasMaxLength(400).HasDefaultValue("");
+            entry.Property(e => e.FetchedAt).HasColumnName("fetched_at");
             entry.Property(e => e.CreatedAt).HasColumnName("created_at");
             entry.HasIndex(e => e.EmailId).HasDatabaseName("email_attachments_email_idx");
+            // What the fetch pass asks for every fifteen seconds: the ones with
+            // no document yet that have attempts left. Without this it is a
+            // scan of every attachment the system has ever recorded.
+            entry.HasIndex(e => new { e.StoredDocumentId, e.FetchAttempts })
+                .HasDatabaseName("email_attachments_pending_idx");
             // A re-fetch of the same attachment must not store it twice.
             entry.HasIndex(e => new { e.EmailId, e.GraphAttachmentId }).IsUnique().HasDatabaseName("email_attachments_graph_idx");
         });

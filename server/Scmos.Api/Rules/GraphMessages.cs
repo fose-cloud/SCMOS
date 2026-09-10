@@ -203,6 +203,11 @@ public static class GraphMessages
                 SizeBytes = item.TryGetProperty("size", out var size)
                     && size.ValueKind == JsonValueKind.Number && size.TryGetInt64(out var bytes)
                         ? bytes : 0,
+                // Which of the three things Graph calls an attachment this is.
+                // Read here because the list is the only place that says, and
+                // the pass that fetches the bytes runs long afterwards.
+                Kind = MailAttachments.KindOf(item.TryGetProperty("@odata.type", out var type)
+                    && type.ValueKind == JsonValueKind.String ? type.GetString() : null),
             });
         }
         return found;

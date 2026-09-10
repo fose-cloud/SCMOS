@@ -223,41 +223,74 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     private async Task<DocumentResult> StoreAsync(string objectKey, IFormFile file, AppUser user,
         CancellationToken token, Action<StoredDocument> describe)
     {
+        if (file.Length == 0) return new DocumentResult(false, "ไฟล์ว่าง");
+
+        await using var stream = file.OpenReadStream();
+        return await WriteAsync(objectKey, stream, file.FileName, file.ContentType, file.Length,
+            user.Signature, token, describe);
+    }
+
+    /// <summary>
+    /// The same, for bytes that did not arrive on a form.
+    ///
+    /// <para>
+    /// A mail attachment has no <c>IFormFile</c> and no signed-in user behind
+    /// it — it was fetched by a worker from a mailbox. Everything else about
+    /// storing it is identical, and the only way to keep it identical is for
+    /// there to be one method, so this is that method and the upload path above
+    /// is now a caller of it. Writing a second copy for the worker is precisely
+    /// how the two would come to disagree about the size limit, the metadata,
+    /// or whether a blob is written before its row.
+    /// </para>
+    ///
+    /// <para>
+    /// <paramref name="sizeBytes"/> is what the source claims, and it is
+    /// checked before the write and corrected after it: Graph's reported size
+    /// counts the MIME encoding, so the file that lands is a little smaller
+    /// than the number the list gave. The row records what was actually stored.
+    /// </para>
+    /// </summary>
+    public async Task<DocumentResult> WriteAsync(string objectKey, Stream content, string fileName,
+        string? contentType, long sizeBytes, string filedBy, CancellationToken token,
+        Action<StoredDocument> describe)
+    {
         if (!files.Configured)
             return new DocumentResult(false,
                 "ยังไม่ได้ตั้งค่าที่เก็บไฟล์ — ตั้ง Storage:ServiceUri และให้สิทธิ์ Storage Blob Data Contributor กับ managed identity");
-        if (file.Length == 0) return new DocumentResult(false, "ไฟล์ว่าง");
-        if (file.Length > MaxBytes) return new DocumentResult(false, "ไฟล์ใหญ่เกิน 32 MB");
+        if (sizeBytes > MaxBytes) return new DocumentResult(false, "ไฟล์ใหญ่เกิน 32 MB");
 
         var document = new StoredDocument
         {
             ObjectKey = objectKey,
-            FileName = file.FileName,
-            ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
-            SizeBytes = file.Length,
-            UploadedBy = user.Signature,
+            FileName = fileName,
+            ContentType = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
+            SizeBytes = sizeBytes,
+            UploadedBy = filedBy,
             UploadedAt = DateTimeOffset.UtcNow,
         };
         describe(document);
 
-        await using (var stream = file.OpenReadStream())
-        {
-            document.BlobUrl = await files.PutAsync(objectKey, stream, document.ContentType,
-                new Dictionary<string, string>
-                {
-                    // Blob metadata headers are ASCII-only, so the original name
-                    // is kept in the database row and only a cleaned copy here.
-                    ["originalName"] = BlobPaths.SafeName(file.FileName),
-                    ["scope"] = document.Scope,
-                    ["folder"] = document.Folder,
-                    ["uploadedBy"] = BlobPaths.SafeName(user.Signature),
-                }, token);
-        }
+        var before = content.CanSeek ? content.Position : 0L;
+        document.BlobUrl = await files.PutAsync(objectKey, content, document.ContentType,
+            new Dictionary<string, string>
+            {
+                // Blob metadata headers are ASCII-only, so the original name
+                // is kept in the database row and only a cleaned copy here.
+                ["originalName"] = BlobPaths.SafeName(fileName),
+                ["scope"] = document.Scope,
+                ["folder"] = document.Folder,
+                ["uploadedBy"] = BlobPaths.SafeName(filedBy),
+            }, token);
+
+        // What went in, rather than what the caller predicted would. They differ
+        // for a mail attachment, and a size that disagrees with the blob is the
+        // kind of small lie that is discovered during an audit.
+        if (content.CanSeek) document.SizeBytes = content.Position - before;
 
         db.Documents.Add(document);
         await db.SaveChangesAsync(token);
 
-        return new DocumentResult(true, $"อัปโหลด {file.FileName} แล้ว", Describe(document));
+        return new DocumentResult(true, $"อัปโหลด {fileName} แล้ว", Describe(document));
     }
 
     /* ----------------------------------------------------------- reading */
