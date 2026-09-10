@@ -26,6 +26,89 @@ public class Supplier
     public string Address { get; set; } = "";
     public string ServiceArea { get; set; } = "";
 
+    /* ---- from the company's ASL/BSL list in ABS ---------------------- */
+
+    /// <summary>
+    /// The supplier's number in ABS, which is where procurement keeps the
+    /// approved-supplier list. The join between the two systems.
+    /// </summary>
+    public string AbsNo { get; set; } = "";
+
+    /// <summary>ASL or BSL — which of the two lists this company is on.</summary>
+    public string ListType { get; set; } = "";
+
+    /// <summary>
+    /// The company's registered name, as procurement's list writes it.
+    ///
+    /// <para>
+    /// Beside <see cref="Name"/> rather than replacing it. The register knows
+    /// this carrier as 9ISARA because that is what the plan writes, and every
+    /// job row, rate card and alias points at that spelling; renaming it to
+    /// "9 Isara Transport Co., Ltd." on the strength of an import would be a
+    /// rename of the thing all of them refer to. So the legal name is recorded
+    /// as its own field and the screens show it where a full name belongs —
+    /// nothing has to be rewritten for both to be true.
+    /// </para>
+    /// </summary>
+    public string LegalName { get; set; } = "";
+
+    /// <summary>
+    /// The one contact the ASL/BSL list carries, as an attribute of the company
+    /// record rather than a row in <see cref="SupplierContact"/>.
+    ///
+    /// That table is for the several named people a carrier has — an
+    /// operations contact, somebody in accounts — added by hand and merged
+    /// when two supplier rows are folded together. These four came from the
+    /// procurement register as fields of the company itself, and putting them
+    /// in a table built for a list would mean every screen showing "the
+    /// telephone number" first had to decide which of several it meant.
+    /// </summary>
+    public string ContactPerson { get; set; } = "";
+
+    public string Telephone { get; set; } = "";
+    public string Fax { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string Website { get; set; } = "";
+
+    /// <summary>
+    /// Payment terms as the list writes them — "30 Days", "0 Day", "30".
+    ///
+    /// Kept as text rather than parsed to a number of days. Ten of the 642 rows
+    /// carry one, in five different spellings, and turning that into an integer
+    /// would mean inventing a 0 for the 632 that say nothing — which reads as
+    /// "payment on delivery" rather than "nobody has filled this in".
+    /// </summary>
+    public string CreditTerm { get; set; } = "";
+
+    /// <summary>What the company buys from them: Customs Clearance, Freight (Air / Sea).</summary>
+    public string ServicesRequired { get; set; } = "";
+
+    /// <summary>General or Deposit Container, in the list's own vocabulary.</summary>
+    public string MainSpType { get; set; } = "";
+
+    /// <summary>
+    /// What they do, as procurement describes it — Logistic Agent, Sea Freight
+    /// Agents/Liner, Transportation Services.
+    ///
+    /// Distinct from <see cref="ServiceType"/>, which is the rate card's
+    /// vocabulary for what a truck can carry (FCL, ISO TANK). One says what
+    /// kind of company this is; the other says what equipment it brings.
+    /// </summary>
+    public string TypeOfService { get; set; } = "";
+
+    /// <summary>
+    /// Whether this company moves cargo by road for us.
+    ///
+    /// The guard on everything the register feeds — the carrier scorecard,
+    /// the annual evaluation, and the list of who a job may be given to. With
+    /// 560 freight agents and customs brokers now in the register, a screen
+    /// that asks "our carriers" and gets all of them is a screen that looks
+    /// broken. Set at import from the union of two tests: what the list calls
+    /// them, and whether they are already carrying work — see
+    /// <see cref="Rules.SupplierRegister.LooksLikeCarrier"/>.
+    /// </summary>
+    public bool IsCarrier { get; set; } = true;
+
     /// <summary>FCL · LCL · ISO TANK · REEFER, comma separated as the team writes it.</summary>
     public string ServiceType { get; set; } = "";
 

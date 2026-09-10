@@ -199,6 +199,10 @@ public class RotationService(ScmosDbContext db, JobRegisterCache register)
             .ToListAsync(token);
 
         var suppliers = await db.Suppliers.AsNoTracking()
+            // Carriers only — a rotation says which company drives for which
+            // customer, and the register now also holds 560 companies that do
+            // not drive at all.
+            .Where(supplier => supplier.IsCarrier)
             .Where(supplier => supplier.Status != "suspended" && supplier.Status != "rejected")
             .OrderBy(supplier => supplier.Name)
             .Select(supplier => new

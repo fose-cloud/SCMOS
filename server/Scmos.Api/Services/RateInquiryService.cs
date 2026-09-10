@@ -70,6 +70,10 @@ public class RateInquiryService(ScmosDbContext db)
             .ToListAsync(token);
 
         var carriers = await db.Suppliers.AsNoTracking()
+            // Carriers only. The register now holds procurement's whole approved
+            // supplier list, and 560 of those are freight agents, liners and
+            // customs brokers who will never quote for a truck.
+            .Where(supplier => supplier.IsCarrier)
             .Where(supplier => supplier.Status == "approved" || supplier.Status == "pending-audit")
             .OrderBy(supplier => supplier.Name)
             .Select(supplier => supplier.Name)

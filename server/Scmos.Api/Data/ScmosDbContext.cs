@@ -979,8 +979,33 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.ServiceType).HasMaxLength(120).HasDefaultValue("");
             e.Property(x => x.ApprovedBy).HasMaxLength(120).HasDefaultValue("");
             e.Property(x => x.LastEvaluatedPeriod).HasMaxLength(20).HasDefaultValue("");
+
+            // The ASL/BSL list. Widths are the longest value in the file with
+            // room to spare, because the file is re-exported from ABS and the
+            // next export will have a longer address in it than this one did.
+            e.Property(x => x.AbsNo).HasMaxLength(32).HasDefaultValue("");
+            e.Property(x => x.ListType).HasMaxLength(8).HasDefaultValue("");
+            e.Property(x => x.LegalName).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.ContactPerson).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.Telephone).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.Fax).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Email).HasMaxLength(250).HasDefaultValue("");
+            e.Property(x => x.Website).HasMaxLength(250).HasDefaultValue("");
+            e.Property(x => x.CreditTerm).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.ServicesRequired).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.MainSpType).HasMaxLength(60).HasDefaultValue("");
+            e.Property(x => x.TypeOfService).HasMaxLength(300).HasDefaultValue("");
+            // Existing rows are carriers: every supplier in the register before
+            // this import got there by carrying work. Defaulting to false would
+            // empty the scorecard on the day the column was added.
+            e.Property(x => x.IsCarrier).HasDefaultValue(true);
+
             e.HasIndex(x => x.Code).IsUnique().HasDatabaseName("suppliers_code_idx");
             e.HasIndex(x => x.Name).HasDatabaseName("suppliers_name_idx");
+            // The join back to ABS, and what the import matches on first.
+            e.HasIndex(x => x.AbsNo).HasDatabaseName("suppliers_abs_no_idx");
+            // "Our carriers" is the question most screens ask of this table.
+            e.HasIndex(x => x.IsCarrier).HasDatabaseName("suppliers_carrier_idx");
         });
 
         model.Entity<SupplierAlias>(e =>

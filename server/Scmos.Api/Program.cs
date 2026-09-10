@@ -215,6 +215,7 @@ if (MailQueueCheck.Run(args) is int queueExit) return queueExit;
 if (MailLinkPlanCheck.Run(args) is int linksExit) return linksExit;
 if (MailReviewCheck.Run(args) is int reviewExit) return reviewExit;
 if (MailAttachmentsCheck.Run(args) is int attachmentsExit) return attachmentsExit;
+if (SupplierRegisterCheck.Run(args) is int registerExit) return registerExit;
 
 if (args.Contains("--seed"))
 {
@@ -224,6 +225,14 @@ if (args.Contains("--seed"))
 if (args.Contains("--seed-suppliers"))
 {
     return await SupplierSeeder.RunAsync(app, args);
+}
+
+// The company's ASL/BSL list out of ABS. Counts and prints; --apply writes.
+// The path is an argument because the file holds the contact name, telephone
+// and email of 642 companies and is never committed.
+if (args.Contains("--import-asl"))
+{
+    return await AslImporter.RunAsync(app, args);
 }
 
 if (args.Contains("--migrate-status"))

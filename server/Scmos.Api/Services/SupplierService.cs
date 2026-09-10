@@ -14,6 +14,20 @@ public record SupplierSummary(
     // about a company is here; what is missing from this record is what is
     // counted rather than typed.
     string VendorNo, string TaxId, string Address,
+    // The company's ASL/BSL record out of ABS. Sent whole rather than a few
+    // chosen fields, because the register screen is now the place people read
+    // the approved-supplier list and a column missing here is a column the
+    // screen cannot show.
+    string AbsNo, string ListType, string LegalName,
+    string ContactPerson, string Telephone, string Fax, string Email, string Website,
+    string CreditTerm, string ServicesRequired, string MainSpType, string TypeOfService,
+    /// <summary>
+    /// Whether this company moves cargo by road for us.
+    ///
+    /// 560 of the 641 do not. The screen filters on it and so does anything
+    /// asking who a job may be given to.
+    /// </summary>
+    bool IsCarrier,
     /// <summary>
     /// Everything hanging off this row, counted the same eight ways
     /// <see cref="SupplierService.HoldingsAsync"/> counts them.
@@ -125,6 +139,33 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         var contactCounts = await Count(db.SupplierContacts, row => row.SupplierId);
         var capacityCounts = await Count(db.SupplierCapacities, row => row.SupplierId);
 
+        /*
+         * Grouped once, not scanned per supplier.
+         *
+         * This method used to walk the whole alias list and the whole document
+         * list inside the projection, which was fine at "eighty-odd companies"
+         * and is 641 x 675 now that procurement's list is in the register. The
+         * screen opens on every visit; it should not cost half a million
+         * comparisons to draw.
+         */
+        var aliasesBySupplier = aliases
+            .GroupBy(alias => alias.SupplierId)
+            .ToDictionary(group => group.Key,
+                group => (IReadOnlyList<string>)group.Select(alias => alias.Alias)
+                    .OrderBy(name => name, StringComparer.Ordinal).ToList());
+
+        // Expired counts as expiring: a certificate that lapsed last month is
+        // more urgent than one lapsing next month, and dropping it off the
+        // count would make it disappear at exactly the wrong moment.
+        var expiringBySupplier = documents
+            .Where(document => document.SupplierId is not null
+                && (DocumentService.IsExpiring(document.ExpiryDate)
+                    || DocumentService.IsExpired(document.ExpiryDate)))
+            .GroupBy(document => document.SupplierId!.Value)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        var noAliases = (IReadOnlyList<string>)Array.Empty<string>();
+
         return suppliers.Select(supplier => new SupplierSummary(
             supplier.Id, supplier.Code, supplier.Name, supplier.Status,
             supplier.ServiceType, supplier.ServiceArea,
@@ -134,15 +175,14 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             truckCounts.GetValueOrDefault(supplier.Id),
             driverCounts.GetValueOrDefault(supplier.Id),
             supplier.LastScore, supplier.LastEvaluatedPeriod,
-            aliases.Where(alias => alias.SupplierId == supplier.Id)
-                .Select(alias => alias.Alias).OrderBy(name => name).ToList(),
-            // Expired counts as expiring: a certificate that lapsed last month is
-            // more urgent than one lapsing next month, and dropping it off the
-            // count would make it disappear at exactly the wrong moment.
-            documents.Count(document => document.SupplierId == supplier.Id
-                && (DocumentService.IsExpiring(document.ExpiryDate)
-                    || DocumentService.IsExpired(document.ExpiryDate))),
+            aliasesBySupplier.GetValueOrDefault(supplier.Id, noAliases),
+            expiringBySupplier.GetValueOrDefault(supplier.Id),
             supplier.VendorNo, supplier.TaxId, supplier.Address,
+            supplier.AbsNo, supplier.ListType, supplier.LegalName,
+            supplier.ContactPerson, supplier.Telephone, supplier.Fax,
+            supplier.Email, supplier.Website, supplier.CreditTerm,
+            supplier.ServicesRequired, supplier.MainSpType, supplier.TypeOfService,
+            supplier.IsCarrier,
             jobCounts.GetValueOrDefault(supplier.Id)
                 + laneCounts.GetValueOrDefault(supplier.Id)
                 + docCounts.GetValueOrDefault(supplier.Id)

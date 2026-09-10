@@ -23,6 +23,12 @@ type Summary = {
   aliases: string[]; expiringDocuments: number;
   vendorNo: string; taxId: string; address: string;
   dgCapable: boolean; reeferCapable: boolean; isoTankCapable: boolean; gpsEquipped: boolean;
+  /* The company's record on the ASL/BSL list procurement keeps in ABS. */
+  absNo: string; listType: string; legalName: string;
+  contactPerson: string; telephone: string; fax: string; email: string; website: string;
+  creditTerm: string; servicesRequired: string; mainSpType: string; typeOfService: string;
+  /** Whether this company moves cargo by road. 560 of the 641 do not. */
+  isCarrier: boolean;
   /**
    * Everything hanging off the row — jobs, rates, documents, evaluations,
    * contacts, lorries, drivers, capacity.
@@ -379,17 +385,74 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
             </div>
           </div>
         )}
+        {/*
+          The register as procurement keeps it, in their column order.
+
+          Seventeen columns, which is wider than a laptop: the first three are
+          pinned so a row stays identifiable while the rest is dragged sideways,
+          because a telephone number with no company beside it is not an answer
+          to anything. The last three — status, jobs, rate lanes — are
+          SCMOS's own, not the list's, and are what says whether this company
+          has ever actually worked for us.
+        */}
         <ZoomBox>
-          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-            <thead><tr>{["รหัส", "ชื่อ", "สถานะ", "งาน", "เส้นทางราคา", "คะแนนล่าสุด", "ชื่อที่สะกดต่างกัน"].map((h, i) => (
-              <th key={h} style={css("position:sticky;top:0;background:#F8FAFC;padding:8px 12px;text-align:" + (i >= 3 && i <= 5 ? "right" : "left") + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
+          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap")}>
+            <thead><tr>{COLUMNS.map((column, i) => (
+              <th key={column.head} style={css("position:sticky;top:0;z-index:" + (i < PINNED ? 3 : 2)
+                + ";background:#F8FAFC;padding:8px 12px;text-align:" + (column.right ? "right" : "left")
+                + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;"
+                + "font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap"
+                + (i < PINNED ? `;left:${PIN_AT[i]}px;box-shadow:${i === PINNED - 1 ? "2px 0 0 #E9EFF5" : "none"}` : ""))}>
+                {column.head}
+              </th>
             ))}</tr></thead>
             <tbody>
               {shown.map((row) => (
                 <tr key={row.id} onClick={() => setPicked(row.id === picked ? null : row.id)}
                   style={css("cursor:pointer;border-bottom:1px solid #F1F5F9;background:" + (row.id === picked ? "#F2F7FC" : "#fff"))}>
-                  <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px")}>{row.code}</td>
-                  <td style={css(CELL + ";font-weight:600;color:#0A2240")}>{row.name}</td>
+                  {/* Pinned, tinted, and carrying the shadow that says the row
+                      continues to the right. */}
+                  <td style={css(PIN(0) + ";font-family:ui-monospace,monospace;font-size:11.5px;color:#7B8CA0")}>{row.absNo || "—"}</td>
+                  <td style={css(PIN(1))}>
+                    {row.listType
+                      ? <span style={css("font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;color:#fff;background:"
+                          + (row.listType === "ASL" ? "#16794C" : "#1D5FA8"))}>{row.listType}</span>
+                      : <span style={css("color:#C3CFDB")}>—</span>}
+                  </td>
+                  <td style={css(PIN(2) + ";font-family:ui-monospace,monospace;font-size:11.5px")}>{row.code}</td>
+
+                  {/* The registered name where there is one, the register's own
+                      spelling otherwise. A carrier the plan calls 9ISARA is
+                      "9 Isara Transport Co., Ltd." on procurement's list, and
+                      this is the column where the full name belongs. */}
+                  <td style={css(CELL + ";font-weight:600;color:#0A2240;max-width:280px;overflow:hidden;text-overflow:ellipsis")}
+                    title={row.legalName && row.legalName !== row.name ? row.name : undefined}>
+                    {row.legalName || row.name}
+                  </td>
+                  <td style={css(CELL + ";max-width:300px;overflow:hidden;text-overflow:ellipsis;color:#475569")} title={row.address}>{row.address || DASH}</td>
+                  <td style={css(CELL)}>{row.contactPerson || DASH}</td>
+                  <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px")}>{row.telephone || DASH}</td>
+                  <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px")}>{row.fax || DASH}</td>
+                  <td style={css(CELL)}>
+                    {row.email
+                      ? <a href={`mailto:${row.email}`} onClick={(e) => e.stopPropagation()}
+                          style={css("color:#0A5FA8;text-decoration:none")}>{row.email}</a>
+                      : DASH}
+                  </td>
+                  <td style={css(CELL + ";max-width:200px;overflow:hidden;text-overflow:ellipsis")}>
+                    {row.website
+                      ? <a href={webAddress(row.website)} target="_blank" rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={css("color:#0A5FA8;text-decoration:none")}>{row.website}</a>
+                      : DASH}
+                  </td>
+                  <td style={css(CELL + ";text-align:right")}>{row.creditTerm || DASH}</td>
+                  <td style={css(CELL)}>{row.servicesRequired || DASH}</td>
+                  <td style={css(CELL)}>{row.mainSpType || DASH}</td>
+                  <td style={css(CELL + ";max-width:260px;overflow:hidden;text-overflow:ellipsis")} title={row.typeOfService}>
+                    {row.typeOfService || DASH}
+                  </td>
+
                   <td style={CELL_S}>
                     <span style={css(`font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:3px;color:#fff;background:${STATUS_TONE[row.status] ?? "#7B8CA0"}`)}>
                       {STATUS_TH[row.status] ?? row.status}
@@ -397,7 +460,7 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
                   </td>
                   <td style={css(CELL + ";text-align:right;font-family:ui-monospace,monospace")}>{row.jobs.toLocaleString()}</td>
                   <td style={css(CELL + ";text-align:right;font-family:ui-monospace,monospace;color:" + (row.jobs > 0 && row.lanes === 0 ? "#B45309" : "#7B8CA0"))}>{row.lanes.toLocaleString()}</td>
-                  <td style={css(CELL + ";text-align:right;font-family:ui-monospace,monospace")}>{row.lastScore ?? "—"}</td>
+                  <td style={css(CELL + ";text-align:right;font-family:ui-monospace,monospace")}>{row.lastScore ?? DASH}</td>
                   <td style={css(CELL + ";font-size:11px;color:#7B8CA0")}>{row.aliases.join(" · ")}</td>
                 </tr>
               ))}
@@ -426,6 +489,62 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
 
 const CELL = "padding:8px 12px;vertical-align:top";
 const CELL_S = css(CELL);
+
+/*
+ * The register, in procurement's column order.
+ *
+ * Their thirteen from the ASL/BSL list, then four of ours: what SCMOS makes of
+ * the company. The order is the one the department asked for, which puts the
+ * ABS number first because that is the number they look a supplier up by.
+ */
+const COLUMNS: { head: string; right?: boolean }[] = [
+  { head: "ABS No" }, { head: "ASL-BSL" }, { head: "รหัส" },
+  { head: "Supplier_Name" }, { head: "Address" }, { head: "Contact_Person" },
+  { head: "Telephone" }, { head: "Fax" }, { head: "Email" }, { head: "Website" },
+  { head: "Credit Term (Days)", right: true }, { head: "Services Required" },
+  { head: "Main SP Type" }, { head: "Type of Service" },
+  { head: "สถานะ" }, { head: "งาน", right: true }, { head: "เส้นทางราคา", right: true },
+  // Kept from before the ASL/BSL columns arrived. Not on the department's list,
+  // and not dropped for that: a score and the spellings a company is known by
+  // are things the register already answered, and taking them away to make room
+  // is a loss nobody asked for.
+  { head: "คะแนนล่าสุด", right: true }, { head: "ชื่อที่สะกดต่างกัน" },
+];
+
+/*
+ * How many of those stay put while the rest is dragged sideways.
+ *
+ * Three: the ABS number, which list they are on, and our code. Seventeen
+ * columns is wider than any laptop, and a telephone number with no company
+ * beside it is not an answer to anything — but pin the name as well and half
+ * the screen is frozen, so the identifiers are pinned and the name scrolls
+ * with the rest.
+ */
+const PINNED = 3;
+
+/** Where each pinned column starts, from the widths above it. */
+const PIN_AT = [0, 92, 168];
+
+const PIN = (i: number) =>
+  CELL + ";position:sticky;z-index:1;background:inherit;left:" + PIN_AT[i] + "px"
+  + (i === PINNED - 1 ? ";box-shadow:2px 0 0 #F1F5F9" : "");
+
+/** What an empty cell shows. 560 of these companies have no fax and no website. */
+const DASH = "—";
+
+/**
+ * A website as typed, made into something a browser will follow.
+ *
+ * The list carries "www.mintercorp.coth" and " http://www.ckline.co.th" in the
+ * same column. A bare host with no scheme is read as a relative path and would
+ * navigate inside SCMOS, which looks like the app breaking rather than a
+ * supplier having typed their own address in without the http.
+ */
+function webAddress(raw: string): string {
+  const text = raw.trim();
+  return /^https?:\/\//i.test(text) ? text : "https://" + text;
+}
+
 
 /** The folders a supplier's paperwork goes in, matching BlobPaths.SupplierFolders. */
 const SUPPLIER_FOLDERS: [string, string][] = [

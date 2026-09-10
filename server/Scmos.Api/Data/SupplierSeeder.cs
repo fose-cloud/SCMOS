@@ -43,9 +43,15 @@ public static class SupplierSeeder
 
     /* ---------------------------------------------------------- suppliers */
 
-    /// <summary>Letters and digits only, so "A.C.N" and "ACN" are one key.</summary>
-    private static string Key(string name) =>
-        new(name.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+    /// <summary>
+    /// Letters and digits only, so "A.C.N" and "ACN" are one key.
+    ///
+    /// The ASL/BSL import matches on the same key, so it lives in Rules and
+    /// both callers use that one. Two copies would mean the import creating a
+    /// second row for a carrier the seeder had already reconciled, which is the
+    /// exact problem this normalisation was written to solve.
+    /// </summary>
+    private static string Key(string name) => SupplierRegister.Key(name);
 
     private static async Task<Dictionary<string, int>> SeedSuppliersAsync(WebApplication app, ScmosDbContext db)
     {
