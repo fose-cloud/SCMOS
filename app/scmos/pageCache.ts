@@ -25,11 +25,28 @@ import type { JobPage, PageQuery } from "./store";
  * cannot show one person what the last person was looking at.
  */
 
+import { APP_VERSION } from "./version";
+
 // v2: what is stored changed shape when the cache stopped being
 // the workspace's alone. A v1 entry read as a v2 one is a screen drawn
 // from undefined, so the name is bumped and the old ones simply expire.
 const FAMILY = "scmos.page.";
-const PREFIX = FAMILY + "v2.";
+
+/*
+ * The build, in the key.
+ *
+ * It was a hand-written "v2.", which meant a deploy that changed the shape of
+ * a cached payload kept serving the old shape until the entry aged out. That is
+ * not hypothetical: the supplier register gained thirteen columns, and everyone
+ * who had the screen cached saw them empty for twenty minutes, because the rows
+ * in the cache were written before those fields existed and an absent field
+ * renders as a dash exactly the way an empty one does.
+ *
+ * Keyed on APP_VERSION instead, so a release starts a clean cache. It is the
+ * same number the sidebar shows and the one people quote when they report a
+ * fault, so it is the number most likely to actually be bumped.
+ */
+const PREFIX = FAMILY + APP_VERSION + ".";
 
 /**
  * How old a saved page may be before waiting is the better answer.

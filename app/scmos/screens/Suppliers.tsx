@@ -402,7 +402,10 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
                 + ";background:#F8FAFC;padding:8px 12px;text-align:" + (column.right ? "right" : "left")
                 + ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;"
                 + "font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap"
-                + (i < PINNED ? `;left:${PIN_AT[i]}px;box-shadow:${i === PINNED - 1 ? "2px 0 0 #E9EFF5" : "none"}` : ""))}>
+                + (i < PINNED
+                  ? `;left:${PIN_AT[i]}px;width:${PIN_WIDTH[i]}px;min-width:${PIN_WIDTH[i]}px`
+                    + `;max-width:${PIN_WIDTH[i]}px;box-shadow:${i === PINNED - 1 ? "2px 0 0 #E9EFF5" : "none"}`
+                  : ""))}>
                 {column.head}
               </th>
             ))}</tr></thead>
@@ -522,11 +525,26 @@ const COLUMNS: { head: string; right?: boolean }[] = [
  */
 const PINNED = 3;
 
-/** Where each pinned column starts, from the widths above it. */
-const PIN_AT = [0, 92, 168];
+/*
+ * How wide each pinned column is, and therefore where the next one starts.
+ *
+ * Declared rather than guessed. The offsets were three numbers written by eye
+ * — 0, 92, 168 — against columns the browser sized from their contents, so the
+ * third sat 25px left of where the second actually ended and the company name
+ * was cut off under it. A sticky column has to be told its width, or the
+ * position it sticks to and the width it occupies are two different opinions.
+ */
+const PIN_WIDTH = [96, 92, 96];
 
+/** Where each pinned column starts: everything to its left, added up. */
+const PIN_AT = PIN_WIDTH.map((_, i) =>
+  PIN_WIDTH.slice(0, i).reduce((total, width) => total + width, 0));
+
+/** The width has to be on the header and the cell alike, or only one obeys it. */
 const PIN = (i: number) =>
   CELL + ";position:sticky;z-index:1;background:inherit;left:" + PIN_AT[i] + "px"
+  + ";width:" + PIN_WIDTH[i] + "px;min-width:" + PIN_WIDTH[i] + "px;max-width:" + PIN_WIDTH[i] + "px"
+  + ";overflow:hidden;text-overflow:ellipsis"
   + (i === PINNED - 1 ? ";box-shadow:2px 0 0 #F1F5F9" : "");
 
 /** What an empty cell shows. 560 of these companies have no fax and no website. */
