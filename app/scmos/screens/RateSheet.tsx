@@ -1,15 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { DataTable, type TableModel } from "../DataTable";
 import { exportRateSheet } from "../excel";
 import { FilterPickMany } from "../FilterPickMany";
 import { chosenIn } from "../filterChoices";
 import { editHistoryShortcut } from "../editHistory";
+import { gridTabTarget } from "../gridEditKey";
 import { writeClipboardTable } from "../pasteBlock";
 import { NO_DATE, monthLabel, partsOf } from "../period";
-import { SHEET_COLUMNS, missingForLane, readCell, type SheetColumn, type SheetRow } from "../rateSheetColumns";
+import { SHEET_COLUMNS, missingForLane, readCell, editRateDraft, type SheetColumn, type SheetRow } from "../rateSheetColumns";
 import { css } from "../theme";
 import { useGridRange } from "../useGridRange";
 import { cell, nowHM, type Cell } from "../util";
@@ -206,6 +207,7 @@ export function RateSheet({ canEdit, onToast }: {
    */
   const [draft, setDraft] = useState<SheetRow | null>(null);
   const [saving, setSaving] = useState(false);
+  const creatingDraft = useRef(false);
   const [busy, setBusy] = useState(false);
   /**
    * Rows ticked for a bulk action, by lane id.
@@ -253,10 +255,10 @@ export function RateSheet({ canEdit, onToast }: {
     rowsOf: () => shown,
     // The tick box leads with no field of its own, which is what keeps a
     // dragged rectangle, a paste and a Delete off it.
-    fieldsOf: () => [undefined, ...SHEET_COLUMNS.map((column) => (canEdit ? fieldOf(column) : undefined))],
+    fieldsOf: () => [undefined, ...SHEET_COLUMNS.map((column) => column.kind === "tick" ? undefined : fieldOf(column))],
     headsOf: () => ["", ...SHEET_COLUMNS.map((column) => column.head)],
     read: (row, field) => String(readCell(row, columnFor(field)) ?? ""),
-    canEdit: () => canEdit,
+    canEdit: () => canEdit && !saving,
     write: (edits, how) => void writeBlock(edits, how),
     openEditor: (row, field, seed) => {
       const at = SHEET_COLUMNS.findIndex((column) => fieldOf(column) === field);
@@ -268,8 +270,10 @@ export function RateSheet({ canEdit, onToast }: {
       });
     },
     editing: editing !== null,
+    tabDirection: "left",
     onCopied: (lines, columns) => onToast(`คัดลอกแล้ว ${lines} แถว · ${columns} คอลัมน์`),
     onNothingToClear: () => onToast("ช่องที่เลือกว่างอยู่แล้ว"),
+    onClipped: ({ rows, columns, unwritable }) => onToast(`วางได้เฉพาะหน้าปัจจุบัน · เกิน ${rows} แถว / ${columns} คอลัมน์ · ข้าม ${unwritable} ช่อง`),
   });
 
   /** Everything the bar is narrowing by, as the API's query string. */
@@ -412,19 +416,17 @@ export function RateSheet({ canEdit, onToast }: {
     edits: { row: SheetRow; field: string; value: string }[],
     how: "paste" | "clear",
   ) {
-    /*
-     * A block never reaches the unsaved row.
-     *
-     * The endpoint writes cells by lane id and the draft has none, so an edit
-     * carrying it would either be refused by the server or, worse, addressed to
-     * whatever lane -1 resolved to. It is dropped here and said out loud, so a
-     * paste that covered it is not silently one row short.
-     */
-    const inDraft = edits.filter((one) => one.row.laneId === DRAFT).length;
-    edits = edits.filter((one) => one.row.laneId !== DRAFT);
-    if (inDraft > 0) {
-      onToast(`แถวใหม่ยังไม่ได้บันทึก — ข้าม ${inDraft} ช่องในแถวนั้น กรอกลูกค้า ต้นทาง ปลายทางก่อน`);
+    // Draft edits stay local; only persisted lane IDs reach the cell endpoint.
+    if (!canEdit || saving) return;
+    const draftEdits = edits.filter((one) => one.row.laneId === DRAFT);
+    if (draft && draftEdits.length) {
+      try {
+        const next = draftEdits.reduce((row, edit) => editRateDraft(row, edit.field, edit.value), draft);
+        setDraft(next);
+        onToast(`วางข้อมูลในแถวใหม่แล้ว ${draftEdits.length} ช่อง — กดบันทึกแถวใหม่`);
+      } catch (error) { onToast(error instanceof Error ? error.message : "วางข้อมูลไม่สำเร็จ"); return; }
     }
+    edits = edits.filter((one) => one.row.laneId !== DRAFT);
     if (edits.length === 0) return;
 
     // Filed before the write, because afterwards the page is re-read and the
@@ -467,27 +469,26 @@ export function RateSheet({ canEdit, onToast }: {
   /**
    * A cell of the draft row, which is not saved one cell at a time.
    *
-   * It is held here until it has the three fields the server refuses a lane
-   * without, and created in one request the moment it does — so the operator
-   * types across the row exactly as they would in My Job, and the lane appears
-   * when it is a lane rather than after a form is filled and a button pressed.
-   *
-   * Prices are not sent on creation: the endpoint takes a customer and a route,
-   * and anything typed into a price column before the row exists would be
-   * silently dropped. So they are refused with a reason rather than accepted
-   * and lost.
+   * Keep fields and prices locally until the explicit save action. The create
+   * endpoint validates and commits the complete request and its prices together.
    */
   async function saveDraft(column: SheetColumn, value: string) {
-    if (column.kind === "price") {
-      onToast("กรอกลูกค้า ต้นทาง และปลายทางก่อน แล้วจึงใส่ราคาได้");
-      return;
-    }
-    const next: SheetRow = column.kind === "tick"
-      ? { ...draft!, [column.field!]: !readCell(draft!, column) }
-      : { ...draft!, [column.field!]: value };
-    setDraft(next);
+    if (!draft || !canEdit || saving) return;
+    try { setDraft(editRateDraft(draft, fieldOf(column), value)); }
+    catch (error) { onToast(error instanceof Error ? error.message : "ข้อมูลไม่ถูกต้อง"); }
+  }
 
-    if (missingForLane(next).length > 0) return;
+  async function createDraft() {
+    if (!draft || !canEdit || saving || creatingDraft.current) return;
+    let next = draft;
+    try {
+      if (editing?.laneId === DRAFT) next = editRateDraft(next, fieldOf(SHEET_COLUMNS[editing.column]), editing.value);
+    } catch (error) { onToast(error instanceof Error ? error.message : "ข้อมูลไม่ถูกต้อง"); return; }
+    setDraft(next);
+    setEditing(null);
+    const missing = missingForLane(next);
+    if (missing.length) { onToast("กรุณากรอก " + missing.join(", ")); return; }
+    creatingDraft.current = true;
 
     setSaving(true);
     try {
@@ -498,7 +499,7 @@ export function RateSheet({ canEdit, onToast }: {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
-          inquiredOn: `${dd}/${mm}/${today.getFullYear()}`,
+          inquiredOn: next.date || `${dd}/${mm}/${today.getFullYear()}`,
           customer: String(next.customer).trim(),
           lanes: [{
             fromPlace: String(next.fromPlace).trim(),
@@ -507,6 +508,7 @@ export function RateSheet({ canEdit, onToast }: {
             carriers: String(next.carriers).trim(),
             remark: String(next.remark).trim(),
             fcl: next.fcl, lcl: next.lcl, domestic: next.domestic,
+            prices: next.prices,
           }],
         }),
       });
@@ -522,7 +524,8 @@ export function RateSheet({ canEdit, onToast }: {
       onToast(reply.message ?? "เพิ่มแถวแล้ว — ใส่ราคาได้เลย");
       setAt(1);
       await load();
-    } finally { setSaving(false); }
+    } catch { onToast("ยังยืนยันการบันทึกไม่ได้ ข้อมูลแถวใหม่ยังอยู่ — ตรวจรายการก่อนลองบันทึกซ้ำ"); }
+    finally { creatingDraft.current = false; setSaving(false); }
   }
 
   async function save(row: SheetRow, column: SheetColumn, value: string) {
@@ -832,7 +835,7 @@ export function RateSheet({ canEdit, onToast }: {
         </span>
         <span style={css("font-size:11.5px;color:#CFE2F7")}>เส้นทาง</span>
         {canEdit
-          ? <span style={css("font-size:11px;color:#8FB4DC")}>· ดับเบิลคลิกช่องเพื่อแก้ไข · Enter บันทึก · Esc ยกเลิก</span>
+          ? <span style={css("font-size:11px;color:#8FB4DC")}>· Ctrl+C / Ctrl+V · Tab ← · Shift+Tab → · Enter บันทึก · Esc ยกเลิก</span>
           : <span style={css("font-size:11px;color:#E0A33A")}>· อ่านอย่างเดียว</span>}
       </span>
     </div>
@@ -843,6 +846,9 @@ export function RateSheet({ canEdit, onToast }: {
     meta: "รูปแบบตามไฟล์ Rate Inquiry",
     fill: true,
     actions: [
+      ...(draft && canEdit ? [{ label: saving ? "กำลังบันทึก…" : "บันทึกแถวใหม่",
+        title: "บันทึกลูกค้า เส้นทาง และราคาที่กรอก", disabled: saving,
+        style: "background:#16794C", go: () => void createDraft() }] : []),
       // First, and only once there is something to walk back — a permanently
       // greyed pair of buttons teaches people to stop looking at that corner.
       ...(undos.length > 0
@@ -869,11 +875,13 @@ export function RateSheet({ canEdit, onToast }: {
           if (draft) { setDraft(null); setEditing(null); onToast("ทิ้งแถวใหม่แล้ว"); return; }
           setPanel("none");
           setDraft(blankDraft());
-          // Straight into the first thing that has to be filled, so the row is
-          // typed into rather than looked at.
+          // Select, rather than open an input: Ctrl+V can immediately spread
+          // an Excel block across the new row, and typing opens the editor.
           const at = SHEET_COLUMNS.findIndex((one) => one.field === "customer");
-          setEditing({ laneId: DRAFT, column: at, value: "" });
-          onToast("แทรกแถวแล้ว — กรอกลูกค้า ต้นทาง ปลายทาง แถวจะบันทึกเองเมื่อครบ");
+          setEditing(null);
+          grid.setRange({ grid: "sheet", r1: 0, r2: 0, c1: at + LEAD, c2: at + LEAD });
+          (document.activeElement as HTMLElement | null)?.blur();
+          onToast("แทรกแถวแล้ว — กรอกหรือวางลูกค้า ต้นทาง ปลายทาง แล้วกดบันทึกแถวใหม่");
         },
       },
       {
@@ -996,7 +1004,7 @@ export function RateSheet({ canEdit, onToast }: {
           // A tick box is not part of a rectangle: dragging across one selects
           // nothing there, and a paste cannot land in it. Nor is the selection
           // box, which is why the sheet's columns start at LEAD.
-          ...grid.cellProps("sheet", r, index + LEAD, canEdit && column.kind !== "tick"),
+          ...grid.cellProps("sheet", r, index + LEAD, column.kind !== "tick"),
         })),
       ],
     })),
@@ -1048,6 +1056,17 @@ export function RateSheet({ canEdit, onToast }: {
         onChange: (event) => setEditing({ ...editing, value: event.target.value }),
         onBlur: () => { const held = editing; setEditing(null); void save(row, column, held.value); },
         onKey: (event) => {
+          if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            event.preventDefault();
+            const r = row.laneId === DRAFT ? 0 : rows.findIndex(one => one.laneId === row.laneId) + (draft ? 1 : 0);
+            const next = gridTabTarget(event, { row: r, column: index + LEAD }, rows.length + (draft ? 1 : 0),
+              [undefined, ...SHEET_COLUMNS.map(col => col.kind === "tick" ? undefined : fieldOf(col))], "left");
+            const held = editing;
+            setEditing(null);
+            void save(row, column, held.value);
+            if (next) grid.setRange({ grid: "sheet", r1: next.row, r2: next.row, c1: next.column, c2: next.column });
+            return;
+          }
           if (event.key === "Enter") {
             event.preventDefault();
             const held = editing;

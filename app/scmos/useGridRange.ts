@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { gridArrowTarget, gridEditIntent } from "./gridEditKey";
+import { gridArrowTarget, gridEditIntent, gridTabTarget } from "./gridEditKey";
 import { planPaste, readClipboardGrid } from "./pasteBlock";
 
 /**
@@ -67,6 +67,7 @@ export type GridRangeOptions<TRow, TField> = {
   openEditor: (row: TRow, field: TField, seed: string | null) => void;
   /** True while a cell is already open, so the keys belong to that box. */
   editing: boolean;
+  tabDirection?: "left" | "right";
   /** Told what was copied, so the screen can say so. */
   onCopied?: (rows: number, columns: number) => void;
   /** Told when a clear found nothing to do. */
@@ -122,6 +123,12 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
       sel: inRange(grid, row, column),
       active: range?.grid === grid && range.r2 === row && range.c2 === column,
       onDown: (event: ReactMouseEvent<HTMLTableCellElement>) => {
+        // Put keyboard/clipboard events on the cell, not the search box or
+        // toolbar button that was focused before the user selected it.
+        const target = event.target as HTMLElement;
+        if (target.closest("input,textarea,select,[contenteditable=true]")) return;
+        event.currentTarget.tabIndex = -1;
+        event.currentTarget.focus({ preventScroll: true });
         // Shift extends from where the rectangle started rather than beginning
         // a new one, the way a spreadsheet does it.
         if (event.shiftKey && range?.grid === grid) {
@@ -192,6 +199,15 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
           || tag === "A" || el?.isContentEditable) return;
 
       if (range && !options.editing) {
+        const tab = options.tabDirection && gridTabTarget(event,
+          { row: range.r2, column: range.c2 }, options.rowsOf(range.grid).length,
+          options.fieldsOf(range.grid).map(field => field === undefined ? undefined : String(field)),
+          options.tabDirection);
+        if (tab) {
+          event.preventDefault();
+          setRange({ grid: range.grid, r1: tab.row, r2: tab.row, c1: tab.column, c2: tab.column });
+          return;
+        }
         const next = gridArrowTarget(
           event,
           { row: range.r2, column: range.c2 },

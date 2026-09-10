@@ -148,6 +148,27 @@ export function missingForLane(row: Partial<Record<SheetField, unknown>>): strin
     .map((one) => one.label);
 }
 
+/** Apply a draft edit locally; generated metadata must not be silently discarded on save. */
+export function editRateDraft(row: SheetRow, field: string, value: string): SheetRow {
+  if (field === "no" || field === "requestor") throw new Error("No. และ Requestor ระบบกำหนดเมื่อบันทึกแถวใหม่");
+  if (field.startsWith("price:")) {
+    const vehicle = field.slice(6);
+    if (!SHEET_COLUMNS.some(c => c.vehicle === vehicle)) throw new Error("ไม่พบประเภทรถ");
+    const prices = { ...row.prices };
+    const text = value.trim().replaceAll(",", "");
+    if (!text) delete prices[vehicle];
+    else {
+      if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)) || Number(text) > 2147483647)
+        throw new Error("ราคาต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 2,147,483,647");
+      prices[vehicle] = Number(text);
+    }
+    return { ...row, prices };
+  }
+  const column = SHEET_COLUMNS.find(c => c.field === field);
+  if (!column) throw new Error("ไม่พบคอลัมน์");
+  return { ...row, [field]: column.kind === "tick" ? /^(x|true|1|yes)$/i.test(value.trim()) : value };
+}
+
 /** What a column reads out of a row. */
 export function readCell(row: SheetRow, column: SheetColumn): string | number | boolean {
   if (column.kind === "price") return row.prices[column.vehicle!] ?? "";

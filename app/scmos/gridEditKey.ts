@@ -14,6 +14,14 @@ export type GridEditIntent =
 
 export type GridPoint = { row: number; column: number };
 
+/** Tab navigation is opt-in: the rate sheet explicitly requests leftward Tab. */
+export function gridTabTarget(key: GridEditKey, current: GridPoint, rowCount: number,
+  fields: (string | undefined)[], direction: "left" | "right"): GridPoint | null {
+  if (key.key !== "Tab") return null;
+  const left = (direction === "left") !== !!key.shiftKey;
+  return gridArrowTarget({ ...key, key: left ? "ArrowLeft" : "ArrowRight" }, current, rowCount, fields);
+}
+
 /**
  * Finds the next selectable grid cell for an arrow key.
  *
