@@ -4,6 +4,12 @@ import test from "node:test";
 
 import { STAGES, byStage, stageLabel } from "../app/scmos/incidentStages.ts";
 
+test("CAR/PAR keeps horizontal scrolling without table zoom controls", () => {
+  const source = readFileSync(new URL("../app/scmos/screens/Incidents.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /ZoomBox/);
+  assert.match(source, /overflowX: "auto"/);
+});
+
 test("every stage is reported, including the ones nothing is sitting at", () => {
   const counts = byStage([{ stage: "open" }, { stage: "open" }, { stage: "closed" }]);
 

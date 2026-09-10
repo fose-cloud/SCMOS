@@ -7,7 +7,6 @@ import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
-import { ZoomBox } from "../TableFrame";
 import { STAGES, STAGE_TH } from "../incidentStages";
 
 /**
@@ -408,7 +407,7 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
 
       <div style={css("display:grid;grid-template-columns:" + (chosen ? "1fr 1.2fr" : "1fr") + ";gap:14px;align-items:start")}>
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
-          <ZoomBox>
+          <div style={{ overflowX: "auto" }}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead><tr>{["เลขที่", "หัวข้อ", "งาน", "หมวด", "ขั้นตอน", "กำหนด"].map((h) => (
                 <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
@@ -440,7 +439,7 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
                 {!cases.length && <tr><td colSpan={6} style={css("padding:28px;text-align:center;color:#94A3B8")}>ยังไม่มีเคส</td></tr>}
               </tbody>
             </table>
-          </ZoomBox>
+          </div>
         </div>
 
         {chosen && (
