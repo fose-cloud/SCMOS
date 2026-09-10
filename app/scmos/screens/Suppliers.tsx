@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
@@ -83,7 +83,12 @@ const STATUS_TH: Record<string, string> = {
   suspended: "ระงับ", rejected: "ไม่ผ่าน",
 };
 
-export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast: (m: string) => void }) {
+export function Suppliers({ canManage, canUpload, onToast }: {
+  canManage: boolean;
+  /** Attaching a document is its own permission, not the register's. */
+  canUpload: boolean;
+  onToast: (m: string) => void;
+}) {
   const [rows, setRows] = useRemembered<Summary[]>("suppliers");
   /* The Excel import: the file chosen, what the preview said, and whether a
      call is in flight. The file is held so "write it" sends the same one that
@@ -91,6 +96,12 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
   const [aslFile, setAslFile] = useState<File | null>(null);
   const [asl, setAsl] = useState<AslOutcome | null>(null);
   const [aslBusy, setAslBusy] = useState(false);
+  /* Which cell was clicked: whose document, and which of the five. Null when
+     nothing is being attached. */
+  const [attach, setAttach] = useState<{ row: Summary; code: string } | null>(null);
+  /* The cleanup list: which unused suppliers are ticked for removal. */
+  const [sweeping, setSweeping] = useState(false);
+  const [doomed, setDoomed] = useState<Set<number>>(new Set());
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -262,6 +273,45 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
     } finally { setAslBusy(false); }
   }
 
+  /**
+   * Remove the ticked suppliers, one call each.
+   *
+   * <p>One at a time on purpose. The API refuses to delete a supplier that
+   * anything points at, and it decides that per supplier — so a batch that
+   * stopped at the first refusal would leave the rest of somebody's selection
+   * unremoved with no way to tell which. Each is asked separately and the
+   * refusals are reported together at the end.</p>
+   */
+  async function removeChosen() {
+    if (!rows || doomed.size === 0 || busy) return;
+
+    const chosen = rows.filter((row) => doomed.has(row.id));
+    // Belt and braces: the list only offers unattached rows, but the selection
+    // survives a refresh and a supplier can gain a job between the two.
+    const attached = chosen.filter((row) => row.attached > 0);
+    if (attached.length > 0) {
+      onToast(`ลบไม่ได้ ${attached.length} ราย เพราะมีข้อมูลผูกอยู่แล้ว — รีเฟรชแล้วลองใหม่`);
+      return;
+    }
+
+    setBusy(true);
+    let gone = 0;
+    const refused: string[] = [];
+    try {
+      for (const row of chosen) {
+        const response = await apiFetch(`/api/suppliers/${row.id}?reason=${encodeURIComponent("ไม่ได้ใช้งาน")}`,
+          { method: "DELETE" });
+        if (response.ok) { gone++; continue; }
+        const reply = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+        refused.push(`${row.code}: ${reply?.message ?? reply?.error ?? response.status}`);
+      }
+      onToast(`ลบแล้ว ${gone} ราย`
+        + (refused.length ? ` · ลบไม่ได้ ${refused.length}: ${refused.slice(0, 3).join(" · ")}` : ""));
+      setDoomed(new Set());
+      await load();
+    } finally { setBusy(false); }
+  }
+
   /** Removes a supplier the register is not using. Refused by the API if it is. */
   async function remove(row: Summary) {
     if (row.attached > 0) {
@@ -419,6 +469,12 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
                     }}
                   />
                 </label>
+                <button onClick={() => { setSweeping((open) => !open); setDoomed(new Set()); }}
+                  style={css("height:30px;padding:0 12px;border:1px solid #B42318;background:"
+                    + (sweeping ? "#B42318" : "#fff") + ";color:" + (sweeping ? "#fff" : "#B42318")
+                    + ";border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                  ลบรายที่ไม่ได้ใช้งาน
+                </button>
                 <button onClick={() => setShowDirectory((open) => !open)}
                   style={css("height:30px;padding:0 12px;border:1px solid #0A2240;background:" + (showDirectory ? "#0A2240" : "#fff")
                     + ";color:" + (showDirectory ? "#fff" : "#0A2240") + ";border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit")}>
@@ -508,6 +564,81 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
                 ปิด
               </button>
             </div>
+          </div>
+        )}
+
+        {/*
+          The ones that can go, and only those.
+
+          A checkbox on every row of a 641-row table would be a column nobody
+          uses and three pinned columns become four. This lists exactly the
+          suppliers nothing points at — no jobs, no rates, no documents, no
+          evaluations — which is the same test the API applies when it refuses
+          a deletion, so nothing offered here can be refused for that reason.
+        */}
+        {sweeping && canManage && (
+          <div style={css("padding:13px 16px;border-bottom:1px solid #E9EFF5;background:#FFFBFA")}>
+            {(() => {
+              const spare = (rows ?? []).filter((row) => row.attached === 0);
+              if (spare.length === 0) {
+                return (
+                  <div style={css("font-size:12px;color:#5A6B7D")}>
+                    ทุกรายในทะเบียนมีข้อมูลผูกอยู่ — ไม่มีรายไหนที่ลบได้โดยไม่กระทบอย่างอื่น
+                  </div>
+                );
+              }
+              return (
+                <>
+                  <div style={css("font-size:11.5px;color:#5A6B7D;line-height:1.7;margin-bottom:9px")}>
+                    <b>{spare.length} ราย</b> ที่ไม่มีงาน ไม่มีเส้นทางราคา ไม่มีเอกสาร และไม่มีผลประเมินผูกอยู่ —
+                    ลบได้โดยไม่กระทบข้อมูลอื่น · รายที่มีข้อมูลผูกอยู่จะไม่ถูกแสดงที่นี่ และ API ก็จะปฏิเสธการลบอยู่ดี
+                    <div style={css("color:#B42318;margin-top:3px")}>การลบไม่ย้อนกลับ</div>
+                  </div>
+
+                  <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:9px")}>
+                    <button onClick={() => setDoomed(new Set(spare.map((row) => row.id)))}
+                      style={css("height:27px;padding:0 10px;border:1px solid #C9D6E2;background:#fff;color:#0A2240;border-radius:4px;font-size:11.5px;cursor:pointer;font-family:inherit")}>
+                      เลือกทั้งหมด ({spare.length})
+                    </button>
+                    <button onClick={() => setDoomed(new Set())}
+                      style={css("height:27px;padding:0 10px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;border-radius:4px;font-size:11.5px;cursor:pointer;font-family:inherit")}>
+                      ล้างที่เลือก
+                    </button>
+                    <button disabled={doomed.size === 0 || busy} onClick={() => void removeChosen()}
+                      style={css("height:27px;padding:0 13px;border-radius:4px;font-size:11.5px;font-weight:600;font-family:inherit;"
+                        + (doomed.size === 0 || busy
+                          ? "border:1px solid #DDE4EC;background:#E6EBF1;color:#94A3B8;cursor:not-allowed"
+                          : "border:1px solid #B42318;background:#B42318;color:#fff;cursor:pointer"))}>
+                      {busy ? "กำลังลบ…" : `ลบ ${doomed.size} รายที่เลือก`}
+                    </button>
+                  </div>
+
+                  <div style={css("max-height:260px;overflow:auto;border:1px solid #E9EFF5;border-radius:5px;background:#fff")}>
+                    {spare.map((row) => (
+                      <label key={row.id}
+                        style={css("display:flex;gap:9px;align-items:center;padding:6px 11px;border-bottom:1px solid #F4F6F8;cursor:pointer;font-size:12px")}>
+                        <input type="checkbox" checked={doomed.has(row.id)}
+                          onChange={(e) => setDoomed((held) => {
+                            const next = new Set(held);
+                            if (e.target.checked) next.add(row.id); else next.delete(row.id);
+                            return next;
+                          })}
+                          style={css("width:14px;height:14px;accent-color:#B42318;cursor:pointer")} />
+                        <span style={css("font-family:ui-monospace,monospace;font-size:11px;color:#7B8CA0;min-width:64px")}>{row.code}</span>
+                        <span style={css("color:#0A2240;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>
+                          {row.legalName || row.name}
+                        </span>
+                        {row.isCarrier && (
+                          <span style={css("font-size:10px;font-weight:700;color:#B45309;background:#FFF4E5;padding:1px 6px;border-radius:3px;white-space:nowrap")}>
+                            ผู้ขนส่ง
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -650,7 +781,29 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
                                 {stateLabel(state, held.daysLeft)}
                               </span>
                             )}
+                            {canUpload && (
+                              // A renewal is a new certificate beside the old
+                              // one, not an edit of it. The register keeps both
+                              // and reads the later expiry.
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setAttach({ row, code: need.code }); }}
+                                style={css("margin-left:8px;font-size:10.5px;color:#0A5FA8;background:none;"
+                                  + "border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline")}>
+                                ต่ออายุ
+                              </button>
+                            )}
                           </div>
+                        ) : canUpload ? (
+                          // The cell is the control. It said "ยังไม่แนบไฟล์" in
+                          // grey text, which looks like a button, is not one,
+                          // and left the only way to attach a document three
+                          // clicks away in the card below.
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setAttach({ row, code: need.code }); }}
+                            style={css("margin-top:2px;font-size:10.5px;color:#0A5FA8;background:none;"
+                              + "border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline")}>
+                            + แนบไฟล์
+                          </button>
                         ) : (
                           <div style={css("margin-top:2px;font-size:10.5px;color:#C3CFDB")}>ยังไม่แนบไฟล์</div>
                         )}
@@ -687,6 +840,21 @@ export function Suppliers({ canManage, onToast }: { canManage: boolean; onToast:
           </table>
         </ZoomBox>
       </div>
+
+      {attach && (
+        <AttachDialog
+          supplier={attach.row}
+          code={attach.code}
+          busy={busy}
+          onCancel={() => setAttach(null)}
+          onAttach={(file, expiry) => {
+            const need = REQUIREMENTS.find((one) => one.code === attach.code);
+            if (!need) return;
+            setAttach(null);
+            void upload(attach.row.id, file, need.folder, need.code, expiry);
+          }}
+        />
+      )}
 
       {picked !== null && canManage && (
         <Manage supplier={rows.find((r) => r.id === picked)!} others={rows} busy={busy}
@@ -1129,6 +1297,125 @@ function Tile({ label, value, note, colour }: { label: string; value: number; no
       <div style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</div>
       <div style={css(`font-family:ui-monospace,monospace;font-size:24px;font-weight:600;line-height:1.25;margin-top:2px;color:${colour}`)}>{value.toLocaleString()}</div>
       <div style={css("font-size:12px;color:#7B8CA0")}>{note}</div>
+    </div>
+  );
+}
+
+/**
+ * Attaching one required document, from the cell that was clicked.
+ *
+ * A dialog rather than an inline control, because attaching needs two things:
+ * the file, and the date it runs out. The expiry is the whole reason these
+ * columns exist — a certificate with no date cannot be warned about — so
+ * asking for the file alone and hoping somebody fills the date in afterwards
+ * would quietly produce a register full of documents nothing can watch.
+ */
+function AttachDialog({ supplier, code, busy, onCancel, onAttach }: {
+  supplier: Summary;
+  code: string;
+  busy: boolean;
+  onCancel: () => void;
+  onAttach: (file: File, expiry: string) => void;
+}) {
+  const need = REQUIREMENTS.find((one) => one.code === code);
+  const held = supplier.compliance?.find((one) => one.code === code);
+  const [expiry, setExpiry] = useState(held?.expiryDate ?? "");
+  const dateBox = useRef<HTMLInputElement | null>(null);
+
+  // The date is the first thing to fill in and the dialog was opened
+  // deliberately, so the caret starts there. Done on mount rather than with
+  // autoFocus, which fires before anybody can say they did not want it.
+  useEffect(() => { dateBox.current?.focus(); }, []);
+
+  if (!need) return null;
+
+  // DD/MM/YYYY, the way every other date in the register is written. Checked
+  // here so a typo is caught in front of the person who made it rather than
+  // becoming a document that silently never expires.
+  const wellFormed = /^\d{2}\/\d{2}\/\d{4}$/.test(expiry.trim());
+  const ready = !need.expires || wellFormed;
+
+  return (
+    /*
+      The backdrop dismisses, and says so to a screen reader by saying nothing:
+      role="presentation" is what it is — a tint over the page, not a control.
+      The dismiss tests the target rather than being stopped by a handler on the
+      panel, so the panel needs no click handler of its own and stays an
+      ordinary dialog rather than something that swallows events.
+    */
+    <div
+      role="presentation"
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
+      style={css("position:fixed;inset:0;z-index:80;background:rgba(10,34,64,.45);"
+        + "display:flex;align-items:center;justify-content:center;padding:20px")}>
+      <div role="dialog" aria-modal="true" aria-label={`${need.english} (${need.thai})`}
+        style={css("background:#fff;border-radius:6px;padding:20px 22px;max-width:430px;width:100%;"
+          + "box-shadow:0 18px 48px rgba(10,34,64,.3)")}>
+        <div style={css("font-size:14px;font-weight:700;color:#0A2240")}>
+          {need.english} ({need.thai})
+        </div>
+        <div style={css("font-size:12px;color:#64748B;margin-top:3px")}>
+          {supplier.legalName || supplier.name}
+        </div>
+
+        {held?.documentId && (
+          <div style={css("margin-top:10px;font-size:11.5px;color:#8A5A12;background:#FFF8F0;"
+            + "border:1px solid #F0D8B8;border-radius:4px;padding:8px 10px;line-height:1.6")}>
+            มีไฟล์อยู่แล้ว — การแนบใหม่จะเก็บเพิ่มอีกฉบับ ไม่ได้ลบของเดิม
+            ระบบจะใช้ฉบับที่วันหมดอายุใหม่กว่า
+          </div>
+        )}
+
+        {need.expires ? (
+          <div style={css("margin-top:14px")}>
+            <div style={css("font-size:11px;color:#5A6B7D;margin-bottom:4px")}>
+              วันหมดอายุ <b>DD/MM/YYYY</b>
+            </div>
+            <input
+              value={expiry}
+              onChange={(e) => setExpiry(e.target.value)}
+              placeholder="31/12/2027"
+              ref={dateBox}
+              style={css("width:150px;height:32px;border:1px solid "
+                + (expiry.length > 0 && !wellFormed ? "#B42318" : "#C9D6E2")
+                + ";border-radius:4px;padding:0 10px;font-size:13px;font-family:ui-monospace,monospace")} />
+            {expiry.length > 0 && !wellFormed && (
+              <div style={css("font-size:11px;color:#B42318;margin-top:4px")}>
+                ต้องเป็นรูปแบบ DD/MM/YYYY เช่น 31/12/2027
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={css("margin-top:14px;font-size:11.5px;color:#7B8CA0;line-height:1.6")}>
+            เอกสารนี้ไม่มีวันหมดอายุ — เป็นรายการทะเบียนรถในสัญญา ไม่ใช่ใบรับรอง
+          </div>
+        )}
+
+        <div style={css("display:flex;gap:8px;align-items:center;margin-top:18px")}>
+          <label style={css("height:32px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;"
+            + "display:inline-flex;align-items:center;font-family:inherit;"
+            + (ready && !busy
+              ? "background:#16794C;color:#fff;border:1px solid #16794C;cursor:pointer"
+              : "background:#E6EBF1;color:#94A3B8;border:1px solid #DDE4EC;cursor:not-allowed"))}>
+            {busy ? "กำลังอัปโหลด…" : "เลือกไฟล์และแนบ"}
+            <input type="file" disabled={!ready || busy} style={css("display:none")}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) onAttach(file, need.expires ? expiry.trim() : "");
+              }} />
+          </label>
+          <button onClick={onCancel}
+            style={css("height:32px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;"
+              + "border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit")}>
+            ยกเลิก
+          </button>
+          {need.expires && !wellFormed && (
+            <span style={css("font-size:11px;color:#94A3B8")}>กรอกวันหมดอายุก่อน</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

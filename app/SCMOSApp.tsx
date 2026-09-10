@@ -2923,7 +2923,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                  that happens to be granted alongside it. Both go to supervisors
                  today, so this changes nothing now and stops the screen and the
                  API disagreeing the first time they do not. */}
-            {screen === "subcontractors" && <Suppliers canManage={able("ManageSuppliers")} onToast={setToast} />}
+            {screen === "subcontractors" && <Suppliers canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} />}
             {(screen === "incident" || screen === "carpar") && (
               <Incidents
                 prefill={incidentDraft}
