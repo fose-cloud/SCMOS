@@ -64,6 +64,9 @@ public enum Capability
     /// <summary>Register a vendor and move them through onboarding.</summary>
     ManageSuppliers = 1 << 8,
 
+    /// <summary>Add draft suppliers and edit company details, not approvals or deletion.</summary>
+    EditSuppliers = 1 << 21,
+
     /// <summary>Sign off a CAR/PAR.</summary>
     CloseCarPar = 1 << 9,
 
@@ -196,7 +199,7 @@ public static class Roles
     private const Capability OperationGrants =
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
         | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet
-        | Capability.ViewMailbox;
+        | Capability.ViewMailbox | Capability.EditSuppliers;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar

@@ -201,7 +201,21 @@ function seedFromJob(job: Job): { where: string; when: string; who: string } {
   };
 }
 
-export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }: {
+/** What a sheet of cases would become. The record the import endpoint answers with. */
+type SheetImport = {
+  read: number; skipped: number; created: number;
+  /** field: heading, for the columns it recognised. */
+  matched: string[];
+  /** Fields no column was found for. */
+  missing: string[];
+  sample: string[];
+  applied: boolean;
+  duplicates: string[];
+  statuses: Record<string, number>;
+};
+
+export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, onOpenJob, onToast }: {
+  canImport?: boolean;
   /**
    * An operational issue escalated into a case.
    *
@@ -221,6 +235,9 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState("");
+  /* The sheet being imported: the file, and what the API says it would do. */
+  const [sheetFile, setSheetFile] = useState<File | null>(null);
+  const [sheet, setSheet] = useState<SheetImport | null>(null);
   /** The job the next case will be raised against, when one was sent over. */
   const [jobKey, setJobKey] = useState("");
   /** What went wrong, brought over from the issue. Only it can answer this. */
@@ -261,6 +278,37 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
     setFromIssue(prefill.issueCode);
     onPrefillTaken?.();
   }, [prefill, onPrefillTaken]);
+
+  /**
+   * Send the sheet and say what it would do, or do it.
+   *
+   * The same call either way, with `apply` deciding — so what is confirmed is
+   * exactly what was previewed, read by the same code from the same file,
+   * rather than a preview from one path and a write from another.
+   */
+  async function importSheet(file: File, apply: boolean) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      if (apply) form.append("apply", "1");
+
+      const response = await apiFetch("/api/incidents/import", { method: "POST", body: form });
+      const reply = await response.json().catch(() => null) as (SheetImport & { error?: string }) | null;
+
+      if (!response.ok) { onToast(reply?.error ?? `นำเข้าไม่สำเร็จ (${response.status})`); return; }
+
+      setSheet(reply);
+      if (apply) {
+        onToast(`นำเข้าแล้ว ${reply?.created ?? 0} รายการ โดยคงสถานะต้นฉบับ`);
+        setSheetFile(null);
+        await load();
+      }
+    } catch (error) {
+      onToast("นำเข้าไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setBusy(false); }
+  }
 
   async function post(path: string, body: unknown) {
     if (busy) return;
@@ -382,6 +430,76 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
         </div>
       )}
 
+      {/*
+        What a sheet of cases would become, before it becomes it.
+
+        The same shape as the supplier import: read, show, then write only when
+        told a second time. Cases are what corrective action is tracked on, and
+        a file read wrongly makes work rather than recording it.
+      */}
+      {sheet && (
+        <div style={css("background:#F8FAFC;border:1px solid #D8E0E8;border-radius:5px;padding:13px 16px")}>
+          <p>คงสถานะต้นฉบับ: {Object.entries(sheet.statuses).map(([status, count]) => `${status} ${count}`).join(" · ")}</p>
+          <p>พร้อมนำเข้า {sheet.created} รายการ · ข้ามเลขที่ซ้ำ {sheet.duplicates.length} รายการ</p>
+          {sheet.duplicates.length > 0 && <p>ไม่เขียนทับ: {sheet.duplicates.join(", ")}</p>}
+          <p>Closed → ปิดแล้ว · Request Evidence → ติดตาม · Waiting Response → เปิดเคส โดยแสดงสถานะต้นฉบับแยกไว้</p>
+          <p>เก็บข้อมูลทุกคอลัมน์ไว้ในบันทึกถึงทีม เลขงานต้นฉบับยังไม่ผูกกับ My Job</p>
+          <div style={css("display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:9px")}>
+            <div>
+              <div style={css("font-size:16px;font-weight:700;font-family:ui-monospace,monospace;color:#0A2240")}>{sheet.read}</div>
+              <div style={css("font-size:10.5px;color:#7B8CA0")}>อ่านได้</div>
+            </div>
+            {sheet.skipped > 0 && (
+              <div>
+                <div style={css("font-size:16px;font-weight:700;font-family:ui-monospace,monospace;color:#B45309")}>{sheet.skipped}</div>
+                <div style={css("font-size:10.5px;color:#7B8CA0")}>ข้ามเพราะไม่มีหัวข้อ</div>
+              </div>
+            )}
+          </div>
+
+          {/* Which column became which field. The importer was written without
+              the file, so this is the part worth checking before writing. */}
+          {sheet.matched.length > 0 && (
+            <div style={css("font-size:11.5px;color:#5A6B7D;line-height:1.7;margin-bottom:6px")}>
+              อ่านคอลัมน์ได้: <b>{sheet.matched.join(" · ")}</b>
+            </div>
+          )}
+          {sheet.missing.length > 0 && (
+            <div style={css("font-size:11.5px;color:#8A5A12;line-height:1.7;margin-bottom:6px")}>
+              ไม่พบชื่อคอลัมน์มาตรฐาน: {sheet.missing.join(" · ")} — ข้อมูลต้นฉบับทุกคอลัมน์ยังเก็บไว้ในบันทึกถึงทีม
+            </div>
+          )}
+          {sheet.sample.length > 0 && (
+            <div style={css("font-size:11px;color:#7B8CA0;font-family:ui-monospace,monospace;line-height:1.7;margin-bottom:9px")}>
+              {sheet.sample.map((line, i) => <div key={i}>{line}</div>)}
+            </div>
+          )}
+
+          <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap")}>
+            {sheet.applied ? (
+              <span style={css("font-size:12px;color:#16794C;font-weight:600")}>
+                นำเข้าแล้ว {sheet.created} รายการ โดยคงสถานะต้นฉบับ
+              </span>
+            ) : (
+              <>
+                <button disabled={busy || !sheetFile}
+                  onClick={() => sheetFile && void importSheet(sheetFile, true)}
+                  style={css("height:30px;padding:0 14px;border-radius:4px;font-size:12px;font-weight:600;font-family:inherit;"
+                    + (busy ? "border:1px solid #DDE4EC;background:#E6EBF1;color:#94A3B8;cursor:not-allowed"
+                            : "border:1px solid #16794C;background:#16794C;color:#fff;cursor:pointer"))}>
+                  {busy ? "กำลังนำเข้า…" : `ยืนยันนำเข้า ${sheet.created} รายการ (คงสถานะ)`}
+                </button>
+                <span style={css("font-size:11.5px;color:#7B8CA0")}>ยังไม่ได้บันทึกอะไร</span>
+              </>
+            )}
+            <button onClick={() => { setSheet(null); setSheetFile(null); }}
+              style={css("height:30px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit")}>
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 16px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap")}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="หัวข้อเคสใหม่"
           style={css("flex:1;min-width:220px;height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px")} />
@@ -393,6 +511,27 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
           style={css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff")}>
           {Object.entries(CATEGORY_TH).map(([id, th]) => <option key={id} value={id}>{th}</option>)}
         </select>
+        {/* Reading a sheet the team already keeps, rather than retyping it.
+            The importer matches on column headings in either language, because
+            it was written without the file it will be given. */}
+        {canImport && <label style={css("height:30px;padding:0 12px;border:1px solid #0A2240;background:"
+          + (busy ? "#C3CFDB" : "#fff") + ";color:" + (busy ? "#fff" : "#0A2240")
+          + ";border-radius:4px;font-size:12px;font-weight:600;font-family:inherit;"
+          + "display:inline-flex;align-items:center;cursor:" + (busy ? "default" : "pointer"))}>
+          {busy ? "กำลังอ่าน…" : "นำเข้าจาก Excel"}
+          <input type="file" accept=".xlsx" disabled={busy} style={css("display:none")}
+            onChange={(e) => {
+              const chosen = e.target.files?.[0];
+              // Cleared so choosing the same file twice fires again, which
+              // somebody will do after fixing a heading in it.
+              e.target.value = "";
+              if (!chosen) return;
+              setSheetFile(chosen);
+              setSheet(null);
+              void importSheet(chosen, false);
+            }} />
+        </label>}
+
         <button onClick={() => {
           // The job's own answers travel with the case rather than being typed
           // in again off the screen next door.
@@ -432,7 +571,11 @@ export function Incidents({ prefill, jobs, onPrefillTaken, onOpenJob, onToast }:
                         : "ไม่ผูกกับงาน"}
                     </td>
                     <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>{CATEGORY_TH[c.category] ?? c.category}</td>
-                    <td style={css(CELL + ";font-size:11.5px;color:" + (c.stage === "closed" ? "#16794C" : "#B45309"))}>{STAGE_TH[c.stage] ?? c.stage}</td>
+                    <td style={css(CELL + ";font-size:11.5px;color:" + (c.stage === "closed" ? "#16794C" : "#B45309"))}>
+                      {STAGE_TH[c.stage] ?? c.stage}
+                      {c.teamNote?.startsWith("SCMOS Excel import\nExcel status: ") &&
+                        <div style={{ color: "#5A6B7D" }}>ต้นฉบับ: {c.teamNote.split("\n")[1].slice("Excel status: ".length)}</div>}
+                    </td>
                     <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;color:" + (c.overdue ? "#B42318" : "#7B8CA0"))}>{c.dueDate || "—"}</td>
                   </tr>
                 ))}

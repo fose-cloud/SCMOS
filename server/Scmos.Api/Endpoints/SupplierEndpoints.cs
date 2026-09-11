@@ -29,7 +29,9 @@ public static class SupplierEndpoints
         string? VendorNo, string? TaxId, string? Address,
         string? ServiceArea, string? ServiceType,
         bool? DgCapable, bool? ReeferCapable, bool? IsoTankCapable, bool? GpsEquipped,
-        string? Reason);
+        string? Reason,
+        string? LegalName = null, string? ContactPerson = null, string? Telephone = null,
+        string? Fax = null, string? Email = null, string? Website = null);
 
     public record AliasBody(string? Alias, string? Reason);
     public record EvaluateBody(string? Period, int? Safety, int? Documents, string? Note);
@@ -97,7 +99,7 @@ public static class SupplierEndpoints
 
         suppliers.MapPost("", async ([FromBody] RegisterBody body, HttpContext context, IUserAccessor users,
             SupplierService service, AuditService audit, CancellationToken token) =>
-            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+            await Guarded(context, users, Capability.EditSuppliers, audit, token,
                 user => service.RegisterAsync(body.Name ?? "", body.Code ?? "", body.ServiceType ?? "",
                     body.ServiceArea ?? "", user.Signature, token),
                 AuditActions.Register, "supplier", body.Name ?? "", "", "", body.Name ?? "", body.Reason ?? ""));
@@ -235,11 +237,13 @@ public static class SupplierEndpoints
         // typed over here.
         suppliers.MapPost("/{id:int}/edit", async (int id, [FromBody] EditBody body, HttpContext context,
             IUserAccessor users, SupplierService service, AuditService audit, CancellationToken token) =>
-            await Guarded(context, users, Capability.ManageSuppliers, audit, token,
+            await Guarded(context, users,
+                body.Status is null ? Capability.EditSuppliers : Capability.ManageSuppliers, audit, token,
                 user => service.EditAsync(id, new SupplierService.SupplierEdit(
                     body.Code, body.Name, body.Status, body.VendorNo, body.TaxId, body.Address,
                     body.ServiceArea, body.ServiceType,
-                    body.DgCapable, body.ReeferCapable, body.IsoTankCapable, body.GpsEquipped),
+                    body.DgCapable, body.ReeferCapable, body.IsoTankCapable, body.GpsEquipped,
+                    body.LegalName, body.ContactPerson, body.Telephone, body.Fax, body.Email, body.Website),
                     user.Signature, token),
                 AuditActions.Update, "supplier", id.ToString(), "ข้อมูลบริษัท", "",
                 body.Name ?? body.Code ?? "", body.Reason ?? ""));
@@ -375,6 +379,67 @@ public static class SupplierEndpoints
                     body.Category ?? "other", body.Title ?? "", user.Signature, token,
                     body.What ?? "", body.Where ?? "", body.When ?? "", body.Who ?? ""),
                 "create", body.Title ?? "", "", "", "open", ""));
+
+        /*
+         * A sheet of cases at once.
+         *
+         * Answers with what it would create and writes nothing unless `apply`
+         * says so — the same shape as the ASL/BSL import, because this lands in
+         * the register the department's corrective action is tracked on and a
+         * file read wrongly makes work rather than recording it.
+         *
+         * The preview names which columns it matched and which it did not, so a
+         * sheet whose headings this cannot read says so before anything is
+         * created rather than after a hundred blank cases exist.
+         */
+        incidents.MapPost("/import", async (HttpContext context, IUserAccessor users,
+            ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            // Historical imports may create Closed cases: enforce the closing
+            // capability and the existing sign-in-strength policy on the server.
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.CloseCarPar))
+                return ApiResults.Error("ไม่มีสิทธิ์นำเข้าประวัติ CAR/PAR (ต้องมีสิทธิ์ปิดเคส)", StatusCodes.Status403Forbidden);
+            if (users.Refuses(user, Capability.CloseCarPar) is { } refusal)
+                return ApiResults.Error(refusal, StatusCodes.Status403Forbidden);
+
+            if (!context.Request.HasFormContentType)
+                return ApiResults.Error("ต้องส่งเป็น multipart form", StatusCodes.Status415UnsupportedMediaType);
+
+            var form = await context.Request.ReadFormAsync(token);
+            var file = form.Files.GetFile("file");
+            if (file is null || file.Length == 0)
+                return ApiResults.Error("ยังไม่ได้เลือกไฟล์", StatusCodes.Status400BadRequest);
+            if (file.Length > MaxImportBytes)
+                return ApiResults.Error("ไฟล์ใหญ่เกิน 16 MB", StatusCodes.Status400BadRequest);
+
+            var apply = form["apply"].ToString() is "1" or "true";
+
+            List<IncidentImporter.Row> rows;
+            int skipped;
+            List<string> matched, missing;
+            try
+            {
+                await using var content = file.OpenReadStream();
+                rows = IncidentImporter.Read(content, out skipped, out matched, out missing);
+            }
+            catch (Exception problem) when (problem is not OperationCanceledException)
+            {
+                return ApiResults.Error($"อ่านไฟล์ {file.FileName} ไม่ได้ — {problem.Message}",
+                    StatusCodes.Status400BadRequest);
+            }
+
+            if (rows.Count == 0)
+                return ApiResults.Error(
+                    "ไม่พบรายการในไฟล์ — ต้องมีคอลัมน์หัวข้อ (Title / หัวข้อ / เรื่อง) และอย่างน้อยหนึ่งแถว",
+                    StatusCodes.Status400BadRequest);
+
+            var outcome = await IncidentImporter.ImportAsync(db, audit, rows, skipped,
+                matched, missing, user, apply, token);
+
+            return Results.Json(outcome);
+        }).DisableAntiforgery();
 
         incidents.MapPost("/{id:long}", async (long id, [FromBody] Dictionary<string, string> body,
             HttpContext context, IUserAccessor users, IncidentService service, AuditService audit,

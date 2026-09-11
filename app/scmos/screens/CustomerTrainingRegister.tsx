@@ -71,7 +71,10 @@ function statusTone(status: string) {
   return { bg: "#EDF7F1", text: "#16794C", border: "#BFE0CD" };
 }
 
-export function CustomerTrainingRegister({ onToast }: { onToast: (message: string) => void }) {
+export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast: (message: string) => void; canEdit?: boolean }) {
+  const [draft, setDraft] = useState<ImportRow | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState("");
   const [rows, setRows] = useState<RegisterRow[]>([]);
   const [summary, setSummary] = useState<RegisterSummary>(EMPTY_SUMMARY);
   const [search, setSearch] = useState("");
@@ -117,6 +120,37 @@ export function CustomerTrainingRegister({ onToast }: { onToast: (message: strin
       || (left.daysLeft ?? Number.MAX_SAFE_INTEGER) - (right.daysLeft ?? Number.MAX_SAFE_INTEGER)
       || left.id - right.id);
   }, [rows, search, status]);
+
+  function beginEdit(row?: RegisterRow) {
+    if (busy || !canEdit) return;
+    if (draft && !window.confirm("ยกเลิกข้อมูลที่ยังไม่บันทึกและเปิดแถวอื่นหรือไม่?")) return;
+    setEditingId(row?.id ?? null);
+    setSaveError("");
+    setDraft(Object.fromEntries(Object.keys(COLUMNS).map(key => [
+      key, row ? row[key as keyof ImportRow] : "",
+    ])) as ImportRow);
+  }
+
+  async function saveDraft() {
+    if (!draft || busy || !canEdit) return;
+    setBusy(true);
+    setSaveError("");
+    try {
+      const response = await apiFetch(editingId === null ? "/api/training/register" : `/api/training/register/${editingId}`, {
+        method: editingId === null ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const reply = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+      if (!response.ok) { setSaveError(reply?.error ?? `บันทึกไม่สำเร็จ (${response.status})`); return; }
+      onToast(reply?.message ?? "บันทึกข้อมูลแล้ว");
+      setDraft(null);
+      setEditingId(null);
+      await load();
+    } catch (error) {
+      setSaveError("ไม่ทราบผลการบันทึก กรุณาตรวจรายการก่อนลองอีกครั้ง: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setBusy(false); }
+  }
 
   async function readFile(file: File) {
     try {
@@ -224,6 +258,8 @@ export function CustomerTrainingRegister({ onToast }: { onToast: (message: strin
             <option value="INVALID_DATE">วันที่ไม่ถูกต้อง</option>
           </select>
         </label>
+        {canEdit && <button disabled={busy} onClick={() => beginEdit()}
+          style={css("height:32px;padding:0 15px;background:#0A2240;color:white;border:0;border-radius:4px;cursor:pointer")}>+ แทรกแถว</button>}
         <label style={css("height:32px;padding:0 15px;border:1px solid #1D4E80;background:#1D4E80;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center") }>
           นำเข้า Excel ตามแบบฟอร์ม
           <input type="file" accept=".xlsx,.xls,.csv" style={css("display:none")}
@@ -256,6 +292,15 @@ export function CustomerTrainingRegister({ onToast }: { onToast: (message: strin
       )}
 
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden") }>
+        {draft && <div style={{ padding: 12, background: "#EDF5FF" }}>
+          <strong>{editingId === null ? "แถวใหม่ — ยังไม่บันทึก" : "แก้ไขรายการอบรม"}</strong>
+          <span> · กรอกวันที่ DD/MM/YYYY · สถานะคำนวณอัตโนมัติ</span>
+          <button disabled={busy} onClick={() => void saveDraft()} style={{ marginLeft: 12 }}>บันทึกแถว</button>
+          <button disabled={busy} onClick={() => {
+            if (window.confirm("ยกเลิกข้อมูลที่ยังไม่บันทึกหรือไม่?")) { setDraft(null); setSaveError(""); }
+          }} style={{ marginLeft: 8 }}>ยกเลิก</button>
+          {saveError && <div role="alert" style={{ color: "#B42318", marginTop: 8 }}>{saveError}</div>}
+        </div>}
         <ZoomBox height="62vh">
           <table style={css("width:100%;min-width:1330px;border-collapse:separate;border-spacing:0;font-size:12px") }>
             <thead style={css("position:sticky;top:0;z-index:1;background:#0A2240;color:#fff") }>
@@ -264,9 +309,23 @@ export function CustomerTrainingRegister({ onToast }: { onToast: (message: strin
                   "ลำดับ", "ชื่อหลักสูตร/ลูกค้า", "ชื่อ", "นามสกุล", "บริษัท",
                   "เลขที่ใบขับขี่", "ประเภทใบขับขี่", "Effective date", "Expire date", "สถานะ",
                 ].map((header) => <th key={header} style={css("padding:10px 11px;text-align:left;white-space:nowrap;border-right:1px solid #29445F;font-weight:650")}>{header}</th>)}
+                {canEdit && <th>จัดการ</th>}
               </tr>
             </thead>
             <tbody>
+              {draft && <tr style={{ background: "#EDF5FF" }}>
+                {(Object.keys(COLUMNS) as (keyof ImportRow)[]).map((field) => <td key={field} style={{ padding: 6 }}>
+                  <input aria-label={COLUMNS[field][0]} disabled={busy}
+                    value={draft[field]}
+                    placeholder={field === "effectiveDate" || field === "expiryDate" ? "DD/MM/YYYY" : COLUMNS[field][0]}
+                    maxLength={({ sequenceNo: 40, courseCustomer: 300, firstName: 160, lastName: 160,
+                      company: 240, driverLicenseNo: 80, licenseType: 120, effectiveDate: 20, expiryDate: 20 })[field]}
+                    onChange={event => setDraft(held => held && ({ ...held, [field]: event.target.value }))}
+                    style={{ width: "100%", minWidth: field === "sequenceNo" ? 60 : 130, padding: 6, border: "1px solid #9BBCE0" }} />
+                </td>)}
+                <Cell>คำนวณหลังบันทึก</Cell>
+                {canEdit && <Cell>{editingId === null ? "เพิ่มใหม่" : `แก้ไข #${editingId}`}</Cell>}
+              </tr>}
               {shown.map((row, index) => {
                 const tone = statusTone(row.status);
                 return (
@@ -292,11 +351,14 @@ export function CustomerTrainingRegister({ onToast }: { onToast: (message: strin
                           : ""}
                       </span>
                     </td>
+                    {canEdit && <td style={{ padding: 8 }}>
+                      <button disabled={busy} onClick={() => beginEdit(row)} aria-label={`แก้ไข ${row.courseCustomer} ${row.firstName} ${row.lastName}`}>แก้ไข</button>
+                    </td>}
                   </tr>
                 );
               })}
               {shown.length === 0 && (
-                <tr><td colSpan={10} style={css("padding:32px;text-align:center;color:#7B8CA0")}>ยังไม่มีข้อมูลที่ตรงกับตัวกรอง</td></tr>
+                <tr><td colSpan={canEdit ? 11 : 10} style={css("padding:32px;text-align:center;color:#7B8CA0")}>ยังไม่มีข้อมูลที่ตรงกับตัวกรอง</td></tr>
               )}
             </tbody>
           </table>

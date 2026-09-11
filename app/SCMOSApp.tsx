@@ -2857,7 +2857,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "oilrate" && <OilRate canEdit={able("EditRates")} onToast={setToast} />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (
-              <Training onToast={setToast}
+              <Training onToast={setToast} canManageRegister={able("ManageTraining")}
                 registerCustomers={[...new Set((ops?.jobs ?? [])
                   .map((job) => job.customer.trim()).filter(Boolean))]} />
             )}
@@ -2947,9 +2947,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                  that happens to be granted alongside it. Both go to supervisors
                  today, so this changes nothing now and stops the screen and the
                  API disagreeing the first time they do not. */}
-            {screen === "subcontractors" && <Suppliers canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} />}
+            {screen === "subcontractors" && <Suppliers canEdit={able("EditSuppliers")} canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} />}
             {(screen === "incident" || screen === "carpar") && (
               <Incidents
+                canImport={able("CloseCarPar")}
                 prefill={incidentDraft}
                 jobs={ops?.jobs ?? []}
                 onPrefillTaken={() => setIncidentDraft(null)}
@@ -2969,7 +2970,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 onNavigate={go}
                 onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
             )}
-            {screen === "vendor" && <Vendor canManage={isSupervisor} onToast={setToast} />}
+            {screen === "vendor" && <Vendor canRegister={able("EditSuppliers")} canManage={able("ManageSuppliers")} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
               canEditRates={able("EditRates")} canSaveQuote={able("QuoteToSheet")}

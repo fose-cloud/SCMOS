@@ -50,6 +50,8 @@ type Summary = {
 
 /** Everything a supplier row stores. Absent fields are left as they are. */
 type Edit = Partial<{
+  legalName: string; contactPerson: string; telephone: string;
+  fax: string; email: string; website: string;
   code: string; name: string; status: string;
   vendorNo: string; taxId: string; address: string;
   serviceArea: string; serviceType: string;
@@ -83,7 +85,8 @@ const STATUS_TH: Record<string, string> = {
   suspended: "ระงับ", rejected: "ไม่ผ่าน",
 };
 
-export function Suppliers({ canManage, canUpload, onToast }: {
+export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
+  canEdit: boolean;
   canManage: boolean;
   /** Attaching a document is its own permission, not the register's. */
   canUpload: boolean;
@@ -283,7 +286,7 @@ export function Suppliers({ canManage, canUpload, onToast }: {
    * refusals are reported together at the end.</p>
    */
   async function removeChosen() {
-    if (!rows || doomed.size === 0 || busy) return;
+    if (!canManage || !rows || doomed.size === 0 || busy) return;
 
     const chosen = rows.filter((row) => doomed.has(row.id));
     // Belt and braces: the list only offers unattached rows, but the selection
@@ -294,13 +297,22 @@ export function Suppliers({ canManage, canUpload, onToast }: {
       return;
     }
 
+    if (!chosen.length || !window.confirm(`ลบผู้ขนส่งที่เลือก ${chosen.length} รายหรือไม่?\n`
+      + chosen.map(row => `${row.code} — ${row.name}`).join("\n")
+      + "\nการลบนี้ไม่สามารถย้อนกลับจากหน้าจอได้")) return;
     setBusy(true);
     let gone = 0;
     const refused: string[] = [];
     try {
       for (const row of chosen) {
-        const response = await apiFetch(`/api/suppliers/${row.id}?reason=${encodeURIComponent("ไม่ได้ใช้งาน")}`,
-          { method: "DELETE" });
+        let response: Response;
+        try {
+          response = await apiFetch(`/api/suppliers/${row.id}?reason=${encodeURIComponent("ไม่ได้ใช้งาน")}`,
+            { method: "DELETE" });
+        } catch {
+          refused.push(`${row.code}: ไม่ทราบผล กรุณารีเฟรชตรวจสอบก่อนลองใหม่`);
+          break;
+        }
         if (response.ok) { gone++; continue; }
         const reply = await response.json().catch(() => null) as { message?: string; error?: string } | null;
         refused.push(`${row.code}: ${reply?.message ?? reply?.error ?? response.status}`);
@@ -691,6 +703,13 @@ export function Suppliers({ canManage, canUpload, onToast }: {
             columns with three of them pinned, and a slider that shrinks the
             type does not make the twentieth column reachable. Asked for by the
             department, the same as on KPI. */}
+        {canManage && <div style={{ padding: "10px 16px", display: "flex", gap: 12, alignItems: "center" }}>
+          <button disabled={busy || doomed.size === 0} onClick={() => void removeChosen()}>
+            ลบที่เลือก ({doomed.size})
+          </button>
+          <button disabled={busy || doomed.size === 0} onClick={() => setDoomed(new Set())}>ล้างการเลือก</button>
+          <span>เลือกได้เฉพาะรายที่ไม่มีงาน ราคา หรือข้อมูลอื่นผูกอยู่</span>
+        </div>}
         <ZoomBox zoomable={false}>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap")}>
             <thead><tr>{COLUMNS.map((column, i) => (
@@ -702,6 +721,19 @@ export function Suppliers({ canManage, canUpload, onToast }: {
                   ? `;left:${PIN_AT[i]}px;width:${PIN_WIDTH[i]}px;min-width:${PIN_WIDTH[i]}px`
                     + `;max-width:${PIN_WIDTH[i]}px;box-shadow:${i === PINNED - 1 ? "2px 0 0 #E9EFF5" : "none"}`
                   : ""))}>
+                {i === 0 && canManage && <input type="checkbox" aria-label="เลือกผู้ขนส่งที่ลบได้ในผลค้นหาทั้งหมด"
+                  disabled={busy || !shown.some(row => row.attached === 0)}
+                  checked={shown.some(row => row.attached === 0) && shown.filter(row => row.attached === 0).every(row => doomed.has(row.id))}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setDoomed(previous => {
+                      const next = new Set(previous);
+                      for (const row of shown.filter(row => row.attached === 0)) {
+                        if (checked) next.add(row.id); else next.delete(row.id);
+                      }
+                      return next;
+                    });
+                  }} style={{ marginRight: 8 }} />}
                 {column.head}
               </th>
             ))}</tr></thead>
@@ -711,7 +743,20 @@ export function Suppliers({ canManage, canUpload, onToast }: {
                   style={css("cursor:pointer;border-bottom:1px solid #F1F5F9;background:" + (row.id === picked ? "#F2F7FC" : "#fff"))}>
                   {/* Pinned, tinted, and carrying the shadow that says the row
                       continues to the right. */}
-                  <td style={css(PIN(0) + ";font-family:ui-monospace,monospace;font-size:11.5px;color:#7B8CA0")}>{row.absNo || "—"}</td>
+                  <td style={css(PIN(0) + ";font-family:ui-monospace,monospace;font-size:11.5px;color:#7B8CA0")}>
+                    {canManage && <input type="checkbox" aria-label={`เลือก ${row.code}`}
+                      title={row.attached > 0 ? `ลบไม่ได้: มีข้อมูลผูกอยู่ ${row.attached} รายการ` : "เลือกเพื่อลบ"}
+                      disabled={busy || row.attached > 0} checked={doomed.has(row.id)}
+                      onClick={e => e.stopPropagation()} onChange={e => {
+                        const checked = e.target.checked;
+                        setDoomed(previous => {
+                          const next = new Set(previous);
+                          if (checked) next.add(row.id); else next.delete(row.id);
+                          return next;
+                        });
+                      }} style={{ marginRight: 8 }} />}
+                    {row.absNo || "—"}
+                  </td>
                   <td style={css(PIN(1))}>
                     {row.listType
                       ? <span style={css("font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;color:#fff;background:"
@@ -856,7 +901,12 @@ export function Suppliers({ canManage, canUpload, onToast }: {
         />
       )}
 
-      {picked !== null && canManage && (
+      {picked !== null && canEdit && !canManage && rows.some(r => r.id === picked) && (
+        <Details key={picked} supplier={rows.find(r => r.id === picked)!} others={rows} busy={busy}
+          canManage={false} onEdit={fields => void post(`${picked}/edit`, fields)}
+          onRemove={() => {}} onMerge={() => {}} />
+      )}
+      {picked !== null && canManage && rows.some(r => r.id === picked) && (
         <Manage supplier={rows.find((r) => r.id === picked)!} others={rows} busy={busy}
           onMerge={(keep, fold) => void merge(keep,
             // A register row's total counts its jobs; the dialog names those
@@ -1117,7 +1167,8 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
  * anything, so those are corrected where they come from and are shown here
  * read-only, with where to go.
  */
-function Details({ supplier, others, busy, onEdit, onRemove, onMerge }: {
+function Details({ supplier, others, busy, canManage = true, onEdit, onRemove, onMerge }: {
+  canManage?: boolean;
   supplier: Summary; others: Summary[]; busy: boolean;
   onEdit: (fields: Edit) => void;
   onRemove: () => void;
@@ -1172,9 +1223,15 @@ function Details({ supplier, others, busy, onEdit, onRemove, onMerge }: {
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px")}>
         {text("code", "รหัส", "ไม่ซ้ำกับรายอื่น")}
         {text("name", "ชื่อบริษัท")}
+        {text("legalName", "ชื่อจดทะเบียน (SUPPLIER_NAME)")}
+        {text("contactPerson", "ผู้ติดต่อ")}
+        {text("telephone", "โทรศัพท์")}
+        {text("fax", "Fax")}
+        {text("email", "Email")}
+        {text("website", "Website")}
         <label style={css("display:flex;flex-direction:column;gap:3px")}>
           <span style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>สถานะ</span>
-          <select value={String(value("status"))} onChange={(e) => set("status", e.target.value)}
+          <select disabled={!canManage} value={String(value("status"))} onChange={(e) => set("status", e.target.value)}
             style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff;font-family:inherit")}>
             {["draft", "pending-audit", "approved", "suspended", "rejected"].map((id) => (
               <option key={id} value={id}>{STATUS_TH[id] ?? id}</option>
@@ -1211,7 +1268,7 @@ function Details({ supplier, others, busy, onEdit, onRemove, onMerge }: {
             merged into the row that holds its history, never deleted — the
             API refuses it either way, and greying it here says why before
             somebody clicks. */}
-        <button onClick={onRemove} disabled={busy || attached > 0}
+        <button hidden={!canManage} onClick={onRemove} disabled={busy || attached > 0}
           title={attached > 0
             ? "ลบไม่ได้ — ยังมีงาน ราคา หรือเอกสารผูกอยู่ ถ้าเป็นบริษัทซ้ำให้ใช้ปุ่มรวมรายการ"
             : "ลบรายการนี้ออกจากทะเบียน"}
@@ -1239,7 +1296,7 @@ function Details({ supplier, others, busy, onEdit, onRemove, onMerge }: {
         by one letter and are two, and no rule reads both of those correctly.
         Somebody who knows says so here instead.
       */}
-      <div style={css("margin-top:13px;padding-top:11px;border-top:1px solid #EEF3F8")}>
+      <div hidden={!canManage} style={css("margin-top:13px;padding-top:11px;border-top:1px solid #EEF3F8")}>
         <Label>รวมกับอีกรายการ — ถ้าเป็นบริษัทเดียวกัน</Label>
         <div style={css("font-size:11px;color:#94A3B8;margin:4px 0 8px;line-height:1.7")}>
           ใช้เมื่อรู้ว่าสองรายการคือเจ้าเดียวกันแต่ระบบพิสูจน์เองไม่ได้ เช่นสะกดต่างกันหนึ่งตัว ·

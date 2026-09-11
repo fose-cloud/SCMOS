@@ -8,6 +8,8 @@ using Scmos.Api.Data;
 using Scmos.Api.Endpoints;
 using Scmos.Api.Services;
 
+// Pure import checks must not load production credentials or contact services.
+if (IncidentImportCheck.Run(args) is int incidentImportExit) return incidentImportExit;
 var builder = WebApplication.CreateBuilder(args);
 
 // A machine-local override that is never committed — the storage emulator's

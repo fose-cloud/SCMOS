@@ -401,6 +401,12 @@ public static class TrainingEndpoints
         });
 
         /* -------------------------------------- workbook-backed register */
+        group.MapPost("/register", async ([FromBody] RegisterBody body, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
+            await SaveRegisterAsync(null, body, context, users, db, audit, token));
+        group.MapPut("/register/{id:long}", async (long id, [FromBody] RegisterBody body, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
+            await SaveRegisterAsync(id, body, context, users, db, audit, token));
 
         group.MapGet("/register", async (HttpContext context, IUserAccessor users,
             ScmosDbContext db, CancellationToken token) =>
@@ -672,6 +678,59 @@ public static class TrainingEndpoints
 
     private static DateOnly ThailandToday() =>
         DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+
+
+    private static async Task<IResult> SaveRegisterAsync(long? id, RegisterBody body,
+        HttpContext context, IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token)
+    {
+        var user = users.Current(context);
+        if (user is null) return ApiResults.SignInRequired;
+        if (!user.Can(Capability.ManageTraining)) return ApiResults.Error("ไม่มีสิทธิ์แก้ไขทะเบียนอบรม", 403);
+        var v = new[] { body.SequenceNo, body.CourseCustomer, body.FirstName, body.LastName, body.Company,
+            body.DriverLicenseNo, body.LicenseType, body.EffectiveDate, body.ExpiryDate }.Select(s => (s ?? "").Trim()).ToArray();
+        var limits = new[] { 40, 300, 160, 160, 240, 80, 120, 20, 20 };
+        if (v.Where((s, i) => s.Length > limits[i]).Any()) return ApiResults.Error("ข้อความยาวเกินขนาดคอลัมน์", 400);
+        if (v[1].Length == 0 || (v[2].Length == 0 && v[3].Length == 0))
+            return ApiResults.Error("กรุณาระบุหลักสูตร/ลูกค้า และชื่อหรือนามสกุล", 400);
+        var effective = TrainingRules.ParseDate(v[7]);
+        var expiry = TrainingRules.ParseDate(v[8]);
+        if (effective is null || expiry is null || expiry < effective)
+            return ApiResults.Error("วันที่ต้องถูกต้อง และ Expire date ต้องไม่ก่อน Effective date", 400);
+        v[7] = TrainingRules.Write(effective.Value);
+        v[8] = TrainingRules.Write(expiry.Value);
+        return await db.Database.CreateExecutionStrategy().ExecuteAsync<IResult>(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var work = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token);
+            var existing = await db.CustomerTrainingRecords.ToListAsync(token);
+            static bool Same(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+            if (existing.Any(r => r.Id != id && Same(r.CourseCustomer, v[1])
+                && TrainingRules.ParseDate(r.EffectiveDate) == effective && TrainingRules.ParseDate(r.ExpiryDate) == expiry
+                && Same(r.DriverLicenseNo, v[5]) && (v[5].Length > 0
+                    || (Same(r.FirstName, v[2]) && Same(r.LastName, v[3]) && Same(r.Company, v[4])))))
+                return ApiResults.Error("มีรายการอบรมนี้อยู่แล้ว กรุณาแก้รายการเดิม", 409);
+            var record = id is null ? new CustomerTrainingRecord() : existing.FirstOrDefault(r => r.Id == id);
+            if (record is null) return ApiResults.Error("ไม่พบรายการอบรมนี้", 404);
+            var before = System.Text.Json.JsonSerializer.Serialize(DescribeRegister(record, ThailandToday()));
+            record.SequenceNo = v[0]; record.CourseCustomer = v[1]; record.FirstName = v[2];
+            record.LastName = v[3]; record.Company = v[4]; record.DriverLicenseNo = v[5];
+            record.LicenseType = v[6]; record.EffectiveDate = v[7]; record.ExpiryDate = v[8];
+            record.UpdatedBy = user.Signature; record.UpdatedAt = DateTimeOffset.UtcNow;
+            if (id is null)
+            {
+                record.CreatedBy = user.Signature; record.CreatedAt = record.UpdatedAt;
+                db.CustomerTrainingRecords.Add(record);
+            }
+            await db.SaveChangesAsync(token);
+            audit.Stage(user, id is null ? AuditActions.Register : AuditActions.Update,
+                "customer-training-register", record.Id.ToString(), record.CourseCustomer, "training-register",
+                id is null ? "" : before, System.Text.Json.JsonSerializer.Serialize(v), "Manual register entry");
+            await db.SaveChangesAsync(token);
+            await work.CommitAsync(token);
+            return Results.Json(new { message = id is null ? "เพิ่มรายการอบรมแล้ว" : "บันทึกการแก้ไขแล้ว",
+                row = DescribeRegister(record, ThailandToday()) });
+        });
+    }
 
     private static RegisterView DescribeRegister(CustomerTrainingRecord record, DateOnly today)
     {

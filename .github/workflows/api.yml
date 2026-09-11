@@ -85,6 +85,9 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: CAR/PAR Excel import checks (no database)
+        run: dotnet run --project ${{ env.PROJECT }} --configuration Release --no-build --no-launch-profile -- --check-incident-import
+
       - name: Calculated quotation checks
         run: dotnet run --project tests/Scmos.QuoteSave.Checks/Scmos.QuoteSave.Checks.csproj --configuration Release
 

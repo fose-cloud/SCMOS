@@ -67,6 +67,7 @@ const CAPABILITY_TH: Record<string, string> = {
   QuoteToSheet: "บันทึกใบเสนอราคาลงตารางอัตรา",
   EditRates: "แก้ราคา",
   ManageSuppliers: "จัดการผู้ขนส่ง",
+  EditSuppliers: "เพิ่มและแก้ไขข้อมูลผู้ขนส่ง",
   CloseCarPar: "ปิด CAR/PAR",
   ApproveAi: "อนุมัติข้อเสนอ AI",
   ViewAudit: "อ่านประวัติการแก้ไข",

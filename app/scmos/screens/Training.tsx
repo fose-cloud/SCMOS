@@ -93,7 +93,8 @@ const TONE: Record<string, { bg: string; border: string; text: string; th: strin
   MISSING: { bg: "#F1F5F9", border: "#E2E8F0", text: "#64748B", th: "ยังไม่เคยอบรม" },
 };
 
-export function Training({ onToast, registerCustomers }: {
+export function Training({ onToast, registerCustomers, canManageRegister = false }: {
+  canManageRegister?: boolean;
   onToast: (message: string) => void;
   /**
    * Every customer the register knows, so the form suggests the names jobs are
@@ -352,7 +353,7 @@ export function Training({ onToast, registerCustomers }: {
     return (
       <div style={css("display:flex;flex-direction:column;gap:13px") }>
         {tabBar}
-        <CustomerTrainingRegister onToast={onToast} />
+        <CustomerTrainingRegister onToast={onToast} canEdit={canManageRegister} />
       </div>
     );
   }

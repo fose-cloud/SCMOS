@@ -127,7 +127,7 @@ button { cursor: pointer; }
    Kept as a stylesheet rather than threaded through every component as a prop:
    a dozen screens would each need the same rule, and this project has already
    been bitten by the same rule living in two places. */
-@media (max-width: 900px) {
+@media screen and (max-width: 900px) {
   /* The rail stops being a column and becomes a drawer over the content. It is
      the whole reason this block exists: at 375px the column took 248 and left
      117 for the work. `!important` because the component writes its desktop
@@ -257,6 +257,9 @@ button { cursor: pointer; }
   }
   /* Inputs print as their text, not as boxes with a border and a cursor. */
   .cargo-page input, .cargo-page textarea {
+    /* Printed values must match the document's 8pt labels, not mobile controls. */
+    font-size: 8pt !important;
+    line-height: 1.2 !important;
     border: none !important;
     border-bottom: 1px solid #94A3B8 !important;
     background: transparent !important;

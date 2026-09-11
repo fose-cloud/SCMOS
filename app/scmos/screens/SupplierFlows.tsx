@@ -72,7 +72,7 @@ async function postSupplier(path: string, body: unknown) {
  * moves it. Nothing about that is decorative: only an approved supplier can be
  * given work, so the status is the control, and it is a supervisor's to set.
  */
-export function Vendor({ canManage, onToast }: { canManage: boolean; onToast: (m: string) => void }) {
+export function Vendor({ canRegister, canManage, onToast }: { canRegister: boolean; canManage: boolean; onToast: (m: string) => void }) {
   const { rows, load } = useSuppliers();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: "", code: "", serviceType: "", serviceArea: "" });
@@ -120,15 +120,15 @@ export function Vendor({ canManage, onToast }: { canManage: boolean; onToast: (m
           ))}
           <button
             onClick={() => void act("", form, () => setForm({ name: "", code: "", serviceType: "", serviceArea: "" }))}
-            disabled={busy || !canManage || !form.name.trim()}
+            disabled={busy || !canRegister || !form.name.trim()}
             style={css("height:30px;padding:0 15px;border:1px solid #0A2240;background:" +
-              (busy || !canManage || !form.name.trim() ? "#C3CFDB" : "#0A2240") +
+              (busy || !canRegister || !form.name.trim() ? "#C3CFDB" : "#0A2240") +
               ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
           >ลงทะเบียน</button>
         </div>
-        {!canManage && (
+        {!canRegister && (
           <div style={css("font-size:11.5px;color:#B45309;margin-top:8px")}>
-            ลงทะเบียนและอนุมัติผู้ขนส่งได้เฉพาะระดับหัวหน้างานขึ้นไป
+            บัญชีนี้ไม่มีสิทธิ์เพิ่มผู้ขนส่ง
           </div>
         )}
       </div>

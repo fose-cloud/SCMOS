@@ -26,6 +26,13 @@ public static class CapabilityCheck
             .ToList();
 
         var failed = 0;
+        failed += Holds(Roles.Operation, Capability.EditSuppliers, true);
+        failed += Holds(Roles.Operation, Capability.ManageSuppliers, false);
+        failed += Holds(Roles.Supervisor, Capability.EditSuppliers, true);
+        failed += Holds(Roles.Supervisor, Capability.ManageSuppliers, true);
+        failed += Holds(Roles.Subcontractor, Capability.EditSuppliers, false);
+        failed += Holds(Roles.Viewer, Capability.EditSuppliers, false);
+        failed += Holds(Roles.CustomerService, Capability.EditSuppliers, false);
 
         Console.WriteLine("Every capability holds a bit of its own.");
         Console.WriteLine();

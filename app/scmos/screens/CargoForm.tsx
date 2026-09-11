@@ -204,14 +204,15 @@ const SIGN_LINE = `display:block;width:100%;height:15px;box-sizing:border-box;`
  * 1.449), so those are one Letter sheet printed at three "fit to page"
  * settings, not three designs.
  *
- * So: Letter, Tahoma, 8pt body, 16pt title, 10pt for the ITEM heading. Sizes
+ * Letter and Tahoma are retained. The requested compact layout uses an 8pt
+ * body, a 14pt title and a 9pt ITEM heading. Sizes
  * are in points rather than pixels because this is a document that gets
  * printed and signed, and a point is the same size on paper as the workbook's.
  */
 const FACE = "Tahoma, 'Leelawadee UI', 'Segoe UI', sans-serif";
 const BODY_PT = "8pt";
-const TITLE_PT = "16pt";
-const ITEM_PT = "10pt";
+const TITLE_PT = "14pt";
+const ITEM_PT = "9pt";
 
 /** A written-on line. The same ink as the box it sits in, not a paler one. */
 const FIELD = `flex:1;min-width:0;border:none;border-bottom:1px solid ${INK};`

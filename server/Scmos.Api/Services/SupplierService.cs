@@ -1104,7 +1104,9 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         string? Code, string? Name, string? Status,
         string? VendorNo, string? TaxId, string? Address,
         string? ServiceArea, string? ServiceType,
-        bool? DgCapable, bool? ReeferCapable, bool? IsoTankCapable, bool? GpsEquipped);
+        bool? DgCapable, bool? ReeferCapable, bool? IsoTankCapable, bool? GpsEquipped,
+        string? LegalName = null, string? ContactPerson = null, string? Telephone = null,
+        string? Fax = null, string? Email = null, string? Website = null);
 
     /// <summary>
     /// Corrects a company's own details.
@@ -1131,6 +1133,12 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
     /// </summary>
     public async Task<SupplierResult> EditAsync(int id, SupplierEdit edit, string by, CancellationToken token)
     {
+        foreach (var (value, maximum, label) in new[] {
+            (edit.LegalName, 200, "ชื่อจดทะเบียน"), (edit.ContactPerson, 200, "ผู้ติดต่อ"),
+            (edit.Telephone, 200, "โทรศัพท์"), (edit.Fax, 120, "Fax"),
+            (edit.Email, 200, "Email"), (edit.Website, 250, "Website") })
+            if (value?.Trim().Length > maximum)
+                return new SupplierResult(false, $"{label} ยาวเกิน {maximum} ตัวอักษร");
         var supplier = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == id, token);
         if (supplier is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
 
@@ -1195,6 +1203,12 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         }
 
         Text("เลขผู้ขาย", edit.VendorNo, () => supplier.VendorNo, value => supplier.VendorNo = value);
+        Text("ชื่อจดทะเบียน", edit.LegalName, () => supplier.LegalName, value => supplier.LegalName = value);
+        Text("ผู้ติดต่อ", edit.ContactPerson, () => supplier.ContactPerson, value => supplier.ContactPerson = value);
+        Text("โทรศัพท์", edit.Telephone, () => supplier.Telephone, value => supplier.Telephone = value);
+        Text("Fax", edit.Fax, () => supplier.Fax, value => supplier.Fax = value);
+        Text("Email", edit.Email, () => supplier.Email, value => supplier.Email = value);
+        Text("Website", edit.Website, () => supplier.Website, value => supplier.Website = value);
         Text("เลขประจำตัวผู้เสียภาษี", edit.TaxId, () => supplier.TaxId, value => supplier.TaxId = value);
         Text("ที่อยู่", edit.Address, () => supplier.Address, value => supplier.Address = value);
         Text("พื้นที่ให้บริการ", edit.ServiceArea, () => supplier.ServiceArea, value => supplier.ServiceArea = value);
