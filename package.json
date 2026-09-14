@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ignore-pattern .next --ignore-pattern server --ignore-pattern .claude",
+    "lint": "eslint . --ignore-pattern .next --ignore-pattern server --ignore-pattern .claude --ignore-pattern work",
     "typecheck": "tsc --noEmit",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/*.test.mjs"
   },
