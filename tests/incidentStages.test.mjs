@@ -29,9 +29,13 @@ test("a stage the API grows later still counts, under its own name", () => {
 
 test("the dashboard reads the incident API rather than the demo bundle", () => {
   const dashboard = readFileSync(new URL("../app/scmos/screens/Dashboard.tsx", import.meta.url), "utf8");
+  const tower = readFileSync(new URL("../app/scmos/screens/ControlTower.tsx", import.meta.url), "utf8");
 
-  assert.match(dashboard, /\/api\/incidents/, "the CAR/PAR panel should ask the incident API");
-  assert.doesNotMatch(dashboard, /db\.carpar/, "no panel should count generated CAR/PAR data");
+  // The CAR/PAR card is the engine's own measure, counted from the incident
+  // cases on the server — the same figure the KPI screen shows.
+  assert.match(tower, /\/api\/kpi\/measures/, "the CAR/PAR card should read the measured report");
+  assert.match(tower, /"CarPar"/, "and pick the CAR/PAR measure out of it");
+  assert.doesNotMatch(dashboard + tower, /db\.carpar/, "no panel should count generated CAR/PAR data");
 });
 
 test("the stage vocabulary is defined once", () => {

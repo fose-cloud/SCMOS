@@ -236,15 +236,17 @@ export const TAB_DEFS: Record<string, string[]> = {
   // late, what is missing paperwork, what does the month look like. They are
   // offered inside PENDING now, where they belong.
   myjob: ["MY JOBS", "PENDING", "COMPLETED"],
-  // TODAY leads: the first question anyone opening the system has is what is
-  // happening now, and it is the one tab whose every figure comes from the API.
+  // Executive leads now: it is the control tower the department designed, and
+  // its AI rail carries the same morning briefing TODAY opens with — so the
+  // first question, what is happening now, is still answered on arrival. TODAY
+  // keeps its own tab, being the one whose every figure comes from the API.
   // Wall Board was a fourth tab and is a display mode of the third. It showed
   // the same open, running, delayed and action-required counts as Operational
   // and the same team load and delayed list, in dark and larger — one
   // dashboard with two presentations, not two dashboards. It is a button on
   // Operational now, which is one fewer tab and one fewer place for the same
   // figures to be maintained.
-  dashboard: ["TODAY", "Executive", "Operational"],
+  dashboard: ["Executive", "TODAY", "Operational"],
   booking: ["Booking Queue", "Carrier Escalation", "SLA"],
   // Supplier and CAR/PAR read the real register now, and both carry their own
   // controls. Tabs that narrowed the demo table would be buttons that do

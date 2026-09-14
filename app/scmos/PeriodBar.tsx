@@ -28,10 +28,9 @@ export function PeriodBar(p: {
    *
    * The dashboard's row was navy for a while, because FilterPickMany was drawn
    * for My Job's navy bar and joining it turned the row that colour. The
-   * department asked for white, the picker gained a light tone of its own, and
-   * the dashboard is back on the same bar every other screen has. Nothing
-   * passes dark today; it is kept because the light half of every pair here
-   * only means something against a dark half.
+   * department asked for white — against the grey page every screen then had.
+   * The dashboard is a navy control tower now, so it passes dark again, in the
+   * tower's own panel colours; every other screen keeps the white bar.
    */
   tone?: "light" | "dark";
 }) {
@@ -52,7 +51,8 @@ export function PeriodBar(p: {
       <select
         value={value}
         onChange={(e) => onPick(e.target.value)}
-        style={css("height:32px;min-width:92px;border:1px solid #D8E0E8;border-radius:4px;background:#F8FAFC;font-size:12.5px;color:#16232F;padding:0 8px;outline:none;cursor:pointer")}
+        style={css("height:32px;min-width:92px;border-radius:4px;font-size:12.5px;padding:0 8px;outline:none;cursor:pointer;"
+          + (dark ? "border:1px solid rgba(74,148,214,.3);background:#0f2c48;color:#e6f1fa" : "border:1px solid #D8E0E8;background:#F8FAFC;color:#16232F"))}
       >
         <option value="ALL">ทั้งหมด</option>
         {extra}
@@ -62,8 +62,8 @@ export function PeriodBar(p: {
   );
 
   return (
-    <div style={css(`${dark ? "background:#0A2240;border:1px solid #0A2240" : "background:#fff;border:1px solid #D8E0E8"}`
-      + ";border-radius:5px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
+    <div style={css(`${dark ? "background:#0c2338;border:1px solid rgba(74,148,214,.2)" : "background:#fff;border:1px solid #D8E0E8"}`
+      + ";border-radius:8px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
       {p.dimensions}
       {/* A rule between the two questions, so one long row still reads as
           "which jobs" and then "over what period". */}

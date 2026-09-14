@@ -205,6 +205,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   /** Day / month / year the dashboard reports on. */
   const [period, setPeriod] = useState<Period>(ALL_PERIOD);
   const [dashboardFilters, setDashboardFilters] = useState(ALL_DASHBOARD_FILTERS);
+  /** A question typed on the dashboard's AI rail, carried to the Control Tower's box. */
+  const [aiQuestion, setAiQuestion] = useState("");
   const [sel, setSel] = useState<number | null>(null);
   /**
    * A real job for the shipment monitor to open on arrival.
@@ -1004,8 +1006,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     setWs((prev) => ({
       ...prev,
       cat: target.cat ?? "ALL",
-      cust: "ALL",
-      trucker: "ALL",
+      cust: target.customer ?? "ALL",
+      trucker: target.trucker ?? "ALL",
       type: "ALL",
       year: "ALL",
       month: "ALL",
@@ -1426,7 +1428,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       ];
     }
     if (screen === "dashboard") {
-      return [{ label: "Export Excel", style: BTN_SECONDARY, go: handleDashboardExport }];
+      // Export sits in the hero's own action tiles, beside New Job and Import,
+      // so the heading does not carry a second copy of it.
+      return [];
     }
     if (screen === "documents") {
       // The browser-local drawer holds files this session attached but never
@@ -2615,6 +2619,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         title={meta}
         actions={actions}
         tabs={tabs}
+        // The dashboard is drawn as a control tower on a navy canvas; every
+        // other screen keeps the grey page.
+        canvas={screen === "dashboard" ? "dark" : "light"}
         // Only while the workspace is actually drawing, because only then is
         // anything drawing the tabs instead. On a cold start it is a loading
         // card for as long as the database takes to wake, and hiding the strip
@@ -2719,7 +2726,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             )}
 
             {screen === "dashboard" && activeTab !== "TODAY" && (
-              <Dashboard filtered={filtered}
+              <Dashboard
                 jobs={dashboardJobs}
                 filters={dashboardFilters}
                 onFilters={setDashboardFilters}
@@ -2729,14 +2736,24 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 loaded={!!ops}
                 note={loadingNote}
                 tab={activeTab}
+                userName={profile.full || me.full || me.name}
                 // Every figure on the dashboard is a way into the workspace:
-                // clicking one lands on the same jobs it counted.
+                // clicking one lands on the same jobs it counted. A row that
+                // names one customer or haulier lands on that one, whatever
+                // the bar's own filter says.
                 onDrill={(target) => {
                   openTarget(target);
                   setWs(prev => ({ ...prev, cust: dashboardFilters.customer, trucker: dashboardFilters.trucker,
                     year: period.year, month: period.month,
-                    date: target.date ?? (period.day === "ALL" ? "ALL" : [...new Set(dashboardJobs.map(job => job.date))].join("|")) }));
+                    date: target.date ?? (period.day === "ALL" ? "ALL" : [...new Set(dashboardJobs.map(job => job.date))].join("|")),
+                    ...(target.customer ? { cust: target.customer } : {}),
+                    ...(target.trucker ? { trucker: target.trucker } : {}) }));
                 }}
+                onOpen={(next) => go(next as Screen)}
+                onNewJob={() => startAddJob("CHOOSE")}
+                onImport={openImport}
+                onExport={handleDashboardExport}
+                onAsk={(question) => { setAiQuestion(question); go("ai"); }}
                 onOpenKpi={() => go("kpi")}
               />
             )}
@@ -2986,6 +3003,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               <AiControlTower key={signedInAs + ":" + me.role + ":" + identity?.opId + ":" + able("ViewDashboard") + ":" + able("ViewAudit") + ":" + able("ViewTeam")}
                 canViewDashboard={able("ViewDashboard")} canViewAudit={able("ViewAudit")} canViewMonitor={isSupervisor}
                 onNavigate={go}
+                // Typed on the dashboard's rail; cleared once it has been placed
+                // in the box, so coming back later does not re-seed it.
+                initialQuestion={aiQuestion}
+                onQuestionTaken={() => setAiQuestion("")}
                 onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
             )}
             {screen === "vendor" && <Vendor canRegister={able("EditSuppliers")} canManage={able("ManageSuppliers")} onToast={setToast} />}

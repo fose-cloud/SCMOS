@@ -3,37 +3,34 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { css, STATUS_LADDER, STATUS_TH } from "../theme";
 import { ZoomBox } from "../TableFrame";
-import { useRemembered } from "../pageCache";
-import type { Ship } from "../demo";
 import type { WsTarget } from "../alerts";
 import { opsStats, STATUS_RE as RE, type Job, type OpsStats } from "../ops";
 import { periodLabel, type Period } from "../period";
-import { dowOf, money, pad } from "../util";
+import { dowOf, pad } from "../util";
 import { PeriodBar } from "../PeriodBar";
-import { ExecutiveBoard } from "./ExecutiveBoard";
-import { apiFetch } from "../api";
-import { byStage } from "../incidentStages";
 import { FilterPickMany } from "../FilterPickMany";
 import { ALL_DASHBOARD_FILTERS, dashboardOptions, filterDashboardJobs, type DashboardFilters } from "../dashboardFilters";
+import { ControlTower } from "./ControlTower";
 
 /**
- * The three dashboard tabs answer three different questions, so they are three
- * different screens rather than one page shown three times:
+ * The dashboard's two calculated tabs, on one navy canvas:
  *
- *   Executive   — how the month is going: volume, mix, on-time, who we use most.
+ *   Executive   — the control tower: how the month is going, measured by the
+ *                 API, with the operation read by status, day, customer and
+ *                 haulier underneath. See ControlTower.
  *   Operational — what needs a person today: the plan day, the pipeline, the
- *                 jobs missing data, the delays, who is carrying what.
- *   Wall Board  — the few numbers worth putting on a screen in the office.
+ *                 jobs missing data, the delays, who is carrying what. Its
+ *                 wall display is the same figures, larger.
  *
- * Everything except the panels marked DEMO is computed from the real operation
- * jobs (`ops.json`), so the figures agree with the Operation Workspace.
+ * TODAY is drawn by SCMOSApp from the API's own answer and does not pass
+ * through here. Everything below is computed from the real operation jobs, so
+ * the figures agree with the Operation Workspace.
  */
 
 /** What a click on a dashboard figure asks the workspace to show. */
 export type Drill = WsTarget;
 
 type Props = {
-  filtered: Ship[];
   /** Real operation jobs, already narrowed to the chosen period. */
   jobs: Job[];
   filters: DashboardFilters;
@@ -46,22 +43,40 @@ type Props = {
   /** What to say while there is nothing to draw — see loadingNote in SCMOSApp. */
   note?: string;
   tab: string;
+  userName: string;
   onDrill: (patch: Drill) => void;
+  /** Opens another screen by id — the hero's tiles and the rail's findings. */
+  onOpen: (screen: string) => void;
+  onNewJob: () => void;
+  onImport: () => void;
+  onExport: () => void;
+  /** Carries a question to the AI Control Tower's box. */
+  onAsk: (question: string) => void;
   /** Opens the KPI screen, where the full scorecard is. */
   onOpenKpi?: () => void;
 };
 
-const CAT_COLOUR: Record<string, string> = { IMPORT: "#0A2240", EXPORT: "#6FA8DC", DELIVERY: "#0A6E8A" };
+const CAT_COLOUR: Record<string, string> = { IMPORT: "#5cc0f7", EXPORT: "#3ddc97", DELIVERY: "#f2b13c" };
+
+/* --------------------------------------------------------------- palette */
+
+const BG = "#0c2338";
+const LINE = "rgba(74,148,214,.2)";
+const INK = "#eaf4fc";
+const MUTED = "#8fb4d4";
+const DIM = "#7c9fbd";
+const TRACK = "#0f2c48";
+const MONO = "'IBM Plex Mono',monospace";
 
 /* --------------------------------------------------------------- helpers */
 
 function Panel(p: { title: string; sub?: string; right?: ReactNode; children: ReactNode }) {
   return (
-    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:16px 18px")}>
+    <div style={css(`background:${BG};border:1px solid ${LINE};border-radius:8px;padding:14px 16px 16px`)}>
       <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap")}>
         <div>
-          <h3 style={css("margin:0 0 2px;font-size:13.5px;font-weight:600;color:#0A2240")}>{p.title}</h3>
-          {!!p.sub && <div style={css("font-size:11px;color:#94A3B8")}>{p.sub}</div>}
+          <h3 style={css(`margin:0 0 2px;font-size:14px;font-weight:600;color:${INK}`)}>{p.title}</h3>
+          {!!p.sub && <div style={css(`font-size:11px;color:${DIM}`)}>{p.sub}</div>}
         </div>
         {p.right}
       </div>
@@ -89,7 +104,7 @@ type BarItem = {
 
 function BarRows({ items, empty }: { items: BarItem[]; empty?: string }) {
   if (!items.length) {
-    return <span style={css("font-size:11.5px;color:#94A3B8")}>{empty ?? "ไม่มีข้อมูลในชุดนี้"}</span>;
+    return <span style={css(`font-size:11.5px;color:${DIM}`)}>{empty ?? "ไม่มีข้อมูลในชุดนี้"}</span>;
   }
   return (
     <div style={css("display:flex;flex-direction:column;gap:9px")}>
@@ -105,43 +120,15 @@ function BarRows({ items, empty }: { items: BarItem[]; empty?: string }) {
             (i.go ? "pointer" : "default"),
           )}
         >
-          <span style={css("width:136px;flex:none;font-size:11.5px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i.label}</span>
-          <span style={css("flex:1;height:16px;background:#F1F5F9;border-radius:2px;overflow:hidden")}>
-            <span style={css("display:block;height:100%;border-radius:2px;width:" + i.pct.toFixed(1) + "%;background:" + i.colour)} />
+          <span style={css("width:136px;flex:none;font-size:11.5px;color:#cfe3f4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i.label}</span>
+          <span style={css(`flex:1;height:12px;background:${TRACK};border-radius:6px;overflow:hidden`)}>
+            <span style={css("display:block;height:100%;border-radius:6px;width:" + i.pct.toFixed(1) + "%;background:" + i.colour)} />
           </span>
-          <span style={css("width:58px;flex:none;text-align:right;font-size:11.5px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{i.value}</span>
+          <span style={css(`width:58px;flex:none;text-align:right;font-size:11.5px;font-weight:600;font-family:${MONO};color:#fff`)}>{i.value}</span>
         </button>
       ))}
     </div>
   );
-}
-
-function bars(counts: Record<string, number>, colour: string, limit: number, go?: (key: string) => void): BarItem[] {
-  const entries = Object.keys(counts)
-    .filter((k) => k && k !== "—")
-    .map((k) => [k, counts[k]] as [string, number])
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit);
-  const max = Math.max(1, ...entries.map((e) => e[1]));
-  // Over every key, not only the ones that survived the cut, so the share a
-  // person reads on hover is the share of the real total.
-  const whole = Object.keys(counts)
-    .filter((k) => k && k !== "—")
-    .reduce((sum, k) => sum + counts[k], 0);
-  const shown = entries.length;
-  const all = Object.keys(counts).filter((k) => k && k !== "—").length;
-
-  return entries.map(([label, n], index) => ({
-    label,
-    value: String(n),
-    pct: (n / max) * 100,
-    colour,
-    go: go ? () => go(label) : undefined,
-    hint: `${label} · ${n} งาน`
-      + (whole ? ` · ${Math.round((n / whole) * 100)}% ของ ${whole}` : "")
-      + ` · อันดับ ${index + 1} จาก ${all}`
-      + (shown < all ? ` (แสดง ${shown} อันดับแรก)` : ""),
-  }));
 }
 
 function countBy(jobs: Job[], pick: (j: Job) => string | undefined): Record<string, number> {
@@ -151,51 +138,6 @@ function countBy(jobs: Job[], pick: (j: Job) => string | undefined): Record<stri
     if (key) out[key] = (out[key] || 0) + 1;
   });
   return out;
-}
-
-function Donut(p: { title: string; sub: string; unit: string; items: [string, number, string][] }) {
-  const total = p.items.reduce((sum, i) => sum + i[1], 0);
-  let acc = 0;
-  const segments = p.items.map((i) => {
-    const from = (acc / (total || 1)) * 360;
-    acc += i[1];
-    return i[2] + " " + from.toFixed(1) + "deg " + ((acc / (total || 1)) * 360).toFixed(1) + "deg";
-  });
-  return (
-    <Panel title={p.title} sub={p.sub}>
-      <div style={css("display:flex;align-items:center;gap:20px;flex-wrap:wrap")}>
-        <div
-          title={total
-            ? p.items.map((i) => `${i[0]} ${i[1]} (${Math.round((i[1] / total) * 100)}%)`).join("\n")
-              + `\nรวม ${total} ${p.unit}`
-            : "ไม่มีข้อมูล"}
-          style={{ ...css("position:relative;flex:none;width:128px;height:128px;border-radius:50%"), background: total ? "conic-gradient(" + segments.join(",") + ")" : "#EEF2F6" }}
-        >
-          <div style={css("position:absolute;inset:26px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center")}>
-            <span style={css("font-size:22px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{total}</span>
-            <span style={css("font-size:10px;color:#94A3B8;letter-spacing:.04em")}>{p.unit}</span>
-          </div>
-        </div>
-        <div style={css("flex:1;min-width:190px;display:flex;flex-direction:column;gap:9px")}>
-          {p.items.map((i) => (
-            <div
-              key={i[0]}
-              title={`${i[0]} · ${i[1]} ${p.unit}`
-                + (total ? ` · ${Math.round((i[1] / total) * 100)}% ของ ${total}` : "")}
-              style={css("display:flex;align-items:center;gap:9px")}
-            >
-              <span style={css("width:10px;height:10px;border-radius:2px;flex:none;background:" + i[2])} />
-              <span style={css("flex:1;font-size:12px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{i[0]}</span>
-              <span style={css("font-size:12px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{i[1]}</span>
-              <span style={css("font-size:11px;color:#94A3B8;width:38px;text-align:right;font-family:'IBM Plex Mono',monospace")}>
-                {total ? Math.round((i[1] / total) * 100) + "%" : "—"}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Panel>
-  );
 }
 
 type Tile = { label: string; th: string; value: string; note?: string; colour: string; go?: () => void };
@@ -213,21 +155,21 @@ function Tiles({ items }: { items: Tile[] }) {
             // Sides named individually: the accent colour changes as the period
             // filter moves, and React warns when a `border` shorthand and a
             // `border-top` are both set on a node that rerenders.
-            "font-family:inherit;text-align:left;width:100%;background:#fff;border-top:3px solid " + t.colour +
-            ";border-right:1px solid #D8E0E8;border-bottom:1px solid #D8E0E8;border-left:1px solid #D8E0E8" +
-            ";border-radius:5px;padding:14px 15px 15px;cursor:" + (t.go ? "pointer" : "default"),
+            `font-family:inherit;text-align:left;width:100%;background:${BG};border-top:3px solid ` + t.colour +
+            `;border-right:1px solid ${LINE};border-bottom:1px solid ${LINE};border-left:1px solid ${LINE}` +
+            ";border-radius:8px;padding:14px 15px 15px;cursor:" + (t.go ? "pointer" : "default"),
           )}
         >
           <div style={css("display:flex;justify-content:space-between;align-items:flex-start;gap:8px")}>
             <span style={css("display:flex;flex-direction:column;line-height:1.25")}>
-              <span style={css("font-size:11.5px;color:#475569;font-weight:600")}>{t.label}</span>
-              <span style={css("font-size:10.5px;color:#94A3B8")}>{t.th}</span>
+              <span style={css(`font-family:${MONO};font-size:9.5px;font-weight:600;letter-spacing:.1em;color:${MUTED}`)}>{t.label.toUpperCase()}</span>
+              <span style={css(`font-size:10.5px;color:${DIM}`)}>{t.th}</span>
             </span>
             <span style={css("width:8px;height:8px;border-radius:50%;flex:none;margin-top:3px;background:" + t.colour)} />
           </div>
           <div style={css("display:flex;align-items:baseline;gap:8px;margin-top:12px")}>
-            <span style={css("font-size:30px;font-weight:600;color:#0A2240;font-family:'IBM Plex Mono',monospace;letter-spacing:-.02em")}>{t.value}</span>
-            {!!t.note && <span style={css("font-size:11px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>{t.note}</span>}
+            <span style={css("font-size:27px;font-weight:700;color:#fff;letter-spacing:-.02em;font-variant-numeric:tabular-nums")}>{t.value}</span>
+            {!!t.note && <span style={css(`font-size:11px;color:${DIM};font-family:${MONO}`)}>{t.note}</span>}
           </div>
         </button>
       ))}
@@ -235,128 +177,17 @@ function Tiles({ items }: { items: Tile[] }) {
   );
 }
 
-const DEMO_BADGE = (
-  <span style={css("font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#B45309;background:#FDF2DF;border-radius:3px;padding:3px 7px")}>
-    DEMO DATA
-  </span>
-);
+const GHOST = `height:28px;padding:0 12px;border:1px solid rgba(74,148,214,.3);background:${TRACK};border-radius:6px;font-size:11.5px;color:#cfe3f4;cursor:pointer;font-family:inherit`;
 
 /* ------------------------------------------------------------- dashboard */
 
-/** One carrier's line on the contract scorecard, as the KPI engine sends it. */
-type ScoreRow = { carrier: string; shipments: number; weighted: number | null; weightAvailable: number };
-
-/**
- * The contract scorecard, in one line per carrier that is not meeting it.
- *
- * Fetched here rather than computed: the engine already works it out and caches
- * it against the register's own timestamp, and this screen has been hung once
- * before by doing arithmetic over the whole register on the way in. One request,
- * after the first paint, and the panel simply does not appear until it answers.
- */
-function ContractScores({ period, onOpen }: { period: Period; onOpen: () => void }) {
-  const [rows, setRows] = useRemembered<ScoreRow[]>("dashboard");
-
-  // The same three parameters the KPI screen sends, so both read one period.
-  const query = new URLSearchParams();
-  if (period.year && period.year !== "ALL") query.set("year", period.year);
-  if (period.month && period.month !== "ALL") query.set("month", period.month);
-  if (period.day && period.day !== "ALL") query.set("day", period.day.slice(0, 2));
-  const search = query.toString();
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const response = await apiFetch(`/api/kpi/measures?${search}`,
-          { headers: { accept: "application/json" } });
-        if (!response.ok || !alive) return;
-        const body = await response.json() as { scorecard?: ScoreRow[] | null };
-        if (alive) setRows(body.scorecard ?? []);
-      } catch { /* the scorecard stays as it was; a failed read is not a clean month */ }
-    })();
-    return () => { alive = false; };
-  }, [search, setRows]);
-
-  if (!rows?.length) return null;
-
-  // Below the ninety-five the agreement asks for, worst first. A carrier meeting
-  // it does not need a line on the landing screen.
-  const short = rows
-    .filter((row) => row.weighted !== null && row.weighted < 95)
-    .sort((a, b) => (a.weighted ?? 0) - (b.weighted ?? 0));
-
-  return (
-    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:13px 16px")}>
-      <div style={css("display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap")}>
-        <span style={css("font-size:12.5px;font-weight:650;color:#0A2240")}>คะแนนตามสัญญา · ผู้ขนส่งที่ยังไม่ถึงเป้า</span>
-        <button onClick={onOpen}
-          style={css("border:none;background:none;padding:0;font-size:11.5px;color:#2E7DD1;cursor:pointer;font-family:inherit;text-decoration:underline")}>
-          ดูคะแนนเต็ม
-        </button>
-      </div>
-
-      {short.length === 0 ? (
-        <div style={css("margin-top:7px;font-size:12px;color:#16794C")}>
-          ผู้ขนส่งทุกรายที่วัดได้อยู่ที่ 95% ขึ้นไป
-        </div>
-      ) : (
-        <div style={css("margin-top:8px;display:flex;flex-direction:column;gap:5px")}>
-          {short.slice(0, 5).map((row) => (
-            <div key={row.carrier} style={css("display:flex;justify-content:space-between;gap:12px;font-size:12px")}>
-              <span style={css("color:#16232F;font-weight:600;overflow-wrap:anywhere")}>{row.carrier}</span>
-              <span style={css("white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-weight:700;color:"
-                + ((row.weighted ?? 0) >= 85 ? "#B45309" : "#B42318"))}>
-                {(row.weighted ?? 0).toFixed(1)}
-                <span style={css("color:#94A3B8;font-weight:400")}> · {row.shipments} shipment</span>
-              </span>
-            </div>
-          ))}
-          {short.length > 5 && (
-            <div style={css("font-size:11px;color:#7B8CA0")}>และอีก {short.length - 5} ราย</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The CAR/PAR cases, from the screen that owns them.
- *
- * Read here rather than counted from anything the dashboard already holds:
- * these cases are not derived from the job register, and the only place that
- * knows about them is the incident table. Failing quietly is deliberate — a
- * panel that cannot reach the API keeps the last count it had rather than
- * dropping to zero, which would read as "no open cases".
- */
-function useCarPar(): { stage: string }[] | null {
-  const [cases, setCases] = useRemembered<{ stage: string }[]>("dashboardCarPar");
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const response = await apiFetch("/api/incidents", { headers: { accept: "application/json" } });
-        if (!response.ok || !alive) return;
-        const body = await response.json() as { stage: string }[];
-        if (alive) setCases(body);
-      } catch { /* keep what was there; an unreachable API is not an empty register */ }
-    })();
-    return () => { alive = false; };
-  }, [setCases]);
-
-  return cases ?? null;
-}
-
-export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, period, onPeriod, loaded, note, tab, onDrill, onOpenKpi }: Props) {
+export function Dashboard({ jobs, allJobs, filters, onFilters, period, onPeriod, loaded, note, tab, onDrill, onOpenKpi, ...p }: Props) {
   const s = opsStats(jobs);
   const total = s.jobs.length;
-  const pct = (n: number) => (total ? Math.round((n / total) * 100) + "%" : "—");
 
   if (!loaded) {
     return (
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
+      <div style={css(`background:${BG};border:1px solid ${LINE};border-radius:8px;padding:34px;text-align:center;font-size:12.5px;color:${DIM}`)}>
         {note ?? "Loading operation data…"}
       </div>
     );
@@ -371,24 +202,24 @@ export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, per
    */
   const options = (field: "customer" | "trucker") => dashboardOptions(allJobs, field, filters);
   /*
-   * One row, not two. The pickers sat in a bar of their own above the period
-   * bar, which spent two rows on one question — which jobs are we looking at,
-   * and over what period. They go into the period bar's own row now, in white,
-   * which is the bar every other screen shows.
+   * One row, not two: which jobs are we looking at, and over what period. Navy
+   * now, because the canvas is — the white bar the department asked for was
+   * white against a grey page, and this page is no longer grey.
    */
   const bar = (
     <PeriodBar
+      tone="dark"
       allJobs={filterDashboardJobs(allJobs, filters)}
       shown={total}
       period={period}
       onPeriod={onPeriod}
       dimensions={<>
         <FilterPickMany label="CUSTOMER" value={filters.customer} options={options("customer")}
-          onPick={customer => onFilters({ ...filters, customer })} tone="light" />
+          onPick={customer => onFilters({ ...filters, customer })} tone="dark" />
         <FilterPickMany label="TRUCKER" value={filters.trucker} options={options("trucker")}
-          onPick={trucker => onFilters({ ...filters, trucker })} tone="light" />
+          onPick={trucker => onFilters({ ...filters, trucker })} tone="dark" />
         {dimensionsActive && <button type="button" onClick={() => onFilters(ALL_DASHBOARD_FILTERS)}
-          style={css("border:1px solid #BBD5EE;background:#F4F8FC;color:#1D5FA8;border-radius:4px;height:27px;padding:0 10px;font-size:11.5px;font-family:inherit;cursor:pointer")}>
+          style={css("border:1px solid #4E9BE8;background:#16406E;color:#fff;border-radius:4px;height:27px;padding:0 10px;font-size:11.5px;font-family:inherit;cursor:pointer")}>
           ล้าง CUSTOMER / TRUCKER
         </button>}
       </>}
@@ -397,9 +228,9 @@ export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, per
 
   if (!total) {
     return (
-      <div style={css("display:flex;flex-direction:column;gap:16px")}>
+      <div style={css("display:flex;flex-direction:column;gap:12px")}>
         {bar}
-        <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>
+        <div style={css(`background:${BG};border:1px solid ${LINE};border-radius:8px;padding:34px;text-align:center;font-size:12.5px;color:${DIM}`)}>
           ไม่มีงานตรงกับตัวกรอง CUSTOMER / TRUCKER และช่วงเวลา “{periodLabel(period)}” — ล้างตัวกรองหรือเลือกช่วงเวลาอื่น
         </div>
       </div>
@@ -407,209 +238,28 @@ export function Dashboard({ filtered: fl, jobs, allJobs, filters, onFilters, per
   }
 
   return (
-    <div style={css("display:flex;flex-direction:column;gap:16px")}>
+    <div style={css("display:flex;flex-direction:column;gap:12px")}>
       {bar}
       {tab === "Operational"
         ? <Operational s={s} period={period} onDrill={onDrill} />
-        : <Executive s={s} fl={fl} total={total} pct={pct} onDrill={onDrill} onOpenKpi={onOpenKpi} />}
-
-      {/* Only on the executive view, and only once the request answers. That is
-          the view already asking "how are we doing"; the wall board is for a
-          screen on the wall and the operational tab is for today's work. */}
-      {tab !== "Wall Board" && tab !== "Operational" && onOpenKpi && (
-        <div>
-          {dimensionsActive && <p style={css("font-size:12px;color:#64748B")}>
-            คะแนนตามสัญญาด้านล่างเป็นภาพรวมตามช่วงเวลา ไม่ได้กรองตาม CUSTOMER / TRUCKER
-          </p>}
-          <ContractScores period={period} onOpen={onOpenKpi} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------- executive */
-
-function Executive(p: {
-  s: OpsStats;
-  fl: Ship[];
-  total: number;
-  pct: (n: number) => string;
-  onDrill: (patch: Drill) => void;
-  onOpenKpi?: () => void;
-}) {
-  const { s, fl, total, onDrill } = p;
-
-  // Volume per operation day, newest 14 days, split by direction.
-  const days = s.dates.slice(-14).map((d) => {
-    const set = s.jobs.filter((j) => j.date === d);
-    const imp = set.filter((j) => j.cat === "IMPORT").length;
-    const exp = set.filter((j) => j.cat === "EXPORT").length;
-    const del = set.length - imp - exp;
-    return { d, total: set.length, imp, exp, del };
-  });
-  const dayMax = Math.max(1, ...days.map((d) => d.total));
-
-  // On-time by trucker, over the jobs that recorded an arrival.
-  const truckerOtp = Object.keys(countBy(s.measurable, (j) => j.trucker))
-    .map((name) => {
-      const set = s.measurable.filter((j) => j.trucker === name);
-      const ok = set.filter((j) => s.onTime.indexOf(j) >= 0).length;
-      return { name, n: set.length, pct: Math.round((ok / set.length) * 100) };
-    })
-    .filter((t) => t.n >= 3)
-    .sort((a, b) => b.pct - a.pct)
-    .slice(0, 8);
-
-  const costBySub: Record<string, number> = {};
-  fl.forEach((ship) => { costBySub[ship.sub] = (costBySub[ship.sub] || 0) + ship.cost; });
-  const costMax = Math.max(1, ...Object.values(costBySub));
-  const costRows: BarItem[] = Object.keys(costBySub)
-    .map((k) => ({ label: k, value: money(costBySub[k]).replace("฿", ""), pct: (costBySub[k] / costMax) * 100, colour: "#0A2240" }))
-    .sort((a, b) => b.pct - a.pct)
-    .slice(0, 8);
-
-  const bill = (k: string) => fl.filter((x) => x.bill === k).length;
-  const carPar = useCarPar();
-
-  return (
-    <div style={css("display:flex;flex-direction:column;gap:16px")}>
-      {/*
-       * The measured band, above the browser's own counts.
-       *
-       * Everything below is worked out here from the jobs this screen holds,
-       * which is right for a surface that filters and drills into them. The
-       * band is the operation's reported figures, computed once on the server
-       * — so "on-time delivery" says the same thing here, on the KPI page and
-       * in a report, whoever is looking and whatever filter is set.
-       */}
-      <ExecutiveBoard onOpenKpi={p.onOpenKpi} />
-
-      <Tiles items={[
-        { label: "Jobs in Plan", th: "งานทั้งหมดในแผน", value: String(total), note: s.dates.length + " วัน", colour: "#2E7DD1", go: () => onDrill({ tab: "PENDING" }) },
-        { label: "Import", th: "งานนำเข้า", value: String(s.imports.length), note: p.pct(s.imports.length), colour: "#0A2240", go: () => onDrill({ tab: "PENDING", cat: "IMPORT" }) },
-        { label: "Export", th: "งานส่งออก", value: String(s.exports.length), note: p.pct(s.exports.length), colour: "#6FA8DC", go: () => onDrill({ tab: "PENDING", cat: "EXPORT" }) },
-        { label: "Delivery", th: "งานกระจายสินค้า", value: String(s.deliveries.length), note: p.pct(s.deliveries.length), colour: "#0A6E8A", go: () => onDrill({ tab: "PENDING", cat: "DELIVERY" }) },
-        { label: "On-Time Arrival", th: "ถึงตรงเวลา", value: s.otpPct + "%", note: "วัดได้ " + s.measurable.length + "/" + total, colour: s.otpPct >= 90 ? "#16794C" : s.otpPct >= 75 ? "#B45309" : "#B42318" },
-        { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), note: p.pct(s.delayed.length), colour: "#B42318", go: () => onDrill({ tab: "DELAY", kpi: "Delay" }) },
-        { label: "Completed", th: "เสร็จสิ้น", value: String(s.done.length), note: p.pct(s.done.length), colour: "#16794C", go: () => onDrill({ tab: "COMPLETED", kpi: "Done" }) },
-        { label: "KPI-Ready Data", th: "ข้อมูลพร้อมคิด KPI", value: total ? Math.round(((total - s.formatErrors.length) / total) * 100) + "%" : "—", note: s.formatErrors.length + " ต้องแก้", colour: "#B45309", go: () => onDrill({ kpi: "Fmt" }) },
-      ]} />
-
-      <Panel
-        title="Operation Volume by Day"
-        sub="ปริมาณงานรายวัน · Import / Export / Delivery"
-        right={
-          <span style={css("display:flex;gap:14px;flex-wrap:wrap")}>
-            {(["IMPORT", "EXPORT", "DELIVERY"] as const).map((c) => (
-              <span key={c} style={css("display:flex;align-items:center;gap:6px;font-size:11.5px;color:#475569")}>
-                <span style={css("width:10px;height:10px;border-radius:2px;background:" + CAT_COLOUR[c])} />{c}
-              </span>
-            ))}
-          </span>
-        }
-      >
-        <div style={css("display:flex;align-items:flex-end;gap:10px;height:190px;padding-bottom:30px;border-bottom:1px solid #E2E8F0")}>
-          {days.map((d) => (
-            <button
-              key={d.d}
-              type="button"
-              onClick={() => onDrill({ tab: "PENDING", date: d.d })}
-              title={d.d + " · " + d.total + " jobs"}
-              style={css("font-family:inherit;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end;position:relative;border:none;background:none;padding:0;cursor:pointer")}
-            >
-              <span style={css("font-size:11px;font-weight:600;color:#0A2240;font-family:'IBM Plex Mono',monospace")}>{d.total}</span>
-              <span style={{ ...css("width:100%;max-width:46px;display:flex;flex-direction:column;justify-content:flex-end"), height: (d.total / dayMax) * 100 + "%" }}>
-                <span style={{ ...css("background:" + CAT_COLOUR.DELIVERY + ";border-radius:2px 2px 0 0"), height: (d.total ? (d.del / d.total) * 100 : 0) + "%" }} />
-                <span style={{ ...css("background:" + CAT_COLOUR.EXPORT), height: (d.total ? (d.exp / d.total) * 100 : 0) + "%" }} />
-                <span style={{ ...css("background:" + CAT_COLOUR.IMPORT), height: (d.total ? (d.imp / d.total) * 100 : 0) + "%" }} />
-              </span>
-              <span style={css("position:absolute;bottom:-26px;font-size:10px;color:#64748B;font-family:'IBM Plex Mono',monospace")}>{d.d.slice(0, 5)}</span>
-            </button>
-          ))}
-        </div>
-      </Panel>
-
-      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px")}>
-        <Donut
-          title="Work Mix" sub="สัดส่วนงานตามประเภท" unit="JOBS"
-          items={[
-            ["Import", s.imports.length, CAT_COLOUR.IMPORT],
-            ["Export", s.exports.length, CAT_COLOUR.EXPORT],
-            ["Delivery", s.deliveries.length, CAT_COLOUR.DELIVERY],
-          ]}
-        />
-        <Donut
-          title="Operational Status" sub="ภาพรวมสถานะงาน" unit="JOBS"
-          items={[
-            ["Waiting truck", s.waiting.length, "#475569"],
-            ["Truck confirmed", s.confirmed.length, "#1D5FA8"],
-            ["In operation", s.running.length, "#0A6E8A"],
-            ["Delayed", s.delayed.length, "#B42318"],
-            ["Completed", s.done.length, "#16794C"],
-          ]}
-        />
-      </div>
-
-      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px")}>
-        <Panel title="Customer Volume" sub="ปริมาณงานตามลูกค้า · คลิกเพื่อเปิดใน Workspace">
-          <BarRows items={bars(countBy(s.jobs, (j) => j.customer), "#6FA8DC", 8)} />
-        </Panel>
-        <Panel title="Trips by Subcontractor" sub="จำนวนเที่ยวตามผู้ขนส่ง">
-          <BarRows items={bars(countBy(s.jobs, (j) => j.trucker), "#2E7DD1", 8)} />
-        </Panel>
-        <Panel title="Trips by Truck / Container Type" sub="จำนวนเที่ยวตามประเภทรถและตู้">
-          <BarRows items={bars(countBy(s.jobs, (j) => j.type), "#0A2240", 8)} />
-        </Panel>
-        <Panel
-          title="On-Time Arrival by Subcontractor"
-          sub={"อัตราถึงตรงเวลา · เฉพาะงานที่บันทึกเวลาถึงแล้ว (" + s.measurable.length + " งาน)"}
-        >
-          <BarRows
-            empty="ยังไม่มีงานที่บันทึกทั้งเวลานัดและเวลาถึง"
-            items={truckerOtp.map((t) => ({
-              label: t.name + " (" + t.n + ")",
-              value: t.pct + "%",
-              pct: t.pct,
-              colour: t.pct >= 90 ? "#16794C" : t.pct >= 80 ? "#D89614" : "#B42318",
-            }))}
-          />
-        </Panel>
-        <Panel title="Delay Reasons" sub="สาเหตุความล่าช้าที่บันทึกไว้">
-          <BarRows
-            empty="ยังไม่มีการบันทึกสาเหตุความล่าช้า"
-            items={bars(countBy(s.jobs, (j) => j.reason), "#B42318", 8)}
-          />
-        </Panel>
-        <Panel title="Transportation Cost by Subcontractor" sub="ต้นทุนค่าขนส่ง (THB)" right={DEMO_BADGE}>
-          <BarRows items={costRows} />
-        </Panel>
-      </div>
-
-      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px")}>
-        <Panel title="Billing Status" sub="สถานะการวางบิล · KPI 4 วัน" right={DEMO_BADGE}>
-          <BarRows items={bars(
-            { "Within KPI": bill("Within KPI"), "Due Soon": bill("Due Soon"), Overdue: bill("Overdue"), "Not Due": bill("Not Due") },
-            "#B45309", 4,
-          )} />
-        </Panel>
-        {/*
-          The real cases, by the stage they are sitting at. Seven stages, seven
-          rows: the cap is the whole process rather than a top-six, because a
-          pipeline with a stage silently missing from the middle reads as a
-          shorter pipeline instead of an incomplete picture.
-        */}
-        <Panel title="CAR / PAR Status" sub="สถานะการแก้ไข/ป้องกัน · จาก Incident & CAR/PAR"
-          right={carPar === null
-            ? <span style={css("font-size:10px;color:#94A3B8")}>กำลังอ่าน…</span>
-            : <span style={css("font-size:10px;color:#94A3B8")}>{carPar.length} เคส</span>}>
-          <BarRows items={bars(byStage(carPar ?? []), "#0A2240", 7)} />
-        </Panel>
-      </div>
-
-      <span style={css("font-size:11px;color:#94A3B8")}>
-        แผงที่ติดป้าย DEMO DATA ยังใช้ข้อมูลจำลอง เพราะ ops.json ยังไม่มีค่าขนส่งและสถานะวางบิล — CAR/PAR อ่านจากเคสจริงในเมนู Incident &amp; CAR/PAR และตัวเลขอื่นทั้งหมดมาจากงานจริง {total} งาน
-      </span>
+        : <ControlTower
+            s={s}
+            allJobs={allJobs}
+            period={period}
+            onPeriod={onPeriod}
+            // The measured cards are the API's, over the period alone — the
+            // tower says "ไม่ได้กรองตาม CUSTOMER / TRUCKER" beside them while
+            // either picker is narrowing everything else.
+            dimensionsActive={dimensionsActive}
+            userName={p.userName}
+            onDrill={onDrill}
+            onOpen={p.onOpen}
+            onNewJob={p.onNewJob}
+            onImport={p.onImport}
+            onExport={p.onExport}
+            onAsk={p.onAsk}
+            onOpenKpi={onOpenKpi}
+          />}
     </div>
   );
 }
@@ -638,12 +288,12 @@ function Operational({ s, period, onDrill }: {
   const strip = s.dates.slice(Math.max(0, s.dates.indexOf(busiest) - 2), Math.max(0, s.dates.indexOf(busiest) - 2) + 7);
 
   const missing: [string, string, (j: Job) => boolean, string][] = [
-    ["Licence missing", "ไม่มีทะเบียนรถ", (j) => j.cat !== "DELIVERY" && !j.licence, "#B45309"],
-    ["Driver missing", "ไม่มีคนขับ", (j) => j.cat !== "DELIVERY" && !j.driver, "#B45309"],
-    ["Contact missing", "ไม่มีเบอร์ติดต่อ", (j) => j.cat !== "DELIVERY" && !j.contact, "#B45309"],
-    ["Container missing", "ไม่มีเลขตู้", (j) => j.cat !== "DELIVERY" && !j.container && !/6WH|4WH|10W|COMBINE/i.test(j.type || ""), "#B45309"],
-    ["Arrival time missing", "ยังไม่ลงเวลาถึง", (j) => j.cat !== "DELIVERY" && !j.arrTime, "#1D5FA8"],
-    ["Data error", "ข้อมูลผิดหรือไม่ครบ", (j) => j.issues.some((i) => i.severity === "error"), "#B42318"],
+    ["Licence missing", "ไม่มีทะเบียนรถ", (j) => j.cat !== "DELIVERY" && !j.licence, "#f2b13c"],
+    ["Driver missing", "ไม่มีคนขับ", (j) => j.cat !== "DELIVERY" && !j.driver, "#f2b13c"],
+    ["Contact missing", "ไม่มีเบอร์ติดต่อ", (j) => j.cat !== "DELIVERY" && !j.contact, "#f2b13c"],
+    ["Container missing", "ไม่มีเลขตู้", (j) => j.cat !== "DELIVERY" && !j.container && !/6WH|4WH|10W|COMBINE/i.test(j.type || ""), "#f2b13c"],
+    ["Arrival time missing", "ยังไม่ลงเวลาถึง", (j) => j.cat !== "DELIVERY" && !j.arrTime, "#5cc0f7"],
+    ["Data error", "ข้อมูลผิดหรือไม่ครบ", (j) => j.issues.some((i) => i.severity === "error"), "#ff7d86"],
   ];
   const open = s.jobs.filter((j) => !RE.done.test(j.status));
   const missingRows: BarItem[] = missing.map(([label, th, test, colour]) => {
@@ -662,10 +312,10 @@ function Operational({ s, period, onDrill }: {
       <button type="button" onClick={() => setWall((was) => !was)}
         style={css("height:30px;padding:0 13px;border-radius:5px;font-size:12px;font-weight:600;"
           + "font-family:inherit;cursor:pointer;border:1px solid "
-          + (wall ? "#0A2240;background:#0A2240;color:#fff" : "#C9D6E2;background:#fff;color:#0A2240"))}>
+          + (wall ? "#4E9BE8;background:#16406E;color:#fff" : "rgba(74,148,214,.3);background:#0f2c48;color:#cfe3f4"))}>
         {wall ? "← กลับไปมุมมองปกติ" : "จอแสดงผลหน้างาน · Wall display"}
       </button>
-      <span style={css("font-size:11.5px;color:#94A3B8")}>
+      <span style={css(`font-size:11.5px;color:${DIM}`)}>
         {wall
           ? "ตัวเลขชุดเดียวกัน ขยายให้อ่านจากไกล — กดอะไรไม่ได้ตั้งใจ"
           : "ตัวเลขชุดเดียวกัน แบบขยายสำหรับจอติดผนัง"}
@@ -686,12 +336,12 @@ function Operational({ s, period, onDrill }: {
     <div style={css("display:flex;flex-direction:column;gap:16px")}>
       {modeSwitch}
       <Tiles items={[
-        { label: "Open Jobs", th: "งานที่ยังไม่ปิด", value: String(open.length), note: "จาก " + s.jobs.length, colour: "#2E7DD1", go: () => onDrill({ tab: "PENDING" }) },
-        { label: "Waiting Truck", th: "รอรถ", value: String(s.waiting.length), colour: "#475569", go: () => onDrill({ tab: "PENDING", kpi: "Wait" }) },
-        { label: "In Operation", th: "กำลังปฏิบัติงาน", value: String(s.running.length), colour: "#0A6E8A", go: () => onDrill({ tab: "PENDING", kpi: "Run" }) },
-        { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), colour: "#B42318", go: () => onDrill({ tab: "DELAY", kpi: "Delay" }) },
-        { label: "Action Required", th: "ต้องดำเนินการ", value: String(s.action.length), colour: "#B45309", go: () => onDrill({ tab: "PENDING", kpi: "Act" }) },
-        { label: "Data Error", th: "ข้อมูลผิดหรือไม่ครบ", value: String(s.formatErrors.length), colour: "#B42318", go: () => onDrill({ tab: "PENDING", kpi: "Fmt" }) },
+        { label: "Open Jobs", th: "งานที่ยังไม่ปิด", value: String(open.length), note: "จาก " + s.jobs.length, colour: "#5cc0f7", go: () => onDrill({ tab: "PENDING" }) },
+        { label: "Waiting Truck", th: "รอรถ", value: String(s.waiting.length), colour: "#f2b13c", go: () => onDrill({ tab: "PENDING", kpi: "Wait" }) },
+        { label: "In Operation", th: "กำลังปฏิบัติงาน", value: String(s.running.length), colour: "#0A9AA8", go: () => onDrill({ tab: "PENDING", kpi: "Run" }) },
+        { label: "Delayed", th: "ล่าช้า", value: String(s.delayed.length), colour: "#ff7d86", go: () => onDrill({ tab: "DELAY", kpi: "Delay" }) },
+        { label: "Action Required", th: "ต้องดำเนินการ", value: String(s.action.length), colour: "#f07c2e", go: () => onDrill({ tab: "PENDING", kpi: "Act" }) },
+        { label: "Data Error", th: "ข้อมูลผิดหรือไม่ครบ", value: String(s.formatErrors.length), colour: "#ff5f6b", go: () => onDrill({ tab: "PENDING", kpi: "Fmt" }) },
       ]} />
 
       <Panel title="Plan Days" sub="วันที่มีงานในแผน · คลิกเพื่อเปิดวันนั้นใน Workspace">
@@ -705,14 +355,14 @@ function Operational({ s, period, onDrill }: {
                 type="button"
                 onClick={() => onDrill({ tab: "PENDING", date: d })}
                 style={css(
-                  "font-family:inherit;text-align:left;border:1px solid " + (d === busiest ? "#2E7DD1" : "#E2E8F0") +
-                  ";background:" + (d === busiest ? "#F4F8FC" : "#fff") + ";border-radius:4px;padding:10px 11px;cursor:pointer",
+                  "font-family:inherit;text-align:left;border:1px solid " + (d === busiest ? "#3b9ee0" : "rgba(74,148,214,.2)") +
+                  ";background:" + (d === busiest ? "#123f66" : "#0f2c48") + ";border-radius:6px;padding:10px 11px;cursor:pointer",
                 )}
               >
-                <div style={css("font-size:9.5px;color:#94A3B8;letter-spacing:.06em")}>{dowOf(d)}</div>
-                <div style={css("font-size:14px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{d.slice(0, 5)}</div>
-                <div style={css("font-size:10.5px;color:#475569;margin-top:4px")}>{set.length} jobs</div>
-                <div style={css("font-size:10.5px;color:" + (late ? "#B42318" : "#94A3B8"))}>{late} delayed</div>
+                <div style={css(`font-size:9.5px;color:${DIM};letter-spacing:.06em`)}>{dowOf(d)}</div>
+                <div style={css(`font-size:14px;font-weight:600;font-family:${MONO};color:#fff`)}>{d.slice(0, 5)}</div>
+                <div style={css("font-size:10.5px;color:#cfe3f4;margin-top:4px")}>{set.length} jobs</div>
+                <div style={css("font-size:10.5px;color:" + (late ? "#ff7d86" : DIM))}>{late} delayed</div>
               </button>
             );
           })}
@@ -736,16 +386,16 @@ function Operational({ s, period, onDrill }: {
                     onClick={() => onDrill({ tab: "PENDING", cat: c, status: st })}
                     style={css("font-family:inherit;text-align:left;display:flex;align-items:center;gap:10px;width:100%;border:none;background:none;padding:0;cursor:pointer")}
                   >
-                    <span style={css("width:150px;flex:none;font-size:11.5px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
-                      {st} <span style={css("color:#94A3B8")}>{STATUS_TH[st] ?? ""}</span>
+                    <span style={css("width:150px;flex:none;font-size:11.5px;color:#cfe3f4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>
+                      {st} <span style={css(`color:${DIM}`)}>{STATUS_TH[st] ?? ""}</span>
                     </span>
-                    <span style={css("flex:1;height:14px;background:#F1F5F9;border-radius:2px;overflow:hidden")}>
-                      <span style={css("display:block;height:100%;border-radius:2px;background:" + CAT_COLOUR[c] + ";width:" + (set.length ? (counts[st] / set.length) * 100 : 0).toFixed(1) + "%")} />
+                    <span style={css(`flex:1;height:12px;background:${TRACK};border-radius:6px;overflow:hidden`)}>
+                      <span style={css("display:block;height:100%;border-radius:6px;background:" + CAT_COLOUR[c] + ";width:" + (set.length ? (counts[st] / set.length) * 100 : 0).toFixed(1) + "%")} />
                     </span>
-                    <span style={css("width:42px;flex:none;text-align:right;font-size:11.5px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{counts[st]}</span>
+                    <span style={css(`width:42px;flex:none;text-align:right;font-size:11.5px;font-weight:600;font-family:${MONO};color:#fff`)}>{counts[st]}</span>
                   </button>
                 ))}
-                {!set.length && <span style={css("font-size:11.5px;color:#94A3B8")}>ยังไม่มีงานประเภทนี้ในแผน</span>}
+                {!set.length && <span style={css(`font-size:11.5px;color:${DIM}`)}>ยังไม่มีงานประเภทนี้ในแผน</span>}
               </div>
             </Panel>
           );
@@ -759,7 +409,7 @@ function Operational({ s, period, onDrill }: {
           right={
             <button
               onClick={() => onDrill({ tab: "PENDING", kpi: "Act" })}
-              style={css("height:28px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:11.5px;color:#475569;cursor:pointer")}
+              style={css(GHOST)}
             >
               เปิดใน Workspace
             </button>
@@ -776,7 +426,7 @@ function Operational({ s, period, onDrill }: {
               label: name + (late ? " · " + late + " delayed" : ""),
               value: String(set.length),
               pct: s.jobs.length ? (set.length / Math.max(1, ...operators.map((o) => s.jobs.filter((j) => j.op === o).length))) * 100 : 0,
-              colour: late ? "#B42318" : "#2E7DD1",
+              colour: late ? "#ff7d86" : "#5cc0f7",
               go: () => onDrill({ tab: "PENDING" }),
             };
           })} />
@@ -786,38 +436,38 @@ function Operational({ s, period, onDrill }: {
       <Panel title="Delayed Jobs" sub="งานล่าช้าที่ต้องติดตาม" right={
         <button
           onClick={() => onDrill({ tab: "DELAY", kpi: "Delay" })}
-          style={css("height:28px;padding:0 12px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;font-size:11.5px;color:#475569;cursor:pointer")}
+          style={css(GHOST)}
         >
           ดูทั้งหมด {s.delayed.length}
         </button>
       }>
         {delayedList.length ? (
           <ZoomBox>
-            <table style={css("width:100%;border-collapse:collapse;font-size:11.5px")}>
+            <table style={css("width:100%;border-collapse:collapse;font-size:11.5px;color:#dce9f6")}>
               <thead>
                 <tr>
                   {["Date", "Category", "Customer", "Job / ABS", "Trucker", "Reason", "Owner"].map((h) => (
-                    <th key={h} style={css("text-align:left;font-size:10px;color:#64748B;letter-spacing:.05em;padding:0 12px 7px 0;border-bottom:1px solid #E2E8F0;white-space:nowrap")}>{h}</th>
+                    <th key={h} style={css(`text-align:left;font-family:${MONO};font-size:9.5px;font-weight:600;color:${MUTED};letter-spacing:.08em;padding:0 12px 7px 0;border-bottom:1px solid ${LINE};white-space:nowrap`)}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {delayedList.map((j) => (
                   <tr key={j.key}>
-                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid #F1F5F9;font-family:'IBM Plex Mono',monospace;white-space:nowrap")}>{j.date}</td>
-                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid #F1F5F9")}>{j.cat}</td>
-                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid #F1F5F9;font-weight:600")}>{j.customer}</td>
-                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid #F1F5F9;font-family:'IBM Plex Mono',monospace")}>{j.jobCode || j.abs || "—"}</td>
-                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid #F1F5F9")}>{j.trucker || "—"}</td>
-                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid #F1F5F9;color:#B45309")}>{j.reason || "—"}</td>
-                    <td style={css("padding:7px 0;border-bottom:1px solid #F1F5F9")}>{j.op}</td>
+                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid rgba(74,148,214,.1);font-family:'IBM Plex Mono',monospace;white-space:nowrap")}>{j.date}</td>
+                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid rgba(74,148,214,.1)")}>{j.cat}</td>
+                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid rgba(74,148,214,.1);font-weight:600")}>{j.customer}</td>
+                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid rgba(74,148,214,.1);font-family:'IBM Plex Mono',monospace")}>{j.jobCode || j.abs || "—"}</td>
+                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid rgba(74,148,214,.1)")}>{j.trucker || "—"}</td>
+                    <td style={css("padding:7px 12px 7px 0;border-bottom:1px solid rgba(74,148,214,.1);color:#f2b13c")}>{j.reason || "—"}</td>
+                    <td style={css("padding:7px 0;border-bottom:1px solid rgba(74,148,214,.1)")}>{j.op}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </ZoomBox>
         ) : (
-          <span style={css("font-size:11.5px;color:#94A3B8")}>ไม่มีงานล่าช้าในแผนนี้</span>
+          <span style={css(`font-size:11.5px;color:${DIM}`)}>ไม่มีงานล่าช้าในแผนนี้</span>
         )}
       </Panel>
     </div>

@@ -84,9 +84,16 @@ function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string)
 type Props = {
   canViewDashboard: boolean; canViewAudit: boolean; canViewMonitor: boolean;
   onNavigate: (screen: Screen) => void; onOpenJob: (key: string) => void;
+  /**
+   * A question brought from another screen — the dashboard's rail — placed in
+   * the box and focused, not sent. Sending is still the person's click, so the
+   * audit trail never carries a question nobody pressed the button on.
+   */
+  initialQuestion?: string;
+  onQuestionTaken?: () => void;
 };
 
-export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor, onNavigate, onOpenJob }: Props) {
+export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor, onNavigate, onOpenJob, initialQuestion, onQuestionTaken }: Props) {
   const status = useRemote("/api/ai/status", parseStatus);
   const board = useRemote(canViewDashboard ? "/api/dashboard/today" : null, parseToday);
   const brief = useRemote(canViewDashboard ? "/api/dashboard/briefing" : null, parseBrief);
@@ -113,6 +120,20 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
     mounted.current = true;
     return () => { mounted.current = false; request.current?.abort(); request.current = null; switchRequest.current?.abort(); };
   }, []);
+
+  // Placed in the box while rendering, the way Chrome closes its drawer: React
+  // re-runs this pass before painting, so the box never shows empty first.
+  const [seeded, setSeeded] = useState("");
+  if (initialQuestion && initialQuestion !== seeded) {
+    setSeeded(initialQuestion);
+    setMessage(initialQuestion.slice(0, 4000));
+  }
+  useEffect(() => {
+    if (!initialQuestion) return;
+    onQuestionTaken?.();
+    askPanel.current?.scrollIntoView({ block: "start" });
+    input.current?.focus({ preventScroll: true });
+  }, [initialQuestion, onQuestionTaken]);
 
   function focusAsk() {
     askPanel.current?.scrollIntoView({ block: "start" });

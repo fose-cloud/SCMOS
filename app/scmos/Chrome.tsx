@@ -110,6 +110,15 @@ type Props = {
    * every edge, and here the grid <em>is</em> the page.
    */
   lockScroll?: boolean;
+  /**
+   * What the page is drawn on.
+   *
+   * The dashboard is a control tower — navy, with its own hero band — and a
+   * white heading strip over a navy page reads as a page that forgot to load.
+   * So the strip and the tabs take the same palette there. Every other screen
+   * is the grey page it always was.
+   */
+  canvas?: "light" | "dark";
   filters: { defs: FilterDef[]; q: string; onQ: (value: string) => void; onReset: () => void } | null;
   children: ReactNode;
 };
@@ -150,6 +159,11 @@ export function Chrome(p: Props) {
    * where you are without a click, and folding one shut keeps it shut.
    */
   const [folded, setFolded] = useState<Partial<Record<Screen, boolean>>>({});
+
+  const dark = p.canvas === "dark";
+  const strip = dark
+    ? { bg: "#0a1c30", line: "rgba(74,148,214,.2)", crumb: "#7fa8ca", title: "#fff", tab: "#8fb4d4", tabOn: "#fff", tabOnBg: "#1668ab", tabOnLine: "#1668ab" }
+    : { bg: "#fff", line: "#D8E0E8", crumb: "#8496A8", title: "#0A2240", tab: "#64748B", tabOn: "#0A2240", tabOnBg: "#fff", tabOnLine: "#D8E0E8" };
 
   return (
     <div style={css("display:flex;flex-direction:column;height:100vh;min-height:100vh;overflow:hidden;color:#16232F")}>
@@ -481,7 +495,7 @@ export function Chrome(p: Props) {
           )}
         </nav>
 
-        <main style={css("flex:1;min-width:0;background:#EEF2F6;"
+        <main style={css("flex:1;min-width:0;background:" + (dark ? "#06152a" : "#EEF2F6") + ";"
           + (p.lockScroll ? "overflow:hidden;display:flex;flex-direction:column" : "overflow-y:auto"))}>
           {/*
             The heading, compact where the screen cannot scroll.
@@ -493,17 +507,17 @@ export function Chrome(p: Props) {
             title's line and the sentence goes. Nothing anybody clicks is
             removed, and every other screen keeps the full heading.
           */}
-          <div style={css("background:#fff;border-bottom:1px solid #D8E0E8;position:sticky;top:0;z-index:30;"
+          <div style={css(`background:${strip.bg};border-bottom:1px solid ${strip.line};position:sticky;top:0;z-index:30;`
             + (p.lockScroll ? "padding:9px 20px 0" : "padding:16px 24px 0"))}>
             <div className="page-head" style={css("display:flex;align-items:flex-start;gap:20px")}>
               <div style={css("flex:1;min-width:0")}>
                 {!p.lockScroll && (
-                  <div style={css("font-size:11px;color:#8496A8;letter-spacing:.06em;margin-bottom:5px;font-family:'IBM Plex Mono',monospace")}>
+                  <div style={css(`font-size:11px;color:${strip.crumb};letter-spacing:.06em;margin-bottom:5px;font-family:'IBM Plex Mono',monospace`)}>
                     {p.crumb}
                   </div>
                 )}
                 <div style={css("display:flex;align-items:baseline;gap:12px;flex-wrap:wrap")}>
-                  <h1 style={css("margin:0;font-weight:600;color:#0A2240;letter-spacing:-.01em;font-size:"
+                  <h1 style={css(`margin:0;font-weight:600;color:${strip.title};letter-spacing:-.01em;font-size:`
                     + (p.lockScroll ? "17px" : "22px"))}>{p.title}</h1>
                   {p.lockScroll && (
                     <span style={css("font-size:10.5px;color:#A6B4C2;letter-spacing:.06em;font-family:'IBM Plex Mono',monospace")}>
@@ -551,10 +565,10 @@ export function Chrome(p: Props) {
                   key={t.label}
                   onClick={t.go}
                   style={css(
-                    "height:35px;padding:0 16px;border:1px solid " + (t.active ? "#D8E0E8" : "transparent") +
-                    ";border-bottom:" + (t.active ? "1px solid #fff" : "1px solid #D8E0E8") +
-                    ";background:" + (t.active ? "#fff" : "transparent") +
-                    ";color:" + (t.active ? "#0A2240" : "#64748B") +
+                    "height:35px;padding:0 16px;border:1px solid " + (t.active ? strip.tabOnLine : "transparent") +
+                    ";border-bottom:1px solid " + (t.active ? strip.tabOnBg : strip.line) +
+                    ";background:" + (t.active ? strip.tabOnBg : "transparent") +
+                    ";color:" + (t.active ? strip.tabOn : strip.tab) +
                     ";font-size:12.5px;font-weight:" + (t.active ? "600" : "400") +
                     // A flex child shrinks by default, so without these the
                     // eight tabs squeeze into unreadable slivers instead of
