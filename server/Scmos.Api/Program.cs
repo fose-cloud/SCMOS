@@ -250,6 +250,14 @@ if (args.Contains("--normalise-types"))
     return await TypeMigration.RunAsync(app, args);
 }
 
+// Takes the codes JobVehicleType.Retired names off the dropdown — the two DG
+// containers — on a database that seeded before they were retired. A flag,
+// never a delete; idempotent.
+if (args.Contains("--retire-types"))
+{
+    return await TypeRetirement.RunAsync(app, args);
+}
+
 // Counts and prints; there is no --apply. Answers how much of the register
 // on-time delivery can actually score, using the rule the KPI screen uses.
 if (args.Contains("--report-otd"))

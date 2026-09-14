@@ -68,6 +68,22 @@ public static class JobVehicleType
         new("COMBINE", "COMBINE รวมงาน"),
     ];
 
+    /// <summary>
+    /// Codes the rule still reads but the dropdown no longer offers.
+    ///
+    /// Dangerous goods stopped being a kind of container on 28 August 2026,
+    /// when the cleanup moved it into the product column of the 372 jobs that
+    /// carried it as a type. The two codes stay in the vocabulary so that
+    /// <see cref="Canonical"/> still reads "1X20 DG" off a workbook and the
+    /// cleanup can still split it — take them out of <see cref="All"/> and a
+    /// DG typed on the next import would be left as it was typed, unread.
+    /// They are seeded retired, and <c>--retire-types</c> retires them on a
+    /// database that seeded before this was decided. A job that already
+    /// carries one keeps showing it; retiring is never a delete.
+    /// </summary>
+    public static readonly IReadOnlySet<string> Retired =
+        new HashSet<string>(["1X20' DG", "1X40' DG"], StringComparer.OrdinalIgnoreCase);
+
     private static readonly HashSet<string> Codes =
         new(All.Select(vehicle => vehicle.Code), StringComparer.OrdinalIgnoreCase);
 

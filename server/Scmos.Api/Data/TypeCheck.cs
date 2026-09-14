@@ -94,6 +94,15 @@ public static class TypeCheck
             Console.WriteLine($"FAIL  the list offers {Quote(vehicle.Code)} but the rule rewrites it");
         }
 
+        // A retired code is still a known one — the rule must keep reading it
+        // off a workbook, or the cleanup could never split a DG typed tomorrow.
+        foreach (var code in JobVehicleType.Retired)
+        {
+            if (JobVehicleType.IsKnown(code)) continue;
+            failed++;
+            Console.WriteLine($"FAIL  {Quote(code)} is retired but no longer in the vocabulary");
+        }
+
         Console.WriteLine();
         Console.WriteLine(failed == 0
             ? $"{Cases.Length} spellings, {JobVehicleType.All.Length} canonical types, all as expected."

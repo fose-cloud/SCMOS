@@ -32,6 +32,10 @@ on:
         description: "On-time delivery: count how much of the register it can actually score (reads only)"
         type: boolean
         default: false
+      retireTypes:
+        description: "Vehicle types: take the codes the rule has retired (the two DG containers) off the dropdown — a flag, never a delete"
+        type: boolean
+        default: false
       mergePlaces:
         description: "Place spellings: report what merging would change, write it, or put the last run back"
         type: choice
@@ -224,6 +228,22 @@ jobs:
           extra=""
           [ "${{ inputs.linkIssues }}" = "apply" ] && extra="--apply"
           dotnet publish/Scmos.Api.dll --link-issues $extra
+
+      # The Administrator's own "retire" click, run from here for the codes the
+      # rule has retired, because that is where the connection string lives.
+      # Sets Active=false on those rows and nothing else; a second run reports
+      # "already retired" and changes nothing. AddAsync brings a code back.
+      - name: Retire the vehicle types the rule has retired
+        if: github.event_name == 'workflow_dispatch' && inputs.retireTypes
+        env:
+          ConnectionStrings__ScmosDb: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: |
+          if [ -z "$ConnectionStrings__ScmosDb" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
+            exit 1
+          fi
+          dotnet publish/Scmos.Api.dll --retire-types
 
       # Counts rows and prints. There is no apply and nothing to undo, so it is
       # safe to run whenever — it exists because a claim about the register

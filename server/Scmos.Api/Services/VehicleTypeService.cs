@@ -129,6 +129,33 @@ public class VehicleTypeService(ScmosDbContext db)
     }
 
     /// <summary>
+    /// Retires every code <see cref="JobVehicleType.Retired"/> names, on a
+    /// database that seeded before they were retired.
+    ///
+    /// Idempotent: a code already retired, or never seeded, is reported and
+    /// left alone. Run from the release workflow, where the connection string
+    /// lives, so nobody has to sign in as an Administrator to click two rows.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> RetireRuledAsync(string who, CancellationToken token)
+    {
+        var lines = new List<string>();
+        var counts = await CountByTypeAsync(token);
+        foreach (var code in JobVehicleType.Retired)
+        {
+            var row = await db.VehicleTypes.FirstOrDefaultAsync(entry => entry.Code == code, token);
+            var inUse = counts.GetValueOrDefault(code);
+            if (row is null) { lines.Add($"{code}: not on the list — nothing to retire ({inUse} jobs carry it)"); continue; }
+            if (!row.Active) { lines.Add($"{code}: already retired ({inUse} jobs carry it)"); continue; }
+            row.Active = false;
+            row.UpdatedBy = who;
+            row.UpdatedAt = DateTimeOffset.UtcNow;
+            lines.Add($"{code}: retired ({inUse} jobs carry it and keep showing it)");
+        }
+        await db.SaveChangesAsync(token);
+        return lines;
+    }
+
+    /// <summary>
     /// How many jobs carry each type, counted once for the whole register.
     ///
     /// The type is not a column — a job is a handful of indexed fields and then
@@ -172,7 +199,11 @@ public class VehicleTypeService(ScmosDbContext db)
                 Code = vehicle.Code,
                 Label = vehicle.Label,
                 Sort = sort,
-                Active = true,
+                // Retired from the start where the rule says so: the code is
+                // known, so a workbook's "1X20 DG" still reads, but the
+                // dropdown does not offer a kind of container that is really
+                // a product.
+                Active = !JobVehicleType.Retired.Contains(vehicle.Code),
                 UpdatedBy = "seed",
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
