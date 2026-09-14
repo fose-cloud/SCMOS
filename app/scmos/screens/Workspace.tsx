@@ -242,7 +242,9 @@ const COL_DEFS: Record<string, [string][]> = {
   //
   // The customer's references run CUSTOMER PO., PRODUCT NAME, SAP ORDER,
   // DELIVER NO. — the order the department asked for, with the PO column new.
-  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["SID NO."], ["CUSTOMER PO."], ["PRODUCT NAME"], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["เรทน้ำมัน"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["รับกลับ 50%"], ["รับกลับ FG 80%"], ["ค่ารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
+  // SID NO. came off the grid the same day, at their word: 'sid' is still
+  // stored, imported, exported and shown in the job drawer, only not drawn here.
+  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["CUSTOMER PO."], ["PRODUCT NAME"], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["เรทน้ำมัน"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["รับกลับ 50%"], ["รับกลับ FG 80%"], ["ค่ารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
   ALL: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
@@ -1537,7 +1539,7 @@ export function Workspace(p: Props) {
         // Under SID NUMBER, the job number; under JOB NO., the D-code. Their
         // sheet's captions, their sheet's contents — see the note by COL_DEFS.
         ed(j, "jobCode", { mono: true }), ed(j, "dCode", { mono: true }),
-        ed(j, "date", { mono: true }), ed(j, "sid", { mono: true, mute: true }),
+        ed(j, "date", { mono: true }),
         // CUSTOMER PO., PRODUCT NAME, SAP ORDER, DELIVER NO. — in that order,
         // matching the headings above.
         ed(j, "customerPo", { mono: true }), ed(j, "product", { w: 190 }),

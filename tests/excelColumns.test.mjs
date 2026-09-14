@@ -36,12 +36,14 @@ test("Import Excel keeps Remark immediately after Reason / Delay", () => {
   ordered(columns, ['header: "Reason / Delay"', 'header: "Remark"', 'header: "OT"']);
 });
 
-test("Domestic grid runs the customer's references CUSTOMER PO., PRODUCT NAME, SAP ORDER, DELIVER NO.", () => {
+test("Domestic grid runs the customer's references CUSTOMER PO., PRODUCT NAME, SAP ORDER, DELIVER NO., with no SID NO. between", () => {
   const headers = section(workspace, "  DELIVERY:", "\n  // Mixed lists");
-  ordered(headers, ['["SID NO."]', '["CUSTOMER PO."]', '["PRODUCT NAME"]', '["SAP ORDER"]', '["DELIVER NO."]', '["Customer List"]']);
+  // Off the grid at the department's word on 14 Sep 2026; the field itself stays.
+  assert.doesNotMatch(headers, /\["SID NO\."\]/);
+  ordered(headers, ['["Pick-Up Date"]', '["CUSTOMER PO."]', '["PRODUCT NAME"]', '["SAP ORDER"]', '["DELIVER NO."]', '["Customer List"]']);
 
   const cells = section(workspace, 'if (layout === "DELIVERY")', "return head.concat([\n      catCell");
-  ordered(cells, ['ed(j, "sid"', 'ed(j, "customerPo"', 'ed(j, "product"', 'ed(j, "sapOrder"', 'ed(j, "deliverNo"', 'edPick(j, "customer"']);
+  ordered(cells, ['ed(j, "date"', 'ed(j, "customerPo"', 'ed(j, "product"', 'ed(j, "sapOrder"', 'ed(j, "deliverNo"', 'edPick(j, "customer"']);
 });
 
 test("Domestic Excel carries the same four references in the same order", () => {

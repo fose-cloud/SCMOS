@@ -7,6 +7,7 @@ import { useRemembered } from "../pageCache";
 import type { Job, OpsStats } from "../ops";
 import { ALL_PERIOD, latestDay, monthKey, monthNameEn, periodLabel, type Period } from "../period";
 import { returnKind, tripCost } from "../returnLoad";
+import { classifyReason } from "../delayCauses";
 import type { WsTarget } from "../alerts";
 
 /**
@@ -446,8 +447,28 @@ export function ControlTower(p: Props) {
     s.dates.slice(-7).map((d) => s.jobs.filter((j) => j.date === d && (pick(j) || "").trim() === key).length);
   const customers = countBy((j) => j.customer).slice(0, 5);
   const truckers = countBy((j) => j.trucker).slice(0, 5);
-  const reasons = countBy((j) => j.reason).slice(0, 5);
-  const reasonTotal = countBy((j) => j.reason).reduce((sum, r) => sum + r[1], 0);
+  /*
+   * The reason column is typed by whoever was on the phone, and it holds
+   * status notes ("Delivery Completed"), pickup appointments and bare clock
+   * readings ("13.00") beside the causes. Read the same way Delay Analysis
+   * reads it — classifyReason is the one rule — so the panel counts causes,
+   * grouped, and says how many entries it left out rather than hiding them.
+   */
+  const reasonRead = (() => {
+    const causes: Record<string, number> = {};
+    let skipped = 0;
+    s.jobs.forEach((j) => {
+      const text = (j.reason || "").trim();
+      if (!text) return;
+      const read = classifyReason(text);
+      if (read.kind === "cause") causes[read.label] = (causes[read.label] || 0) + 1;
+      else skipped += 1;
+    });
+    const rows = Object.entries(causes).sort((a, b) => b[1] - a[1]);
+    return { rows: rows.slice(0, 5), total: rows.reduce((sum, r) => sum + r[1], 0), skipped };
+  })();
+  const reasons = reasonRead.rows;
+  const reasonTotal = reasonRead.total;
   const supplierOtd = (name: string): { pct: number | null; base: number } | null => {
     const row = report?.suppliers.find((one) => one.carrier.toLowerCase() === name.toLowerCase());
     if (!row) return null;
@@ -732,6 +753,12 @@ export function ControlTower(p: Props) {
                   </span>
                 </Row>
               )) : <Empty>ยังไม่มีการบันทึกสาเหตุความล่าช้าในช่วงนี้</Empty>}
+              {reasonRead.skipped > 0 && (
+                <span style={css(`font-size:10.5px;color:${DIM};padding-top:4px`)}
+                  title="ค่าในช่อง Reason ที่เป็นสถานะ เวลา หรือนัดรับตู้ ไม่ใช่สาเหตุ — ดูรายการได้ที่ Delay Analysis">
+                  ไม่นับ {nf(reasonRead.skipped)} รายการที่ช่อง Reason เป็นสถานะ/เวลา ไม่ใช่สาเหตุ
+                </span>
+              )}
             </Panel>
           </div>
 
