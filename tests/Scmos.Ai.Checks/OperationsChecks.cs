@@ -64,6 +64,22 @@ static class OperationsChecks
         }
 
         check(registry.All.All(t => t.Handler is not null), "C: all three read-only handlers connected");
+        var guard = new QueryPolicyGuard(registry);
+        var readCall = new AiToolCall("call", "query_shipments", "{\"view\":\"today\",\"limit\":20}");
+        check(guard.Resolve(own, agent, readCall, true) is not null, "1B: connected scoped request resolves");
+        check(guard.Resolve(own, agent, readCall, false) is null, "1B: audit unavailable refuses dispatch");
+        foreach (var invalid in new[] {
+            readCall with { Name = "execute_sql" }, readCall with { Name = "update_shipment" },
+            readCall with { Id = "" }, readCall with { Arguments = "{\"view\":\"today\",\"limit\":20,\"role\":\"Administrator\"}" } })
+            check(guard.Resolve(own, agent, invalid, true) is null, "1B: invalid or write call never resolves");
+        var dispatch = new ToolExecutor(guard);
+        var dispatchBudget = new AiDispatchBudget();
+        var dispatched = await dispatch.ReadAsync(readCall, own, agent, true, dispatchBudget, "guard-test", now, default);
+        check(dispatched.Returned <= 20, "1B: executor preserves evidence cap");
+        try {
+            await dispatch.ReadAsync(readCall, own, agent, true, dispatchBudget, "guard-test", now, default);
+            check(false, "1B: repeated dispatch must fail");
+        } catch (InvalidOperationException) { check(true, "1B: repeated dispatch refused"); }
         check(AiPermissionPolicy.AuthorizeTool(own, agent, "query_shipments", registry, false) == "audit_not_ready",
             "C: connected handler still requires durable audit");
         check(AiPermissionPolicy.AuthorizeTool(own, agent, "query_shipments", registry, true) == "allowed",

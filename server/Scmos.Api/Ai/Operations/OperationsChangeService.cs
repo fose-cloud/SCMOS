@@ -45,7 +45,8 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
     {
         if (!OperationsChangePolicy.CanRequest(user)) return new { code = "forbidden" };
         var command = OperationsChangeCommand.Parse(message);
-        if (command is null) return new { code = "invalid_command", example = OperationsChangeCommand.Example };
+        if (command is null) return new { code = "clarification_required",
+            questions = OperationsChangeCommand.MissingDetails(message) };
         var preview = await PreviewAsync(command.Key, user, token);
         if (preview is null) return new { code = "forbidden" };
         // Read the same snapshot again before validation; a concurrent edit requires a fresh draft.
@@ -53,6 +54,8 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
         if (job is null) return new { code = "invalid_or_stale" };
         var assignee = await Assignee(command.Changes, token);
         var code = OperationsChangePolicy.Validate(new(command.Key, preview.Version, command.Changes, command.Reason), job, assignee);
+        if (code is "invalid_date" or "invalid_time" or "invalid_assignee" or "invalid_status")
+            return new { code = "clarification_required", questions = new[] { code } };
         if (code != "ok") return new { code };
         if (command.Changes.ContainsKey("status") && await db.WorkflowEvents.AnyAsync(e => e.JobKey == job.Key, token))
             return new { code = "workflow_required" };

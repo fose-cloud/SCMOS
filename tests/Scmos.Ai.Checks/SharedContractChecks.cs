@@ -7,6 +7,13 @@ static class SharedContractChecks
     public static void Run(Action<bool, string> check)
     {
         var registry = new ToolRegistry();
+        var budget = new AiDispatchBudget();
+        check(budget.TryConsume() && !budget.TryConsume() && !budget.TryConsume(),
+            "1B: one call per request including failed attempts");
+        var concurrentBudget = new AiDispatchBudget();
+        var winners = 0;
+        Parallel.For(0, 20, _ => { if (concurrentBudget.TryConsume()) Interlocked.Increment(ref winners); });
+        check(winners == 1, "1B: concurrent dispatch cannot exceed budget");
         check(default(AiActionLevel) == AiActionLevel.Unspecified,
             "1A: unspecified action metadata is not a read permission");
         check(registry.All.Select(t => t.Name).SequenceEqual(

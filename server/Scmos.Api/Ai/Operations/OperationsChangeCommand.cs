@@ -7,6 +7,24 @@ public sealed record ParsedOperationsChange(string Key, Dictionary<string, strin
 /// <summary>Explicit chat grammar, not model inference. Ambiguous or unsupported instructions fail closed.</summary>
 public static class OperationsChangeCommand
 {
+    public static string[] MissingDetails(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length > 2000) return ["format"];
+        var parts = text.Split(';', StringSplitOptions.TrimEntries);
+        if (!Regex.IsMatch(parts[0], @"^(?:เสนอแก้งาน|/แก้งาน)(?:\s|$)"))
+            return ["key", "change", "reason", "format"];
+        var missing = new List<string>();
+        if (!Regex.IsMatch(parts[0], @"^(?:เสนอแก้งาน|/แก้งาน)\s+[A-Za-z0-9_-]{1,80}$")) missing.Add("key");
+        var fields = new HashSet<string>();
+        foreach (var part in parts.Skip(1))
+        {
+            var match = Regex.Match(part, @"^(วันที่|เวลา|สถานะ|ผู้รับผิดชอบ|เหตุผล)\s+(.+)$");
+            if (!match.Success || !fields.Add(match.Groups[1].Value)) return ["format"];
+        }
+        if (!fields.Contains("เหตุผล")) missing.Add("reason");
+        if (!fields.Any(f => f != "เหตุผล")) missing.Add("change");
+        return missing.Count == 0 ? ["format"] : missing.ToArray();
+    }
     public const string Example = "เสนอแก้งาน KEY; วันที่ 15/09/2026; เวลา 09:30; เหตุผล ลูกค้าขอเลื่อน";
     public static ParsedOperationsChange? Parse(string? text)
     {

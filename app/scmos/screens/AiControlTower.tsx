@@ -11,7 +11,7 @@ import {
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
-import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, type ChangeDraft } from "../operationsChangeCommand";
+import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, parseChangeClarification, type ChangeDraft } from "../operationsChangeCommand";
 
 /** Private, short-lived state only: no prompt/evidence in localStorage or shared page caches. */
 function useRemote<T>(path: string | null, parse: (value: unknown) => T) {
@@ -117,6 +117,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const [changeBusy, setChangeBusy] = useState(false);
   const draftPanel = useRef<HTMLDivElement>(null);
   const [askError, setAskError] = useState("");
+  const [clarification, setClarification] = useState("");
   const [confirmSwitch, setConfirmSwitch] = useState<boolean | null>(null);
   const [switchBusy, setSwitchBusy] = useState(false);
   const [switchMessage, setSwitchMessage] = useState("");
@@ -177,7 +178,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
     if (request.current || changeBusy || (!ready.ready && !isChangeCommand(message)) || !message.trim()) return;
     const controller = new AbortController();
     request.current = controller;
-    setBusy(true); setReply(null); setAskError("");
+    setBusy(true); setReply(null); setAskError(""); setClarification("");
     // Server allows up to 60 seconds plus bounded audit cleanup. Never auto-retry a POST.
     const timer = setTimeout(() => controller.abort(), 80000);
     try {
@@ -186,6 +187,10 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           headers: { "content-type": "application/json", "X-SCMOS-AI-Control": "1" }, body: JSON.stringify({ message }) });
         const result = await response.json();
         if (!mounted.current || request.current !== controller) return;
+        if (response.ok && result?.code === "clarification_required") {
+          setClarification(parseChangeClarification(result));
+          return;
+        }
         if (!response.ok || result.code !== "draft") {
           setAskError("สร้างร่างไม่ได้ กรุณาตรวจสิทธิ์ งาน วันที่ เวลา สถานะ และรหัสผู้รับผิดชอบ ตัวอย่าง: " + CHANGE_EXAMPLE);
           return;
@@ -336,6 +341,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
         </form>
         <div aria-live="polite" aria-busy={busy}>
           {askError && <Failure message={askError} />}
+          {clarification && <div role="status" style={{ whiteSpace: "pre-line" }}>{clarification}</div>}
           {reply && <div className={s.reply}>
             <Badge tone={reply.mock ? "amber" : "green"}>{reply.mock ? "MOCK · ไม่ได้อ่านงานจริง" : "คำตอบพร้อมหลักฐาน"}</Badge>
             <p className={s.summary}>{reply.summary}</p>

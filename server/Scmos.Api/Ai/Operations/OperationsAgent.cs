@@ -21,6 +21,9 @@ public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit,
     public async Task<OperationsExecution> RunAsync(string runId, AiChatRequest request, AppUser user,
         AgentDefinition agent, CancellationToken token)
     {
+        var guard = new QueryPolicyGuard(tools);
+        var executor = new ToolExecutor(guard);
+        var budget = new AiDispatchBudget();
         if (agent.Id != "operations-agent" || !AiPermissionPolicy.CanUse(user, agent))
             return new("forbidden", "ไม่มีสิทธิ์อ่านข้อมูลในขอบเขตนี้");
         if (!Connected) return new("not_connected", "ยังไม่ได้เชื่อมเครื่องมืออ่านข้อมูล");
@@ -55,7 +58,7 @@ public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit,
             await Audit("run_started", "running");
             started = true;
             var offered = tools.All.Where(t =>
-                AiPermissionPolicy.AuthorizeTool(user, agent, t.Name, tools, audit.Ready) == "allowed").ToArray();
+                guard.Allowed(user, agent, t.Name, audit.Ready)).ToArray();
             if (offered.Length == 0)
             {
                 await Audit("run_completed", "not_connected");
@@ -82,10 +85,8 @@ public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit,
                 return new("clarification_required", "ขณะนี้รองรับงานวันนี้ งานเสี่ยงวันนี้ ค้นหางาน และงานล่าช้าเท่านั้น");
             }
             var call = selection.ToolCalls[0];
-            var definition = offered.FirstOrDefault(t => t.Name == call.Name);
-            var decision = AiPermissionPolicy.AuthorizeTool(user, agent, call.Name, tools, audit.Ready);
-            if (definition is null || decision != "allowed" || string.IsNullOrWhiteSpace(call.Id)
-                || call.Id.Length > 200 || !definition.InputSchema.Valid(call.Arguments))
+            var definition = guard.Resolve(user, agent, call, audit.Ready);
+            if (definition is null || !offered.Any(t => t.Name == call.Name))
             {
                 await Audit("run_completed", "invalid_tool");
                 return new("invalid_tool", "AI returned an unauthorized or invalid tool request.");
@@ -99,12 +100,7 @@ public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit,
             limit = json.RootElement.GetProperty("limit").GetInt32();
             await Audit("tool_started", "running");
             toolStarted = true;
-            var scope = AiPermissionPolicy.Scope(user)!;
-            var result = await definition.Handler!.ReadAsync(json.RootElement, new(runId, user.UserId, scope, now), token);
-            var evidence = result.Deserialize<OperationsAnswer>();
-            if (evidence is null || evidence.Returned != evidence.Rows.Count || evidence.Total < evidence.Returned
-                || evidence.Returned > json.RootElement.GetProperty("limit").GetInt32())
-                throw new InvalidOperationException("Invalid read output.");
+            var evidence = await executor.ReadAsync(call, user, agent, audit.Ready, budget, runId, now, token);
             await Audit("tool_completed", "succeeded", evidence);
             toolCompleted = true;
             await Audit("run_completed", "succeeded", evidence);
