@@ -14,8 +14,13 @@ public static class AiServiceRegistration
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.AddScoped<IOperationsSource, OperationsSource>();
         services.AddScoped<OperationsReadService>();
+        services.AddScoped<OperationsChangeService>();
+        services.AddScoped<OperationsAttentionService>();
+        services.AddMemoryCache();
+        services.TryAddScoped<Scmos.Api.Data.JobRegisterCache>();
         services.AddScoped<ToolRegistry>();
         services.AddScoped<OperationsAgent>();
+        services.AddScoped<IAgentExecutor<OperationsExecution>>(sp => sp.GetRequiredService<OperationsAgent>());
         services.AddScoped<SqlAiExecutionAudit>();
         services.AddScoped<IAiExecutionAudit>(sp => sp.GetRequiredService<SqlAiExecutionAudit>());
         services.AddScoped<AiAuditReader>();

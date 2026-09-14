@@ -19,6 +19,8 @@ public sealed class AiOptions
     public bool ManagementAgentEnabled { get; set; }
     // Reserved, NOT an authorization to wire writes. Phase B always refuses them.
     public bool WriteToolsEnabled { get; set; }
+    // Separate, default-off gate for human-confirmed Operations changes only.
+    public bool OperationsWritesEnabled { get; set; }
     public int TimeoutSeconds { get; set; } = 20;
     public int MaxOutputTokens { get; set; } = 800;
 

@@ -68,24 +68,33 @@ public interface IAiReadToolHandler
 }
 public sealed record AiToolDefinition(string Name, string Description, string AgentId,
     Capability RequiredCapability, AiRisk Risk, AiInputSchema InputSchema,
-    IAiReadToolHandler? Handler, string AuditPolicy = "required-before-and-after");
+    IAiReadToolHandler? Handler, string AuditPolicy = "required-before-and-after")
+{
+    // Internal metadata only; provider declarations keep their existing schema.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public AiToolPolicy? Policy { get; init; }
+}
 
 /// <summary>Only reviewed contracts enter the new runtime; no reflection or SQL tool.</summary>
 public sealed class ToolRegistry
 {
+    public const int OperationsEvidenceLimit = 50;
     public ToolRegistry(OperationsReadService? operations = null)
     {
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
-            operations is null ? null : new OperationsReadHandler(name, operations));
+            operations is null ? null : new OperationsReadHandler(name, operations))
+        {
+            Policy = new(AiActionLevel.Read, "1", "operation_jobs", typeof(OperationsAnswer), OperationsEvidenceLimit),
+        };
         All = Array.AsReadOnly(new[]
         {
             Read("query_shipments", "Read active Import/Export jobs. view=today lists jobs scheduled today in Thailand; view=risk_today lists today's high-risk/attention queue (overdue through the next 2 days) using SCMOS MonitorRules. Never calculates new risk weights.",
-                new(new("view", false, Choices: ["today", "risk_today"]), new("limit", true, Max: 50))),
+                new(new("view", false, Choices: ["today", "risk_today"]), new("limit", true, Max: OperationsEvidenceLimit))),
             Read("search_shipment", "Search active Import/Export jobs by key, job code, container or customer, across all dates. No driver, private note or other personal-data search.",
-                new(new("query", false), new("limit", true, Max: 50))),
+                new(new("query", false), new("limit", true, Max: OperationsEvidenceLimit))),
             Read("query_delays", "Read active jobs in the existing My Job DELAY bucket, across all dates; this is not a KPI calculation or the risk queue.",
-                new(new AiArgument("limit", true, Max: 50))),
+                new(new AiArgument("limit", true, Max: OperationsEvidenceLimit))),
         });
     }
 

@@ -29,9 +29,9 @@ public class AuditService(ScmosDbContext db, IHttpContextAccessor context, ILogg
 {
     /// <summary>Stage an event in the caller's atomic SaveChanges; failure must abort the change.</summary>
     public void Stage(AppUser user, string action, string entity, string entityId,
-        string entityLabel, string field, string oldValue, string newValue, string reason)
+        string entityLabel, string field, string oldValue, string newValue, string reason, string source = "web")
         => db.AuditEvents.Add(Build(user, action, entity, entityId, entityLabel,
-            field, oldValue, newValue, reason, "web"));
+            field, oldValue, newValue, reason, source));
 
     /// <summary>Records one change. Returns false when it could not be written.</summary>
     public async Task<bool> RecordAsync(AppUser user, string action, string entity, string entityId,

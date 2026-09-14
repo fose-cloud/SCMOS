@@ -124,7 +124,7 @@ public class AiGateway(ScmosDbContext db)
 
     public async Task<IReadOnlyList<ApprovalView>> ApprovalsAsync(string? state, CancellationToken token)
     {
-        var query = db.Approvals.AsNoTracking();
+        var query = db.Approvals.AsNoTracking().Where(a => a.Agent != Scmos.Api.Ai.Operations.OperationsChangePolicy.Agent);
         if (!string.IsNullOrWhiteSpace(state) && state != "All") query = query.Where(a => a.State == state);
 
         return await query.OrderByDescending(a => a.Id).Take(200)
@@ -149,6 +149,8 @@ public class AiGateway(ScmosDbContext db)
 
         var approval = await db.Approvals.FirstOrDefaultAsync(a => a.Id == id, token);
         if (approval is null) return new ToolOutcome(false, "ไม่พบรายการนี้", "refused");
+        if (approval.Agent == Scmos.Api.Ai.Operations.OperationsChangePolicy.Agent)
+            return new(false, "ต้องยืนยันผ่าน Operations changes", "refused");
         if (approval.State != "pending")
             return new ToolOutcome(false, $"รายการนี้ตัดสินไปแล้ว ({approval.State})", "refused");
 
@@ -168,6 +170,8 @@ public class AiGateway(ScmosDbContext db)
     {
         var approval = await db.Approvals.FirstOrDefaultAsync(a => a.Id == id, token);
         if (approval is null) return new ToolOutcome(false, "ไม่พบรายการนี้", "refused");
+        if (approval.Agent == Scmos.Api.Ai.Operations.OperationsChangePolicy.Agent)
+            return new(false, "ต้องยืนยันผ่าน Operations changes", "refused");
         if (approval.State != "approved")
             return new ToolOutcome(false, "ต้องอนุมัติก่อนจึงจะนำไปใช้ได้", "refused");
 

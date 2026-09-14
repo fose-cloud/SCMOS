@@ -10,6 +10,8 @@ import {
   type AiReply, type AuditRun, type Finding,
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
+import { OperationsChanges } from "./OperationsChanges";
+import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, type ChangeDraft } from "../operationsChangeCommand";
 
 /** Private, short-lived state only: no prompt/evidence in localStorage or shared page caches. */
 function useRemote<T>(path: string | null, parse: (value: unknown) => T) {
@@ -110,6 +112,10 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<AiReply | null>(null);
+  const [changeDraft, setChangeDraft] = useState<ChangeDraft | null>(null);
+  const [draftRevision, setDraftRevision] = useState(0);
+  const [changeBusy, setChangeBusy] = useState(false);
+  const draftPanel = useRef<HTMLDivElement>(null);
   const [askError, setAskError] = useState("");
   const [confirmSwitch, setConfirmSwitch] = useState<boolean | null>(null);
   const [switchBusy, setSwitchBusy] = useState(false);
@@ -168,13 +174,26 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   }
   async function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (request.current || !ready.ready || !message.trim()) return;
+    if (request.current || changeBusy || (!ready.ready && !isChangeCommand(message)) || !message.trim()) return;
     const controller = new AbortController();
     request.current = controller;
     setBusy(true); setReply(null); setAskError("");
     // Server allows up to 60 seconds plus bounded audit cleanup. Never auto-retry a POST.
     const timer = setTimeout(() => controller.abort(), 80000);
     try {
+      if (isChangeCommand(message)) {
+        const response = await apiFetch("/api/ai/operations-changes/interpret", { method: "POST", signal: controller.signal,
+          headers: { "content-type": "application/json", "X-SCMOS-AI-Control": "1" }, body: JSON.stringify({ message }) });
+        const result = await response.json();
+        if (!mounted.current || request.current !== controller) return;
+        if (!response.ok || result.code !== "draft") {
+          setAskError("สร้างร่างไม่ได้ กรุณาตรวจสิทธิ์ งาน วันที่ เวลา สถานะ และรหัสผู้รับผิดชอบ ตัวอย่าง: " + CHANGE_EXAMPLE);
+          return;
+        }
+        setChangeDraft(parseChangeDraft(result)); setDraftRevision(v => v + 1);
+        requestAnimationFrame(() => draftPanel.current?.scrollIntoView({ block: "start" }));
+        return;
+      }
       const result = await controlRequest(apiFetch, "/api/ai/chat", parseReply, controller.signal, askBody(message));
       if (mounted.current && request.current === controller) setReply(result);
     } catch (error) {
@@ -258,6 +277,8 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
       </>}
     </section>
 
+    <div ref={draftPanel}><OperationsChanges key={draftRevision} initialDraft={changeDraft}
+      onBusyChange={setChangeBusy} onOpenJob={onOpenJob} /></div>
     <div className={s.grid}>
       <div className={s.column}>
         <section className={s.panel} aria-labelledby="ai-priority">
@@ -308,7 +329,8 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <div className={s.formFooter}>
             <span className={s.hint} id="ai-question-help">{message.length.toLocaleString()} / 4,000 · Ctrl / ⌘ + Enter ส่งคำถาม</span>
             <div className={s.actions}>{busy && <button type="button" className={s.button} onClick={cancel}>หยุดรอ</button>}
-              <button className={s.primary} type="submit" disabled={!ready.ready || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : "ถาม Operations AI →"}</button></div>
+              <button className={s.primary} type="submit" disabled={(!ready.ready && !isChangeCommand(message)) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) ? "เติมร่างแก้งาน →" : "ถาม Operations AI →"}</button></div>
+          <p className={s.hint}>คำสั่งเติมร่าง (ยังไม่บันทึก): {CHANGE_EXAMPLE} · ผู้รับผิดชอบใช้รหัส เช่น OP-02</p>
           </div>
           {!ready.ready && <p className={s.hint}>{ready.title} · {ready.detail}</p>}
         </form>

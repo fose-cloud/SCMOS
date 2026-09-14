@@ -16,6 +16,7 @@ public static class AiChatEndpoints
     public static void MapAiFoundation(this IEndpointRouteBuilder routes)
     {
         routes.MapAiAudit();
+        routes.MapOperationsChanges();
         routes.MapPost("/api/ai/operations-control", async (HttpContext context, IUserAccessor users,
             OperationsControlService control, AgentOrchestrator runtime, CancellationToken token) =>
         {

@@ -10,8 +10,9 @@ public sealed record OperationsExecution(string Code, string Summary, Operations
 
 /// <summary>One model-selected read, server-composed facts. No recursive loops or model-written operational totals.</summary>
 public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit, IAiProvider provider, TimeProvider clock,
-    IOptions<OpenAiOptions>? providerOptions = null)
+    IOptions<OpenAiOptions>? providerOptions = null) : IAgentExecutor<OperationsExecution>
 {
+    public string AgentId => "operations-agent";
     public bool Connected => tools.All.Any(t => t.Handler is not null);
     public bool AuditReady => audit.Ready;
     public Task<bool> CheckAuditReadyAsync(CancellationToken token) => audit.CheckReadyAsync(token);

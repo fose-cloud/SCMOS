@@ -150,7 +150,13 @@ transport.ToolName = "query_shipments";
 var toolResult = await openAi.CompleteAsync(providerRequest with { Tools = [registry.Find("query_shipments")!] }, default);
 Check(toolResult.Code == "ok" && toolResult.ToolCalls?.Count == 1, "typed tool proposal returned, not executed");
 using (var sent = JsonDocument.Parse(transport.LastBody))
-    Check(sent.RootElement.GetProperty("tools")[0].GetProperty("function").GetProperty("strict").GetBoolean(), "SDK sends strict function schema");
+{
+    var function = sent.RootElement.GetProperty("tools")[0].GetProperty("function");
+    Check(function.GetProperty("strict").GetBoolean(), "SDK sends strict function schema");
+    Check(function.EnumerateObject().Select(p => p.Name).Order().SequenceEqual(
+        new[] { "name", "description", "parameters", "strict" }.Order()),
+        "1A: real SDK transport keeps existing function envelope, without internal metadata");
+}
 transport.ToolName = "delete_shipment";
 Check((await openAi.CompleteAsync(providerRequest, default)).Code == "invalid_output", "provider cannot introduce an unoffered tool");
 transport.ToolName = null; transport.Status = HttpStatusCode.TooManyRequests;
@@ -236,6 +242,8 @@ try
     Check(response.Headers.CacheControl?.NoStore == true, "chat is never cached");
 }
 finally { await app.StopAsync(); }
+SharedContractChecks.Run(Check);
+await OperationsChangeChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await OperationsChecks.RunAsync(Check);
 await OperationsControlChecks.RunAsync(Check);
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));

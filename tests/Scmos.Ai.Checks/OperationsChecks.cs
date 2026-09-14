@@ -139,7 +139,11 @@ static class OperationsChecks
         var audit = new OperationsTestAudit();
         var runtime = new OperationsAgent(registry, audit, provider, clock);
         var ask = new AiChatRequest("Show today's high-risk shipments.");
-        var result = await runtime.RunAsync("run-success", ask, own, agent, default);
+        IAgentExecutor<OperationsExecution> typed = runtime;
+        check(typed.AgentId == "operations-agent" && typed.Ready == runtime.Ready
+            && typed.Connected == runtime.Connected && await typed.CheckAuditReadyAsync(default),
+            "1A: typed executor preserves Operations readiness");
+        var result = await typed.RunAsync("run-success", ask, own, agent, default);
         check(result.Code == "ok" && result.Evidence!.Total == allRisk.Total, "C: target high-risk question executes a scoped read and returns evidence");
         check(audit.Entries.Select(e => e.Event).SequenceEqual(["run_started", "tool_started", "tool_completed", "run_completed"]),
             "C: audit sequence surrounds actual tool execution");
@@ -221,6 +225,12 @@ static class OperationsChecks
         var users = new TestUsers { User = own };
         builder.Services.AddSingleton<IUserAccessor>(users);
         await using var app = builder.Build();
+        using (var scope = app.Services.CreateScope())
+        {
+            check(ReferenceEquals(scope.ServiceProvider.GetRequiredService<OperationsAgent>(),
+                scope.ServiceProvider.GetRequiredService<IAgentExecutor<OperationsExecution>>()),
+                "1A: DI interface aliases the same scoped Operations instance");
+        }
         app.MapAiFoundation();
         await app.StartAsync();
         try

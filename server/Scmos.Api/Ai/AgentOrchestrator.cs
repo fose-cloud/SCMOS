@@ -8,7 +8,7 @@ namespace Scmos.Api.Ai;
 /// <summary>Foundation runtime behind the existing gateway, not a second public authority.</summary>
 public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironment environment,
     IAiProvider provider, AgentRegistry agents, AiRunLimiter limiter, ILogger<AgentOrchestrator> log,
-    OperationsAgent? operations = null, IOperationsControl? control = null)
+    IAgentExecutor<OperationsExecution>? operations = null, IOperationsControl? control = null)
 {
     private readonly AiOptions _options = options.Value;
     private const string Instructions = "You are an SCMOS assistant. Approved SCMOS rules and source evidence are authoritative. "

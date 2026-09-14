@@ -43,7 +43,7 @@ public sealed class OperationsReadService(IOperationsSource source, TimeProvider
             "query_delays" => "delays",
             _ => throw new InvalidOperationException("Unknown read tool."),
         };
-        if (limit is < 1 or > 50 || view is not ("today" or "risk_today" or "search" or "delays"))
+        if (limit is < 1 or > ToolRegistry.OperationsEvidenceLimit || view is not ("today" or "risk_today" or "search" or "delays"))
             throw new InvalidOperationException("Invalid read arguments.");
         var search = view == "search" ? arguments.GetProperty("query").GetString()!.Trim() : "";
         if (view == "search" && (string.IsNullOrWhiteSpace(search) || search.Length > 120))

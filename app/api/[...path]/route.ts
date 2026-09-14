@@ -64,8 +64,8 @@ function devUserCookie(header: string | null): string {
 }
 
 async function forward(request: Request, path: string[]): Promise<Response> {
-  // Only this administrative control is in scope; do not alter other workflows.
-  if (path.join("/") === "ai/operations-control" && request.method !== "GET") {
+  // Same-origin gate for the Operations switch and reviewed change confirmations.
+  if ((path.join("/") === "ai/operations-control" || path.slice(0, 2).join("/") === "ai/operations-changes") && request.method !== "GET") {
     if (!allowedOperationsControlRequest(request)) {
       return Response.json({ error: "Same-origin control request required" }, { status: 403 });
     }

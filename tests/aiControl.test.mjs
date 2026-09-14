@@ -139,6 +139,8 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.doesNotMatch(source, /dangerouslySetInnerHTML|localStorage\.|useRemembered|\/api\/risk|\/api\/ai\/invoke|\/api\/ai\/approvals/);
   assert.match(source, /canViewAudit \? "\/api\/ai\/audit/);
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
-  assert.match(source, /if \(request.current \|\| !ready.ready/);
+  assert.match(source, /if \(request.current \|\| changeBusy \|\| \(!ready.ready && !isChangeCommand\(message\)\)/);
+  assert.match(source, /operations-changes\/interpret/);
+  assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);
 });
