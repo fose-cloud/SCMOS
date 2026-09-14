@@ -43,7 +43,7 @@ test("the stylesheet puts a table's banding, hover and default ink back to the l
   const sheet = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(sheet, /table \.row-hover:hover \{ background: #EAF2FB !important; \}/);
   assert.match(sheet, /table \.row-hover:nth-child\(even\) \{ background: #FAFCFE; \}/);
-  assert.match(sheet, /table \{ color: #16232F; \}/);
+  assert.match(sheet, /table \{ color: #16232F; background: #FFFFFF; \}/);
 });
 
 test("the rail's mark says what the system is, and its globe turns", () => {

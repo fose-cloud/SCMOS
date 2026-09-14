@@ -121,7 +121,9 @@ button { cursor: pointer; }
    text that was never given a colour is ink rather than the page's light. */
 table .row-hover:hover { background: #EAF2FB !important; }
 table .row-hover:nth-child(even) { background: #FAFCFE; }
-table { color: #16232F; }
+/* The ground as well as the ink: a row that never set a background — most
+   of them — showed the navy panel behind the table through every odd row. */
+table { color: #16232F; background: #FFFFFF; }
 .card-hover:hover { border-color: #3b9ee0 !important; }
 .pick-hover:hover { background: #143354 !important; border-color: rgba(74,148,214,.4) !important; }
 
