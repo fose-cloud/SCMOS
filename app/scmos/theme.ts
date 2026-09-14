@@ -7,12 +7,93 @@ import type { CSSProperties } from "react";
  * value. Splitting respects parentheses so gradients and data: URLs survive.
  */
 const cache = new Map<string, CSSProperties>();
+const rawCache = new Map<string, CSSProperties>();
 
-export function css(declarations: string | undefined | null): CSSProperties {
-  if (!declarations) return {};
-  const hit = cache.get(declarations);
-  if (hit) return hit;
+/* ------------------------------------------------------------- the skin */
 
+/**
+ * One theme on every screen — the control tower's navy — asked for by the
+ * department on 14 September 2026.
+ *
+ * Fifty screens style themselves through this function with the light palette
+ * they were drawn in: white grounds, navy ink, pale rules. Rewriting every
+ * literal would be the same rule restated several thousand times, so the
+ * translation lives here, once, and reads the property it is translating.
+ * A dark ink becomes a light one, a white ground becomes a navy panel, a pale
+ * rule becomes a lit hairline; the mid-tone blues, ambers, reds and greens
+ * that carry meaning are left alone because they read on either ground, and
+ * the navy bars and blue buttons that were already dark stay as they are.
+ *
+ * `cssRaw` is the way out, for the paper: the sign-in card, and the documents
+ * that print — a cargo receipt on navy is a receipt nobody can sign.
+ */
+type Family = "ink" | "ground" | "line" | "other";
+
+function familyOf(prop: string): Family {
+  if (prop === "color" || prop === "fill" || prop === "stroke" || prop === "caret-color") return "ink";
+  if (prop === "background" || prop === "background-color" || prop === "background-image") return "ground";
+  if (prop.startsWith("border") || prop.startsWith("outline") || prop === "column-rule") return "line";
+  return "other";
+}
+
+/** The four tokens the screens lean on most, mapped exactly to the tower's own. */
+const EXACT: Record<Family, Record<string, string>> = {
+  ink: { "#0A2240": "#EAF4FC", "#16232F": "#EAF4FC", "#0E2B4D": "#EAF4FC", "#000000": "#EAF4FC" },
+  ground: { "#FFFFFF": "#0C2338", "#EEF2F6": "#06152A", "#F8FAFC": "#0F2C48", "#F1F5F9": "#0F2C48", "#F4F7FA": "#0F2C48", "#E9EFF5": "#143354" },
+  line: { "#D8E0E8": "rgba(74,148,214,.22)", "#E9EFF5": "rgba(74,148,214,.14)", "#E2E8F0": "rgba(74,148,214,.16)", "#C9D6E2": "rgba(74,148,214,.3)" },
+  other: {},
+};
+
+function hsl(hex: string): [number, number, number] {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+const out = (h: number, s: number, l: number) => `hsl(${h.toFixed(0)},${(s * 100).toFixed(0)}%,${(l * 100).toFixed(0)}%)`;
+
+function translate(family: Family, hex: string): string {
+  const exact = EXACT[family][hex];
+  if (exact) return exact;
+  const [h, s, l] = hsl(hex);
+  if (family === "ink") {
+    // Dark ink on white becomes light ink on navy; a mid or pale ink already reads.
+    if (l >= 0.5) return hex;
+    if (s < 0.2) return out(h, s, l < 0.3 ? 0.9 : 0.78);
+    return out(h, Math.min(s, 0.7), 0.7);
+  }
+  if (family === "ground") {
+    // A pale ground becomes a navy panel; a tinted pale ground keeps its tint, deep.
+    if (l <= 0.55) return hex;
+    if (s < 0.35) return l >= 0.97 ? "#0C2338" : l >= 0.9 ? "#0F2C48" : "#143354";
+    return out(h, Math.min(s, 0.45), 0.17);
+  }
+  // A pale rule becomes a lit hairline; a tinted one stays tinted.
+  if (l <= 0.55) return hex;
+  if (s < 0.35) return "rgba(74,148,214,.22)";
+  return out(h, 0.5, 0.34);
+}
+
+const HEX = /#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b|\bwhite\b/g;
+
+function skin(prop: string, value: string): string {
+  const family = familyOf(prop);
+  if (family === "other") return value;
+  return value.replace(HEX, (token) => {
+    let hex = token.toLowerCase() === "white" ? "#FFFFFF" : token.toUpperCase();
+    if (hex.length === 4) hex = "#" + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
+    return translate(family, hex);
+  });
+}
+
+function parse(declarations: string, skinned: boolean): CSSProperties {
   const style: Record<string, string> = {};
   let depth = 0;
   let start = 0;
@@ -33,11 +114,27 @@ export function css(declarations: string | undefined | null): CSSProperties {
     const key = prop.startsWith("--")
       ? prop
       : prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-    style[key] = value;
+    style[key] = skinned ? skin(prop, value) : value;
   }
+  return style as CSSProperties;
+}
 
-  const frozen = style as CSSProperties;
+export function css(declarations: string | undefined | null): CSSProperties {
+  if (!declarations) return {};
+  const hit = cache.get(declarations);
+  if (hit) return hit;
+  const frozen = parse(declarations, true);
   cache.set(declarations, frozen);
+  return frozen;
+}
+
+/** The declarations as written, for paper: the sign-in card and what prints. */
+export function cssRaw(declarations: string | undefined | null): CSSProperties {
+  if (!declarations) return {};
+  const hit = rawCache.get(declarations);
+  if (hit) return hit;
+  const frozen = parse(declarations, false);
+  rawCache.set(declarations, frozen);
   return frozen;
 }
 

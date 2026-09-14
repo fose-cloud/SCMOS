@@ -145,6 +145,26 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
 export const HEADINGS: Screen[] = ["workspace", "partners", "commercial", "quality", "integrations"];
 
 /**
+ * How the rail is sectioned — the department's own menu design, 14 Sep 2026.
+ *
+ * Dashboard stands alone above the sections. A section is drawn only when at
+ * least one of its entries is allowed for the account, so a carrier's rail —
+ * one screen — carries no headings at all. Order within a section is the
+ * order of `NAV`.
+ */
+export const NAV_GROUPS: { label: string; keys: Screen[] }[] = [
+  { label: "OPERATIONS", keys: ["workspace"] },
+  { label: "SUPPLY NETWORK", keys: ["partners"] },
+  { label: "COMMERCIAL", keys: ["commercial"] },
+  { label: "QUALITY & COMPLIANCE", keys: ["quality", "kpi", "audit", "documents"] },
+  { label: "INTELLIGENCE", keys: ["reports", "ai", "assistant"] },
+  { label: "SYSTEM", keys: ["integrations", "admin"] },
+];
+
+/** A tag drawn after the label — the design marks the assistant NEW. */
+export const NAV_TAGS: Partial<Record<Screen, string>> = { assistant: "NEW" };
+
+/**
  * What a carrier's account is allowed to open.
  *
  * Not a smaller version of the operator's menu — a different one. Every screen

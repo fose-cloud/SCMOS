@@ -2688,9 +2688,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         title={meta}
         actions={actions}
         tabs={tabs}
-        // The dashboard is drawn as a control tower on a navy canvas; every
-        // other screen keeps the grey page.
-        canvas={screen === "dashboard" ? "dark" : "light"}
         // Only while the workspace is actually drawing, because only then is
         // anything drawing the tabs instead. On a cold start it is a loading
         // card for as long as the database takes to wake, and hiding the strip

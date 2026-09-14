@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { badge, css } from "./theme";
 import { APP_ENVIRONMENT, APP_VERSION } from "./version";
 import { onFetching } from "./api";
-import { HEADINGS, NAV, SUB_NAV, type Screen } from "./nav";
+import { HEADINGS, NAV, NAV_GROUPS, NAV_TAGS, SUB_NAV, type Screen } from "./nav";
+import { NavGlyph } from "./navIcons";
 import type { SearchGroup, SearchHit } from "./search";
 
 /**
@@ -44,16 +45,6 @@ function Refreshing() {
       กำลังอัปเดต…
       <style>{"@keyframes scmos-pulse{0%,100%{opacity:.25}50%{opacity:1}}"}</style>
     </span>
-  );
-}
-
-function NavIcon({ rects, color }: { rects: number[][]; color: string }) {
-  return (
-    <svg width={16} height={16} viewBox="0 0 16 16" fill={color} style={{ display: "block" }}>
-      {rects.map((r, i) => (
-        <rect key={i} x={r[0]} y={r[1]} width={r[2]} height={r[3]} rx={0.8} />
-      ))}
-    </svg>
   );
 }
 
@@ -113,10 +104,9 @@ type Props = {
   /**
    * What the page is drawn on.
    *
-   * The dashboard is a control tower — navy, with its own hero band — and a
-   * white heading strip over a navy page reads as a page that forgot to load.
-   * So the strip and the tabs take the same palette there. Every other screen
-   * is the grey page it always was.
+   * Navy, on every screen, since the department asked for one theme
+   * (14 Sep 2026) — the control tower's. The light canvas is kept for the one
+   * caller that may still want it, and nothing passes it today.
    */
   canvas?: "light" | "dark";
   filters: { defs: FilterDef[]; q: string; onQ: (value: string) => void; onReset: () => void } | null;
@@ -160,7 +150,7 @@ export function Chrome(p: Props) {
    */
   const [folded, setFolded] = useState<Partial<Record<Screen, boolean>>>({});
 
-  const dark = p.canvas === "dark";
+  const dark = p.canvas !== "light";
   const strip = dark
     ? { bg: "#0a1c30", line: "rgba(74,148,214,.2)", crumb: "#7fa8ca", title: "#fff", tab: "#8fb4d4", tabOn: "#fff", tabOnBg: "#1668ab", tabOnLine: "#1668ab" }
     : { bg: "#fff", line: "#D8E0E8", crumb: "#8496A8", title: "#0A2240", tab: "#64748B", tabOn: "#0A2240", tabOnBg: "#fff", tabOnLine: "#D8E0E8" };
@@ -357,142 +347,163 @@ export function Chrome(p: Props) {
 
         <nav className={"app-rail" + (drawer ? " is-open" : "")}
           style={css("flex:none;width:" + (p.collapsed ? "64px" : "248px") +
-            ";background:#071A31;display:flex;flex-direction:column;border-right:1px solid #143254;transition:width .16s ease;overflow:hidden")}>
-          <div style={css("flex:1;overflow-y:auto;padding:10px 0")}>
-            {NAV.filter(([key]) => !p.allowed || p.allowed.includes(key))
-              .map(([key, label, th, rects]) => {
-              const active = p.screen === key && !HEADINGS.includes(key);
-              const count = p.navCounts[key];
-              const children = (SUB_NAV[key] ?? [])
-                .filter(([child]) => !p.allowed || p.allowed.includes(child));
-              const onChild = children.some(([child]) => child === p.screen);
-              // The user's own choice wins; otherwise open when this branch is
-              // where they are. A dropdown that collapses out from under the
-              // screen you are looking at is one you must reopen to see where
-              // you stand.
-              const openBranch = folded[key] ?? (active || onChild);
-              // A heading has nothing of its own to open. Clicking it works the
-              // fold, and it never draws itself as the current page — the child
-              // the user is actually on does that.
-              const heading = HEADINGS.includes(key);
-              // Inside the drawer there is room for labels again, so the
-              // collapsed icon-only rail is not what should be drawn there.
-              // Inside the drawer there is room for labels again, and the
-              // stylesheet gives the rail that width there, so the icon-only
-              // form is a desktop idea only.
-              const tight = p.collapsed;
-              return (
-                <div key={key + "-branch"} style={css("position:relative")}>
-                <button
-                  key={key}
-                  type="button"
-                  aria-label={label}
-                  aria-current={active ? "page" : undefined}
-                  className={active ? undefined : "nav-item"}
-                  onClick={() => (heading
-                    ? setFolded((was) => ({ ...was, [key]: !openBranch }))
-                    : p.onNavigate(key))}
-                  aria-expanded={heading ? openBranch : undefined}
-                  style={css(
-                    "width:100%;text-align:left;font-family:inherit;border:0;" +
-                    "display:flex;align-items:center;gap:12px;padding:" +
-                    (tight ? "10px 0;justify-content:center;"
-                      : "8px " + (children.length && !tight ? "34px" : "18px") + " 8px 18px;") +
-                    "cursor:pointer;border-left:3px solid " + (active ? "#4E9BE8" : "transparent") +
-                    ";background:" + (active ? "#123A66" : "transparent") +
-                    ";color:" + (active ? "#fff" : "#C4D6E6") + ";transition:background .12s",
-                  )}
-                >
-                  <span style={css("flex:none;display:flex;color:" + (active ? "#4E9BE8" : "#7FA5CC"))}>
-                    <NavIcon rects={rects} color={active ? "#4E9BE8" : "#7FA5CC"} />
-                  </span>
-                  {!tight && (
-                    <span style={css("display:flex;flex-direction:column;line-height:1.2;min-width:0")}>
-                      <span style={css("font-size:13px;font-weight:500;white-space:nowrap")}>{label}</span>
-                      <span style={css("font-size:10px;color:#5D82A8;white-space:nowrap")}>{th}</span>
-                    </span>
-                  )}
-                  {!tight && !!count && (
-                    <span style={css("margin-left:auto;background:" + (key === "incident" ? "#D64545" : "#1B4A7A") + ";color:#fff;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>
-                      {count}
-                    </span>
-                  )}
-                </button>
+            ";background:#040E1D;display:flex;flex-direction:column;border-right:1px solid #0E2A47;transition:width .16s ease;overflow:hidden;padding:8px")}>
+          {/*
+            The department's own menu: one glass panel with a lit edge, the
+            entries in six named sections, the current screen a lit pill.
+            The panel is the rail's inner frame rather than the rail itself so
+            the glow has somewhere to sit, and so the drawer on a phone keeps
+            the same shape.
+          */}
+          <div className="rail-panel" style={css("flex:1;min-height:0;display:flex;flex-direction:column;border-radius:12px;"
+            + "background:linear-gradient(180deg,#0A2140 0%,#071A31 55%,#061428 100%);"
+            + "border:1px solid rgba(74,148,214,.36);"
+            + "box-shadow:0 0 0 1px rgba(30,140,220,.08),0 0 26px rgba(30,140,220,.16),inset 0 0 40px rgba(20,100,170,.10)")}>
 
-                {/* The fold. A sibling of the nav button rather than inside it,
-                    because a button within a button is not something a browser
-                    or a screen reader can make sense of — and because the two
-                    do different things: one goes somewhere, one opens a list. */}
-                {children.length > 0 && !tight && (
-                  <button
-                    type="button"
-                    onClick={() => setFolded((was) => ({ ...was, [key]: !openBranch }))}
-                    aria-expanded={openBranch}
-                    aria-label={(openBranch ? "ย่อเมนูย่อยของ " : "กางเมนูย่อยของ ") + label}
-                    style={css("position:absolute;right:6px;top:5px;width:24px;height:24px;border:0;" +
-                      "background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;" +
-                      "color:" + (active || onChild ? "#4E9BE8" : "#7FA5CC") + ";font-size:10px;line-height:1;" +
-                      "transform:rotate(" + (openBranch ? "0deg" : "-90deg") + ");transition:transform .14s")}
-                  >
-                    ▼
-                  </button>
-                )}
+            {!p.collapsed && (
+              <div style={css("flex:none;position:relative;padding:14px 16px 10px;border-bottom:1px solid rgba(74,148,214,.2);overflow:hidden")}>
+                <svg aria-hidden="true" width="92" height="92" viewBox="0 0 92 92" fill="none" stroke="#3B9EE0" strokeWidth=".8"
+                  style={{ position: "absolute", right: -22, top: -26, opacity: .45 }}>
+                  <circle cx="46" cy="46" r="40" /><ellipse cx="46" cy="46" rx="18" ry="40" /><ellipse cx="46" cy="46" rx="40" ry="14" />
+                  <path d="M6 46h80M46 6v80" />
+                </svg>
+                <span style={css("display:block;font-size:22px;font-weight:600;letter-spacing:.2em;color:#DDF0FF;line-height:1;text-shadow:0 0 14px rgba(92,192,247,.45)")}>SCM<span style={css("color:#5CC0F7")}>OS</span></span>
+                <span style={css("display:block;margin-top:5px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.24em;color:#6FA0CC")}>SUPPLY CHAIN CONTROL TOWER</span>
+              </div>
+            )}
 
-                {/* The sub-menu. Only drawn when this branch is open and the
-                    rail is wide — collapsed, there is no room for a label, and
-                    an unlabelled indent is just a smaller mystery. */}
-                {/* Collapsed, the fold has nowhere to live and no label to
-                    read, so the children simply stand on their own as icons.
-                    Hiding them would put three screens behind a rail width. */}
-                {children.length > 0 && (openBranch || tight) && children.map(([child, childLabel, childTh, childRects]) => {
-                  const on = p.screen === child;
-                  const childCount = p.navCounts[child];
+            <div style={css("flex:1;overflow-y:auto;overflow-x:hidden;padding:" + (p.collapsed ? "8px 0" : "10px 8px 12px"))}>
+              {(() => {
+                const allowed = (key: Screen) => !p.allowed || p.allowed.includes(key);
+                const entry = (row: [Screen, string, string, number[][]], depth: 0 | 1) => {
+                  const [key, label, th, rects] = row;
+                  const heading = HEADINGS.includes(key);
+                  const active = p.screen === key && !heading;
+                  const count = p.navCounts[key];
+                  const tag = NAV_TAGS[key];
+                  const children = (SUB_NAV[key] ?? []).filter(([child]) => allowed(child));
+                  const onChild = children.some(([child]) => child === p.screen);
+                  // The user's own choice wins; otherwise open when this branch is
+                  // where they are. A dropdown that collapses out from under the
+                  // screen you are looking at is one you must reopen to see where
+                  // you stand.
+                  const openBranch = folded[key] ?? (active || onChild);
+                  const tight = p.collapsed;
+                  const lit = active;
+                  const ink = lit ? "#FFFFFF" : depth ? "#B9D0E6" : "#D3E3F3";
+                  const glyph = lit ? "#FFFFFF" : "#5CC0F7";
                   return (
-                    <button
-                      key={child}
-                      type="button"
-                      aria-label={childLabel}
-                      title={tight ? childLabel : undefined}
-                      aria-current={on ? "page" : undefined}
-                      className={on ? undefined : "nav-item"}
-                      onClick={() => p.onNavigate(child)}
-                      style={css(
-                        "width:100%;text-align:left;font-family:inherit;border:0;" +
-                        "display:flex;align-items:center;gap:10px;padding:" +
-                        (tight ? "9px 0;justify-content:center;" : "6px 18px 6px 36px;") +
-                        "cursor:pointer;border-left:3px solid " + (on ? "#4E9BE8" : "transparent") +
-                        ";background:" + (on ? "#123A66" : "transparent") +
-                        ";color:" + (on ? "#fff" : "#A9C3DA") + ";transition:background .12s",
-                      )}
-                    >
-                      <span style={css("flex:none;display:flex;opacity:" + (tight ? "1" : ".85"))}>
-                        <NavIcon rects={childRects} color={on ? "#4E9BE8" : "#6E93BC"} />
-                      </span>
-                      {!tight && (
-                        <span style={css("display:flex;flex-direction:column;line-height:1.2;min-width:0")}>
-                          <span style={css("font-size:12.5px;font-weight:500;white-space:nowrap")}>{childLabel}</span>
-                          <span style={css("font-size:9.5px;color:#5D82A8;white-space:nowrap")}>{childTh}</span>
+                    <div key={key + "-branch"} style={css("position:relative")}>
+                      <button
+                        type="button"
+                        aria-label={label}
+                        title={th}
+                        aria-current={active ? "page" : undefined}
+                        className={lit ? "rail-lit" : "rail-item"}
+                        onClick={() => (heading
+                          ? setFolded((was) => ({ ...was, [key]: !openBranch }))
+                          : p.onNavigate(key))}
+                        aria-expanded={heading ? openBranch : undefined}
+                        style={css(
+                          "width:100%;text-align:left;font-family:inherit;border:1px solid " + (lit ? "#3B9EE0" : "transparent") + ";border-radius:9px;" +
+                          "display:flex;align-items:center;gap:12px;margin:2px 0;cursor:pointer;transition:background .12s,box-shadow .12s;" +
+                          (tight ? "padding:10px 0;justify-content:center;"
+                            : "padding:" + (depth ? "7px 34px 7px 14px" : "9px 34px 9px 14px") + ";") +
+                          (lit
+                            ? "background:linear-gradient(100deg,#1668AB,#0F4D82);box-shadow:0 0 0 1px rgba(59,158,224,.2),0 0 18px rgba(30,140,220,.35);"
+                            : "background:transparent;") +
+                          "color:" + ink,
+                        )}
+                      >
+                        <span style={css("flex:none;display:flex;color:" + glyph + (lit ? ";filter:drop-shadow(0 0 4px rgba(255,255,255,.5))" : ""))}>
+                          <NavGlyph screen={key} rects={rects} size={depth ? 15 : 16} />
                         </span>
-                      )}
-                      {!tight && !!childCount && (
-                        <span style={css("margin-left:auto;background:#1B4A7A;color:#fff;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>
-                          {childCount}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-                </div>
-              );
-            })}
-          </div>
+                        {!tight && (
+                          <span style={css("font-size:" + (depth ? "12.5px" : "13.5px") + ";font-weight:" + (lit ? "600" : "500") + ";white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0")}>{label}</span>
+                        )}
+                        {!tight && !!tag && (
+                          <span style={css("margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:.1em;color:#5CC0F7;border:1px solid rgba(92,192,247,.7);background:rgba(92,192,247,.12);border-radius:9px;padding:2px 8px;box-shadow:0 0 10px rgba(92,192,247,.35)")}>
+                            {tag}
+                          </span>
+                        )}
+                        {!tight && !tag && !!count && (
+                          <span style={css("margin-left:auto;background:" + (key === "incident" ? "#D64545" : "rgba(92,192,247,.16)") + ";color:" + (key === "incident" ? "#fff" : "#8ED4FF") + ";border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:600;font-family:'IBM Plex Mono',monospace")}>
+                            {count}
+                          </span>
+                        )}
+                      </button>
 
-          {!p.collapsed && (
-            <div style={css("flex:none;border-top:1px solid #143254;padding:12px 18px;display:flex;flex-direction:column;gap:3px")}>
-              <span style={css("font-size:10px;color:#5D82A8;letter-spacing:.08em")}>ENVIRONMENT</span>
-              <span style={css("font-size:11.5px;color:#B9CFE5")}>{APP_ENVIRONMENT} · {APP_VERSION}</span>
+                      {/* The fold. A sibling of the nav button rather than inside
+                          it, because a button within a button is not something a
+                          browser or a screen reader can make sense of — and
+                          because the two do different things: one goes
+                          somewhere, one opens a list. */}
+                      {children.length > 0 && !tight && (
+                        <button
+                          type="button"
+                          onClick={() => setFolded((was) => ({ ...was, [key]: !openBranch }))}
+                          aria-expanded={openBranch}
+                          aria-label={(openBranch ? "ย่อเมนูย่อยของ " : "กางเมนูย่อยของ ") + label}
+                          style={css("position:absolute;right:8px;top:7px;width:26px;height:26px;border:0;" +
+                            "background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;" +
+                            "color:" + (onChild ? "#5CC0F7" : "#7FA5CC") + ";" +
+                            "transform:rotate(" + (openBranch ? "0deg" : "-90deg") + ");transition:transform .14s")}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" /></svg>
+                        </button>
+                      )}
+
+                      {/* Collapsed, the fold has nowhere to live and no label to
+                          read, so the children simply stand on their own as icons.
+                          Hiding them would put three screens behind a rail width. */}
+                      {children.length > 0 && (openBranch || tight) && children.map((child) => entry(child, 1))}
+                    </div>
+                  );
+                };
+
+                const top = NAV.filter(([key]) => allowed(key));
+                const dashboard = top.find(([key]) => key === "dashboard");
+                const grouped = new Set(NAV_GROUPS.flatMap((g) => g.keys));
+                // Anything the sections do not name still gets drawn, after
+                // them, so a new screen is never invisible for want of a group.
+                const loose = top.filter(([key]) => key !== "dashboard" && !grouped.has(key));
+
+                return (
+                  <>
+                    {dashboard && entry(dashboard, 0)}
+                    {NAV_GROUPS.map((group) => {
+                      const rows = group.keys
+                        .map((key) => top.find(([k]) => k === key))
+                        .filter((row): row is [Screen, string, string, number[][]] => !!row);
+                      if (!rows.length) return null;
+                      return (
+                        <div key={group.label}>
+                          {p.collapsed
+                            ? <div aria-hidden="true" style={css("height:1px;margin:8px 12px;background:rgba(74,148,214,.22)")} />
+                            : <div style={css("display:flex;align-items:center;gap:10px;padding:16px 6px 5px 6px")}>
+                                <span style={css("font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.16em;color:#4FB3F0;white-space:nowrap;text-shadow:0 0 10px rgba(79,179,240,.35)")}>{group.label}</span>
+                                <span aria-hidden="true" style={css("flex:1;height:1px;background:linear-gradient(90deg,rgba(79,179,240,.55),rgba(79,179,240,0))")} />
+                              </div>}
+                          {rows.map((row) => entry(row, 0))}
+                        </div>
+                      );
+                    })}
+                    {loose.map((row) => entry(row, 0))}
+                  </>
+                );
+              })()}
             </div>
-          )}
+
+            {!p.collapsed && (
+              <div style={css("flex:none;border-top:1px solid rgba(74,148,214,.2);padding:11px 16px 12px;display:flex;flex-direction:column;gap:5px")}>
+                <span style={css("font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:.16em;color:#4FB3F0")}>ENVIRONMENT</span>
+                <span style={css("display:flex;align-items:center;gap:9px;font-size:11.5px;color:#B9CFE5")}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#5CC0F7" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><rect x="2" y="2" width="12" height="4" rx="1" /><rect x="2" y="10" width="12" height="4" rx="1" /><path d="M4.5 4h.01M4.5 12h.01" /></svg>
+                  {APP_ENVIRONMENT} · {APP_VERSION}
+                </span>
+              </div>
+            )}
+          </div>
         </nav>
 
         <main style={css("flex:1;min-width:0;background:" + (dark ? "#06152a" : "#EEF2F6") + ";"

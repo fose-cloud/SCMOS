@@ -292,14 +292,14 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
       )}
 
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden") }>
-        {draft && <div style={{ padding: 12, background: "#EDF5FF" }}>
+        {draft && <div style={css("padding:12px;background:#EDF5FF")}>
           <strong>{editingId === null ? "แถวใหม่ — ยังไม่บันทึก" : "แก้ไขรายการอบรม"}</strong>
           <span> · กรอกวันที่ DD/MM/YYYY · สถานะคำนวณอัตโนมัติ</span>
           <button disabled={busy} onClick={() => void saveDraft()} style={{ marginLeft: 12 }}>บันทึกแถว</button>
           <button disabled={busy} onClick={() => {
             if (window.confirm("ยกเลิกข้อมูลที่ยังไม่บันทึกหรือไม่?")) { setDraft(null); setSaveError(""); }
           }} style={{ marginLeft: 8 }}>ยกเลิก</button>
-          {saveError && <div role="alert" style={{ color: "#B42318", marginTop: 8 }}>{saveError}</div>}
+          {saveError && <div role="alert" style={css("color:#B42318;margin-top:8px")}>{saveError}</div>}
         </div>}
         <ZoomBox height="62vh">
           <table style={css("width:100%;min-width:1330px;border-collapse:separate;border-spacing:0;font-size:12px") }>
@@ -313,7 +313,7 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
               </tr>
             </thead>
             <tbody>
-              {draft && <tr style={{ background: "#EDF5FF" }}>
+              {draft && <tr style={css("background:#EDF5FF")}>
                 {(Object.keys(COLUMNS) as (keyof ImportRow)[]).map((field) => <td key={field} style={{ padding: 6 }}>
                   <input aria-label={COLUMNS[field][0]} disabled={busy}
                     value={draft[field]}

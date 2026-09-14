@@ -2,7 +2,9 @@
 
 import { Fragment, useState } from "react";
 import { BRAND_LOGO_DATA_URI } from "../brandLogo";
-import { css } from "../theme";
+// As written, not through the navy skin: the sign-in card is the one light
+// surface left, by design — see cssRaw in theme.ts.
+import { cssRaw as css } from "../theme";
 
 /**
  * The way in.

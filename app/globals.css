@@ -5,19 +5,21 @@
 
 body {
   margin: 0;
-  background: #EEF2F6;
+  /* The control tower's navy, on every screen — see the skin in theme.ts. */
+  background: #06152a;
+  color: #dce9f6;
   font-family: "IBM Plex Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-a { color: #2E7DD1; text-decoration: none; }
-a:hover { color: #0A2240; }
+a { color: #5cc0f7; text-decoration: none; }
+a:hover { color: #8ed4ff; }
 
 input, select, button, textarea { font-family: inherit; }
 button { cursor: pointer; }
 
 ::-webkit-scrollbar { width: 11px; height: 11px; }
-::-webkit-scrollbar-thumb { background: #C3CEDA; border-radius: 6px; border: 3px solid #EEF2F6; }
+::-webkit-scrollbar-thumb { background: rgba(90,150,200,.35); border-radius: 6px; border: 3px solid #06152a; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 @keyframes tin {
@@ -52,15 +54,15 @@ button { cursor: pointer; }
  * card on a white background, or a browser that renders shadows away.
  */
 .sc-card {
-  background: #fff;
-  border: 1px solid #E8EEF4;
+  background: #0c2338;
+  border: 1px solid rgba(74, 148, 214, .2);
   border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(10, 34, 64, .04), 0 4px 16px rgba(10, 34, 64, .05);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 4px 16px rgba(0, 0, 0, .18);
 }
 
 .sc-card-tap { transition: box-shadow .16s ease, transform .16s ease; }
 .sc-card-tap:hover {
-  box-shadow: 0 2px 4px rgba(10, 34, 64, .07), 0 10px 26px rgba(10, 34, 64, .10);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .18), 0 10px 26px rgba(0, 0, 0, .28);
   transform: translateY(-1px);
 }
 .sc-card-tap:active { transform: translateY(0); }
@@ -95,10 +97,15 @@ button { cursor: pointer; }
 
 /* Hover affordances the design expresses via style-hover attributes. */
 .nav-item:hover { background: #0E2B4F !important; }
+/* The rail's entries: a faint lit ground on hover, and the current one's glow
+   brightening a touch so a pointer over it reads as "you are here". */
+.rail-item:hover { background: rgba(74, 148, 214, .12) !important; border-color: rgba(74, 148, 214, .28) !important; }
+.rail-lit:hover { box-shadow: 0 0 0 1px rgba(59, 158, 224, .3), 0 0 22px rgba(30, 140, 220, .5) !important; }
+.rail-panel::-webkit-scrollbar { width: 6px; }
 .hdr-btn:hover { background: #16406E !important; color: #fff !important; }
-.ghost-btn:hover { background: #F1F5F9 !important; }
+.ghost-btn:hover { background: #143354 !important; }
 .dark-btn:hover { background: #123A66 !important; border-color: #123A66 !important; }
-.row-hover:hover { background: #EAF2FB !important; }
+.row-hover:hover { background: #143a5c !important; }
 
 /*
  * Banding, now that the rows are close together.
@@ -108,9 +115,9 @@ button { cursor: pointer; }
  * faint enough that the amber and red a cell can carry still read as warnings
  * rather than as another stripe.
  */
-.row-hover:nth-child(even) { background: #FAFCFE; }
-.card-hover:hover { border-color: #2E7DD1 !important; }
-.pick-hover:hover { background: #F8FAFC !important; border-color: #C7D6E4 !important; }
+.row-hover:nth-child(even) { background: #0e2740; }
+.card-hover:hover { border-color: #3b9ee0 !important; }
+.pick-hover:hover { background: #143354 !important; border-color: rgba(74,148,214,.4) !important; }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -363,8 +370,8 @@ button { cursor: pointer; }
   /* Part of the header band, not a card in the page: same white, same side
      padding as the title above it, and a rule under it where the header's own
      used to be. */
-  background: #fff;
-  border-bottom: 1px solid #D8E0E8;
+  background: #0a1c30;
+  border-bottom: 1px solid rgba(74, 148, 214, .2);
   padding: 12px 24px 14px;
   /* The screen hands over a bar and some rows; the spacing between them is the
      header's business, not theirs. */

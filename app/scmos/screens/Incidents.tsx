@@ -574,7 +574,7 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
                     <td style={css(CELL + ";font-size:11.5px;color:" + (c.stage === "closed" ? "#16794C" : "#B45309"))}>
                       {STAGE_TH[c.stage] ?? c.stage}
                       {c.teamNote?.startsWith("SCMOS Excel import\nExcel status: ") &&
-                        <div style={{ color: "#5A6B7D" }}>ต้นฉบับ: {c.teamNote.split("\n")[1].slice("Excel status: ".length)}</div>}
+                        <div style={css("color:#5A6B7D")}>ต้นฉบับ: {c.teamNote.split("\n")[1].slice("Excel status: ".length)}</div>}
                     </td>
                     <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;color:" + (c.overdue ? "#B42318" : "#7B8CA0"))}>{c.dueDate || "—"}</td>
                   </tr>

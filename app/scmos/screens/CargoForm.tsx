@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
-import { css } from "../theme";
+// As written, not through the navy skin: this is a document that prints and
+// gets signed, and a receipt on navy is a receipt nobody can sign.
+import { cssRaw as css } from "../theme";
 import {
   receiptChoices, receiptHead, receiptLabel, receiptItem, type ReceiptJob,
 } from "../cargoReceipt";

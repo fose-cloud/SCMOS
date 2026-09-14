@@ -530,13 +530,14 @@ export function ControlTower(p: Props) {
 
       {/* ------------------------------------------------ hero + actions */}
       <div className="ct-top">
-        {/* The band is drawn, not photographed — public/dashboard-hero.svg — so
-            the app ships without a stock image. A photograph can take its
-            place by changing this one path. */}
+        {/* public/dashboard-hero.jpg is the department's own band — the night
+            port from their design, with the design's darkening already in it
+            and its typeset text taken out, so the live text below sits where
+            theirs did. Anchored left so a narrow screen keeps the globe and
+            the title's ground and loses the far cranes instead. */}
         <section className="ct-hero" style={css("position:relative;min-height:162px;border-radius:9px;overflow:hidden;border:1px solid rgba(74,148,214,.22);"
-          + "background:url(/dashboard-hero.svg) center/cover no-repeat,radial-gradient(120% 140% at 85% 30%,#123a5e 0%,#0a2340 45%,#06152a 100%)")}>
-          <div aria-hidden="true" style={css("position:absolute;inset:0;opacity:.35;background-image:radial-gradient(rgba(120,190,255,.35) 1px,transparent 1px);background-size:18px 18px")} />
-          <div aria-hidden="true" style={css("position:absolute;inset:0;background:linear-gradient(96deg,rgba(5,17,33,.94) 0%,rgba(5,17,33,.78) 42%,rgba(5,17,33,.42) 72%,rgba(5,17,33,.6) 100%)")} />
+          + "background:url(/dashboard-hero.jpg) left center/cover no-repeat,#0a1f38")}>
+          <div aria-hidden="true" style={css("position:absolute;inset:0;background:linear-gradient(96deg,rgba(5,17,33,.5) 0%,rgba(5,17,33,.22) 40%,rgba(5,17,33,0) 70%)")} />
           <div style={css("position:relative;padding:18px 22px;display:flex;flex-direction:column;gap:6px;height:100%")}>
             <div style={css("display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap")}>
               <div style={css("display:flex;flex-direction:column;gap:2px")}>
