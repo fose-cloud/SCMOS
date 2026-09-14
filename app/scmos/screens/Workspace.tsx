@@ -123,8 +123,8 @@ type Props = {
    */
   canEdit: (job: Job) => boolean;
   canAssign: boolean;
-  /** Owner ids whose jobs this person is covering today, from /api/me. */
-  covering: string[];
+  /** Whose jobs this person is covering today, from /api/me. */
+  covering: { id: string; name: string }[];
   /** Rows per page, from the viewer's settings. */
   per: number;
   /**
@@ -1049,8 +1049,14 @@ export function Workspace(p: Props) {
    * reads the same. Plain text for everyone else — the API refuses them too.
    */
   const opCell = (j: Job, mine: boolean): Cell => {
-    if (!canAssign) return { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" };
-    const known = M.operators.indexOf(j.op) >= 0 || !j.op ? M.operators : [j.op].concat(M.operators);
+    // Somebody covering a leave gets the dropdown too, on the rows they may
+    // edit, offering only themselves and the people they cover: a row keyed
+    // under the wrong name during the week is put right here, without a
+    // supervisor. Everyone else sees the name.
+    const handingOver = !canAssign && p.covering.length > 0 && canEditJob(j);
+    if (!canAssign && !handingOver) return { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" };
+    const offered = canAssign ? M.operators : [me.name, ...p.covering.map((one) => one.name)];
+    const known = offered.indexOf(j.op) >= 0 || !j.op ? offered : [j.op].concat(offered);
     return {
       kind: "select",
       field: "op",
@@ -1761,7 +1767,7 @@ export function Workspace(p: Props) {
     // A colleague's row held under a live grant is not "view only" — every
     // cell on it opens — and a badge saying so on a row somebody is keying for
     // the person on leave reads as the grant not working.
-    const covering = !mine && !!j.opId && p.covering.includes(j.opId);
+    const covering = !mine && !!j.opId && p.covering.some((one) => one.id === j.opId);
     const c = cell(mine ? "MY JOB" : covering ? "COVERING" : "VIEW ONLY",
       { tone: mine ? "blue" : covering ? "amber" : "gray" });
     c.td += "cursor:pointer;";
@@ -2490,7 +2496,9 @@ export function Workspace(p: Props) {
           {/* Said without naming a control: it used to send people to a
               Reassign button in the job drawer, which was taken off on
               2026-09-01 because ticking rows already does it. */}
-          การมอบหมายงานให้คนอื่นทำได้เฉพาะระดับหัวหน้างานขึ้นไป — แจ้งหัวหน้าเพื่อเปลี่ยนผู้รับผิดชอบ
+          {p.covering.length > 0
+            ? `เปลี่ยนผู้รับผิดชอบได้ระหว่างคุณกับ ${p.covering.map((one) => one.name).join(", ")} ที่คุณดูแลแทน — ชื่ออื่นต้องให้หัวหน้างานเปลี่ยน`
+            : "การมอบหมายงานให้คนอื่นทำได้เฉพาะระดับหัวหน้างานขึ้นไป — แจ้งหัวหน้าเพื่อเปลี่ยนผู้รับผิดชอบ"}
         </span>
       )}
     </div>

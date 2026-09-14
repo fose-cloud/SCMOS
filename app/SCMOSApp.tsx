@@ -1962,11 +1962,20 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
   function bulkAssign(keys: string[], owner: string) {
     if (!ops) return;
-    if (!able("AssignJobs")) {
+    // Somebody covering a leave may pass a job between themselves and the
+    // person they cover: both are theirs to edit for the week, and it is how
+    // a row keyed under the wrong name is put right. Anyone else's name still
+    // takes the authority to assign, and so does any row they cannot edit.
+    const target = opIdForName(owner);
+    const handingOver = !able("AssignJobs")
+      && !!target && (target === me.opId || actingFor.includes(target));
+    if (!able("AssignJobs") && !handingOver) {
       setToast("การมอบหมายงานทำได้เฉพาะระดับหัวหน้างานขึ้นไป");
       return;
     }
-    const chosen = ops.jobs.filter((j) => keys.indexOf(j.key) >= 0);
+    const chosen = ops.jobs.filter((j) => keys.indexOf(j.key) >= 0)
+      .filter((j) => able("AssignJobs") || canEditJob(j));
+    if (!chosen.length) { setToast("แก้ไม่ได้ — งานที่เลือกไม่ใช่งานของคุณหรือของคนที่คุณดูแลแทน"); return; }
     const undoEdits: UndoEdit[] = [];
     chosen.forEach((job) => {
       const old = job.op;
@@ -2850,7 +2859,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   onSort={() => undefined}
                   canEdit={(job) => !!ops && canEditJob(job)}
                   canAssign={able("AssignJobs")}
-                  covering={actingFor}
+                  covering={covering}
                   serverPages={serverPages}
                   fullRegisterLoaded={!!ops}
                   sectionPages={sectionPages}

@@ -55,3 +55,15 @@ test("every path that creates a job reads the same author", () => {
   assert.match(me, /covering = \(await delegations\.CoveringForAsync\(user\.OperatorId, token\)\)/);
   assert.match(app, /covering: body\.covering \?\? \[\]/);
 });
+
+test("somebody covering a leave can hand a row between themselves and the person covered, and nobody else", () => {
+  const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
+  const workspace = readFileSync(new URL("../app/scmos/screens/Workspace.tsx", import.meta.url), "utf8");
+  // The dropdown, for a delegate, offers only themselves and the people they cover…
+  assert.match(workspace, /const offered = canAssign \? M\.operators : \[me\.name, \.\.\.p\.covering\.map\(\(one\) => one\.name\)\];/);
+  // …and only on rows they may edit.
+  assert.match(workspace, /const handingOver = !canAssign && p\.covering\.length > 0 && canEditJob\(j\);/);
+  // The app refuses any other name without the authority to assign, and any row they cannot edit.
+  assert.match(app, /\(target === me\.opId \|\| actingFor\.includes\(target\)\)/);
+  assert.match(app, /\.filter\(\(j\) => able\("AssignJobs"\) \|\| canEditJob\(j\)\);/);
+});

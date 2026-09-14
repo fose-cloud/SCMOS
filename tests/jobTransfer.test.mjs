@@ -60,7 +60,9 @@ test("the API gates both transfer routes on AssignJobs, the same authority as as
 
 test("the grid's Assigned To column is a dropdown for assigners and goes through the bulk path", () => {
   const cell = workspace.slice(workspace.indexOf("const opCell = "), workspace.indexOf("const stCell = "));
-  assert.match(cell, /if \(!canAssign\) return \{ \.\.\.cell\(j\.op/);
+  // Plain text unless this person may assign — or is covering a leave, in
+  // which case keyingFor.test pins what the dropdown may offer.
+  assert.match(cell, /if \(!canAssign && !handingOver\) return \{ \.\.\.cell\(j\.op/);
   // Through onBulkAssign so op and opId change together and the audit row
   // reads "Assigned To", exactly as a reassignment from the bulk bar does.
   assert.match(cell, /p\.onBulkAssign\(\[j\.key\], e\.target\.value\)/);
