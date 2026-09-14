@@ -8,6 +8,7 @@ import { FilterPickMany } from "../FilterPickMany";
 import { chosenIn } from "../filterChoices";
 import { editHistoryShortcut } from "../editHistory";
 import { gridTabTarget } from "../gridEditKey";
+import { draftGroups, growDrafts, isDraft, sheetToday } from "../rateSheetDrafts";
 import { writeClipboardTable } from "../pasteBlock";
 import { NO_DATE, monthLabel, partsOf } from "../period";
 import { SHEET_COLUMNS, missingForLane, readCell, editRateDraft, type SheetColumn, type SheetRow } from "../rateSheetColumns";
@@ -120,13 +121,14 @@ const LEAD = 1;
  *
  * Negative so it can never collide with a real one, and so anything that
  * reaches the API with it is obviously wrong rather than quietly editing lane
- * zero.
+ * zero. Each new row takes the next one down, so several can sit on the
+ * sheet at once and still be told apart by the grid, the editor and a paste.
  */
-const DRAFT = -1;
+let nextDraftId = -1;
 
 /** A blank sheet row, for typing into before it exists anywhere else. */
 const blankDraft = (): SheetRow => ({
-  laneId: DRAFT, inquiryId: 0, date: "", no: 0, requestor: "", customer: "",
+  laneId: nextDraftId--, inquiryId: 0, date: "", no: 0, requestor: "", customer: "",
   fuelBand: "", fromPlace: "", toPlace: "", county: "", carriers: "",
   fcl: true, lcl: false, domestic: false, remark: "", prices: {},
 });
@@ -204,16 +206,22 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
   const [copyCols, setCopyCols] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Editing | null>(null);
   /*
-   * A row being typed into that the server has not got yet.
+   * Rows being typed into that the server has not got yet.
    *
    * My Job inserts straight into its grid: a blank row appears at the top,
    * pinned there, with the first cell already open. This does the same, and the
    * only reason it is not the same code is that My Job holds its whole register
    * in the browser and can persist a blank row, while a rate lane is refused
-   * without a customer, an origin and a destination. So the row lives here
-   * until it has those three, and is created the moment it does.
+   * without a customer, an origin and a destination. So the rows live here
+   * until each has those three, and are created together when asked.
+   *
+   * Several at once, because a quotation is rarely one lane: the workbook
+   * files three or four routes under one number, and the person keying them
+   * has them as one Excel block. See rateSheetDrafts for what a paste does
+   * when it runs past the last of them.
    */
-  const [draft, setDraft] = useState<SheetRow | null>(null);
+  const [drafts, setDrafts] = useState<SheetRow[]>([]);
+  const draft = drafts.length > 0;
   const [saving, setSaving] = useState(false);
   const creatingDraft = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -246,7 +254,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
   // register — it is what somebody is working on, and a row that sorted itself
   // into 3,005 others the moment it was created would be lost.
   const rows = useMemo(() => page?.rows ?? [], [page]);
-  const shown = useMemo(() => (draft ? [draft, ...rows] : rows), [draft, rows]);
+  const shown = useMemo(() => (drafts.length ? [...drafts, ...rows] : rows), [drafts, rows]);
 
   /*
    * The rectangle, and everything a spreadsheet does with one.
@@ -426,15 +434,27 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
   ) {
     // Draft edits stay local; only persisted lane IDs reach the cell endpoint.
     if (!canEdit || saving) return;
-    const draftEdits = edits.filter((one) => one.row.laneId === DRAFT);
-    if (draft && draftEdits.length) {
+    // A paste that starts in the new rows and runs on past them makes more
+    // new rows rather than rewriting the saved ones underneath.
+    let held = drafts;
+    let grown = 0;
+    if (how === "paste") ({ edits, drafts: held, grown } = growDrafts(edits, drafts, rows, blankDraft));
+    const draftEdits = edits.filter((one) => isDraft(one.row));
+    if (draftEdits.length) {
       try {
-        const next = draftEdits.reduce((row, edit) => editRateDraft(row, edit.field, edit.value), draft);
-        setDraft(next);
-        onToast(`วางข้อมูลในแถวใหม่แล้ว ${draftEdits.length} ช่อง — กดบันทึกแถวใหม่`);
+        const next = held.map((row) => draftEdits
+          .filter((edit) => edit.row.laneId === row.laneId)
+          .reduce((so, edit) => editRateDraft(so, edit.field, edit.value), row));
+        setDrafts(next);
+        const touched = new Set(draftEdits.map((one) => one.row.laneId)).size;
+        onToast(how === "clear"
+          ? `ล้างช่องในแถวใหม่แล้ว ${draftEdits.length} ช่อง`
+          : `วางข้อมูลในแถวใหม่แล้ว ${touched} แถว`
+            + (grown ? ` · เพิ่มแถวใหม่อีก ${grown} แถวให้พอดีกับที่วาง` : "")
+            + " — กดบันทึกแถวใหม่");
       } catch (error) { onToast(error instanceof Error ? error.message : "วางข้อมูลไม่สำเร็จ"); return; }
     }
-    edits = edits.filter((one) => one.row.laneId !== DRAFT);
+    edits = edits.filter((one) => !isDraft(one.row));
     if (edits.length === 0) return;
 
     // Filed before the write, because afterwards the page is re-read and the
@@ -475,61 +495,99 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
    * rate — so a refusal is shown as it comes back and the old value stays.
    */
   /**
-   * A cell of the draft row, which is not saved one cell at a time.
+   * A cell of a draft row, which is not saved one cell at a time.
    *
    * Keep fields and prices locally until the explicit save action. The create
    * endpoint validates and commits the complete request and its prices together.
    */
-  async function saveDraft(column: SheetColumn, value: string) {
-    if (!draft || !canEdit || saving) return;
-    try { setDraft(editRateDraft(draft, fieldOf(column), value)); }
-    catch (error) { onToast(error instanceof Error ? error.message : "ข้อมูลไม่ถูกต้อง"); }
+  async function saveDraft(row: SheetRow, column: SheetColumn, value: string) {
+    if (!canEdit || saving) return;
+    try {
+      const next = editRateDraft(row, fieldOf(column), value);
+      setDrafts((was) => was.map((one) => one.laneId === row.laneId ? next : one));
+    } catch (error) { onToast(error instanceof Error ? error.message : "ข้อมูลไม่ถูกต้อง"); }
   }
 
-  async function createDraft() {
-    if (!draft || !canEdit || saving || creatingDraft.current) return;
-    let next = draft;
+  /** Drops one new row without touching the others. */
+  function dropDraft(laneId: number) {
+    setDrafts((was) => was.filter((one) => one.laneId !== laneId));
+    if (editing?.laneId === laneId) setEditing(null);
+  }
+
+  /**
+   * Files every new row.
+   *
+   * Grouped by customer and date into the inquiries the register numbers —
+   * see draftGroups — and sent one group at a time, so a refusal names the
+   * group and leaves it, and everything after it, on the sheet with what was
+   * typed. The groups that went through are gone from the sheet and back on
+   * the page with their numbers.
+   */
+  async function createDrafts() {
+    if (drafts.length === 0 || !canEdit || saving || creatingDraft.current) return;
+    let next = drafts;
     try {
-      if (editing?.laneId === DRAFT) next = editRateDraft(next, fieldOf(SHEET_COLUMNS[editing.column]), editing.value);
+      if (editing && isDraft(editing)) {
+        const value = editing.value;
+        const column = editing.column;
+        next = next.map((row) => row.laneId === editing.laneId
+          ? editRateDraft(row, fieldOf(SHEET_COLUMNS[column]), value) : row);
+      }
     } catch (error) { onToast(error instanceof Error ? error.message : "ข้อมูลไม่ถูกต้อง"); return; }
-    setDraft(next);
+    setDrafts(next);
     setEditing(null);
-    const missing = missingForLane(next);
-    if (missing.length) { onToast("กรุณากรอก " + missing.join(", ")); return; }
+    for (let index = 0; index < next.length; index++) {
+      const missing = missingForLane(next[index]);
+      if (missing.length) {
+        onToast((next.length > 1 ? `แถวใหม่ที่ ${index + 1}: ` : "") + "กรุณากรอก " + missing.join(", "));
+        return;
+      }
+    }
     creatingDraft.current = true;
 
     setSaving(true);
     try {
-      const today = new Date();
-      const dd = String(today.getDate()).padStart(2, "0");
-      const mm = String(today.getMonth() + 1).padStart(2, "0");
-      const response = await apiFetch("/api/rate-inquiries", {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({
-          inquiredOn: next.date || `${dd}/${mm}/${today.getFullYear()}`,
-          customer: String(next.customer).trim(),
-          lanes: [{
-            fromPlace: String(next.fromPlace).trim(),
-            toPlace: String(next.toPlace).trim(),
-            county: String(next.county).trim(),
-            carriers: String(next.carriers).trim(),
-            remark: String(next.remark).trim(),
-            fcl: next.fcl, lcl: next.lcl, domestic: next.domestic,
-            prices: next.prices,
-          }],
-        }),
-      });
-      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
-      if (!response.ok) {
-        // The row stays on screen with what was typed in it. Clearing it here
-        // would throw the work away over a refusal the operator can fix.
-        onToast(reply.error ?? `เพิ่มแถวไม่สำเร็จ (${response.status})`);
-        return;
+      const groups = draftGroups(next, sheetToday());
+      const filed: number[] = [];
+      let lanes = 0;
+      for (const group of groups) {
+        const response = await apiFetch("/api/rate-inquiries", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({
+            inquiredOn: group.inquiredOn,
+            customer: group.customer,
+            lanes: group.rows.map((row) => ({
+              fromPlace: String(row.fromPlace).trim(),
+              toPlace: String(row.toPlace).trim(),
+              county: String(row.county).trim(),
+              carriers: String(row.carriers).trim(),
+              remark: String(row.remark).trim(),
+              fcl: row.fcl, lcl: row.lcl, domestic: row.domestic,
+              prices: row.prices,
+            })),
+          }),
+        });
+        const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+        if (!response.ok) {
+          // The rows stay on screen with what was typed in them. Clearing them
+          // here would throw the work away over a refusal the operator can fix.
+          const kept = next.filter((row) => !filed.includes(row.laneId));
+          setDrafts(kept);
+          onToast((groups.length > 1 ? `${group.customer}: ` : "")
+            + (reply.error ?? `เพิ่มแถวไม่สำเร็จ (${response.status})`)
+            + (filed.length ? ` · บันทึกไปแล้ว ${filed.length} แถวก่อนหน้า` : ""));
+          if (filed.length) { setAt(1); await load(); }
+          return;
+        }
+        filed.push(...group.rows.map((row) => row.laneId));
+        lanes += group.rows.length;
       }
-      setDraft(null);
+      setDrafts([]);
       setEditing(null);
-      onToast(reply.message ?? "เพิ่มแถวแล้ว — ใส่ราคาได้เลย");
+      onToast(groups.length === 1 && lanes === 1
+        ? "เพิ่มแถวแล้ว — ใส่ราคาได้เลย"
+        : `เพิ่ม ${lanes} แถวแล้ว · ${groups.length} ใบขอราคา — ใส่ราคาได้เลย`);
       setAt(1);
       await load();
     } catch { onToast("ยังยืนยันการบันทึกไม่ได้ ข้อมูลแถวใหม่ยังอยู่ — ตรวจรายการก่อนลองบันทึกซ้ำ"); }
@@ -537,7 +595,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
   }
 
   async function save(row: SheetRow, column: SheetColumn, value: string) {
-    if (row.laneId === DRAFT) { await saveDraft(column, value); return; }
+    if (isDraft(row)) { await saveDraft(row, column, value); return; }
     const field = column.kind === "price" ? `price:${column.vehicle}` : column.field!;
     const before = readCell(row, column);
     if (value.trim() === String(before).trim()) return;
@@ -869,9 +927,13 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     meta: "รูปแบบตามไฟล์ Rate Inquiry",
     fill: true,
     actions: [
-      ...(draft && canEdit ? [{ label: saving ? "กำลังบันทึก…" : "บันทึกแถวใหม่",
-        title: "บันทึกลูกค้า เส้นทาง และราคาที่กรอก", disabled: saving,
-        style: "background:#16794C", go: () => void createDraft() }] : []),
+      ...(draft && canEdit ? [{
+        label: saving ? "กำลังบันทึก…" : drafts.length > 1 ? `บันทึกแถวใหม่ทั้ง ${drafts.length} แถว` : "บันทึกแถวใหม่",
+        title: drafts.length > 1
+          ? "บันทึกทุกแถวใหม่ — ลูกค้าเดียวกันวันเดียวกันจะได้เลขที่เดียวกัน"
+          : "บันทึกลูกค้า เส้นทาง และราคาที่กรอก",
+        disabled: saving,
+        style: "background:#16794C", go: () => void createDrafts() }] : []),
       // First, and only once there is something to walk back — a permanently
       // greyed pair of buttons teaches people to stop looking at that corner.
       ...(undos.length > 0
@@ -886,27 +948,39 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
         // Inline, the way My Job inserts: the row appears at the top of the
         // grid with its first cell already open, instead of a panel above the
         // grid that has to be filled and submitted before anything appears.
-        label: draft ? "ยกเลิกแถวใหม่" : "+ แทรกแถว",
+        // Every press adds one more below the last, so a quotation's four
+        // routes can be keyed as four rows and saved once.
+        label: "+ แทรกแถว",
         title: canEdit
           ? draft
-            ? "ทิ้งแถวที่ยังไม่ได้บันทึก"
-            : "แทรกแถวเปล่าไว้บนสุด แล้วพิมพ์ในตารางได้เลย"
+            ? "เพิ่มแถวใหม่อีกแถวต่อจากแถวที่มี"
+            : "แทรกแถวเปล่าไว้บนสุด แล้วพิมพ์ในตารางได้เลย · กดซ้ำเพื่อเพิ่มหลายแถว"
           : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง",
         disabled: !canEdit || saving,
         style: "background:#0A2240",
         go: () => {
-          if (draft) { setDraft(null); setEditing(null); onToast("ทิ้งแถวใหม่แล้ว"); return; }
           setPanel("none");
-          setDraft(blankDraft());
+          const added = blankDraft();
+          const position = drafts.length;
+          setDrafts((was) => [...was, added]);
           // Select, rather than open an input: Ctrl+V can immediately spread
           // an Excel block across the new row, and typing opens the editor.
           const at = SHEET_COLUMNS.findIndex((one) => one.field === "customer");
           setEditing(null);
-          grid.setRange({ grid: "sheet", r1: 0, r2: 0, c1: at + LEAD, c2: at + LEAD });
+          grid.setRange({ grid: "sheet", r1: position, r2: position, c1: at + LEAD, c2: at + LEAD });
           (document.activeElement as HTMLElement | null)?.blur();
-          onToast("แทรกแถวแล้ว — กรอกหรือวางลูกค้า ต้นทาง ปลายทาง แล้วกดบันทึกแถวใหม่");
+          onToast(position === 0
+            ? "แทรกแถวแล้ว — กรอกหรือวางลูกค้า ต้นทาง ปลายทาง แล้วกดบันทึกแถวใหม่ · กด + แทรกแถว ซ้ำเพื่อเพิ่มอีก"
+            : `แทรกแถวใหม่แถวที่ ${position + 1} แล้ว`);
         },
       },
+      ...(draft && canEdit ? [{
+        label: drafts.length > 1 ? `ทิ้งแถวใหม่ทั้ง ${drafts.length} แถว` : "ทิ้งแถวใหม่",
+        title: "ทิ้งแถวที่ยังไม่ได้บันทึก",
+        disabled: saving,
+        style: "",
+        go: () => { setDrafts([]); setEditing(null); onToast("ทิ้งแถวใหม่แล้ว"); },
+      }] : []),
       {
         label: panel === "import" ? "ปิดการนำเข้า" : "Import from Excel",
         title: "อ่านไฟล์ Rate Inquiry.xlsx เข้าระบบ",
@@ -1015,7 +1089,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
       key: String(row.laneId),
       // A ticked row is coloured and edged, as it is in My Job — the bar acts
       // on rows, so which rows it will act on has to be visible.
-      style: row.laneId === DRAFT
+      style: isDraft(row)
         ? "background:#EDF5FF;border-left:3px solid #2E7DD1"
         : picked.has(row.laneId)
           ? "background:#FFF7DE;border-left:3px solid #D89614"
@@ -1044,7 +1118,17 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     c.checked = picked.has(row.laneId);
     // A row the server has not got cannot be selected for deletion — there is
     // nothing to delete, and the tick would sit beside a count that is wrong.
-    c.disabled = !canEdit || busy || row.laneId === DRAFT;
+    // Its box is a way to drop that one row instead, since with several new
+    // rows on the sheet "throw them all away" is the wrong size of undo.
+    if (isDraft(row)) {
+      const drop = cell("✕", { mute: true });
+      drop.td = "padding:4px 6px 4px 10px;border-bottom:1px solid #EDF1F5;text-align:center;vertical-align:middle;width:34px;"
+        + (canEdit && !saving ? "cursor:pointer;" : "");
+      drop.title = canEdit ? "ทิ้งแถวใหม่แถวนี้" : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง";
+      drop.go = (event) => { event.stopPropagation(); if (canEdit && !saving) dropDraft(row.laneId); };
+      return drop;
+    }
+    c.disabled = !canEdit || busy;
     c.td = "padding:4px 6px 4px 10px;border-bottom:1px solid #EDF1F5;text-align:center;vertical-align:middle;width:34px;";
     c.title = canEdit ? "เลือกแถวนี้" : "บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง";
     c.onCheck = () => togglePick(row.laneId);
@@ -1081,8 +1165,11 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
         onKey: (event) => {
           if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
             event.preventDefault();
-            const r = row.laneId === DRAFT ? 0 : rows.findIndex(one => one.laneId === row.laneId) + (draft ? 1 : 0);
-            const next = gridTabTarget(event, { row: r, column: index + LEAD }, rows.length + (draft ? 1 : 0),
+            // Drafts sit above the page, so a page row's position is offset by them.
+            const r = isDraft(row)
+              ? drafts.findIndex((one) => one.laneId === row.laneId)
+              : drafts.length + rows.findIndex((one) => one.laneId === row.laneId);
+            const next = gridTabTarget(event, { row: r, column: index + LEAD }, drafts.length + rows.length,
               [undefined, ...SHEET_COLUMNS.map(col => col.kind === "tick" ? undefined : fieldOf(col))], "left");
             const held = editing;
             setEditing(null);
