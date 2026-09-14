@@ -83,13 +83,52 @@ function translate(family: Family, hex: string): string {
 
 const HEX = /#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b|\bwhite\b/g;
 
+/*
+ * Paper on the navy.
+ *
+ * The tables people work in all day — the plan, the rate sheet, the supplier
+ * register, the training lists — were asked back to white on 14 September,
+ * the same day the navy went on: a light grid is easier on the eyes for a
+ * shift of keying, and it is where the screens spend their time. The skin
+ * cannot see where a colour will land, so every colour it translates goes
+ * out as a CSS variable with the navy value as its fallback, and the light
+ * value is written into a stylesheet under `table` and `.paper`. Inside a
+ * table the variable resolves to the colour the screen was drawn with;
+ * everywhere else the fallback is the navy. One rule per colour, added the
+ * first time that colour is translated, so nothing here has to know the
+ * palette in advance.
+ */
+const paper = new Map<string, string>();
+let paperSheet: CSSStyleSheet | null = null;
+
+function paperVar(family: Family, hex: string, dark: string): string {
+  const name = `--sk-${family}-${hex.slice(1)}`;
+  if (!paper.has(name)) {
+    paper.set(name, hex);
+    if (typeof document !== "undefined") {
+      if (!paperSheet) {
+        const element = document.createElement("style");
+        element.id = "scmos-paper";
+        document.head.appendChild(element);
+        paperSheet = element.sheet;
+      }
+      paperSheet?.insertRule(`table,.paper{${name}:${hex}}`, paperSheet.cssRules.length);
+    }
+  }
+  return `var(${name},${dark})`;
+}
+
+/** The light values every translated colour falls back to on paper — for tests. */
+export function paperPalette(): ReadonlyMap<string, string> { return paper; }
+
 function skin(prop: string, value: string): string {
   const family = familyOf(prop);
   if (family === "other") return value;
   return value.replace(HEX, (token) => {
     let hex = token.toLowerCase() === "white" ? "#FFFFFF" : token.toUpperCase();
     if (hex.length === 4) hex = "#" + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
-    return translate(family, hex);
+    const dark = translate(family, hex);
+    return dark === hex ? hex : paperVar(family, hex, dark);
   });
 }
 

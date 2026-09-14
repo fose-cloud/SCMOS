@@ -116,6 +116,12 @@ button { cursor: pointer; }
  * rather than as another stripe.
  */
 .row-hover:nth-child(even) { background: #0e2740; }
+/* Inside a table the ground is paper again — see the skin's paper variables
+   in theme.ts — so the banding and the hover go back to the light ones, and
+   text that was never given a colour is ink rather than the page's light. */
+table .row-hover:hover { background: #EAF2FB !important; }
+table .row-hover:nth-child(even) { background: #FAFCFE; }
+table { color: #16232F; }
 .card-hover:hover { border-color: #3b9ee0 !important; }
 .pick-hover:hover { background: #143354 !important; border-color: rgba(74,148,214,.4) !important; }
 

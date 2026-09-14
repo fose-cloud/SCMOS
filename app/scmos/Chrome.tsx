@@ -113,6 +113,74 @@ type Props = {
   children: ReactNode;
 };
 
+/**
+ * The globe behind the mark, turning.
+ *
+ * A wireframe sphere: three latitude rings that stay put and six meridians
+ * that sweep across the face. A meridian is a great circle through the
+ * poles, and seen from the side it is an ellipse whose width runs from the
+ * full disc, when it faces you, down to a line through the centre, when it
+ * is edge-on — so each one animates its rx from R to 0 and back, a sixth of
+ * a turn behind the one before it, and the six together read as one sphere
+ * turning. Front arcs are brighter than back ones by the same phase, which
+ * is what makes it look solid rather than like six rings breathing.
+ *
+ * SVG's own animation rather than a script: nothing to schedule, nothing to
+ * tear down, and it keeps turning while React is busy elsewhere. Somebody
+ * who has asked their system for less motion gets the sphere, still — the
+ * animation elements are simply not rendered for them, decided after mount
+ * so the server's markup and the browser's first paint agree.
+ */
+function RailGlobe() {
+  const R = 40;
+  const turn = "14s";
+  const meridians = 6;
+  const [still, setStill] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+    const read = () => setStill(query.matches);
+    read();
+    query.addEventListener("change", read);
+    return () => query.removeEventListener("change", read);
+  }, []);
+  return (
+    <svg aria-hidden="true" className="rail-globe" width="92" height="92" viewBox="0 0 92 92" fill="none"
+      style={{ position: "absolute", right: -22, top: -26, opacity: .55 }}>
+      <defs>
+        <radialGradient id="rail-globe-shade" cx="38%" cy="34%" r="70%">
+          <stop offset="0" stopColor="#5CC0F7" stopOpacity=".28" />
+          <stop offset=".55" stopColor="#1E6FB8" stopOpacity=".10" />
+          <stop offset="1" stopColor="#040E1D" stopOpacity=".55" />
+        </radialGradient>
+      </defs>
+      <g transform="rotate(-18 46 46)" stroke="#3B9EE0" strokeWidth=".8">
+        <circle cx="46" cy="46" r={R} fill="url(#rail-globe-shade)" />
+        <ellipse cx="46" cy="46" rx={R} ry="14" opacity=".8" />
+        <ellipse cx="46" cy="27" rx="30" ry="9" opacity=".55" />
+        <ellipse cx="46" cy="65" rx="30" ry="9" opacity=".55" />
+        {Array.from({ length: meridians }, (_, i) => {
+          // Each meridian starts a sixth of a turn behind the last; a negative
+          // begin puts it mid-sweep at first paint instead of all six at once.
+          const begin = `${(-(i * 14) / meridians).toFixed(2)}s`;
+          // Stilled, the six are spread evenly, which is the sphere at rest.
+          const rest = Math.abs(Math.cos((i * Math.PI) / meridians)) * R;
+          return (
+            <ellipse key={i} cx="46" cy="46" rx={still ? rest : R} ry={R} opacity={still ? .6 : undefined}>
+              {!still && <>
+                <animate attributeName="rx" values={`${R};0;${R}`} keyTimes="0;.5;1" dur={turn} begin={begin}
+                  repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1" />
+                <animate attributeName="opacity" values=".9;.25;.9" keyTimes="0;.5;1" dur={turn} begin={begin}
+                  repeatCount="indefinite" />
+              </>}
+            </ellipse>
+          );
+        })}
+      </g>
+    </svg>
+  );
+}
+
 export function Chrome(p: Props) {
   /**
    * Whether the drawer is open. It means something only on a narrow screen,
@@ -362,13 +430,12 @@ export function Chrome(p: Props) {
 
             {!p.collapsed && (
               <div style={css("flex:none;position:relative;padding:14px 16px 10px;border-bottom:1px solid rgba(74,148,214,.2);overflow:hidden")}>
-                <svg aria-hidden="true" width="92" height="92" viewBox="0 0 92 92" fill="none" stroke="#3B9EE0" strokeWidth=".8"
-                  style={{ position: "absolute", right: -22, top: -26, opacity: .45 }}>
-                  <circle cx="46" cy="46" r="40" /><ellipse cx="46" cy="46" rx="18" ry="40" /><ellipse cx="46" cy="46" rx="40" ry="14" />
-                  <path d="M6 46h80M46 6v80" />
-                </svg>
+                <RailGlobe />
                 <span style={css("display:block;font-size:22px;font-weight:600;letter-spacing:.2em;color:#DDF0FF;line-height:1;text-shadow:0 0 14px rgba(92,192,247,.45)")}>SCM<span style={css("color:#5CC0F7")}>OS</span></span>
-                <span style={css("display:block;margin-top:5px;font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.24em;color:#6FA0CC")}>SUPPLY CHAIN CONTROL TOWER</span>
+                {/* Two lines: at this size and tracking the name does not fit on one. */}
+                <span style={css("display:block;margin-top:5px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.18em;line-height:1.5;color:#6FA0CC")}>
+                  SUBCONTRACT MANAGEMENT<br />OPERATION SYSTEM
+                </span>
               </div>
             )}
 
