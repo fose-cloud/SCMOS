@@ -83,6 +83,7 @@ builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();
+builder.Services.AddScoped<JobTransferService>();
 builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();
 builder.Services.AddScoped<RateInquiryService>();
@@ -219,6 +220,7 @@ if (MailReviewCheck.Run(args) is int reviewExit) return reviewExit;
 if (MailAttachmentsCheck.Run(args) is int attachmentsExit) return attachmentsExit;
 if (SupplierRegisterCheck.Run(args) is int registerExit) return registerExit;
 if (SupplierComplianceCheck.Run(args) is int complianceExit) return complianceExit;
+if (JobTransferCheck.Run(args) is int jobTransferExit) return jobTransferExit;
 
 if (args.Contains("--seed"))
 {

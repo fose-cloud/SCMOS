@@ -21,6 +21,13 @@ public static class JobsEndpoints
         string? OwnerId, string? Month);
 
     /// <summary>
+    /// Whose jobs go to whom. Both dates optional and inclusive; both blank
+    /// means everything the person holds. <c>Apply</c> false is the preview.
+    /// </summary>
+    public record TransferRequest(string? FromOwnerId, string? ToOwnerId, string? FromDate,
+        string? ToDate, string? Reason, bool? Apply);
+
+    /// <summary>
     /// Above this, a save is an import or a seed rather than somebody editing.
     /// Two thousand audit rows for one button press would bury the trail that
     /// matters, so a batch this size is recorded as the one action it was.
@@ -47,6 +54,45 @@ public static class JobsEndpoints
             var (json, _) = await jobs.LoadAsync(token);
             // Written verbatim: the rows are already JSON and were checked on the way out.
             return Results.Text(json, "application/json");
+        });
+
+        /*
+         * Moving somebody's jobs to a colleague — a leave, or a resignation.
+         *
+         * The same authority as handing one job to another operator from the
+         * grid, because it is that at a different size; not a delegation,
+         * which leaves the name on the job and runs out. The grid's own
+         * reassignment goes through PUT above one page at a time, which is no
+         * way to move a month of somebody's work, so this does it in SQL and
+         * writes the same audit row per job as the grid would have.
+         */
+        group.MapGet("/transfer/people", async (HttpContext context, IUserAccessor users,
+            JobTransferService transfers, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AssignJobs))
+                return ApiResults.Error("การโยกงานทำได้เฉพาะระดับหัวหน้างานขึ้นไป", StatusCodes.Status403Forbidden);
+
+            var (holders, receivers) = await transfers.PeopleAsync(token);
+            return Results.Json(new { holders, receivers });
+        });
+
+        group.MapPost("/transfer", async ([FromBody] TransferRequest? body, HttpContext context,
+            IUserAccessor users, JobTransferService transfers, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AssignJobs))
+                return ApiResults.Error("การโยกงานทำได้เฉพาะระดับหัวหน้างานขึ้นไป", StatusCodes.Status403Forbidden);
+
+            var outcome = await transfers.RunAsync(user,
+                body?.FromOwnerId ?? "", body?.ToOwnerId ?? "",
+                body?.FromDate ?? "", body?.ToDate ?? "", body?.Reason ?? "",
+                body?.Apply == true, token);
+            return outcome.Ok
+                ? Results.Json(outcome)
+                : ApiResults.Error(outcome.Message, StatusCodes.Status400BadRequest);
         });
 
         // Cancelled or moved, straight from SQL. See JobsRepository.ChangedAsync

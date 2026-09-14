@@ -1930,6 +1930,24 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   }
 
   /**
+   * Jobs changed hands on the server — a leave or a resignation, moved from
+   * the settings panel in one request rather than a page of ticks at a time.
+   * The API already wrote and audited them; this brings the copy in memory
+   * into line, by the keys it answered with, and refetches the page on show.
+   */
+  function jobsMoved(keys: string[], owner: string, ownerId: string) {
+    if (ops) {
+      const moved = new Set(keys);
+      ops.jobs.forEach((job) => {
+        if (!moved.has(job.key)) return;
+        job.op = owner;
+        job.opId = ownerId;
+      });
+    }
+    touch();
+  }
+
+  /**
    * Removes jobs from the plan for good — the register row goes with them, so
    * this asks first and, like every other write, stops at the ownership line.
    */
@@ -3036,6 +3054,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           onReloadPlan={reloadFromPlanFile}
           onCleanup={runCleanup}
           onDuplicates={openDuplicates}
+          onJobsMoved={jobsMoved}
           onClose={() => setSettingsOpen(false)}
         />
       )}

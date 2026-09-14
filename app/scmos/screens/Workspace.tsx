@@ -1032,6 +1032,39 @@ export function Workspace(p: Props) {
     };
   };
 
+  /**
+   * Whose job it is — "Assigned To".
+   *
+   * A dropdown for anybody who may assign work, on every row, their own or
+   * not: changing the name on a job is the whole of what assigning is, and a
+   * supervisor moving one job off somebody who is away should not have to
+   * tick the row and find the bulk bar to do it. It goes through the same
+   * path as the bulk bar, so the id changes with the name and the audit row
+   * reads the same. Plain text for everyone else — the API refuses them too.
+   */
+  const opCell = (j: Job, mine: boolean): Cell => {
+    if (!canAssign) return { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" };
+    const known = M.operators.indexOf(j.op) >= 0 || !j.op ? M.operators : [j.op].concat(M.operators);
+    return {
+      kind: "select",
+      field: "op",
+      v: j.op,
+      sp: "",
+      value: j.op,
+      // An unowned job offers a blank first so the dropdown does not claim
+      // the first name on the list until somebody picks one.
+      options: j.op ? known : [""].concat(known),
+      td: "padding:5px 9px;white-space:nowrap;border-bottom:1px solid #EDF1F5;",
+      selStyle: "height:23px;max-width:158px;border:1px solid #BBD5EE;border-radius:3px;background:#F4F8FC;font-size:11px;color:#0A2240;font-weight:"
+        + (mine ? "700" : "600") + ";padding:0 4px;cursor:pointer",
+      onChange: (e) => {
+        e.stopPropagation();
+        if (e.target.value && e.target.value !== j.op) p.onBulkAssign([j.key], e.target.value);
+      },
+      go: (e) => e.stopPropagation(),
+    };
+  };
+
   /** Status is a dropdown for jobs you own; "Delayed" routes into the delay modal. */
   const stCell = (j: Job): Cell => {
     if (!canEditJob(j)) {
@@ -1459,7 +1492,7 @@ export function Workspace(p: Props) {
         ed(j, "remark", { w: 180, mute: true }),
         ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
         ed(j, "cs", { mono: true }), stCell(j),
-        { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
+        opCell(j, mine),
       ]);
     }
     if (layout === "EXPORT") {
@@ -1477,7 +1510,7 @@ export function Workspace(p: Props) {
         ed(j, "licence", { mono: true }), ed(j, "driver", { w: 150 }), ed(j, "contact", { mono: true }),
         ed(j, "arrDate", { mono: true }), ed(j, "arrTime", { mono: true }),
         ed(j, "remark", { w: 180, mute: true }), stCell(j),
-        { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
+        opCell(j, mine),
       ]);
     }
     if (layout === "DELIVERY") {
@@ -1506,7 +1539,7 @@ export function Workspace(p: Props) {
         transportRateCell(j),
         returnBox(j, "standard"), returnBox(j, "finished"), returnCostCell(j), tripTotalCell(j),
         ed(j, "remark", { w: 170, mute: true }), stCell(j),
-      { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
+      opCell(j, mine),
       ]);
     }
     return head.concat([
@@ -1524,7 +1557,7 @@ export function Workspace(p: Props) {
       ed(j, "reason", { w: 170, color: j.reason ? "#B45309" : null }), ed(j, "remark", { w: 170, mute: true }),
       ed(j, "pickupPlan", { mono: true, mute: true }), ed(j, "pickupTime", { mono: true, mute: true }),
       ed(j, "cs", { mono: true }), stCell(j),
-      { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" },
+      opCell(j, mine),
     ]);
   };
 

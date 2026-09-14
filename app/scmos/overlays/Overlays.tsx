@@ -283,6 +283,11 @@ export function SettingsModal(p: {
   onReloadPlan: () => void;
   onCleanup: () => void;
   onDuplicates: () => void;
+  /**
+   * Jobs changed hands on the server. The workspace holds its own copy of the
+   * register and would otherwise show the old name until the next reload.
+   */
+  onJobsMoved: (keys: string[], owner: string, ownerId: string) => void;
   onClose: () => void;
 }) {
   const chip = (active: boolean) =>
@@ -432,12 +437,12 @@ export function SettingsModal(p: {
                 to today, so nothing has to run overnight for it to end.
               */}
               <div>
-                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>มอบสิทธิ์แก้ไขงานของฉัน</div>
+                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>มอบหมายงานเมื่อลา</div>
                 <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
                   กำหนดล่วงหน้าได้ — สถานะจะเป็น “รอถึงกำหนด” และระบบเปิดสิทธิ์ให้อัตโนมัติ
                   ตั้งแต่วันเริ่ม โดยไม่ต้องออกจากระบบ
                 </div>
-                <Delegations me={p.me} onToast={p.onToast} />
+                <Delegations me={p.me} onToast={p.onToast} onJobsMoved={p.onJobsMoved} />
               </div>
 
               <div>
@@ -738,8 +743,21 @@ type Grant = {
  * given cover without being told would otherwise find rows they can edit and no
  * explanation for why.
  */
-function Delegations({ me, onToast }: { me: Account; onToast: (message: string) => void }) {
+function Delegations({ me, onToast, onJobsMoved }: {
+  me: Account;
+  onToast: (message: string) => void;
+  onJobsMoved: (keys: string[], owner: string, ownerId: string) => void;
+}) {
   const [grants, setGrants] = useState<Grant[]>([]);
+  /*
+   * Two ways to hand over work while somebody is away, and they are not the
+   * same thing. A grant lets a colleague edit the jobs and leaves the name on
+   * them; it runs out. A transfer changes the name — the jobs become the
+   * colleague's — and is what a long leave or a resignation needs. The grant
+   * form has always said so when refusing a leave past ninety days; this is
+   * where it was pointing.
+   */
+  const [mode, setMode] = useState<"grant" | "transfer">("grant");
   const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
   const [form, setForm] = useState({ delegateId: "", fromDate: "", toDate: "", reason: "", ownerId: "" });
   // Whose work this person may arrange cover for. Empty for everybody without
@@ -800,8 +818,32 @@ function Delegations({ me, onToast }: { me: Account; onToast: (message: string) 
 
   const box = "height:31px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;outline:none;font-family:inherit";
 
+  // Moving work needs the authority to assign it. The owners list is empty for
+  // everybody without that, which is the same signal the "แทน" field reads.
+  const mayTransfer = owners.length > 0;
+  const tab = (active: boolean) =>
+    "height:28px;padding:0 12px;border:1px solid " + (active ? "#0A2240" : "#D8E0E8") +
+    ";background:" + (active ? "#0A2240" : "#fff") + ";color:" + (active ? "#fff" : "#475569") +
+    ";border-radius:4px;font-size:11.5px;cursor:pointer;font-family:inherit;font-weight:" + (active ? "600" : "400");
+
   return (
     <div>
+      {mayTransfer && (
+        <div style={css("display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:9px")}>
+          <button onClick={() => setMode("grant")} style={css(tab(mode === "grant"))}>
+            มอบสิทธิ์แก้ไข · ชื่อเจ้าของงานคงเดิม
+          </button>
+          <button onClick={() => setMode("transfer")} style={css(tab(mode === "transfer"))}>
+            โยกงาน · เปลี่ยนชื่อผู้รับผิดชอบ
+          </button>
+        </div>
+      )}
+
+      {mode === "transfer" && mayTransfer && (
+        <TransferJobs onToast={onToast} onMoved={onJobsMoved} />
+      )}
+
+      {mode === "grant" && <>
       <div style={css("display:flex;gap:7px;flex-wrap:wrap;align-items:center")}>
         {owners.length > 0 && (
           <select value={form.ownerId} onChange={(e) => setForm({ ...form, ownerId: e.target.value })}
@@ -857,6 +899,183 @@ function Delegations({ me, onToast }: { me: Account; onToast: (message: string) 
               </div>
             );
           })}
+        </div>
+      )}
+      </>}
+    </div>
+  );
+}
+
+type Holder = { id: string; name: string; role: string; active: boolean; jobs: number };
+type Receiver = { id: string; name: string; role: string };
+type Transfer = {
+  message: string; fromName: string; toName: string; period: string;
+  held: number; moving: number; undated: number; closedOut: number;
+  sample: string[]; applied: boolean; keys: string[];
+};
+
+/**
+ * Moving somebody's jobs to a colleague.
+ *
+ * Preview, then apply: the count is shown before anything is written, and the
+ * button that writes says the number it will write. Every change to the form
+ * throws the preview away, because a count taken for one week is not the
+ * count for another.
+ *
+ * Who holds jobs comes off the register, not the staff list, so a person who
+ * has left and been closed is still offered with the number of jobs their
+ * name is still on. Finished and cancelled jobs stay where they are — the
+ * register is also the record of who did what — and the preview says how
+ * many it is leaving behind and why.
+ */
+function TransferJobs({ onToast, onMoved }: {
+  onToast: (message: string) => void;
+  onMoved: (keys: string[], owner: string, ownerId: string) => void;
+}) {
+  const blank = { fromOwnerId: "", toOwnerId: "", fromDate: "", toDate: "", reason: "" };
+  const [holders, setHolders] = useState<Holder[]>([]);
+  const [receivers, setReceivers] = useState<Receiver[]>([]);
+  const [form, setForm] = useState(blank);
+  const [preview, setPreview] = useState<Transfer | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const response = await apiFetch("/api/jobs/transfer/people", { headers: { accept: "application/json" } });
+    if (!response.ok) return;
+    const body = await response.json() as { holders: Holder[]; receivers: Receiver[] };
+    setHolders(body.holders);
+    setReceivers(body.receivers);
+  }, []);
+
+  // Fetching on mount; every setState is after an await. See Delegations.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load(); }, [load]);
+
+  const update = (patch: Partial<typeof blank>) => {
+    setForm((prev) => ({ ...prev, ...patch }));
+    setPreview(null);
+  };
+
+  const ready = !!form.fromOwnerId && !!form.toOwnerId && form.fromOwnerId !== form.toOwnerId
+    && form.reason.trim().length >= 4;
+
+  async function run(apply: boolean) {
+    if (busy) return;
+    if (apply && preview) {
+      const receiver = receivers.find((person) => person.id === form.toOwnerId);
+      if (!window.confirm(
+        `โยก ${preview.moving} งานของ ${preview.fromName} ให้ ${receiver?.name ?? preview.toName}?\n\n` +
+        `ชื่อผู้รับผิดชอบบนงานเหล่านี้จะเปลี่ยนเป็น ${receiver?.name ?? preview.toName} และบันทึกลง Audit ทุกงาน`,
+      )) return;
+    }
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/jobs/transfer", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...form, apply }),
+      });
+      const reply = await response.json().catch(() => ({})) as Partial<Transfer> & { error?: string };
+      if (!response.ok) { onToast(reply.message ?? reply.error ?? "โยกงานไม่สำเร็จ"); return; }
+      const outcome = reply as Transfer;
+      if (!apply) { setPreview(outcome); return; }
+      onToast(outcome.message);
+      if (outcome.applied) {
+        const receiver = receivers.find((person) => person.id === form.toOwnerId);
+        onMoved(outcome.keys, receiver?.name ?? outcome.toName, form.toOwnerId);
+      }
+      setPreview(null);
+      setForm(blank);
+      await load();
+    } finally { setBusy(false); }
+  }
+
+  const box = "height:31px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;outline:none;font-family:inherit";
+  const button = (on: boolean, tone: string) =>
+    "height:31px;padding:0 14px;border:1px solid " + (on ? tone : "#C3CFDB") + ";background:" + (on ? tone : "#C3CFDB") +
+    ";color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:" + (on ? "pointer" : "not-allowed") + ";font-family:inherit";
+
+  return (
+    <div>
+      <div style={css("display:flex;gap:7px;flex-wrap:wrap;align-items:center")}>
+        <select value={form.fromOwnerId} onChange={(e) => update({ fromOwnerId: e.target.value })}
+          style={css(box + ";min-width:190px")}>
+          <option value="">— งานของใคร —</option>
+          {holders.map((person) => (
+            <option key={person.id} value={person.id}>
+              {person.name} · {person.jobs} งาน{person.active ? "" : " · ปิดบัญชีแล้ว"}
+            </option>
+          ))}
+        </select>
+        <select value={form.toOwnerId} onChange={(e) => update({ toOwnerId: e.target.value })}
+          style={css(box + ";min-width:170px")}>
+          <option value="">— โยกให้ใคร —</option>
+          {receivers.filter((person) => person.id !== form.fromOwnerId).map((person) => (
+            <option key={person.id} value={person.id}>{person.name}</option>
+          ))}
+        </select>
+        <input value={form.fromDate} onChange={(e) => update({ fromDate: e.target.value })}
+          placeholder="เริ่ม วว/ดด/ปปปป" title="เว้นทั้งสองช่อง = ทุกงานที่ยังไม่ปิด"
+          style={css(box + ";width:130px")} />
+        <input value={form.toDate} onChange={(e) => update({ toDate: e.target.value })}
+          placeholder="ถึง วว/ดด/ปปปป" title="เว้นทั้งสองช่อง = ทุกงานที่ยังไม่ปิด"
+          style={css(box + ";width:130px")} />
+        <input value={form.reason} onChange={(e) => update({ reason: e.target.value })}
+          placeholder="เหตุผล เช่น ลาพักร้อน / ลาออก" style={css(box + ";flex:1;min-width:150px")} />
+        <button onClick={() => void run(false)} disabled={busy || !ready}
+          style={css(button(!busy && ready, "#0A2240"))}>
+          {busy && !preview ? "กำลังนับ…" : "ดูงานที่จะย้าย"}
+        </button>
+      </div>
+      <div style={css("font-size:11px;color:#94A3B8;margin-top:5px")}>
+        เว้นวันที่ทั้งสองช่อง = ทุกงานที่ยังไม่ปิด · งานที่เสร็จหรือยกเลิกแล้วคงชื่อเดิม
+      </div>
+
+      {preview && (
+        <div style={css("margin-top:10px;background:#F8FAFC;border:1px solid #E3E8EE;border-radius:5px;padding:11px 13px")}>
+          <div style={css("display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:7px")}>
+            <div>
+              <div style={css("font-size:16px;font-weight:700;font-family:ui-monospace,monospace;color:#0A2240")}>{preview.moving}</div>
+              <div style={css("font-size:10.5px;color:#7B8CA0")}>จะย้ายให้ {preview.toName}</div>
+            </div>
+            {preview.closedOut > 0 && (
+              <div>
+                <div style={css("font-size:16px;font-weight:700;font-family:ui-monospace,monospace;color:#7B8CA0")}>{preview.closedOut}</div>
+                <div style={css("font-size:10.5px;color:#7B8CA0")}>เสร็จ/ยกเลิกแล้ว · คงชื่อเดิม</div>
+              </div>
+            )}
+            {preview.undated > 0 && (
+              <div>
+                <div style={css("font-size:16px;font-weight:700;font-family:ui-monospace,monospace;color:#B45309")}>{preview.undated}</div>
+                <div style={css("font-size:10.5px;color:#7B8CA0")}>ไม่มีวันที่ · ไม่ย้าย</div>
+              </div>
+            )}
+          </div>
+          <div style={css("font-size:11.5px;color:#5A6B7D;line-height:1.7;margin-bottom:6px")}>
+            งานของ <b>{preview.fromName}</b> · {preview.period} · ถืออยู่ทั้งหมด {preview.held} งาน
+          </div>
+          {preview.sample.length > 0 && (
+            <div style={css("font-size:11px;color:#7B8CA0;font-family:ui-monospace,monospace;line-height:1.7;margin-bottom:9px")}>
+              {preview.sample.map((line, i) => <div key={i}>{line}</div>)}
+              {preview.moving > preview.sample.length && <div>… และอีก {preview.moving - preview.sample.length} งาน</div>}
+            </div>
+          )}
+          <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap")}>
+            {preview.moving > 0 ? (
+              <>
+                <button onClick={() => void run(true)} disabled={busy}
+                  style={css(button(!busy, "#16794C"))}>
+                  {busy ? "กำลังโยกงาน…" : `โยก ${preview.moving} งานให้ ${preview.toName}`}
+                </button>
+                <span style={css("font-size:11.5px;color:#7B8CA0")}>ยังไม่ได้เปลี่ยนอะไร</span>
+              </>
+            ) : (
+              <span style={css("font-size:11.5px;color:#7B8CA0")}>ไม่มีงานที่จะย้ายในช่วงนี้</span>
+            )}
+            <button onClick={() => setPreview(null)}
+              style={css("height:30px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit")}>
+              ปิด
+            </button>
+          </div>
         </div>
       )}
     </div>
