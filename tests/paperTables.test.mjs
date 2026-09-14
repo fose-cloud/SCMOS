@@ -55,3 +55,15 @@ test("the rail's mark says what the system is, and its globe turns", () => {
   assert.match(chrome, /<animate attributeName="rx" values=\{`\$\{R\};0;\$\{R\}`\}/);
   assert.match(chrome, /prefers-reduced-motion: reduce/);
 });
+
+test("every screen but the control tower is drawn on paper", () => {
+  const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
+  const chrome = readFileSync(new URL("../app/scmos/Chrome.tsx", import.meta.url), "utf8");
+  const sheet = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(app, /canvas=\{screen === "dashboard" \? "dark" : "light"\}/);
+  assert.match(chrome, /<main className=\{dark \? undefined : "paper"\}/);
+  // The stylesheet's own retoned rules are put back under paper.
+  for (const rule of [".paper .sc-card {", ".paper .ghost-btn:hover", ".paper .row-hover:hover", ".paper #scmos-screen-toolbar"]) {
+    assert.ok(sheet.includes(rule), rule);
+  }
+});

@@ -104,9 +104,10 @@ type Props = {
   /**
    * What the page is drawn on.
    *
-   * Navy, on every screen, since the department asked for one theme
-   * (14 Sep 2026) — the control tower's. The light canvas is kept for the one
-   * caller that may still want it, and nothing passes it today.
+   * Navy for the control tower — the dashboard — and paper for every other
+   * screen, which is where the day's keying happens and where the department
+   * asked, the same afternoon the navy went on, for white to come back. The
+   * rail and the header band stay the tower's whatever the page is.
    */
   canvas?: "light" | "dark";
   filters: { defs: FilterDef[]; q: string; onQ: (value: string) => void; onReset: () => void } | null;
@@ -573,7 +574,14 @@ export function Chrome(p: Props) {
           </div>
         </nav>
 
-        <main style={css("flex:1;min-width:0;background:" + (dark ? "#06152a" : "#EEF2F6") + ";"
+        {/*
+          `paper` is the class the skin's variables answer to: inside it every
+          colour a screen was drawn with resolves to itself rather than to the
+          navy — see theme.ts. So a light canvas is one class on the main
+          element, not a second rendering of fifty screens.
+        */}
+        <main className={dark ? undefined : "paper"}
+          style={css("flex:1;min-width:0;background:" + (dark ? "#06152a" : "#EEF2F6") + ";"
           + (p.lockScroll ? "overflow:hidden;display:flex;flex-direction:column" : "overflow-y:auto"))}>
           {/*
             The heading, compact where the screen cannot scroll.

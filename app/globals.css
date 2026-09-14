@@ -390,6 +390,32 @@ table { color: #16232F; background: #FFFFFF; }
 #scmos-screen-toolbar:empty { display: none; }
 
 /* ==========================================================================
+   Paper.
+
+   Every screen but the control tower is drawn on its light palette again:
+   Chrome puts `paper` on the main element, the skin's variables resolve to
+   the colours the screens were drawn with, and these are the stylesheet's
+   own retoned rules put back for that region. Tables carry the same
+   variables on their own, so a table is paper wherever it is.
+   ========================================================================== */
+.paper { color: #16232F; }
+.paper a { color: #2E7DD1; }
+.paper a:hover { color: #0A2240; }
+.paper .sc-card {
+  background: #fff;
+  border: 1px solid #E8EEF4;
+  box-shadow: 0 1px 2px rgba(10, 34, 64, .04), 0 4px 16px rgba(10, 34, 64, .05);
+}
+.paper .sc-card-tap:hover { box-shadow: 0 2px 4px rgba(10, 34, 64, .07), 0 10px 26px rgba(10, 34, 64, .10); }
+.paper .ghost-btn:hover { background: #F1F5F9 !important; }
+.paper .row-hover:hover { background: #EAF2FB !important; }
+.paper .row-hover:nth-child(even) { background: #FAFCFE; }
+.paper .card-hover:hover { border-color: #2E7DD1 !important; }
+.paper .pick-hover:hover { background: #F8FAFC !important; border-color: #C7D6E4 !important; }
+.paper #scmos-screen-toolbar { background: #fff; border-bottom: 1px solid #D8E0E8; }
+.paper ::-webkit-scrollbar-thumb { background: #C3CEDA; border: 3px solid #EEF2F6; }
+
+/* ==========================================================================
    Tailwind, for the Report Centre only — and deliberately without preflight.
    ==========================================================================
 

@@ -2660,6 +2660,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     <>
       <Chrome
         screen={screen}
+        // The control tower keeps the navy it was designed on; every working
+        // screen is paper. Asked for by the department on 14 September.
+        canvas={screen === "dashboard" ? "dark" : "light"}
         onNavigate={go}
         navCounts={navCounts}
         allowed={isCarrier ? CARRIER_SCREENS : undefined}
