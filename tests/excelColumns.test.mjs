@@ -36,6 +36,19 @@ test("Import Excel keeps Remark immediately after Reason / Delay", () => {
   ordered(columns, ['header: "Reason / Delay"', 'header: "Remark"', 'header: "OT"']);
 });
 
+test("Domestic grid runs the customer's references CUSTOMER PO., PRODUCT NAME, SAP ORDER, DELIVER NO.", () => {
+  const headers = section(workspace, "  DELIVERY:", "\n  // Mixed lists");
+  ordered(headers, ['["SID NO."]', '["CUSTOMER PO."]', '["PRODUCT NAME"]', '["SAP ORDER"]', '["DELIVER NO."]', '["Customer List"]']);
+
+  const cells = section(workspace, 'if (layout === "DELIVERY")', "return head.concat([\n      catCell");
+  ordered(cells, ['ed(j, "sid"', 'ed(j, "customerPo"', 'ed(j, "product"', 'ed(j, "sapOrder"', 'ed(j, "deliverNo"', 'edPick(j, "customer"']);
+});
+
+test("Domestic Excel carries the same four references in the same order", () => {
+  const columns = section(excel, "const DELIVERY_COLUMNS:", "const ALL_COLUMNS:");
+  ordered(columns, ['header: "SID No."', 'header: "Customer PO"', 'header: "Product"', 'header: "SAP Order"', 'header: "Deliver No."', 'header: "Customer"']);
+});
+
 test("the mixed Excel layout inherits Import Remark without adding a duplicate", () => {
   const columns = section(excel, "const ALL_COLUMNS:", "export function columnsFor");
   assert.equal((columns.match(/header: "Remark"/g) ?? []).length, 0);

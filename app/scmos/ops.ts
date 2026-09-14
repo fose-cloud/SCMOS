@@ -112,6 +112,15 @@ export type Job = {
    * entered here — which is the truth about them, not a gap to fill in.
    */
   checked?: string;
+  /**
+   * The customer's own purchase order number.
+   *
+   * Asked for on the Domestic grid beside the SAP order and the delivery note,
+   * which are the other two references the customer's system issues. Not the
+   * cargo receipt's PO NO — that is the D-code, at the department's direction,
+   * and stays so until they say otherwise.
+   */
+  customerPo?: string;
   /** The SAP order and the delivery note the customer's own system issues. */
   sapOrder?: string;
   deliverNo?: string;

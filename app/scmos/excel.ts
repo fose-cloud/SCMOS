@@ -96,6 +96,13 @@ const DELIVERY_COLUMNS: Column[] = [
   { header: "Arr. Date", pick: (j) => j.arrDate },
   { header: "Arr. Time", pick: (j) => j.arrTime },
   { header: "SID No.", pick: (j) => j.sid ?? "" },
+  // The customer's four references, in the Domestic grid's order. The grid
+  // has shown three of them since it was re-headed and this sheet dropped all
+  // three on the way out, so a round trip lost them; the PO column is new.
+  { header: "Customer PO", pick: (j) => j.customerPo ?? "" },
+  { header: "Product", pick: (j) => j.product },
+  { header: "SAP Order", pick: (j) => j.sapOrder ?? "" },
+  { header: "Deliver No.", pick: (j) => j.deliverNo ?? "" },
   { header: "Customer", pick: (j) => j.customer },
   { header: "Province", pick: (j) => j.province ?? "" },
   { header: "ZIP", pick: (j) => j.zip ?? "" },
@@ -486,6 +493,11 @@ const HEADER_ALIASES: Record<string, string[]> = {
   vtr: ["TRAILER", "TRAILER QTY"],
   vtl: ["TAIL LIFT", "TAILLIFT", "TAIL-LIFT"],
   dCode: ["DCODE", "D CODE", "SID NUMBER"],
+  // The customer's purchase order. "PO NO" here is the plan sheet's column,
+  // not the cargo receipt's heading of the same name — that one prints the
+  // D-code, by the department's own rule in cargoReceipt.ts.
+  customerPo: ["CUSTOMER PO", "CUSTOMER PO NO", "CUSTOMER P.O", "CUSTOMER P.O. NO", "CUST PO",
+    "PO NO", "P.O. NO", "PO NUMBER", "PURCHASE ORDER"],
   sapOrder: ["SAP ORDER", "SAP ORDER NO", "SAP ORDER NO."],
   deliverNo: ["DELIVER NO", "DELIVER NO.", "DELIVERY NO", "DELIVERY NO."],
   checked: ["CHACK", "CHECK", "CLEAR"],

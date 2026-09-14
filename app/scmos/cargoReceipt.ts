@@ -233,8 +233,8 @@ export function receiptItem(job: ReceiptJob, column: string): string {
    * order before this. Both are defensible from the seven signed copies, which
    * do not agree with each other. AAT's and UNIC's carry a D-code under this
    * heading; Ampacet's carries 2100004162, a SAP order; MERIT's carries
-   * POL2607001, a purchase order the register does not hold at all, with the
-   * D-code beside it in a column of its own.
+   * POL2607001, a purchase order the register did not hold at the time, with
+   * the D-code beside it in a column of its own.
    *
    * So two of the seven are now right where one was, and the department reads
    * these documents daily. Note which field this is: on their summary sheet the
@@ -242,9 +242,12 @@ export function receiptItem(job: ReceiptJob, column: string): string {
    * the column they asked for is `dCode` and not `jobCode` — see the note on
    * ReceiptJob.
    *
-   * If the remaining customers matter, the fix is to store the source per
-   * customer beside the columns already stored per customer, rather than to
-   * change everybody's again.
+   * The register holds a purchase order now (`customerPo`, the Domestic grid's
+   * CUSTOMER PO. column), which is what MERIT's copy carries here. It is not
+   * read yet: the department's rule is the D-code, and if the remaining
+   * customers matter, the fix is to store the source per customer beside the
+   * columns already stored per customer, rather than to change everybody's
+   * again.
    */
   if (/^PO\s*NO/.test(head)) return text(job.dCode);
   /*
