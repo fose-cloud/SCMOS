@@ -66,6 +66,10 @@ public static class MeEndpoints
                 // decide which rows to make editable; the API checks the same
                 // service before accepting the write, so the two cannot drift.
                 actingFor = await delegations.ActingForAsync(user.OperatorId, token),
+                // The same people with names and end dates, so the workspace
+                // can offer "key this job as Uthai" by name rather than by id.
+                covering = (await delegations.CoveringForAsync(user.OperatorId, token))
+                    .Select(grant => new { id = grant.OwnerId, name = grant.OwnerName, until = grant.ToDate }),
                 known = user.OperatorId.Length > 0,
                 // Signed in, but nobody has granted this account anything. Every
                 // other endpoint refuses them; this says so in one word so the

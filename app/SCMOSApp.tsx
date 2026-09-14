@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 
 import { apiFetch, setDevUser } from "./scmos/api";
+import { authorOf, keyingForKey, keyingLabel, nextKeyingFor, type Cover } from "./scmos/keyingFor";
 import { Chrome, type FilterDef, type HeaderAction, type TabItem } from "./scmos/Chrome";
 import { DataTable } from "./scmos/DataTable";
 import { buildDb, type Ship } from "./scmos/demo";
@@ -572,6 +573,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const [identity, setIdentity] = useState<
     { role: string; opId: string; name: string; init: string; known: boolean;
       full: string; authorised: boolean; actingFor: string[];
+      /** The same people as actingFor, with names and end dates — what a person is told. */
+      covering: Cover[];
       /** What Entra said about how this session was proved. See SignInStrength on the API. */
       signIn: SignInReading | null } | null>(null);
   const [can, setCan] = useState<Set<string>>(new Set());
@@ -614,6 +617,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           known?: boolean;
           authorised?: boolean;
           actingFor?: string[];
+          covering?: Cover[];
           signIn?: SignInReading;
         };
         if (cancelled) return;
@@ -632,6 +636,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             // refused would lock out a working deployment mid-upgrade.
             authorised: body.authorised !== false,
             actingFor: body.actingFor ?? [],
+            covering: body.covering ?? [],
             // Absent on an API older than this field. Null rather than a
             // guess: "we did not ask" and "we asked and could not tell" are
             // different, and the panel says so.
@@ -713,6 +718,31 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const guardedAway = (capability: string) =>
     can.has(capability) && refusedForWeakSignIn.has(capability);
   const actingFor = identity?.actingFor ?? [];
+  const covering = useMemo(() => identity?.covering ?? [], [identity]);
+
+  /*
+   * As whom am I keying jobs right now.
+   *
+   * A delegation made Uthai's rows editable for Watsana; it did nothing about
+   * the rows she keyed for him, which every creation path wrote her own name
+   * on. So a week of his shipments came back as hers. This is the one
+   * choice every such path reads — see keyingFor.ts — offered only while a
+   * grant is live, remembered across reloads for the week it is needed, and
+   * silently back to oneself the day the grant ends.
+   */
+  const [keyingFor, setKeyingFor] = useState("");
+  useEffect(() => {
+    if (!me.opId) return;
+    try { setKeyingFor(window.localStorage.getItem(keyingForKey(me.opId)) ?? ""); } catch { /* private window */ }
+  }, [me.opId]);
+  const author = authorOf(me, keyingFor, covering);
+  const chooseKeyingFor = (next: string) => {
+    setKeyingFor(next);
+    try {
+      if (next) window.localStorage.setItem(keyingForKey(me.opId), next);
+      else window.localStorage.removeItem(keyingForKey(me.opId));
+    } catch { /* private window */ }
+  };
   /**
    * A carrier's account. Their menu is their own, and the register screens are
    * not in it — the API refuses them, and a rail full of buttons that refuse is
@@ -1372,7 +1402,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const startAddJob = (cat: string) => {
     setAddCat(cat);
     if (cat !== "CHOOSE") {
-      setAddForm({ cat, op: me.name, status: cat === "DELIVERY" ? "Scheduled" : "Waiting Truck" });
+      setAddForm({ cat, op: author.name, status: cat === "DELIVERY" ? "Scheduled" : "Waiting Truck" });
     }
     setAiFields([]);
     setAiMsg("");
@@ -1405,6 +1435,28 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           : []),
         ...(redos.length > 0
           ? [{ label: "↷ ถัดไป", title: "กลับไปข้างหน้า (Ctrl+X หรือ Ctrl+Y)", style: BTN_SECONDARY, go: redo }]
+          : []),
+        // Only while covering somebody. One button that cycles, since the list
+        // has been one name every time; coloured when it is not oneself, so a
+        // week of keying as somebody else is never a surprise.
+        ...(covering.length > 0
+          ? [{
+              label: keyingLabel(author),
+              title: author.forSomeoneElse
+                ? `แถวที่แทรก งานที่เพิ่ม และไฟล์ที่นำเข้าจะเป็นงานของ ${author.name} · กดเพื่อกลับมาลงงานของตัวเอง`
+                : "กำลังดูแลงานแทนเพื่อนร่วมงาน — กดเพื่อลงงานใหม่ในชื่อของเขา",
+              style: author.forSomeoneElse
+                ? "background:#B45309;color:#fff;border:1px solid #B45309"
+                : BTN_SECONDARY,
+              go: () => {
+                const next = nextKeyingFor(keyingFor, covering);
+                chooseKeyingFor(next);
+                const who = authorOf(me, next, covering);
+                setToast(who.forSomeoneElse
+                  ? `ต่อจากนี้งานใหม่จะเป็นของ ${who.name} จนกว่าจะกดกลับ`
+                  : "กลับมาลงงานในชื่อของตัวเอง");
+              },
+            }]
           : []),
         { label: "+ แทรกแถว", style: BTN_SECONDARY, go: insertRow },
         // Straight to the locked category where there is one, rather than
@@ -2085,7 +2137,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     setDupChoice({});
     setDupCursor(0);
     try {
-      const preview = await parseWorkbook(file, me.name, ops?.jobs ?? []);
+      const preview = await parseWorkbook(file, author.name, ops?.jobs ?? []);
       setImportPreview(preview);
       // A duplicate that changes nothing has no decision in it — skipping and
       // overwriting land on the same job — so it starts answered and the
@@ -2297,7 +2349,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
      * shows for a job missing its carrier or its plate.
      */
     const job: Job = {
-      key, id: key, cat, op: me.name, opId: me.opId,
+      key, id: key, cat, op: author.name, opId: author.opId,
       date: "", customer: "", trucker: cat === "DELIVERY" ? "LESCHACO DTT" : "",
       jobCode: "", abs: "", booking: "", product: "", fclLcl: "", agent: "", destination: "",
       plant: "", planTime: "", type: "", cyYard: "", returnLoc: "", emptyReturn: "", weight: "",
@@ -2307,7 +2359,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       cs: "", incident: "", freightType: "",
       origDate: "", moveReason: "", moveBy: "", cancelReason: "",
       status: DEFAULT_STATUS,
-      hist: [{ ts: nowHM(), user: me.name, field: "แทรกแถวใหม่", old: "—", neu: "—" }],
+      // The trail says who typed it and, when that is not the owner, for whom.
+      hist: [{ ts: nowHM(), user: me.name,
+               field: author.forSomeoneElse ? `แทรกแถวใหม่ (แทน ${author.name})` : "แทรกแถวใหม่",
+               old: "—", neu: "—" }],
       flags: [], action: true, prio: "MEDIUM", issues: [], fixes: [],
     };
     flagJob(job);
@@ -2315,7 +2370,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     persist([job]);
     setPinnedKeys((prev) => [...prev, key]);
     setWs((prev) => ({ ...prev, edit: { key, field: "customer" }, editVal: "" }));
-    setToast("แทรกแถวแล้ว — กรอกข้อมูลได้เลย แถวจะอยู่บนสุดจนกว่าจะกดเสร็จ");
+    setToast(author.forSomeoneElse
+      ? `แทรกแถวแล้ว — งานของ ${author.name} · กรอกข้อมูลได้เลย แถวจะอยู่บนสุดจนกว่าจะกดเสร็จ`
+      : "แทรกแถวแล้ว — กรอกข้อมูลได้เลย แถวจะอยู่บนสุดจนกว่าจะกดเสร็จ");
     touch();
   }
 
@@ -2343,13 +2400,15 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     const job: Job = {
       ...from,
       key, id: key,
-      // Whoever pressed + owns it, not whoever owned the row it came from.
-      op: me.name, opId: me.opId,
+      // Whoever pressed + owns it — or whoever they are keying for — not
+      // whoever owned the row it came from.
+      op: author.name, opId: author.opId,
       container: "", seal: "", tare: "", licence: "", driver: "", contact: "",
       arrDate: "", arrTime: "", reason: "", incident: "",
       origDate: "", moveReason: "", moveBy: "", cancelReason: "",
       status: DEFAULT_STATUS,
-      hist: [{ ts: nowHM(), user: me.name, field: "เพิ่มจากงานเดิม",
+      hist: [{ ts: nowHM(), user: me.name,
+               field: author.forSomeoneElse ? `เพิ่มจากงานเดิม (แทน ${author.name})` : "เพิ่มจากงานเดิม",
                old: from.jobCode || from.key, neu: from.booking || "—" }],
       flags: [], action: true, issues: [], fixes: [],
     };
@@ -2382,9 +2441,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       return;
     }
     const key = "N" + Date.now();
-    const owner = addForm.op || me.name;
+    // The form's own pick first; blank means whoever this person is keying as.
+    const owner = addForm.op || author.name;
     const job: Job = {
-      key, id: key, cat, op: owner, opId: opIdForName(owner) || me.opId,
+      key, id: key, cat, op: owner, opId: opIdForName(owner) || author.opId,
       date: "", customer: "", trucker: cat === "DELIVERY" ? "LESCHACO DTT" : "",
       jobCode: "", abs: "", booking: "", product: "", fclLcl: "", agent: "", destination: "",
       plant: "", planTime: "", type: "", cyYard: "", returnLoc: "", emptyReturn: "", weight: "",
@@ -2790,6 +2850,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   onSort={() => undefined}
                   canEdit={(job) => !!ops && canEditJob(job)}
                   canAssign={able("AssignJobs")}
+                  covering={actingFor}
                   serverPages={serverPages}
                   fullRegisterLoaded={!!ops}
                   sectionPages={sectionPages}

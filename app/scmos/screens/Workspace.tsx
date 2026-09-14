@@ -123,6 +123,8 @@ type Props = {
    */
   canEdit: (job: Job) => boolean;
   canAssign: boolean;
+  /** Owner ids whose jobs this person is covering today, from /api/me. */
+  covering: string[];
   /** Rows per page, from the viewer's settings. */
   per: number;
   /**
@@ -1756,10 +1758,15 @@ export function Workspace(p: Props) {
    * has to look like it does.
    */
   const ownCell = (j: Job, mine: boolean): Cell => {
-    const c = cell(mine ? "MY JOB" : "VIEW ONLY", { tone: mine ? "blue" : "gray" });
+    // A colleague's row held under a live grant is not "view only" — every
+    // cell on it opens — and a badge saying so on a row somebody is keying for
+    // the person on leave reads as the grant not working.
+    const covering = !mine && !!j.opId && p.covering.includes(j.opId);
+    const c = cell(mine ? "MY JOB" : covering ? "COVERING" : "VIEW ONLY",
+      { tone: mine ? "blue" : covering ? "amber" : "gray" });
     c.td += "cursor:pointer;";
-    c.sp += "border:1px solid " + (mine ? "#9CC2E8" : "#D0D8E0") + ";";
-    c.title = "เปิดรายละเอียดงาน";
+    c.sp += "border:1px solid " + (mine ? "#9CC2E8" : covering ? "#F0C36D" : "#D0D8E0") + ";";
+    c.title = covering ? `งานของ ${j.op} — คุณดูแลแทนอยู่ · เปิดรายละเอียดงาน` : "เปิดรายละเอียดงาน";
     c.go = () => p.onDrawer(j.key);
     return c;
   };
