@@ -9,6 +9,7 @@ import s from "./AiControlTower.module.css";
 
 type Fields = Record<string, string>;
 type Proposal = { id: number; state: string; requestedBy: string; canApprove: boolean;
+  requestedAt?: string; decidedBy?: string | null; decidedAt?: string | null;
   payload: { key: string; fingerprint: string; before: Fields; changes: Fields; reason: string; expiresAt: string } };
 type Attention = { total: number; returned: number; undated: number; invalidRows: number; asOfDate: string;
   rows: { key: string; jobCode: string; customer: string; date: string; risk: string | null; missingDriver: boolean; missingPlate: boolean }[] };
@@ -118,25 +119,33 @@ export function OperationsChanges({ onOpenJob, initialDraft, onBusyChange }: {
     {message && <p role="status">{message}</p>}
     {queue.map(row => <div key={row.id} className={s.empty}>
       <button className={s.link} onClick={() => onOpenJob(row.payload.key)}>{row.payload.key}</button>
-      {" · "}{row.state}{" · ผู้เสนอ: "}{row.requestedBy}
-      {row.state === "pending" && row.canApprove && <button className={s.button} disabled={busy}
-        onClick={() => { setReview(row); setNote(""); }}>ตรวจค่าเดิม → ค่าใหม่</button>}
+      {" · "}{CODES[row.state] ?? "สถานะไม่ทราบ"}{" · ผู้เสนอ: "}{row.requestedBy}
+      <button className={s.button} disabled={busy}
+        onClick={() => { setReview(row); setNote(""); }}>{row.state === "pending" && row.canApprove
+          ? "ตรวจค่าเดิม → ค่าใหม่" : "ดูรายละเอียด / ประวัติ"}</button>
     </div>)}
     {review && <div className={s.panel} role="region" aria-label="ตรวจข้อเสนอก่อนบันทึก">
-      <h3>ยืนยันงาน {review.payload.key}</h3><p>{review.payload.reason}</p>
+      <h3>รายละเอียดข้อเสนอ #{review.id} · งาน {review.payload.key}</h3>
+      <p>{CODES[review.state] ?? "สถานะไม่ทราบ"} · ผู้เสนอ: {review.requestedBy}</p>
+      {review.requestedAt && <p>เสนอเมื่อ: {stamp(review.requestedAt)} · เวลาไทย</p>}
+      {review.decidedBy && <p>ผู้ตัดสินใจ: {review.decidedBy}
+        {review.decidedAt ? " · " + stamp(review.decidedAt) + " · เวลาไทย" : ""}</p>}
+      <p>เหตุผลที่เสนอ: {review.payload.reason}</p>
       <p>หมดอายุ: {stamp(review.payload.expiresAt)} · เวลาไทย</p>
       <ZoomBox><table><thead><tr><th>ช่อง</th><th>เดิม</th><th>ใหม่</th></tr></thead><tbody>
         {Object.entries(review.payload.changes).map(([field, value]) => <tr key={field}>
           <td>{LABELS[field] ?? field}</td><td>{review.payload.before[field] || "—"}</td><td>{value}</td>
         </tr>)}
       </tbody></table></ZoomBox>
+      {review.state === "pending" && review.canApprove && <>
       <label>เหตุผลการตัดสินใจ <input value={note} maxLength={400} disabled={busy} onChange={e => setNote(e.target.value)} /></label>
       <div className={s.actions}>{[true, false].map(approve => <button key={String(approve)} className={s.button}
         disabled={busy || !note.trim()} onClick={() => void action(async signal => {
           await post(`/${review.id}/confirm`, { fingerprint: review.payload.fingerprint, approve, note }, signal);
           setReview(null); await loadQueue(signal);
         })}>{approve ? "ยืนยันและบันทึกจริง" : "ปฏิเสธ"}</button>)}
-        <button className={s.button} disabled={busy} onClick={() => setReview(null)}>กลับ</button></div>
+      </div></>}
+      <button className={s.button} disabled={busy} onClick={() => setReview(null)}>กลับ</button>
     </div>}
   </section>;
 }
