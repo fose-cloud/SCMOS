@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { apiFetch } from "../api";
 import { ZoomBox } from "../TableFrame";
+import { filterOperationsQueue } from "../operationsQueue";
 import { stamp } from "../aiControl";
 import { parseChangePreview, type ChangeDraft, type ChangePreview as Preview } from "../operationsChangeCommand";
 import s from "./AiControlTower.module.css";
@@ -31,6 +32,10 @@ export function OperationsChanges({ onOpenJob, initialDraft, onBusyChange }: {
   const [fields, setFields] = useState<Fields>(initialDraft ? { ...initialDraft.preview.values, ...initialDraft.changes } : {});
   const [reason, setReason] = useState(initialDraft?.reason ?? "");
   const [queue, setQueue] = useState<Proposal[]>([]);
+  const [queueLoaded, setQueueLoaded] = useState(false);
+  const [queueState, setQueueState] = useState("all");
+  const [queueSearch, setQueueSearch] = useState("");
+  const visibleQueue = filterOperationsQueue(queue, queueState, queueSearch);
   const [attention, setAttention] = useState<Attention | null>(null);
   const [review, setReview] = useState<Proposal | null>(null);
   const [note, setNote] = useState("");
@@ -54,7 +59,7 @@ export function OperationsChanges({ onOpenJob, initialDraft, onBusyChange }: {
     if (!response.ok) { setQueue([]); throw new Error(); }
     const body = await response.json();
     if (!Array.isArray(body.rows)) throw new Error();
-    setQueue(body.rows);
+    setQueue(body.rows); setQueueLoaded(true);
     if (!body.configured) setMessage(CODES.write_disabled);
   }
   async function post(path: string, body: unknown, signal: AbortSignal) {
@@ -117,7 +122,21 @@ export function OperationsChanges({ onOpenJob, initialDraft, onBusyChange }: {
       })}>สร้างข้อเสนอ (ยังไม่แก้งาน)</button>
     </>}
     {message && <p role="status">{message}</p>}
-    {queue.map(row => <div key={row.id} className={s.empty}>
+    {queueLoaded && <>
+      <div className={s.actions}>
+        <label>สถานะข้อเสนอ <select value={queueState} onChange={e => setQueueState(e.target.value)}>
+          <option value="all">ทั้งหมด</option><option value="pending">รอยืนยัน</option>
+          <option value="applied">บันทึกแล้ว</option><option value="rejected">ปฏิเสธ</option>
+          <option value="expired">หมดอายุ</option><option value="stale">ข้อมูลเปลี่ยน</option>
+        </select></label>
+        <input aria-label="ค้นหาข้อเสนอ" placeholder="ค้นหารหัสงานหรือผู้เสนอ" value={queueSearch}
+          onChange={e => setQueueSearch(e.target.value)} />
+        <button className={s.button} onClick={() => { setQueueState("all"); setQueueSearch(""); }}>ล้างตัวกรองคิว</button>
+      </div>
+      <p className={s.hint}>แสดง {visibleQueue.length} จาก {queue.length} ข้อเสนอที่โหลด · เฉพาะ 100 รายการล่าสุดในสิทธิ์ของคุณ</p>
+      {visibleQueue.length === 0 && <p role="status">{queue.length === 0 ? "ยังไม่มีข้อเสนอในคิวที่โหลด" : "ไม่พบข้อเสนอที่ตรงกับตัวกรอง"}</p>}
+    </>}
+    {visibleQueue.map(row => <div key={row.id} className={s.empty}>
       <button className={s.link} onClick={() => onOpenJob(row.payload.key)}>{row.payload.key}</button>
       {" · "}{CODES[row.state] ?? "สถานะไม่ทราบ"}{" · ผู้เสนอ: "}{row.requestedBy}
       <button className={s.button} disabled={busy}
