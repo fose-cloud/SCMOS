@@ -1050,12 +1050,13 @@ export function Workspace(p: Props) {
    */
   const opCell = (j: Job, mine: boolean): Cell => {
     // Somebody covering a leave gets the dropdown too, on the rows they may
-    // edit, offering only themselves and the people they cover: a row keyed
-    // under the wrong name during the week is put right here, without a
-    // supervisor. Everyone else sees the name.
+    // edit, offering only the people who handed them the work: a row keyed
+    // under the wrong name during the week is given back here, without a
+    // supervisor. Not themselves — a grant is for working the absent
+    // person's jobs, not for taking them. Everyone else sees the name.
     const handingOver = !canAssign && p.covering.length > 0 && canEditJob(j);
     if (!canAssign && !handingOver) return { ...cell(j.op, { bold: mine, mute: !mine }), field: "op" };
-    const offered = canAssign ? M.operators : [me.name, ...p.covering.map((one) => one.name)];
+    const offered = canAssign ? M.operators : p.covering.map((one) => one.name);
     const known = offered.indexOf(j.op) >= 0 || !j.op ? offered : [j.op].concat(offered);
     return {
       kind: "select",
@@ -2110,7 +2111,10 @@ export function Workspace(p: Props) {
                   .map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
 
-              {canAssign && (
+              {/* For a delegate too, with the same short list the row's own
+                  dropdown offers: a week of rows keyed under the wrong name is
+                  put right in one go rather than one row at a time. */}
+              {(canAssign || p.covering.length > 0) && (
                 <select
                   defaultValue=""
                   onChange={(e) => {
@@ -2121,7 +2125,8 @@ export function Workspace(p: Props) {
                   style={css("height:30px;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12px;padding:0 8px;cursor:pointer")}
                 >
                   <option value="">มอบหมายให้…</option>
-                  {M.operators.map((o) => <option key={o} value={o}>{o}</option>)}
+                  {(canAssign ? M.operators : p.covering.map((one) => one.name))
+                    .map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
               )}
 
@@ -2497,7 +2502,7 @@ export function Workspace(p: Props) {
               Reassign button in the job drawer, which was taken off on
               2026-09-01 because ticking rows already does it. */}
           {p.covering.length > 0
-            ? `เปลี่ยนผู้รับผิดชอบได้ระหว่างคุณกับ ${p.covering.map((one) => one.name).join(", ")} ที่คุณดูแลแทน — ชื่ออื่นต้องให้หัวหน้างานเปลี่ยน`
+            ? `มอบหมายงานได้เฉพาะให้ ${p.covering.map((one) => one.name).join(", ")} ที่มอบสิทธิ์ให้คุณ — ชื่ออื่นต้องให้หัวหน้างานเปลี่ยน`
             : "การมอบหมายงานให้คนอื่นทำได้เฉพาะระดับหัวหน้างานขึ้นไป — แจ้งหัวหน้าเพื่อเปลี่ยนผู้รับผิดชอบ"}
         </span>
       )}

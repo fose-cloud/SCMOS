@@ -56,14 +56,21 @@ test("every path that creates a job reads the same author", () => {
   assert.match(app, /covering: body\.covering \?\? \[\]/);
 });
 
-test("somebody covering a leave can hand a row between themselves and the person covered, and nobody else", () => {
+test("somebody covering a leave can give a row only to the person who granted the cover", () => {
   const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
   const workspace = readFileSync(new URL("../app/scmos/screens/Workspace.tsx", import.meta.url), "utf8");
-  // The dropdown, for a delegate, offers only themselves and the people they cover…
-  assert.match(workspace, /const offered = canAssign \? M\.operators : \[me\.name, \.\.\.p\.covering\.map\(\(one\) => one\.name\)\];/);
+  // The dropdown, for a delegate, offers only the people who granted the cover — not themselves…
+  assert.match(workspace, /const offered = canAssign \? M\.operators : p\.covering\.map\(\(one\) => one\.name\);/);
   // …and only on rows they may edit.
   assert.match(workspace, /const handingOver = !canAssign && p\.covering\.length > 0 && canEditJob\(j\);/);
-  // The app refuses any other name without the authority to assign, and any row they cannot edit.
-  assert.match(app, /\(target === me\.opId \|\| actingFor\.includes\(target\)\)/);
+  // The bulk bar offers the same short list, so a week of rows is put right at once.
+  assert.match(workspace, /\{\(canAssign \|\| p\.covering\.length > 0\) && \(/);
+  assert.match(workspace, /\(canAssign \? M\.operators : p\.covering\.map\(\(one\) => one\.name\)\)/);
+  // The app refuses any other name — their own included — without the
+  // authority to assign, and any row they cannot edit.
+  assert.match(app, /const handingOver = !able\("AssignJobs"\) && !!target && actingFor\.includes\(target\);/);
+  assert.doesNotMatch(app, /target === me\.opId/);
   assert.match(app, /\.filter\(\(j\) => able\("AssignJobs"\) \|\| canEditJob\(j\)\);/);
+  // And the grid is re-read only after the write has landed.
+  assert.match(app, /setToast\(`มอบหมาย \$\{chosen\.length\} งานให้ \$\{owner\} แล้ว`\);[\s\S]{0,400}?void flushNow\(\)\.then\(\(\) => touch\(\)\);/);
 });

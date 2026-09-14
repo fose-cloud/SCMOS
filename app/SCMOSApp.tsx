@@ -1962,13 +1962,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
   function bulkAssign(keys: string[], owner: string) {
     if (!ops) return;
-    // Somebody covering a leave may pass a job between themselves and the
-    // person they cover: both are theirs to edit for the week, and it is how
-    // a row keyed under the wrong name is put right. Anyone else's name still
-    // takes the authority to assign, and so does any row they cannot edit.
+    // Somebody covering a leave may give a job to the person who handed them
+    // the work — and only to them: it is how a row keyed under the wrong name
+    // is put right, and a grant is for working the absent person's jobs, not
+    // for taking them. Any other name still takes the authority to assign,
+    // and so does any row they cannot edit.
     const target = opIdForName(owner);
-    const handingOver = !able("AssignJobs")
-      && !!target && (target === me.opId || actingFor.includes(target));
+    const handingOver = !able("AssignJobs") && !!target && actingFor.includes(target);
     if (!able("AssignJobs") && !handingOver) {
       setToast("การมอบหมายงานทำได้เฉพาะระดับหัวหน้างานขึ้นไป");
       return;
@@ -1991,7 +1991,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     persist(chosen);
     setWs((prev) => ({ ...prev, picked: [] }));
     setToast(`มอบหมาย ${chosen.length} งานให้ ${owner} แล้ว`);
-    touch();
+    // The grid is drawn from the API's answer, so the write has to be in the
+    // register before the page is asked for again — otherwise the rows come
+    // back wearing the old name until something else refreshes them.
+    void flushNow().then(() => touch());
   }
 
   /**
