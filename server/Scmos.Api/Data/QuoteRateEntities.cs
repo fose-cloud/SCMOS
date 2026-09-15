@@ -72,9 +72,14 @@ public class QuoteExtra
 /// <summary>
 /// The one number that belongs to the card rather than to any row of it.
 ///
-/// A single row, id 1. It could have been a column repeated down the vehicle
-/// table, and then the margin would have existed eleven times and drifted the
-/// first time somebody edited ten of them.
+/// A single row. It could have been a column repeated down the vehicle table,
+/// and then the margin would have existed eleven times and drifted the first
+/// time somebody edited ten of them.
+///
+/// Which row it is, is settled by <c>QuoteCardService.MarginRowAsync</c> and not
+/// by its id: the id is an identity column, so the number belongs to the
+/// database. Code that went looking for id 1 found nothing on an environment
+/// where no margin had been set yet.
 /// </summary>
 public class QuoteSetting
 {
