@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { badge, css } from "./theme";
 import { APP_ENVIRONMENT, APP_VERSION } from "./version";
 import { onFetching } from "./api";
-import { HEADINGS, NAV, NAV_GROUPS, NAV_TAGS, SUB_NAV, type Screen } from "./nav";
+import { ALL_NAV, HEADINGS, NAV, NAV_GROUPS, NAV_TAGS, SUB_NAV, type Screen } from "./nav";
 import { NavGlyph } from "./navIcons";
 import type { SearchGroup, SearchHit } from "./search";
 
@@ -220,9 +220,37 @@ export function Chrome(p: Props) {
   const [folded, setFolded] = useState<Partial<Record<Screen, boolean>>>({});
 
   const dark = p.canvas !== "light";
-  const strip = dark
-    ? { bg: "#0a1c30", line: "rgba(74,148,214,.2)", crumb: "#7fa8ca", title: "#fff", tab: "#8fb4d4", tabOn: "#fff", tabOnBg: "#1668ab", tabOnLine: "#1668ab" }
-    : { bg: "#fff", line: "#D8E0E8", crumb: "#8496A8", title: "#0A2240", tab: "#64748B", tabOn: "#0A2240", tabOnBg: "#fff", tabOnLine: "#D8E0E8" };
+  /*
+   * The band every screen's title sits on.
+   *
+   * The tower's navy on paper and navy alike, so the screens share one head
+   * whatever they are drawn on — asked for on 14 September, once the working
+   * screens had gone back to paper: "the same theme, smart hi-tech, dark
+   * navy". It is drawn, not photographed: a fine grid at 26px, a glow off the
+   * right-hand edge and a wash that deepens towards the title, over the navy
+   * the header band already wears. Every colour here is dark or already
+   * light, so the skin leaves the band alone inside paper too.
+   */
+  /*
+   * The band is the department's own photograph — the night port that the
+   * control tower's hero carries, `public/dashboard-hero.jpg` — held to the
+   * right of the band and washed into navy towards the title, so the words
+   * sit on solid ground and the picture shows where nothing has to be read.
+   * The templates they sent on 14 September have exactly this band on every
+   * screen: crumb and title at the left, the photograph across the middle,
+   * their slogan at the right, and the screen's own buttons after it.
+   */
+  const strip = {
+    // The photograph is a banner already — the blurred left third is where
+    // its own title went — so the wash only has to carry the crumb and the
+    // title, and the lower part of the picture is the part with the ship,
+    // the containers and the department's line painted on them.
+    bg: "linear-gradient(90deg,#071A31 0%,#071A31 22%,rgba(7,26,49,.78) 36%,rgba(7,26,49,.18) 56%,rgba(7,26,49,.08) 100%),"
+      + "url(/dashboard-hero.jpg) right 72% / cover no-repeat,#071A31",
+    line: "rgba(74,148,214,.32)", crumb: "#7fa8ca", title: "#fff",
+    tab: "#8fb4d4", tabOn: "#fff", tabOnBg: "#1668ab", tabOnLine: "#1668ab",
+  };
+  const glyph = ALL_NAV.find(([key]) => key === p.screen);
 
   return (
     <div style={css("display:flex;flex-direction:column;height:100vh;min-height:100vh;overflow:hidden;color:#16232F")}>
@@ -594,8 +622,18 @@ export function Chrome(p: Props) {
             removed, and every other screen keeps the full heading.
           */}
           <div style={css(`background:${strip.bg};border-bottom:1px solid ${strip.line};position:sticky;top:0;z-index:30;`
-            + (p.lockScroll ? "padding:9px 20px 0" : "padding:16px 24px 0"))}>
+            + (p.lockScroll ? "padding:9px 20px 0" : "padding:18px 24px 0;min-height:104px"))}>
             <div className="page-head" style={css("display:flex;align-items:flex-start;gap:20px")}>
+              {/* The screen's own glyph in a lit tile, the way the templates
+                  lead every title. Off the compact band: at seventeen pixels
+                  of title there is no room for a tile beside it. */}
+              {!p.lockScroll && glyph && (
+                <div aria-hidden="true" style={css("flex:none;width:44px;height:44px;margin-top:3px;border-radius:10px;display:flex;align-items:center;justify-content:center;"
+                  + "color:#5CC0F7;background:rgba(10,34,64,.72);border:1px solid rgba(74,148,214,.5);"
+                  + "box-shadow:0 0 0 1px rgba(30,140,220,.12),0 0 18px rgba(30,140,220,.35),inset 0 0 14px rgba(20,100,170,.25)")}>
+                  <NavGlyph screen={glyph[0]} rects={glyph[3]} size={22} />
+                </div>
+              )}
               <div style={css("flex:1;min-width:0")}>
                 {!p.lockScroll && (
                   <div style={css(`font-size:11px;color:${strip.crumb};letter-spacing:.06em;margin-bottom:5px;font-family:'IBM Plex Mono',monospace`)}>
