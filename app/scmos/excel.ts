@@ -100,6 +100,7 @@ const DELIVERY_COLUMNS: Column[] = [
   // has shown three of them since it was re-headed and this sheet dropped all
   // three on the way out, so a round trip lost them; the PO column is new.
   { header: "Customer PO", pick: (j) => j.customerPo ?? "" },
+  { header: "TMS ID", pick: (j) => j.tmsId ?? "" },
   { header: "Product", pick: (j) => j.product },
   { header: "SAP Order", pick: (j) => j.sapOrder ?? "" },
   { header: "Deliver No.", pick: (j) => j.deliverNo ?? "" },
@@ -498,6 +499,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   // D-code, by the department's own rule in cargoReceipt.ts.
   customerPo: ["CUSTOMER PO", "CUSTOMER PO NO", "CUSTOMER P.O", "CUSTOMER P.O. NO", "CUST PO",
     "PO NO", "P.O. NO", "PO NUMBER", "PURCHASE ORDER"],
+  tmsId: ["TMS ID", "TMS ID.", "TMS", "TMS NO", "TMS NO.", "TMS NUMBER", "TMS REF"],
   sapOrder: ["SAP ORDER", "SAP ORDER NO", "SAP ORDER NO."],
   deliverNo: ["DELIVER NO", "DELIVER NO.", "DELIVERY NO", "DELIVERY NO."],
   checked: ["CHACK", "CHECK", "CLEAR"],

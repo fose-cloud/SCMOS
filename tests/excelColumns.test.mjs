@@ -36,19 +36,21 @@ test("Import Excel keeps Remark immediately after Reason / Delay", () => {
   ordered(columns, ['header: "Reason / Delay"', 'header: "Remark"', 'header: "OT"']);
 });
 
-test("Domestic grid runs the customer's references CUSTOMER PO., PRODUCT NAME, SAP ORDER, DELIVER NO., with no SID NO. between", () => {
+test("Domestic grid runs the customer's references CUSTOMER PO., TMS ID., PRODUCT NAME, SAP ORDER, DELIVER NO., with no SID NO. between", () => {
   const headers = section(workspace, "  DELIVERY:", "\n  // Mixed lists");
   // Off the grid at the department's word on 14 Sep 2026; the field itself stays.
   assert.doesNotMatch(headers, /\["SID NO\."\]/);
-  ordered(headers, ['["Pick-Up Date"]', '["CUSTOMER PO."]', '["PRODUCT NAME"]', '["SAP ORDER"]', '["DELIVER NO."]', '["Customer List"]']);
+  // TMS ID. straight after the PO, at their word on 15 Sep 2026.
+  ordered(headers, ['["Pick-Up Date"]', '["CUSTOMER PO."]', '["TMS ID."]', '["PRODUCT NAME"]', '["SAP ORDER"]', '["DELIVER NO."]', '["Customer List"]']);
 
   const cells = section(workspace, 'if (layout === "DELIVERY")', "return head.concat([\n      catCell");
-  ordered(cells, ['ed(j, "date"', 'ed(j, "customerPo"', 'ed(j, "product"', 'ed(j, "sapOrder"', 'ed(j, "deliverNo"', 'edPick(j, "customer"']);
+  ordered(cells, ['ed(j, "date"', 'ed(j, "customerPo"', 'ed(j, "tmsId"', 'ed(j, "product"', 'ed(j, "sapOrder"', 'ed(j, "deliverNo"', 'edPick(j, "customer"']);
 });
 
-test("Domestic Excel carries the same four references in the same order", () => {
+test("Domestic Excel carries the same five references in the same order, and reads the TMS ID back in", () => {
   const columns = section(excel, "const DELIVERY_COLUMNS:", "const ALL_COLUMNS:");
-  ordered(columns, ['header: "SID No."', 'header: "Customer PO"', 'header: "Product"', 'header: "SAP Order"', 'header: "Deliver No."', 'header: "Customer"']);
+  ordered(columns, ['header: "SID No."', 'header: "Customer PO"', 'header: "TMS ID"', 'header: "Product"', 'header: "SAP Order"', 'header: "Deliver No."', 'header: "Customer"']);
+  assert.match(excel, /tmsId: \["TMS ID", "TMS ID\."/, "a round trip keeps the column");
 });
 
 test("the mixed Excel layout inherits Import Remark without adding a duplicate", () => {

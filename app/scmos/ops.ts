@@ -121,6 +121,13 @@ export type Job = {
    * and stays so until they say otherwise.
    */
   customerPo?: string;
+  /**
+   * The customer's transport-management-system reference for the run.
+   *
+   * Asked for on the Domestic grid on 15 September 2026, beside the PO it is
+   * issued with. Stored as typed; nothing in SCMOS derives it or checks it.
+   */
+  tmsId?: string;
   /** The SAP order and the delivery note the customer's own system issues. */
   sapOrder?: string;
   deliverNo?: string;

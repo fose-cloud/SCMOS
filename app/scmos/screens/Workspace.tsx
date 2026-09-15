@@ -240,11 +240,12 @@ const COL_DEFS: Record<string, [string][]> = {
   // still written by the import and still printed on the Delivery Details
   // report, so nothing is lost, but it cannot be edited from this grid.
   //
-  // The customer's references run CUSTOMER PO., PRODUCT NAME, SAP ORDER,
-  // DELIVER NO. — the order the department asked for, with the PO column new.
+  // The customer's references run CUSTOMER PO., TMS ID., PRODUCT NAME, SAP
+  // ORDER, DELIVER NO. — the order the department asked for; the TMS ID.
+  // column joined on 15 September 2026, straight after the PO.
   // SID NO. came off the grid the same day, at their word: 'sid' is still
   // stored, imported, exported and shown in the job drawer, only not drawn here.
-  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["CUSTOMER PO."], ["PRODUCT NAME"], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["เรทน้ำมัน"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["รับกลับ 50%"], ["รับกลับ FG 80%"], ["ค่ารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
+  DELIVERY: [["+"], ["Priority"], ["Own"], ["TRUCK"], ["W/H"], ["SID NUMBER"], ["JOB NO."], ["Pick-Up Date"], ["CUSTOMER PO."], ["TMS ID."], ["PRODUCT NAME"], ["SAP ORDER"], ["DELIVER NO."], ["Customer List"], ["เรทน้ำมัน"], ["ZIP CODE"], ["PALLET"], ["KGS."], ["4W"], ["6W"], ["10W"], ["TAIL LIFT"], ["Transportation Rate"], ["รับกลับ 50%"], ["รับกลับ FG 80%"], ["ค่ารับกลับ"], ["รวมค่าขนส่ง"], ["Remark"], ["Status"], ["Assigned To"]],
   // Mixed lists (My Work, Team Work, Delay, Completed) carry every column from
   // both plans, so no field is missing whichever kind of job you are looking at.
   ALL: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
@@ -303,6 +304,7 @@ const SORT_BY: Record<string, { pick: (j: Job) => string | undefined; as: "text"
   "Pick-Up Date": { pick: (j) => j.date, as: "date" },
   "SID NO.": { pick: (j) => j.sid, as: "text" },
   "CUSTOMER PO.": { pick: (j) => j.customerPo, as: "text" },
+  "TMS ID.": { pick: (j) => j.tmsId, as: "text" },
   "SAP ORDER": { pick: (j) => j.sapOrder, as: "text" },
   // The register already carries this as `product`; the import writes it and
   // the import/export grids show it. The Domestic grid simply never drew it.
@@ -1540,9 +1542,9 @@ export function Workspace(p: Props) {
         // sheet's captions, their sheet's contents — see the note by COL_DEFS.
         ed(j, "jobCode", { mono: true }), ed(j, "dCode", { mono: true }),
         ed(j, "date", { mono: true }),
-        // CUSTOMER PO., PRODUCT NAME, SAP ORDER, DELIVER NO. — in that order,
-        // matching the headings above.
-        ed(j, "customerPo", { mono: true }), ed(j, "product", { w: 190 }),
+        // CUSTOMER PO., TMS ID., PRODUCT NAME, SAP ORDER, DELIVER NO. — in
+        // that order, matching the headings above.
+        ed(j, "customerPo", { mono: true }), ed(j, "tmsId", { mono: true }), ed(j, "product", { w: 190 }),
         ed(j, "sapOrder", { mono: true }), ed(j, "deliverNo", { mono: true }),
         edPick(j, "customer", { w: 200 }), dieselCell(j), ed(j, "zip", { mono: true }),
         ed(j, "pallet", { mono: true, align: "right" }),
