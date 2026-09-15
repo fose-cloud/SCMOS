@@ -83,3 +83,16 @@ test("the sheet saves every new row through the grouping, and inserts one more p
   // The one-row sentinel is gone: nothing may compare a lane id to a fixed draft id.
   assert.doesNotMatch(screen, /=== DRAFT\b/);
 });
+
+test("every write re-reads the pickers' lists, so a new No. or customer is offered at once", () => {
+  const screen = readFileSync(new URL("../app/scmos/screens/RateSheet.tsx", import.meta.url), "utf8");
+  // The rows are read on their own only where the bar or the page moves; every
+  // write goes through reload(), which reads the lists as well. No. 128 was on
+  // the grid and not in the picker until the screen was reopened.
+  assert.equal((screen.match(/await load\(\);/g) ?? []).length, 1, "only reload() awaits the rows alone");
+  assert.equal((screen.match(/void load\(\);/g) ?? []).length, 1, "only the fetch effect calls load() alone");
+  assert.match(screen, /const reload = useCallback\(async \(\) => \{\s*await load\(\);\s*void loadChoices\(\);/);
+  for (const write of [/setAt\(1\); await reload\(\)/, /if \(response\.ok\) await reload\(\)/, /setEditing\(null\);\s*await reload\(\)/]) {
+    assert.match(screen, write, String(write));
+  }
+});

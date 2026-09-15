@@ -336,6 +336,21 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadChoices(); }, [loadChoices]);
 
+  /**
+   * What every write ends with: the rows again, and the pickers' lists again.
+   *
+   * A new quotation is a new No.; a new customer typed into a draft row is a
+   * new customer; a deleted lane may take the last row of a carrier with it.
+   * The lists were re-read after an import and a delete and not after an
+   * insert or an edit, so No. 128 was on the grid and not in the picker
+   * until the screen was reopened. One place now, so the next write cannot
+   * forget either.
+   */
+  const reload = useCallback(async () => {
+    await load();
+    void loadChoices();
+  }, [load, loadChoices]);
+
   /** A block of cells in one request, so a paste is one round trip. */
   /* ---- undo -------------------------------------------------------------- */
 
@@ -408,7 +423,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
         // API says so per cell rather than failing the whole step.
         + (refused.length ? ` · ข้าม ${refused.length} — ${refused[0]}` : ""));
       setEditing(null);
-      await load();
+      await reload();
       return true;
     } finally { setSaving(false); }
   }
@@ -484,7 +499,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
       const refused = reply.refused ?? [];
       onToast(`${doing}แล้ว ${reply.saved ?? 0} ช่อง`
         + (refused.length ? ` · ข้าม ${refused.length} — ${refused[0]}` : ""));
-      await load();
+      await reload();
     } finally { setSaving(false); }
   }
 
@@ -578,7 +593,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
           onToast((groups.length > 1 ? `${group.customer}: ` : "")
             + (reply.error ?? `เพิ่มแถวไม่สำเร็จ (${response.status})`)
             + (filed.length ? ` · บันทึกไปแล้ว ${filed.length} แถวก่อนหน้า` : ""));
-          if (filed.length) { setAt(1); await load(); }
+          if (filed.length) { setAt(1); await reload(); }
           return;
         }
         filed.push(...group.rows.map((row) => row.laneId));
@@ -590,7 +605,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
         ? "เพิ่มแถวแล้ว — ใส่ราคาได้เลย"
         : `เพิ่ม ${lanes} แถวแล้ว · ${groups.length} ใบขอราคา — ใส่ราคาได้เลย`);
       setAt(1);
-      await load();
+      await reload();
     } catch { onToast("ยังยืนยันการบันทึกไม่ได้ ข้อมูลแถวใหม่ยังอยู่ — ตรวจรายการก่อนลองบันทึกซ้ำ"); }
     finally { creatingDraft.current = false; setSaving(false); }
   }
@@ -615,7 +630,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
       onToast(reply.message ?? reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`);
       // Re-read rather than patching in place: editing a request's own field
       // moves every lane under it, and only the server knows which those are.
-      if (response.ok) await load();
+      if (response.ok) await reload();
     } finally { setSaving(false); }
   }
 
@@ -683,10 +698,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
       const gone = new Set(chosen.map((row) => row.laneId));
       setPicked((was) => new Set([...was].filter((id) => !gone.has(id))));
       setEditing(null);
-      await load();
-      // A deleted lane may have taken the last row of a customer or a carrier
-      // with it, and the pickers would go on offering it.
-      void loadChoices();
+      await reload();
     } finally { setBusy(false); }
   }
 
@@ -1049,11 +1061,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
           <ImportWorkbook onToast={onToast} onDone={() => {
             setPanel("none");
             setAt(1);
-            void load();
-            // The file may have brought in customers, carriers and months that
-            // were not there before; the pickers would go on offering the old
-            // list until the screen was reopened.
-            void loadChoices();
+            void reload();
           }} />
         ) : panel === "columns" ? (
           <ColumnPicker
