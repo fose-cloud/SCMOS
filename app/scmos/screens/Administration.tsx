@@ -66,6 +66,7 @@ const CAPABILITY_TH: Record<string, string> = {
   ViewRates: "ดูตารางราคา",
   QuoteToSheet: "บันทึกใบเสนอราคาลงตารางอัตรา",
   EditRates: "แก้ราคา",
+  RecordDiesel: "กรอกราคาน้ำมันรายวัน (Oil Rate)",
   ManageSuppliers: "จัดการผู้ขนส่ง",
   EditSuppliers: "เพิ่มและแก้ไขข้อมูลผู้ขนส่ง",
   CloseCarPar: "ปิด CAR/PAR",
