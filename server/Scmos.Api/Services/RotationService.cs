@@ -22,7 +22,10 @@ public record RotationView(
     int Elsewhere);
 
 /// <summary>An operator, and what the rotation says they carry.</summary>
-public record RotationOwner(string Id, string Name, string Email, int Customers, int AsBackup);
+/// <param name="Jobs">Open jobs in the register under this person's name — not finished, not cancelled.</param>
+/// <param name="LastActive">When this person last did anything the audit trail recorded, ISO-8601, or empty.</param>
+public record RotationOwner(string Id, string Name, string Email, int Customers, int AsBackup,
+    int Jobs, string LastActive);
 
 public record RotationResult(bool Ok, string Message, int Added = 0, int Replaced = 0);
 
@@ -230,6 +233,23 @@ public class RotationService(ScmosDbContext db, JobRegisterCache register)
             .Select(person => new { person.Id, person.Name, person.Email })
             .ToListAsync(token);
 
+        // What each person is actually carrying, and when they were last
+        // here — the two figures the department's card for a person shows.
+        // Open jobs only: a finished job is history, not a load. The last
+        // action is the audit trail's, which every write leaves; a person
+        // with none has not written anything, and the card says so.
+        var loads = await db.OperationJobs.AsNoTracking()
+            .Where(job => job.OwnerId != "" && job.Status != Rules.JobStatus.Completed
+                && job.Status != Rules.JobStatus.Cancelled)
+            .GroupBy(job => job.OwnerId)
+            .Select(group => new { group.Key, Count = group.Count() })
+            .ToDictionaryAsync(group => group.Key, group => group.Count, StringComparer.OrdinalIgnoreCase, token);
+        var lastSeen = await db.AuditEvents.AsNoTracking()
+            .Where(entry => entry.WhoId != "")
+            .GroupBy(entry => entry.WhoId)
+            .Select(group => new { group.Key, At = group.Max(entry => entry.At) })
+            .ToDictionaryAsync(group => group.Key, group => group.At, StringComparer.OrdinalIgnoreCase, token);
+
         var owners = new Dictionary<string, RotationOwner>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var person in people)
@@ -239,7 +259,9 @@ public class RotationService(ScmosDbContext db, JobRegisterCache register)
             var covers = rows.Count(row => Same(row.BackupEmail, person.Email)
                 || Same(row.Backup2Email, person.Email));
             if (held == 0 && covers == 0) continue;
-            owners[person.Email] = new RotationOwner(person.Id, person.Name, person.Email, held, covers);
+            owners[person.Email] = new RotationOwner(person.Id, person.Name, person.Email, held, covers,
+                loads.GetValueOrDefault(person.Id),
+                lastSeen.TryGetValue(person.Id, out var at) ? at.ToUniversalTime().ToString("O") : "");
         }
 
         // Anybody the sheet names that the directory has never heard of. Shown
@@ -251,7 +273,8 @@ public class RotationService(ScmosDbContext db, JobRegisterCache register)
             if (owners.ContainsKey(email)) continue;
             owners[email] = new RotationOwner("", email, email,
                 rows.Count(row => Same(row.PrimaryEmail, email)),
-                rows.Count(row => Same(row.BackupEmail, email) || Same(row.Backup2Email, email)));
+                rows.Count(row => Same(row.BackupEmail, email) || Same(row.Backup2Email, email)),
+                0, "");
         }
 
         return owners.Values.OrderByDescending(owner => owner.Customers).ThenBy(owner => owner.Name).ToList();

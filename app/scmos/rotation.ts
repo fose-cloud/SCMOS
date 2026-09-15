@@ -48,6 +48,10 @@ export type RotationOwner = {
   email: string;
   customers: number;
   asBackup: number;
+  /** Open jobs under this name in the register. Absent on an older API. */
+  jobs?: number;
+  /** ISO-8601, the last action the audit trail has for them; empty for none. */
+  lastActive?: string;
 };
 
 export type RotationPersonOption = {

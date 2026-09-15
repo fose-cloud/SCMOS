@@ -8,6 +8,7 @@ import {
   deleteRotation, loadRotation, loadRotationOptions, loadRotationOwners,
   replaceRotation, saveRotation,
 } from "../rotation";
+import { initialsOf, lastActiveLabel } from "../rotationPeople";
 import { parseRotationWorkbook } from "../rotationExcel";
 import { css } from "../theme";
 import { StatCard } from "../StatCard";
@@ -169,32 +170,7 @@ export function JobRotation({ me, canManage, onToast }: {
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
       {owners && owners.length > 0 && (
-        <div style={css("display:flex;gap:9px;flex-wrap:wrap")}>
-          {owners.map((each) => (
-            <button key={each.email} onClick={() => setOwner(each.id || "ALL")}
-              style={css("background:" + (each.id === owner ? "#0A2240" : "#fff")
-                + ";color:" + (each.id === owner ? "#fff" : "#31465C")
-                + ";border:1px solid " + (each.id === owner ? "#0A2240" : "#D8E0E8")
-                + ";border-radius:6px;padding:9px 13px;cursor:pointer;font-family:inherit;text-align:left;display:flex;flex-direction:column;gap:2px;min-width:150px")}>
-              <span style={css("font-size:12.5px;font-weight:600")}>{each.name}</span>
-              <span style={css("font-size:10.5px;opacity:.75")}>
-                {each.customers} ลูกค้าหลัก{each.asBackup > 0 ? ` · สำรอง ${each.asBackup}` : ""}
-              </span>
-              {!each.id && (
-                <span style={css("font-size:10px;color:" + (each.id === owner ? "#F0C36D" : "#B08A5A"))}>
-                  ไม่มีในทะเบียนผู้ใช้
-                </span>
-              )}
-            </button>
-          ))}
-          <button onClick={() => setOwner("ALL")}
-            style={css("background:" + (owner === "ALL" ? "#0A2240" : "#fff")
-              + ";color:" + (owner === "ALL" ? "#fff" : "#31465C")
-              + ";border:1px solid " + (owner === "ALL" ? "#0A2240" : "#D8E0E8")
-              + ";border-radius:6px;padding:9px 13px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600")}>
-            ทุกคน
-          </button>
-        </div>
+        <PeopleRow owners={owners} owner={owner} onPick={setOwner} />
       )}
 
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap")}>
@@ -534,8 +510,87 @@ const BTN_DANGER_OUTLINE = css("height:25px;padding:0 9px;border:1px solid #D9A8
 const INPUT = css("height:32px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;background:#fff;color:#1F3347;font-size:12px;font-family:inherit");
 const CHECK = css("display:inline-flex;gap:5px;align-items:center;font-size:11.5px;color:#31465C;cursor:pointer");
 
+/**
+ * The people the rotation names, as the department's template draws them:
+ * a row of cards that scrolls sideways, each with the person's initials in
+ * a lit tile, their address, what they hold — customers as primary, as
+ * backup, open jobs in the register — and when they were last here. A card
+ * is the filter it always was: press one and the table shows their rows.
+ *
+ * "Last here" is the audit trail's last entry for them, so it is a fact,
+ * not a presence light; a person with no entry gets no time. The arrows
+ * scroll the row by a card and a half, and the row scrolls by touch and
+ * wheel without them.
+ */
+function PeopleRow({ owners, owner, onPick }: {
+  owners: RotationOwner[]; owner: string; onPick: (id: string) => void;
+}) {
+  const row = useRef<HTMLDivElement | null>(null);
+  const slide = (direction: -1 | 1) => row.current?.scrollBy({ left: direction * 360, behavior: "smooth" });
+  const arrow = "flex:none;width:30px;height:30px;border-radius:50%;border:1px solid #C9D6E2;background:#fff;color:#31465C;"
+    + "display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;font-size:14px;line-height:1";
+  return (
+    <div style={css("display:flex;align-items:center;gap:8px")}>
+      <button type="button" aria-label="เลื่อนไปทางซ้าย" onClick={() => slide(-1)} style={css(arrow)}>‹</button>
+      <div ref={row} style={css("flex:1;min-width:0;display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding:2px 2px 4px;scroll-snap-type:x proximity")}>
+        {owners.map((each) => {
+          const lit = each.id ? each.id === owner : false;
+          const seen = lastActiveLabel(each.lastActive);
+          return (
+            <button key={each.email} type="button" onClick={() => onPick(each.id || "ALL")}
+              title={each.email}
+              style={css("flex:none;width:250px;scroll-snap-align:start;text-align:left;cursor:pointer;font-family:inherit;border-radius:8px;padding:10px 12px;"
+                + "display:flex;gap:11px;align-items:flex-start;"
+                + (lit
+                  ? "background:#0A2240;color:#fff;border:1px solid #0A2240;box-shadow:0 0 0 1px rgba(46,125,209,.35),0 0 16px rgba(46,125,209,.25)"
+                  : "background:#fff;color:#31465C;border:1px solid #D8E0E8;box-shadow:0 1px 2px rgba(10,34,64,.04)"))}>
+              <span aria-hidden="true" style={css("flex:none;width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;"
+                + "font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;letter-spacing:.04em;"
+                + (lit
+                  ? "background:#2E7DD1;color:#fff;box-shadow:0 0 12px rgba(92,192,247,.55)"
+                  : "background:#E7F0FA;color:#1D5FA8;border:1px solid #BBD5EE"))}>
+                {initialsOf(each.name, each.email)}
+              </span>
+              <span style={css("flex:1;min-width:0;display:flex;flex-direction:column;gap:2px")}>
+                <span style={css("font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{each.name}</span>
+                <span style={css("font-size:10.5px;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis")}>{each.email}</span>
+                <span style={css("font-size:10.5px;opacity:.85")}>
+                  {each.customers} ลูกค้าหลัก{each.asBackup > 0 ? ` · สำรอง ${each.asBackup}` : ""}
+                  {each.jobs !== undefined && each.id ? ` · ${each.jobs.toLocaleString()} งานที่รับผิดชอบ` : ""}
+                </span>
+                {each.id
+                  ? (
+                    <span style={css("font-size:10px;display:flex;align-items:center;gap:5px;" + (lit ? "color:#BFE0CD" : "color:#16794C"))}>
+                      <span aria-hidden="true" style={css("width:6px;height:6px;border-radius:50%;background:" + (seen ? "#22A06B" : "#C3CEDA"))} />
+                      {seen ? `ใช้งานล่าสุด: ${seen}` : "ยังไม่มีการใช้งานที่บันทึกไว้"}
+                    </span>
+                  )
+                  : <span style={css("font-size:10px;color:#B08A5A")}>ไม่มีในทะเบียนผู้ใช้</span>}
+              </span>
+            </button>
+          );
+        })}
+        <button type="button" onClick={() => onPick("ALL")}
+          style={css("flex:none;scroll-snap-align:start;border-radius:8px;padding:10px 16px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;"
+            + (owner === "ALL"
+              ? "background:#0A2240;color:#fff;border:1px solid #0A2240"
+              : "background:#fff;color:#31465C;border:1px solid #D8E0E8"))}>
+          ทุกคน
+        </button>
+      </div>
+      <button type="button" aria-label="เลื่อนไปทางขวา" onClick={() => slide(1)} style={css(arrow)}>›</button>
+    </div>
+  );
+}
+
 function Tile({ label, value, tone, note }: { label: string; value: string; tone?: string; note?: string }) {
-  return <StatCard label={label} value={value} tone={tone} note={note} compact />;
+  // In a bar beside the search box and the buttons, so the card takes a
+  // column's width rather than the row's.
+  return (
+    <div style={css("flex:0 1 240px;min-width:200px")}>
+      <StatCard label={label} value={value} tone={tone} note={note} compact />
+    </div>
+  );
 }
 
 function Note({ children }: { children: React.ReactNode }) {
