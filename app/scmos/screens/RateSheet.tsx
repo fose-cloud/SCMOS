@@ -9,6 +9,7 @@ import { StatGlyph } from "../StatCard";
 import { chosenIn } from "../filterChoices";
 import { editHistoryShortcut } from "../editHistory";
 import { gridTabTarget } from "../gridEditKey";
+import { describeFill, dgFills, priceValue, type CellEdit } from "../dgSurcharge";
 import { draftGroups, growDrafts, isDraft, sheetToday } from "../rateSheetDrafts";
 import { writeClipboardTable } from "../pasteBlock";
 import { NO_DATE, monthLabel, partsOf } from "../period";
@@ -444,6 +445,18 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     setUndos((was) => was.slice(-(HISTORY - 1)).concat([step]));
   }
 
+  /**
+   * The DG cells a set of NON-DG edits fill in — see dgSurcharge.ts.
+   *
+   * Read against the rows as they stand (a draft's own copy for a draft), so
+   * a DG figure somebody typed is recognised and left alone.
+   */
+  function fillsFor(edits: CellEdit[], among: SheetRow[]): CellEdit[] {
+    const byLane = new Map(among.map((row) => [row.laneId, row]));
+    return dgFills(edits, (laneId, vehicle) =>
+      priceValue(byLane.get(laneId)?.prices[vehicle] ?? null));
+  }
+
   async function writeBlock(
     edits: { row: SheetRow; field: string; value: string }[],
     how: "paste" | "clear",
@@ -458,8 +471,11 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     const draftEdits = edits.filter((one) => isDraft(one.row));
     if (draftEdits.length) {
       try {
+        const draftFills = fillsFor(draftEdits.map((one) => ({ laneId: one.row.laneId, field: one.field, value: one.value })), held);
         const next = held.map((row) => draftEdits
           .filter((edit) => edit.row.laneId === row.laneId)
+          .map((edit) => ({ field: edit.field, value: edit.value }))
+          .concat(draftFills.filter((fill) => fill.laneId === row.laneId))
           .reduce((so, edit) => editRateDraft(so, edit.field, edit.value), row));
         setDrafts(next);
         const touched = new Set(draftEdits.map((one) => one.row.laneId)).size;
@@ -473,34 +489,46 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     edits = edits.filter((one) => !isDraft(one.row));
     if (edits.length === 0) return;
 
+    // A pasted NON-DG price fills its DG cell the way a typed one does; a
+    // pasted DG price is what it says. The fills ride in the same write.
+    const savedRows = edits.map((one) => one.row);
+    const fills = fillsFor(edits.map((one) => ({ laneId: one.row.laneId, field: one.field, value: one.value })), savedRows);
+    const cells: CellEdit[] = edits.map((one) => ({ laneId: one.row.laneId, field: one.field, value: one.value })).concat(fills);
+    const rowOf = new Map(savedRows.map((row) => [row.laneId, row]));
+
     // Filed before the write, because afterwards the page is re-read and the
     // old values are gone from the browser as well as from the register.
-    remember(how === "clear" ? "ล้างช่อง" : "วางข้อมูล", edits.map((one) => ({
-      laneId: one.row.laneId,
+    remember(how === "clear" ? "ล้างช่อง" : "วางข้อมูล", cells.map((one) => ({
+      laneId: one.laneId,
       field: one.field,
-      before: String(readCell(one.row, columnFor(one.field)) ?? ""),
+      before: String(readCell(rowOf.get(one.laneId)!, columnFor(one.field)) ?? ""),
       after: one.value,
     })));
 
     setSaving(true);
     try {
-      const response = await apiFetch("/api/rate-inquiries/sheet/cells", {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({
-          edits: edits.map((one) => ({ laneId: one.row.laneId, field: one.field, value: one.value })),
-        }),
-      });
-      const reply = await response.json().catch(() => ({})) as
-        { saved?: number; refused?: string[]; error?: string };
-      if (!response.ok) { onToast(reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`); return; }
+      const reply = await writeCells(cells);
+      if (!reply.ok) { onToast(reply.error ?? "บันทึกไม่สำเร็จ"); return; }
 
       const doing = how === "clear" ? "ล้าง" : "วาง";
       const refused = reply.refused ?? [];
       onToast(`${doing}แล้ว ${reply.saved ?? 0} ช่อง`
+        + (fills.length ? ` · เติม DG ให้ ${fills.length} ช่อง` : "")
         + (refused.length ? ` · ข้าม ${refused.length} — ${refused[0]}` : ""));
       await reload();
     } finally { setSaving(false); }
+  }
+
+  /** A block of cells in one request. The API answers per cell, so a refused one is named. */
+  async function writeCells(cells: CellEdit[]): Promise<{ ok: boolean; saved?: number; refused?: string[]; error?: string }> {
+    const response = await apiFetch("/api/rate-inquiries/sheet/cells", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ edits: cells }),
+    });
+    const reply = await response.json().catch(() => ({})) as
+      { saved?: number; refused?: string[]; error?: string };
+    return { ok: response.ok, ...reply, error: reply.error ?? (response.ok ? undefined : `บันทึกไม่สำเร็จ (${response.status})`) };
   }
 
   /**
@@ -519,8 +547,11 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
   async function saveDraft(row: SheetRow, column: SheetColumn, value: string) {
     if (!canEdit || saving) return;
     try {
-      const next = editRateDraft(row, fieldOf(column), value);
+      const field = fieldOf(column);
+      const fills = fillsFor([{ laneId: row.laneId, field, value }], [row]);
+      const next = fills.reduce((so, fill) => editRateDraft(so, fill.field, fill.value), editRateDraft(row, field, value));
       setDrafts((was) => was.map((one) => one.laneId === row.laneId ? next : one));
+      if (fills.length) onToast(`เติม ${fills.map(describeFill).join(" · ")} ให้แล้ว — แก้ตัวเลขได้`);
     } catch (error) { onToast(error instanceof Error ? error.message : "ข้อมูลไม่ถูกต้อง"); }
   }
 
@@ -616,11 +647,26 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     const before = readCell(row, column);
     if (value.trim() === String(before).trim()) return;
 
+    // A NON-DG price carries its DG price with it — see dgSurcharge.ts. Both
+    // cells go in one write, and one undo brings both back.
+    const fills = fillsFor([{ laneId: row.laneId, field, value }], [row]);
     remember(`แก้ ${column.head}`,
-      [{ laneId: row.laneId, field, before: String(before ?? ""), after: value }]);
+      [{ laneId: row.laneId, field, before: String(before ?? ""), after: value }]
+        .concat(fills.map((fill) => ({
+          laneId: fill.laneId, field: fill.field,
+          before: String(readCell(row, columnFor(fill.field)) ?? ""), after: fill.value,
+        }))));
 
     setSaving(true);
     try {
+      if (fills.length) {
+        const reply = await writeCells([{ laneId: row.laneId, field, value }, ...fills]);
+        onToast(reply.ok
+          ? `บันทึกแล้ว · เติม ${fills.map(describeFill).join(" · ")} ให้แล้ว — แก้ตัวเลขได้`
+          : reply.error ?? "บันทึกไม่สำเร็จ");
+        if (reply.ok) await reload();
+        return;
+      }
       const response = await apiFetch(`/api/rate-inquiries/sheet/${row.laneId}`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
