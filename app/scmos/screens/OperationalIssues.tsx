@@ -345,7 +345,10 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
               : "ไม่มีรายการที่ตรงกับตัวกรอง"}
           </Note>
         ) : (
-          <ZoomBox>
+          // No zoom slider, at the department's word on 15 Sep 2026 — the same
+          // answer as KPI and the Supplier Register. The box still scrolls
+          // sideways and stays capped to the fold; it is the control that went.
+          <ZoomBox zoomable={false}>
             {/* One input for the whole table. A file input per row would be a
                 hundred of them on a busy month, all kept alive by the browser. */}
             <input

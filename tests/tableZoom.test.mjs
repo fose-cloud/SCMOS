@@ -62,3 +62,17 @@ test("the list of exceptions is kept honest", () => {
     assert.match(source, /<table\b/, `${path} is excused but has no table any more`);
   }
 });
+
+test("the screens the department asked the zoom off stay without it", () => {
+  // KPI and the Supplier Register earlier; Operational Issues on 15 Sep 2026.
+  // Each keeps its ZoomBox — the sideways scroll and the fold — and drops
+  // only the slider. Putting one back is a decision, not a refactor.
+  for (const [path, pattern] of [
+    ["app/scmos/screens/Kpi.tsx", /<ZoomBox zoomable=\{false\}/],
+    ["app/scmos/screens/Suppliers.tsx", /<ZoomBox zoomable=\{false\}/],
+    ["app/scmos/screens/OperationalIssues.tsx", /<ZoomBox zoomable=\{false\}>/],
+  ]) {
+    assert.match(readFileSync(path, "utf8"), pattern, path);
+  }
+  assert.doesNotMatch(readFileSync("app/scmos/screens/OperationalIssues.tsx", "utf8"), /<ZoomBox>/);
+});
