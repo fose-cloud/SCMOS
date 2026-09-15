@@ -253,6 +253,72 @@ public class IncidentService(ScmosDbContext db)
         return new IncidentResult(true, $"ไปยังขั้น {next}", id);
     }
 
+    /// <summary>
+    /// Puts the case at a stage — any stage, forward or back — on a
+    /// supervisor's say-so.
+    ///
+    /// <para>
+    /// <see cref="AdvanceAsync"/> walks the eight-disciplines form one step at
+    /// a time and refuses a step whose fields are blank. The department asked
+    /// on 15 September for the register to be a status monitor instead: the
+    /// form is filled on paper, and what SCMOS holds is where each case
+    /// stands. So a supervisor sets the stage directly, the gates do not
+    /// apply, and the audit row is the record of who moved it and why.
+    /// Closing still signs; reopening takes the signature off.
+    /// </para>
+    /// </summary>
+    public async Task<IncidentResult> SetStageAsync(long id, string stage, string by, string role,
+        CancellationToken token)
+    {
+        if (!StaffDirectory.IsSupervisor(role))
+            return new IncidentResult(false, "เปลี่ยนสถานะเคสได้เฉพาะระดับหัวหน้างานขึ้นไป");
+        var wanted = (stage ?? "").Trim().ToLowerInvariant();
+        if (!Stages.Contains(wanted))
+            return new IncidentResult(false, $"ไม่รู้จักสถานะ '{stage}'");
+
+        var record = await db.IncidentCases.FirstOrDefaultAsync(c => c.Id == id, token);
+        if (record is null) return new IncidentResult(false, "ไม่พบเคสนี้");
+        if (record.Stage == wanted) return new IncidentResult(true, "สถานะเดิมอยู่แล้ว", id);
+
+        if (wanted == "closed")
+        {
+            record.ApprovedBy = by;
+            record.ApprovedAt = DateTimeOffset.UtcNow;
+        }
+        else if (record.Stage == "closed")
+        {
+            record.ApprovedBy = "";
+            record.ApprovedAt = null;
+        }
+        record.Stage = wanted;
+        record.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+        return new IncidentResult(true, $"เปลี่ยนสถานะ {record.Reference} เป็น {wanted} แล้ว", id);
+    }
+
+    /// <summary>
+    /// Removes a case for good, on a supervisor's say-so.
+    ///
+    /// The evidence files stay where they are — a photograph of damage is
+    /// still a photograph of damage — and are unlinked from the case rather
+    /// than deleted with it. The audit row written by the caller is the
+    /// only place the case survives, which is why it carries the reference,
+    /// the title and the reason.
+    /// </summary>
+    public async Task<IncidentResult> DeleteAsync(long id, string role, CancellationToken token)
+    {
+        if (!StaffDirectory.IsSupervisor(role))
+            return new IncidentResult(false, "ลบเคสได้เฉพาะระดับหัวหน้างานขึ้นไป");
+        var record = await db.IncidentCases.FirstOrDefaultAsync(c => c.Id == id, token);
+        if (record is null) return new IncidentResult(false, "ไม่พบเคสนี้");
+
+        var evidence = await db.Documents.Where(d => d.CaseId == id).ToListAsync(token);
+        foreach (var file in evidence) file.CaseId = null;
+        db.IncidentCases.Remove(record);
+        await db.SaveChangesAsync(token);
+        return new IncidentResult(true, $"ลบเคส {record.Reference} แล้ว", id);
+    }
+
     // Attaching evidence is an upload, not a row: POST /api/documents with a
     // caseId. It used to take an objectKey the caller invented, which meant the
     // one thing the storage structure depends on — that nobody composes their

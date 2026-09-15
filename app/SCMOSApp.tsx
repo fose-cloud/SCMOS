@@ -3130,6 +3130,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {(screen === "incident" || screen === "carpar") && (
               <Incidents
                 canImport={able("CloseCarPar")}
+                canManage={able("CloseCarPar")}
                 prefill={incidentDraft}
                 jobs={ops?.jobs ?? []}
                 onPrefillTaken={() => setIncidentDraft(null)}

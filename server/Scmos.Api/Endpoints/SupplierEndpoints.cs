@@ -49,6 +49,7 @@ public static class SupplierEndpoints
     public record RaiseBody(string? JobKey, string? Kind, string? Category, string? Title,
         string? What = null, string? Where = null, string? When = null, string? Who = null);
     public record ReasonBody(string? Reason);
+    public record StageBody(string? Stage, string? Reason);
 
     /// <param name="Names">One haulage company per line, as their paperwork spells it.</param>
     /// <param name="Aliases">
@@ -458,6 +459,42 @@ public static class SupplierEndpoints
             await GuardedIncident(context, users, audit, token,
                 (user, role) => service.AdvanceAsync(id, user.Signature, role, token),
                 AuditActions.Close, "", "ขั้นตอน", "", "", (body?.Reason ?? "").Trim()));
+
+        // A supervisor sets the stage outright — the status monitor the
+        // department asked for on 15 September, in place of the form's gates.
+        // The old stage is read first so the audit row can say what it was.
+        // Closing is still a signature, so closing still has to say why.
+        incidents.MapPost("/{id:long}/stage", async (long id, [FromBody] StageBody? body,
+            HttpContext context, IUserAccessor users, IncidentService service, AuditService audit,
+            CancellationToken token) =>
+        {
+            var wanted = (body?.Stage ?? "").Trim().ToLowerInvariant();
+            var why = (body?.Reason ?? "").Trim();
+            var closing = wanted == "closed";
+            if (closing && why.Length < 4)
+                return ApiResults.Error("ใส่เหตุผลในการปิดเคสอย่างน้อย 4 ตัวอักษร", StatusCodes.Status400BadRequest);
+            var before = await service.ReadAsync(id, token);
+            return await GuardedIncident(context, users, audit, token,
+                (user, role) => service.SetStageAsync(id, wanted, user.Signature, role, token),
+                closing ? AuditActions.Close : AuditActions.StatusChange,
+                before is null ? "" : $"{before.Reference} · {before.Title}",
+                "ขั้นตอน", before?.Stage ?? "", wanted, why);
+        });
+
+        // Removing a case for good. The reason is required: the audit row is
+        // the only place the case survives, and "why" is what it has to say.
+        incidents.MapDelete("/{id:long}", async (long id, string? reason, HttpContext context,
+            IUserAccessor users, IncidentService service, AuditService audit, CancellationToken token) =>
+        {
+            var why = (reason ?? "").Trim();
+            if (why.Length < 4)
+                return ApiResults.Error("ใส่เหตุผลในการลบอย่างน้อย 4 ตัวอักษร", StatusCodes.Status400BadRequest);
+            var before = await service.ReadAsync(id, token);
+            return await GuardedIncident(context, users, audit, token,
+                (user, role) => service.DeleteAsync(id, role, token),
+                AuditActions.Delete, before is null ? "" : $"{before.Reference} · {before.Title}",
+                "เคส", before?.Reference ?? "", "ลบแล้ว", why);
+        });
 
         // Evidence is uploaded, not declared: POST /api/documents with a caseId
         // and the file. This route stayed only long enough to notice that it let

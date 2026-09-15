@@ -46,3 +46,35 @@ test("the stage vocabulary is defined once", () => {
   assert.doesNotMatch(incidents, /const STAGE_TH\s*[:=]/);
   assert.match(incidents, /from "\.\.\/incidentStages"/);
 });
+
+test("CAR/PAR is a status monitor: no entry form, a supervisor sets the stage or removes the case", () => {
+  const screen = readFileSync(new URL("../app/scmos/screens/Incidents.tsx", import.meta.url), "utf8");
+  // The eight-disciplines form and its gated "next step" are gone from the screen.
+  assert.doesNotMatch(screen, /ขั้นตอนถัดไป/);
+  assert.doesNotMatch(screen, /const SECTIONS/);
+  assert.doesNotMatch(screen, /\/advance/);
+  // A supervisor's two actions, each on its own route; closing asks why, deleting always does.
+  assert.match(screen, /call\(`\/\$\{c\.id\}\/stage`, "POST", \{ stage, reason \}/);
+  assert.match(screen, /if \(stage === "closed"\) \{[\s\S]*?askReason\(/);
+  assert.match(screen, /call\(`\/\$\{c\.id\}\?reason=\$\{encodeURIComponent\(reason\)\}`, "DELETE"\)/);
+  // Everyone else reads the stage; only canManage draws the select and the delete.
+  assert.match(screen, /canManage \? \(\s*<select value=\{c\.stage\}/);
+  assert.match(screen, /\{canManage && \([\s\S]*?remove\(c\)/);
+
+  const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
+  assert.match(app, /canManage=\{able\("CloseCarPar"\)\}/);
+
+  // The API side: both routes are supervisor-only in the service, and a
+  // delete or a close without a reason is refused before anything is read.
+  const service = readFileSync(new URL("../server/Scmos.Api/Services/IncidentService.cs", import.meta.url), "utf8");
+  assert.match(service, /public async Task<IncidentResult> SetStageAsync\([\s\S]*?if \(!StaffDirectory\.IsSupervisor\(role\)\)/);
+  assert.match(service, /public async Task<IncidentResult> DeleteAsync\([\s\S]*?if \(!StaffDirectory\.IsSupervisor\(role\)\)/);
+  assert.match(service, /foreach \(var file in evidence\) file\.CaseId = null;/, "evidence is unlinked, not deleted");
+  const routes = readFileSync(new URL("../server/Scmos.Api/Endpoints/SupplierEndpoints.cs", import.meta.url), "utf8");
+  assert.match(routes, /incidents\.MapPost\("\/\{id:long\}\/stage"/);
+  assert.match(routes, /incidents\.MapDelete\("\/\{id:long\}"/);
+  assert.match(routes, /if \(closing && why\.Length < 4\)/);
+  assert.match(routes, /if \(why\.Length < 4\)/);
+  const actions = readFileSync(new URL("../server/Scmos.Api/Rules/AuditActions.cs", import.meta.url), "utf8");
+  assert.match(actions, /\[CarrierChange, RateChange, Close, RetentionReview, BulkReplace, Delete\]/);
+});

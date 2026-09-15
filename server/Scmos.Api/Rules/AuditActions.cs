@@ -23,6 +23,8 @@ public static class AuditActions
     public const string Register = "register";
     public const string RetentionReview = "retention-review";
     public const string BulkReplace = "bulk-replace";
+    /// <summary>A record removed for good. The row is the only place it survives.</summary>
+    public const string Delete = "delete";
 
     /// <summary>
     /// Changes a person must justify.
@@ -33,7 +35,7 @@ public static class AuditActions
     /// price, a supplier's approval, or replacing the register wholesale.
     /// </summary>
     public static readonly string[] NeedsReason =
-        [CarrierChange, RateChange, Close, RetentionReview, BulkReplace];
+        [CarrierChange, RateChange, Close, RetentionReview, BulkReplace, Delete];
 
     public static bool RequiresReason(string action) =>
         NeedsReason.Contains(action, StringComparer.OrdinalIgnoreCase);

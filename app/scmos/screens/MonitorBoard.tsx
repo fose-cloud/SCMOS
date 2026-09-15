@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import { exportProblems } from "../excel";
 import { useRemembered } from "../pageCache";
+import { Badge, PAGE_SIZES, Pager, Pick } from "../BoardBits";
 import { StatCard, StatGlyph } from "../StatCard";
 import { lastActiveLabel } from "../rotationPeople";
 import { css } from "../theme";
@@ -83,8 +84,6 @@ const PROBLEM_GLYPH: Record<string, "warning" | "clock" | "document"> = {
 };
 
 /** How many rows a page of the problem list shows. */
-const PAGE_SIZES = [25, 50, 100];
-
 /** What put a job on the list, and how loudly to say it. */
 const RISK: Record<string, { th: string; tone: string }> = {
   Overdue: { th: "เลยกำหนดแล้ว", tone: "#B42318" },
@@ -151,7 +150,7 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
    */
   const [kind, setKind] = useState("");
   const [query, setQuery] = useState("");
-  const [per, setPer] = useState(25);
+  const [per, setPer] = useState(PAGE_SIZES[0]);
   const [page, setPage] = useState(1);
 
   // The Thai for each kind comes back beside the machine name on every row, so
@@ -496,19 +495,6 @@ function Headline({ board, tally }: { board: Board; tally: Tally }) {
   );
 }
 
-/** A status badge: a glyph and the words, tinted in the problem's colour. */
-function Badge({ tone, icon, children }: {
-  tone: string; icon: "warning" | "clock" | "document"; children: React.ReactNode;
-}) {
-  return (
-    <span style={css("display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:3px 8px;"
-      + `border-radius:5px;white-space:nowrap;border:1px solid ${tone}66;color:${tone};background:${tone}14`)}>
-      <StatGlyph icon={icon} size={12} />
-      {children}
-    </span>
-  );
-}
-
 /** The leg: a glyph for the kind of run, then where from and where to. */
 function Leg({ from, to }: { from: string; to: string }) {
   if (!from && !to) return <span style={css("color:#94A3B8")}>—</span>;
@@ -519,37 +505,6 @@ function Leg({ from, to }: { from: string; to: string }) {
       <span style={css("color:#2E7DD1")}>→</span>
       <span>{to || "—"}</span>
     </span>
-  );
-}
-
-/** Which rows are on screen, and the way to the rest. */
-function Pager({ total, page, pageCount, per, onPage, onPer }: {
-  total: number; page: number; pageCount: number; per: number;
-  onPage: (page: number) => void; onPer: (per: number) => void;
-}) {
-  const from = (page - 1) * per + 1;
-  const to = Math.min(page * per, total);
-  const pages = Array.from({ length: Math.min(pageCount, 6) }, (_, i) => i + 1);
-  const btn = (on: boolean) =>
-    "min-width:30px;height:30px;padding:0 9px;border-radius:6px;font-size:12px;font-family:inherit;cursor:pointer;border:1px solid "
-    + (on ? "#1668AB;background:#1668AB;color:#fff;font-weight:600" : "#C9D6E2;background:#fff;color:#0A2240");
-  return (
-    <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid #E9EFF5;font-size:12px;color:#5A6B7D")}>
-      <span>แสดง {from.toLocaleString()}–{to.toLocaleString()} จาก <b style={css("color:#0A2240")}>{total.toLocaleString()}</b> รายการ</span>
-      <span style={css("margin-left:auto;display:flex;align-items:center;gap:5px")}>
-        <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} style={css(btn(false) + (page <= 1 ? ";opacity:.45;cursor:not-allowed" : ""))}>‹ Prev</button>
-        {pages.map((n) => <button key={n} type="button" onClick={() => onPage(n)} style={css(btn(n === page))}>{n}</button>)}
-        {pageCount > 6 && <span style={css("padding:0 4px")}>… {pageCount}</span>}
-        <button type="button" disabled={page >= pageCount} onClick={() => onPage(page + 1)} style={css(btn(false) + (page >= pageCount ? ";opacity:.45;cursor:not-allowed" : ""))}>Next ›</button>
-      </span>
-      <span style={css("display:flex;align-items:center;gap:6px")}>
-        Rows per page
-        <select value={per} onChange={(event) => onPer(Number(event.target.value))}
-          style={css("height:30px;border:1px solid #C9D6E2;border-radius:6px;padding:0 8px;font-size:12px;font-family:inherit;background:#fff;color:#0A2240")}>
-          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-      </span>
-    </div>
   );
 }
 
@@ -578,24 +533,6 @@ function Card({ title, note, tools, children }: {
       </div>
       <ZoomBox>{children}</ZoomBox>
     </div>
-  );
-}
-
-/** One filter button: a kind and, in a bubble, how many rows carry it. */
-function Pick({ on, tone, count, onClick, children }: {
-  on: boolean; tone: string; count: number; onClick: () => void; children: React.ReactNode;
-}) {
-  return (
-    <button type="button" onClick={onClick}
-      style={css("height:30px;padding:0 6px 0 11px;border-radius:6px;font-size:12px;font-weight:600;"
-        + "font-family:inherit;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;border:1px solid " + tone
-        + ";background:" + (on ? tone : "#fff") + ";color:" + (on ? "#fff" : tone))}>
-      {children}
-      <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11px;padding:1px 7px;border-radius:10px;"
-        + (on ? "background:rgba(255,255,255,.2);color:#fff" : `background:${tone}14;color:${tone}`))}>
-        {count}
-      </span>
-    </button>
   );
 }
 

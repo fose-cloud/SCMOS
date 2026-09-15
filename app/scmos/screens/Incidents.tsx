@@ -7,17 +7,21 @@ import { useRemembered } from "../pageCache";
 import type { Job } from "../ops";
 import { stamp } from "./WorkflowPanel";
 import { css } from "../theme";
-import { StatCard } from "../StatCard";
+import { StatCard, StatGlyph } from "../StatCard";
+import { Badge, PAGE_SIZES, Pager, Pick } from "../BoardBits";
 import { STAGES, STAGE_TH } from "../incidentStages";
 
 /**
- * Incident and CAR/PAR.
+ * Incident and CAR/PAR — the status monitor.
  *
- * The stages follow the quality process the team already runs on paper. The
- * backend refuses to skip the things that make a case worth having — a
- * corrective action without a root cause is a guess, and an action without an
- * owner and a date is a wish — so this screen shows the refusals rather than
- * disabling buttons and leaving people to wonder why.
+ * The eight-disciplines form is filled on paper and signed there; what SCMOS
+ * holds is which cases exist, what each is about, which job it was raised
+ * on, the evidence, and where each case stands. So this screen is a board of
+ * cases by stage, and a supervisor moves a case to a stage or removes it
+ * outright. There is nothing to type into a case here beyond opening it —
+ * the department asked for the entry form to go, on 15 September 2026 — and
+ * the details a case does carry (from the Excel register, or from the job it
+ * was raised against) are shown as they are.
  */
 
 type Case = {
@@ -61,73 +65,26 @@ const CATEGORY_TH: Record<string, string> = {
   safety: "ความปลอดภัย", quality: "คุณภาพ", other: "อื่นๆ",
 };
 
-/** What a field offers when the paper form offers a tick box rather than a line. */
-const CHOICES: Record<string, string[]> = {
-  company: ["LSTH", "LSSV", "LSCC", "TIH"],
-  grade: ["Major", "Minor", "OBS"],
-  source: ["Customer Complaint", "Internal Audit", "Management Review", "Other"],
-  documentsToRevise: ["ไม่ต้องแก้เอกสาร", "SOP", "Form", "Others"],
-  approvalOutcome: ["Closed CAR", "Not Accept"],
+/** The colour a stage is drawn in: amber while it is new, green once it is signed off. */
+const STAGE_TONE: Record<string, string> = {
+  open: "#B45309", analysis: "#1668AB", action: "#1668AB",
+  "follow-up": "#6D4FB3", monitoring: "#6D4FB3", approval: "#0A2240", closed: "#16794C",
 };
+const toneOf = (stage: string) => STAGE_TONE[stage] ?? "#7B8CA0";
 
 /**
- * ISO-FRM-TH-ISO-08-09, in the order the paper form asks for it.
- *
- * The record already held D2, D4, D5 and D7 — the form and the record were both
- * built on 8D, so they agreed about the middle of it. What was missing was
- * everything around the edges: which company it is raised under, how it was
- * graded, where it came from, who is on the team, what was done on the day
- * before anyone knew the cause, which documents the fix means rewriting, and
- * who followed it up as distinct from who reviewed it. Those were being written
- * on paper beside a case that had nowhere to keep them.
- *
- * Grouped by the form's own D-steps so somebody holding the printed sheet can
- * work down the screen without hunting.
+ * What a case holds, read out as it is. Only the lines that have something
+ * in them are drawn: an Excel-imported case carries the register's columns
+ * in its team note, a case raised from a job carries the job's answers to
+ * where, when and who, and a case opened by hand carries its heading.
  */
-const SECTIONS: [string, [string, string][]][] = [
-  ["D1 · จัดตั้งทีม (Establishing the Team)", [
-    ["company", "บริษัท"],
-    ["grade", "ระดับ — CAR: Major/Minor · PAR: OBS"],
-    ["source", "ที่มา (Source)"],
-    ["ncClause", "NC Clause (ถ้ามี)"],
-    ["requestedBy", "ผู้ร้องขอ (Request By)"],
-    ["requestedOn", "วันที่ร้องขอ (DD/MM/YYYY)"],
-    ["team", "ทีมผู้ร่วมแก้ไข (คั่นด้วยจุลภาค)"],
-    ["responsiblePerson", "ผู้รับผิดชอบตอบกลับ (Response By)"],
-    ["dueDate", "กำหนดเสร็จ (DD/MM/YYYY)"],
-  ]],
-  ["D2 · รายละเอียดของปัญหา (Describe Problem)", [
-    ["what", "What — เกิดอะไรขึ้น"], ["where", "Where — ที่ไหน"], ["when", "When — เมื่อไหร่"],
-    ["who", "Who — ใครเกี่ยวข้อง"], ["why", "Why — ทำไม"], ["how", "How — อย่างไร"],
-  ]],
-  ["D3 · การแก้ไขเฉพาะหน้า (Immediate / Interim Action)", [
-    ["immediateAction", "สิ่งที่ทำทันที"],
-    ["immediateBy", "ผู้ดำเนินการ (Action By)"],
-    ["immediateDue", "กำหนดเสร็จ (DD/MM/YYYY)"],
-  ]],
-  ["D4 · สาเหตุที่แท้จริง (Determine Root Cause)", [
-    ["rootCause", "สาเหตุที่แท้จริง — Fishbone / 5 Why / Pareto"],
-  ]],
-  ["D5 · การแก้ไขไม่ให้เกิดซ้ำ (Corrective Action)", [
-    ["correctiveAction", "การแก้ไขถาวร"],
-  ]],
-  ["D6 · การทวนสอบ (Validate Corrective Action)", [
-    ["effectivenessNote", "วิธีการหรือหลักฐานที่ใช้พิสูจน์"],
-  ]],
-  ["D7 · การป้องกันไม่ให้เกิดซ้ำ (Preventive Action)", [
-    ["preventiveAction", "การป้องกัน"],
-    ["documentsToRevise", "เอกสารที่ต้องแก้ไข"],
-  ]],
-  ["ผลการตรวจติดตามและการอนุมัติ", [
-    ["followUpNote", "ผลการตรวจติดตาม"],
-    ["followUpBy", "ผู้ติดตาม (Follow Up By)"],
-    ["reviewedBy", "ผู้ทบทวน (Review By)"],
-    ["approvalOutcome", "ผลการอนุมัติ"],
-    ["approvalNote", "เหตุผลเมื่อไม่รับ (Not Accept: Specify)"],
-  ]],
-  ["D8 · แสดงความยินดีกับทีม (Congratulate Your Team)", [
-    ["teamNote", "บันทึกถึงทีม"],
-  ]],
+const CASE_FACTS: [keyof Case, string][] = [
+  ["company", "บริษัท"], ["grade", "ระดับ"], ["source", "ที่มา"], ["ncClause", "NC Clause"],
+  ["requestedBy", "ผู้ร้องขอ"], ["requestedOn", "วันที่ร้องขอ"],
+  ["responsiblePerson", "ผู้รับผิดชอบ"], ["dueDate", "กำหนดเสร็จ"],
+  ["what", "What"], ["where", "Where"], ["when", "When"], ["who", "Who"],
+  ["rootCause", "สาเหตุ"], ["correctiveAction", "การแก้ไข"], ["preventiveAction", "การป้องกัน"],
+  ["followUpBy", "ผู้ติดตาม"], ["reviewedBy", "ผู้ทบทวน"], ["approvalOutcome", "ผลการอนุมัติ"],
 ];
 
 /**
@@ -215,8 +172,30 @@ type SheetImport = {
   statuses: Record<string, number>;
 };
 
-export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, onOpenJob, onToast }: {
+/** The status the Excel register gave a case, kept in the note the importer writes. */
+const EXCEL_STATUS = "SCMOS Excel import\nExcel status: ";
+const excelStatus = (c: Case) =>
+  c.teamNote?.startsWith(EXCEL_STATUS) ? c.teamNote.split("\n")[1].slice("Excel status: ".length) : "";
+
+/** The shipment a case is about, as a person would name it, or the key when the register does not hold it. */
+function jobName(c: Case, byKey: Map<string, Job>): string {
+  if (!c.jobKey) return "";
+  const job = byKey.get(c.jobKey);
+  return job ? [job.jobCode || job.abs || job.container, job.customer].filter(Boolean).join(" · ") : c.jobKey;
+}
+
+/** The reason a supervisor gives, asked for in a prompt; null when they thought better of it. */
+function askReason(question: string, onToast: (m: string) => void): string | null {
+  const answer = window.prompt(question);
+  if (answer === null) return null;
+  if (answer.trim().length < 4) { onToast("ใส่เหตุผลอย่างน้อย 4 ตัวอักษร"); return null; }
+  return answer.trim();
+}
+
+export function Incidents({ prefill, jobs, canImport = false, canManage = false, onPrefillTaken, onOpenJob, onToast }: {
   canImport?: boolean;
+  /** Supervisor and above: may move a case to any stage, and may remove one. */
+  canManage?: boolean;
   /**
    * An operational issue escalated into a case.
    *
@@ -246,6 +225,11 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
   const [fromIssue, setFromIssue] = useState("");
   const [kind, setKind] = useState("CAR");
   const [category, setCategory] = useState("accident");
+  /* The board: which stage is picked out, what is typed in the search, which page. */
+  const [stageFilter, setStageFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [per, setPer] = useState(PAGE_SIZES[0]);
 
   const byKey = useMemo(() => new Map(jobs.map((job) => [job.key, job])), [jobs]);
   /** The job the next case will be raised against, once one has been sent over. */
@@ -311,17 +295,51 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
     } finally { setBusy(false); }
   }
 
-  async function post(path: string, body: unknown) {
-    if (busy) return;
+  /**
+   * One call to the case API. What it says comes back as the toast — or, when
+   * it went through, what this screen would rather say, since the API speaks
+   * in stage keys and the person reads Thai. The board is re-read either way.
+   */
+  async function call(path: string, method: "POST" | "DELETE", body?: unknown, said?: string): Promise<boolean> {
+    if (busy) return false;
     setBusy(true);
     try {
       const response = await apiFetch(`/api/incidents${path}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        method,
+        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
       });
       const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
-      onToast(reply.message ?? reply.error ?? "ทำรายการไม่สำเร็จ");
+      onToast((response.ok && said) || reply.message || reply.error || "ทำรายการไม่สำเร็จ");
       await load();
+      return response.ok;
     } finally { setBusy(false); }
+  }
+
+  /**
+   * Moves a case to a stage. Closing is a signature, so closing asks why;
+   * every other move is recorded with who and when, which is what the audit
+   * needs to say about it.
+   */
+  function setStage(c: Case, stage: string) {
+    if (stage === c.stage) return;
+    let reason = "";
+    if (stage === "closed") {
+      const given = askReason(`ปิดเคส ${c.reference} — เหตุผลในการปิด`, onToast);
+      if (given === null) return;
+      reason = given;
+    }
+    void call(`/${c.id}/stage`, "POST", { stage, reason }, `${c.reference} → ${STAGE_TH[stage] ?? stage}`);
+  }
+
+  /** Removes a case for good. The reason is the only thing the case leaves behind. */
+  function remove(c: Case) {
+    const reason = askReason(`ลบเคส ${c.reference} · ${c.title}\nเหตุผลในการลบ (ลบแล้วกู้คืนไม่ได้)`, onToast);
+    if (reason === null) return;
+    void (async () => {
+      const done = await call(`/${c.id}?reason=${encodeURIComponent(reason)}`, "DELETE");
+      if (done && picked === c.id) setPicked(null);
+    })();
   }
 
   /**
@@ -363,22 +381,32 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
 
   const open = cases.filter((c) => c.stage !== "closed");
   const chosen = cases.find((c) => c.id === picked) ?? null;
+  const atStage = (stage: string) => cases.filter((c) => c.stage === stage).length;
+
+  // The rows on the board: the picked stage, then the search, then the page.
+  const needle = query.trim().toLowerCase();
+  const shown = cases.filter((c) => (!stageFilter || c.stage === stageFilter) && (!needle
+    || [c.reference, c.title, c.kind, CATEGORY_TH[c.category] ?? c.category, c.responsiblePerson,
+      jobName(c, byKey), excelStatus(c)].join(" ").toLowerCase().includes(needle)));
+  const pageCount = Math.max(1, Math.ceil(shown.length / per));
+  const at = Math.min(page, pageCount);
+  const paged = shown.slice((at - 1) * per, at * per);
+  const pick = (stage: string) => { setStageFilter(stage); setPage(1); };
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:11px")}>
-        <Tile label="เปิดอยู่" value={open.length} colour="#B45309" />
-        <Tile label="เกินกำหนด" value={cases.filter((c) => c.overdue).length} colour="#B42318" />
-        <Tile label="อุบัติเหตุ" value={cases.filter((c) => c.category === "accident").length} colour="#B42318" />
-        <Tile label="ปิดแล้ว" value={cases.length - open.length} colour="#16794C" />
+        <Tile label="เปิดอยู่" value={open.length} colour="#B45309" icon="flag" />
+        <Tile label="เกินกำหนด" value={cases.filter((c) => c.overdue).length} colour="#B42318" icon="clock" />
+        <Tile label="รออนุมัติ" value={atStage("approval")} colour="#0A2240" icon="shield" />
+        <Tile label="ปิดแล้ว" value={cases.length - open.length} colour="#16794C" icon="check" />
       </div>
 
       {/*
         The job the case is about, shown before it is opened rather than after.
         The key travelled over from the workspace and then sat in a variable
         nobody could see: the screen filled in a heading and gave no sign which
-        shipment it belonged to, which is a poor thing to ask somebody to sign
-        an 8D against.
+        shipment it belonged to.
       */}
       {(jobKey || fromIssue) && (
         <div style={css("background:#F7FAFD;border:1px solid #C9DCEC;border-radius:5px;padding:12px 16px")}>
@@ -401,12 +429,6 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
           </div>
 
           {raisingAgainst ? (
-            <>
-            <div style={css("margin-top:8px;font-size:11px;color:#5A6B7D;line-height:1.6")}>
-              เปิดเคสแล้วระบบจะเติมช่อง <b>Where · When · Who</b> จากงานนี้
-              {what ? <> และ <b>What</b> จากรายละเอียดของปัญหา</> : null} ให้เอง —
-              ส่วน <b>Why · How</b> เว้นว่างไว้ เพราะนั่นคือสิ่งที่การสอบสวนต้องหาคำตอบ
-            </div>
             <div style={css("margin-top:9px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px 20px")}>
               {JOB_FACTS.map(([label, read]) => {
                 const value = read(raisingAgainst).trim();
@@ -419,7 +441,6 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
                 );
               })}
             </div>
-            </>
           ) : (
             // The key is kept even when the job is not in the register that was
             // loaded — a case still belongs to it, and quietly dropping the link
@@ -518,7 +539,8 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
         {canImport && <label style={css("height:30px;padding:0 12px;border:1px solid #0A2240;background:"
           + (busy ? "#C3CFDB" : "#fff") + ";color:" + (busy ? "#fff" : "#0A2240")
           + ";border-radius:4px;font-size:12px;font-weight:600;font-family:inherit;"
-          + "display:inline-flex;align-items:center;cursor:" + (busy ? "default" : "pointer"))}>
+          + "display:inline-flex;align-items:center;gap:6px;cursor:" + (busy ? "default" : "pointer"))}>
+          <StatGlyph icon="upload" size={14} />
           {busy ? "กำลังอ่าน…" : "นำเข้าจาก Excel"}
           <input type="file" accept=".xlsx" disabled={busy} style={css("display:none")}
             onChange={(e) => {
@@ -537,59 +559,109 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
           // The job's own answers travel with the case rather than being typed
           // in again off the screen next door.
           const seed = raisingAgainst ? seedFromJob(raisingAgainst) : {};
-          void post("", { kind, category, title, jobKey, what, ...seed });
+          void call("", "POST", { kind, category, title, jobKey, what, ...seed });
           setTitle(""); setJobKey(""); setWhat(""); setFromIssue("");
         }}
           disabled={busy || !title.trim()}
-          style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:" + (busy || !title.trim() ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
-        >เปิดเคส</button>
+          style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:" + (busy || !title.trim() ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px")}
+        ><StatGlyph icon="plus" size={14} />เปิดเคส</button>
       </div>
 
-      <div style={css("display:grid;grid-template-columns:" + (chosen ? "1fr 1.2fr" : "1fr") + ";gap:14px;align-items:start")}>
+      <div style={css("display:grid;grid-template-columns:" + (chosen ? "1fr 1fr" : "1fr") + ";gap:14px;align-items:start")}>
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
+          {/* The board's own bar: a chip per stage with how many sit there,
+              the search, and a way to re-read. Above the scroll box, so a
+              filter that is set stays in view. */}
+          <div style={css("padding:10px 14px;border-bottom:1px solid #E9EFF5;display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+            <Pick on={stageFilter === ""} tone="#0A2240" count={cases.length} onClick={() => pick("")}>ทั้งหมด</Pick>
+            {STAGES.map((stage) => (
+              <Pick key={stage} on={stageFilter === stage} tone={toneOf(stage)} count={atStage(stage)}
+                onClick={() => pick(stageFilter === stage ? "" : stage)}>
+                {STAGE_TH[stage]}
+              </Pick>
+            ))}
+            <span style={css("margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:30px;border:1px solid #C9D6E2;border-radius:6px;padding:0 9px;background:#fff;min-width:220px")}>
+              <span style={css("display:flex;color:#7B8CA0")}><StatGlyph icon="search" size={14} /></span>
+              <input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+                placeholder="ค้นหา เลขที่ / หัวข้อ / งาน / ผู้รับผิดชอบ"
+                style={css("flex:1;border:0;outline:none;font-size:12px;font-family:inherit;background:transparent;color:#16232F")} />
+            </span>
+            <button type="button" onClick={() => void load()} disabled={busy}
+              style={css("height:30px;padding:0 12px;border:1px solid #C9D6E2;border-radius:6px;background:#fff;"
+                + "font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;color:#0A2240;display:inline-flex;align-items:center;gap:6px")}>
+              <StatGlyph icon="refresh" size={14} />
+              รีเฟรช
+            </button>
+          </div>
+
           <div style={{ overflowX: "auto" }}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-              <thead><tr>{["เลขที่", "หัวข้อ", "งาน", "หมวด", "ขั้นตอน", "กำหนด"].map((h) => (
-                <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
+              <thead><tr>{[...HEADS, ...(canManage ? ["จัดการ"] : [])].map((h) => (
+                <th key={h} style={css("background:#F4F7FA;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#465A6E;font-weight:700;border-bottom:1px solid #D8E0E8;white-space:nowrap")}>{h}</th>
               ))}</tr></thead>
               <tbody>
-                {cases.map((c) => (
+                {paged.map((c) => (
                   <tr key={c.id} onClick={() => setPicked(c.id === picked ? null : c.id)}
                     style={css("cursor:pointer;border-bottom:1px solid #F1F5F9;background:" + (c.id === picked ? "#F2F7FC" : c.overdue ? "#FEF6F5" : "#fff"))}>
-                    <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;font-weight:600")}>{c.reference}</td>
-                    <td style={css(CELL + ";color:#0A2240")}>{c.title}</td>
+                    <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;font-weight:600;white-space:nowrap")}>{c.reference}</td>
+                    <td style={css(CELL + ";white-space:nowrap")}>
+                      <Badge tone={c.kind === "PAR" ? "#1668AB" : "#B42318"} icon={c.kind === "PAR" ? "shield" : "warning"}>{c.kind}</Badge>
+                    </td>
+                    <td style={css(CELL + ";color:#0A2240;min-width:180px")}>{c.title}</td>
                     {/* Which shipment, not which key. A case with no job is a
                         case about the operation rather than about a load, and
                         says so instead of showing a blank. */}
-                    <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>
-                      {c.jobKey
-                        ? (() => {
-                          const job = byKey.get(c.jobKey);
-                          return job
-                            ? [job.jobCode || job.abs || job.container, job.customer].filter(Boolean).join(" · ")
-                            : c.jobKey;
-                        })()
-                        : "ไม่ผูกกับงาน"}
+                    <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>{jobName(c, byKey) || "ไม่ผูกกับงาน"}</td>
+                    <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D;white-space:nowrap")}>{CATEGORY_TH[c.category] ?? c.category}</td>
+                    <td style={css(CELL + ";font-size:11.5px;color:#16232F;white-space:nowrap")}>{c.responsiblePerson || "—"}</td>
+                    <td style={css(CELL + ";white-space:nowrap")} onClick={(e) => e.stopPropagation()}>
+                      {/* A supervisor moves the case from here; everyone else
+                          reads where it is. The Excel register's own words
+                          stay under it for the cases that came from there. */}
+                      {canManage ? (
+                        <select value={c.stage} disabled={busy} onChange={(e) => setStage(c, e.target.value)}
+                          style={css(`height:28px;border:1px solid ${toneOf(c.stage)}66;border-radius:5px;padding:0 6px;font-size:11.5px;font-weight:700;`
+                            + `font-family:inherit;color:${toneOf(c.stage)};background:${toneOf(c.stage)}14;cursor:pointer`)}>
+                          {STAGES.map((stage) => <option key={stage} value={stage}>{STAGE_TH[stage]}</option>)}
+                          {!STAGES.includes(c.stage) && <option value={c.stage}>{c.stage}</option>}
+                        </select>
+                      ) : (
+                        <Badge tone={toneOf(c.stage)} icon={c.stage === "closed" ? "check" : "flag"}>{STAGE_TH[c.stage] ?? c.stage}</Badge>
+                      )}
+                      {excelStatus(c) && <div style={css("font-size:10.5px;color:#7B8CA0;margin-top:3px")}>ต้นฉบับ: {excelStatus(c)}</div>}
                     </td>
-                    <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>{CATEGORY_TH[c.category] ?? c.category}</td>
-                    <td style={css(CELL + ";font-size:11.5px;color:" + (c.stage === "closed" ? "#16794C" : "#B45309"))}>
-                      {STAGE_TH[c.stage] ?? c.stage}
-                      {c.teamNote?.startsWith("SCMOS Excel import\nExcel status: ") &&
-                        <div style={css("color:#5A6B7D")}>ต้นฉบับ: {c.teamNote.split("\n")[1].slice("Excel status: ".length)}</div>}
-                    </td>
-                    <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;color:" + (c.overdue ? "#B42318" : "#7B8CA0"))}>{c.dueDate || "—"}</td>
+                    <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;white-space:nowrap;color:" + (c.overdue ? "#B42318" : "#7B8CA0"))}>{c.dueDate || "—"}</td>
+                    <td style={css(CELL + ";font-size:11px;color:#7B8CA0;white-space:nowrap")}>{stamp(c.raisedAt)}<div>{c.raisedBy}</div></td>
+                    {canManage && (
+                      <td style={css(CELL + ";white-space:nowrap")} onClick={(e) => e.stopPropagation()}>
+                        <button type="button" disabled={busy} onClick={() => remove(c)} title="ลบเคส"
+                          style={css("height:28px;padding:0 10px;border:1px solid #B4231866;border-radius:5px;background:#fff;color:#B42318;"
+                            + "font-size:11.5px;font-weight:600;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px")}>
+                          <StatGlyph icon="cancel" size={12} />ลบ
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
-                {!cases.length && <tr><td colSpan={6} style={css("padding:28px;text-align:center;color:#94A3B8")}>ยังไม่มีเคส</td></tr>}
+                {!paged.length && (
+                  <tr><td colSpan={HEADS.length + (canManage ? 1 : 0)} style={css("padding:28px;text-align:center;color:#94A3B8")}>
+                    {cases.length ? "ไม่มีเคสตามเงื่อนไขนี้" : "ยังไม่มีเคส"}
+                  </td></tr>
+                )}
               </tbody>
             </table>
           </div>
+          {shown.length > 0 && (
+            <Pager total={shown.length} page={at} pageCount={pageCount} per={per}
+              onPage={setPage} onPer={(n) => { setPer(n); setPage(1); }} />
+          )}
         </div>
 
         {chosen && (
-          <Detail case_={chosen} busy={busy} job={byKey.get(chosen.jobKey) ?? null} onOpenJob={onOpenJob}
-            onSave={(fields) => void post(`/${chosen.id}`, fields)}
-            onAdvance={() => void post(`/${chosen.id}/advance`, {})}
+          <Detail case_={chosen} busy={busy} canManage={canManage} job={byKey.get(chosen.jobKey) ?? null} onOpenJob={onOpenJob}
+            onRename={(reference) => void call(`/${chosen.id}`, "POST", { reference })}
+            onStage={(stage) => setStage(chosen, stage)}
+            onRemove={() => remove(chosen)}
             onUpload={(files, kind) => void upload(chosen.id, files, kind)}
             onClose={() => setPicked(null)} />
         )}
@@ -598,6 +670,7 @@ export function Incidents({ prefill, jobs, canImport = false, onPrefillTaken, on
   );
 }
 
+const HEADS = ["เลขที่", "ประเภท", "หัวข้อ", "งาน", "หมวด", "ผู้รับผิดชอบ", "ขั้นตอน", "กำหนด", "เปิดเมื่อ"];
 const CELL = "padding:8px 12px;vertical-align:top";
 
 const EVIDENCE_KINDS: [string, string][] = [
@@ -605,17 +678,17 @@ const EVIDENCE_KINDS: [string, string][] = [
   ["supplier-report", "รายงานจากผู้ขนส่ง"], ["customer-information", "ข้อมูลจากลูกค้า"],
 ];
 
-function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onClose }: {
-  case_: Case; busy: boolean;
+function Detail({ case_, busy, canManage, job, onOpenJob, onRename, onStage, onRemove, onUpload, onClose }: {
+  case_: Case; busy: boolean; canManage: boolean;
   /** The job this case is about, when the register holds it. */
   job: Job | null;
   onOpenJob?: (jobKey: string) => void;
-  onSave: (fields: Record<string, string>) => void;
-  onAdvance: () => void;
+  onRename: (reference: string) => void;
+  onStage: (stage: string) => void;
+  onRemove: () => void;
   onUpload: (files: File[], kind: string) => void;
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState<Record<string, string>>({});
   const [kind, setKind] = useState("photo");
   /** Which evidence file is open, as a position in the case's own list. */
   const [viewing, setViewing] = useState<number | null>(null);
@@ -623,11 +696,13 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
   const [renaming, setRenaming] = useState<string | null>(null);
   const position = STAGES.indexOf(case_.stage);
   const onView = (index: number) => setViewing(index);
+  const facts = CASE_FACTS.filter(([key]) => String(case_[key] ?? "").trim().length > 0);
+  const note = excelStatus(case_) ? case_.teamNote.split("\n").slice(2).join("\n").trim() : (case_.teamNote ?? "").trim();
 
   function rename() {
     const wanted = (renaming ?? "").trim().toUpperCase();
     setRenaming(null);
-    if (wanted.length > 0 && wanted !== case_.reference) onSave({ reference: wanted });
+    if (wanted.length > 0 && wanted !== case_.reference) onRename(wanted);
   }
 
   return (
@@ -635,10 +710,10 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
       <div style={css("padding:13px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;gap:10px")}>
         <div>
           {/*
-            The number is editable because the one that counts is on the paper
-            form somebody is holding. A case entered after that form was written
-            has to be able to take its number. Closed cases refuse, as they
-            refuse every other edit.
+            The number is a supervisor's to change because the one that counts
+            is on the paper form somebody is holding. A case entered after that
+            form was written has to be able to take its number. Closed cases
+            keep theirs.
           */}
           <div style={css("font-size:13.5px;font-weight:650;color:#0A2240;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap")}>
             {renaming !== null ? (
@@ -657,22 +732,47 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
                   if (e.key === "Escape") setRenaming(null);
                 }}
                 style={css("width:150px;height:26px;border:1px solid #0A5FA8;border-radius:3px;padding:0 7px;font-family:ui-monospace,monospace;font-size:12.5px;font-weight:600;color:#0A2240")} />
-            ) : case_.stage === "closed" ? (
-              <span style={css("font-family:ui-monospace,monospace")}>{case_.reference}</span>
-            ) : (
+            ) : canManage && case_.stage !== "closed" ? (
               <button type="button" onClick={() => setRenaming(case_.reference)} title="แก้ไขเลขที่"
                 style={css("border:none;background:none;padding:0;font-family:ui-monospace,monospace;font-size:13.5px;font-weight:650;color:#0A2240;cursor:pointer;border-bottom:1px dashed #94A3B8")}>
                 {case_.reference}
               </button>
+            ) : (
+              <span style={css("font-family:ui-monospace,monospace")}>{case_.reference}</span>
             )}
             <span>· {case_.title}</span>
           </div>
-          <div style={css("font-size:11.5px;color:#7B8CA0;margin-top:2px")}>
-            เปิดโดย {case_.raisedBy} · {stamp(case_.raisedAt)}
-            {case_.approvedBy && ` · ปิดโดย ${case_.approvedBy}`}
+          <div style={css("font-size:11.5px;color:#7B8CA0;margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap")}>
+            <Badge tone={case_.kind === "PAR" ? "#1668AB" : "#B42318"} icon={case_.kind === "PAR" ? "shield" : "warning"}>{case_.kind}</Badge>
+            <span>{CATEGORY_TH[case_.category] ?? case_.category}</span>
+            <span>· เปิดโดย {case_.raisedBy} · {stamp(case_.raisedAt)}</span>
+            {case_.approvedBy && <span>· ปิดโดย {case_.approvedBy}{case_.approvedAt ? ` · ${stamp(case_.approvedAt)}` : ""}</span>}
           </div>
         </div>
         <button onClick={onClose} style={css("border:none;background:none;font-size:17px;color:#94A3B8;cursor:pointer;line-height:1;padding:0")}>×</button>
+      </div>
+
+      {/* Where the case stands. A supervisor presses the stage it should be at;
+          everyone else sees the ones passed, the one it is at, and the rest. */}
+      <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;gap:4px;flex-wrap:wrap;align-items:center")}>
+        {STAGES.map((stage, i) => {
+          const look = "font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:4px;font-family:inherit;border:1px solid transparent;"
+            + (i < position ? "background:#E3F4EB;color:#16794C"
+              : i === position ? "background:#0A2240;color:#fff"
+                : "background:#F1F5F9;color:#94A3B8");
+          return canManage ? (
+            <button key={stage} type="button" disabled={busy || i === position} onClick={() => onStage(stage)}
+              title={i === position ? "ขั้นตอนปัจจุบัน" : `ย้ายไป ${STAGE_TH[stage]}`}
+              style={css(look + (i === position ? ";cursor:default" : ";cursor:pointer"))}>
+              {STAGE_TH[stage]}
+            </button>
+          ) : (
+            <span key={stage} style={css(look)}>{STAGE_TH[stage]}</span>
+          );
+        })}
+        {!STAGES.includes(case_.stage) && (
+          <span style={css("font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:4px;background:#0A2240;color:#fff")}>{case_.stage}</span>
+        )}
       </div>
 
       {job && (
@@ -701,66 +801,24 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
         </div>
       )}
 
-      <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;gap:4px;flex-wrap:wrap")}>
-        {STAGES.map((stage, i) => (
-          <span key={stage} style={css(
-            "font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:3px;" +
-            (i < position ? "background:#E3F4EB;color:#16794C"
-              : i === position ? "background:#0A2240;color:#fff"
-                : "background:#F1F5F9;color:#94A3B8"))}>
-            {STAGE_TH[stage]}
-          </span>
-        ))}
-      </div>
-
-      <div style={css("padding:13px 16px;display:flex;flex-direction:column;gap:9px")}>
-        {SECTIONS.map(([heading, fields]) => (
-          <div key={heading} style={css("display:flex;flex-direction:column;gap:6px;padding-top:4px")}>
-            <span style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.02em;border-bottom:1px solid #E9EFF5;padding-bottom:4px")}>
-              {heading}
-            </span>
-            {fields.map(([key, label]) => {
-              const held = (case_ as unknown as Record<string, string>)[key] || "";
-              const choices = CHOICES[key];
-              return (
-                <label key={key} style={css("display:flex;flex-direction:column;gap:3px")}>
-                  <span style={css("font-size:11px;color:#7B8CA0")}>{label}</span>
-                  {choices ? (
-                    <select
-                      value={draft[key] ?? held}
-                      onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                      disabled={case_.stage === "closed"}
-                      style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 7px;font-size:12px;background:#fff")}>
-                      <option value="">—</option>
-                      {choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      value={draft[key] ?? ""}
-                      placeholder={held || "—"}
-                      onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                      disabled={case_.stage === "closed"}
-                      style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px")} />
-                  )}
-                </label>
-              );
-            })}
+      {(facts.length > 0 || note) && (
+        <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5")}>
+          <div style={css("font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:7px")}>รายละเอียดเคส</div>
+          <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 16px")}>
+            {facts.map(([key, label]) => (
+              <div key={key} style={css("display:flex;gap:6px;font-size:11.5px;min-width:0")}>
+                <span style={css("flex:0 0 78px;color:#7B8CA0")}>{label}</span>
+                <span style={css("color:#16232F;font-weight:600;overflow-wrap:anywhere;white-space:pre-wrap")}>{String(case_[key])}</span>
+              </div>
+            ))}
           </div>
-        ))}
+          {note && (
+            <div style={css("margin-top:8px;font-size:11.5px;color:#16232F;white-space:pre-wrap;line-height:1.6;background:#F8FAFC;border:1px solid #E9EFF5;border-radius:4px;padding:8px 10px")}>{note}</div>
+          )}
+        </div>
+      )}
 
-        {case_.stage !== "closed" && (
-          <div style={css("display:flex;gap:7px;margin-top:4px")}>
-            <button onClick={() => { onSave(draft); setDraft({}); }} disabled={busy}
-              style={css("height:30px;padding:0 13px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}
-            >บันทึก</button>
-            <button onClick={onAdvance} disabled={busy}
-              style={css("height:30px;padding:0 13px;border:1px solid #16794C;background:#fff;color:#16794C;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}
-            >ขั้นตอนถัดไป →</button>
-          </div>
-        )}
-      </div>
-
-      <div style={css("padding:12px 16px;border-top:1px solid #E9EFF5")}>
+      <div style={css("padding:12px 16px")}>
         <div style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:7px")}>
           หลักฐาน · {case_.evidence.length} ไฟล์
         </div>
@@ -809,7 +867,8 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
               style={css("height:28px;border:1px solid #C9D6E2;border-radius:4px;padding:0 7px;font-size:11.5px;background:#fff")}>
               {EVIDENCE_KINDS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
-            <label style={css("height:28px;padding:0 12px;border:1px solid #0A2240;background:#fff;color:#0A2240;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center")}>
+            <label style={css("height:28px;padding:0 12px;border:1px solid #0A2240;background:#fff;color:#0A2240;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:5px")}>
+              <StatGlyph icon="upload" size={13} />
               แนบไฟล์
               <input type="file" multiple disabled={busy} style={css("display:none")}
                 onChange={(e) => {
@@ -818,12 +877,19 @@ function Detail({ case_, busy, job, onOpenJob, onSave, onAdvance, onUpload, onCl
                   if (files.length) onUpload(files, kind);
                 }} />
             </label>
-            <span style={css("font-size:11px;color:#94A3B8")}>
-              เลือกได้หลายไฟล์ · เก็บใน SCMOS/{case_.jobKey ? "ปี/ลูกค้า/งาน" : "ปี/CARPAR/เลขเคส"}/CARPAR
-            </span>
           </div>
         )}
       </div>
+
+      {canManage && (
+        <div style={css("padding:10px 16px;border-top:1px solid #E9EFF5;display:flex;justify-content:flex-end")}>
+          <button type="button" disabled={busy} onClick={onRemove}
+            style={css("height:30px;padding:0 12px;border:1px solid #B4231866;border-radius:5px;background:#fff;color:#B42318;"
+              + "font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px")}>
+            <StatGlyph icon="cancel" size={13} />ลบเคสนี้
+          </button>
+        </div>
+      )}
 
       {viewing !== null && case_.evidence[viewing] && (
         <Viewer files={case_.evidence} at={viewing} onMove={setViewing} onClose={() => setViewing(null)} />
@@ -934,6 +1000,6 @@ function size(bytes: number) {
   return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB";
 }
 
-function Tile({ label, value, colour }: { label: string; value: number; colour: string }) {
-  return <StatCard label={label} value={value.toLocaleString()} tone={colour} />;
+function Tile({ label, value, colour, icon }: { label: string; value: number; colour: string; icon: "flag" | "clock" | "shield" | "check" }) {
+  return <StatCard label={label} value={value.toLocaleString()} tone={colour} icon={icon} />;
 }
