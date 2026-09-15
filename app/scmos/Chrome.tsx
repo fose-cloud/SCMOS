@@ -676,6 +676,29 @@ export function Chrome(p: Props) {
                   ))}
                 </div>
               )}
+              {/*
+                The mark in the band's top right corner, as the department's
+                template for Rate Quotation has it: SCMOS over three lines of
+                tracked capitals in a lit frame. Off the compact band, which
+                has no height for it, and off narrow screens with it.
+              */}
+              <div className="only-wide" aria-hidden="true"
+                style={css("flex:none;align-self:flex-start;margin-left:6px;border-radius:6px;"
+                  + "border:1px solid rgba(92,192,247,.55);background:rgba(4,14,29,.62);"
+                  + "box-shadow:0 0 0 1px rgba(30,140,220,.12),0 0 18px rgba(30,140,220,.35),inset 0 0 22px rgba(20,100,170,.18);"
+                  + "backdrop-filter:blur(2px);"
+                  // The compact band has one line of height, so the mark takes one line.
+                  + (p.lockScroll ? "padding:5px 12px;display:flex;align-items:center;gap:10px" : "padding:9px 14px 10px"))}>
+                <div style={css("font-weight:700;letter-spacing:.14em;color:#DDF0FF;line-height:1;text-shadow:0 0 12px rgba(92,192,247,.5);font-size:"
+                  + (p.lockScroll ? "13px" : "17px"))}>SCMOS</div>
+                {p.lockScroll
+                  ? <div style={css("font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.2em;color:#8FB4D4;white-space:nowrap")}>
+                      SMART LOGISTICS · BETTER <span style={css("color:#5CC0F7")}>TOMORROW</span>
+                    </div>
+                  : <div style={css("margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.2em;line-height:1.55;color:#8FB4D4")}>
+                      SMART<br />LOGISTICS<br />BETTER<br /><span style={css("color:#5CC0F7")}>TOMORROW</span>
+                    </div>}
+              </div>
             </div>
 
             {/* The strip scrolls, not the page. Reaching CALENDAR by dragging the
