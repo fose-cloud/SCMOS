@@ -241,6 +241,18 @@ public static class JobsEndpoints
                 ? await jobs.SnapshotAsync(keys, token)
                 : [];
 
+            // Bulk imports normally avoid the audit snapshot. Read only candidate
+            // keys here so unchanged legacy errors do not block unrelated edits.
+            var calendarCandidates = incoming.Where(job => JobDateInputGuard.InvalidField(job) is not null).ToList();
+            var calendarBefore = incoming.Count <= EditBatchLimit ? before
+                : await jobs.SnapshotAsync(calendarCandidates.Select(Key).ToList(), token);
+            foreach (var job in calendarCandidates)
+            {
+                calendarBefore.TryGetValue(Key(job), out var previous);
+                if (JobDateInputGuard.InvalidField(job, previous) is { } field)
+                    return ApiResults.Error($"วันที่ในช่อง {JobDateInputGuard.Label(field)} ไม่มีจริงตามปฏิทิน กรุณาตรวจสอบวัน เดือน และปี", StatusCodes.Status400BadRequest);
+            }
+
             var (saved, at) = await jobs.SaveAsync(incoming, user.Signature, token);
 
             var reason = (body.Reason ?? "").Trim();

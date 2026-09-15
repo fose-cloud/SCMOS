@@ -62,7 +62,11 @@ public static partial class Formats
     [GeneratedRegex(@"[\s.]*[฀-๿][฀-๿\s.]*$")]
     private static partial Regex ProvincePattern();
 
-    public static bool IsDate(string value) => DatePattern().IsMatch(value);
+    public static bool IsDate(string value) => DatePattern().IsMatch(value) && ParseDay(value) is not null;
+
+    // Preserve legacy free-text placeholders; never guess their intended date.
+    public static bool IsImpossibleDate(string? value) =>
+        DatePattern().IsMatch(Clean(value)) && ParseDay(value) is null;
     public static bool IsTime(string value) => TimePattern().IsMatch(value);
     public static bool IsContainer(string value) => ContainerPattern().IsMatch(value);
     public static bool IsNumber(string value) => NumberPattern().IsMatch(value);
@@ -96,13 +100,7 @@ public static partial class Formats
 
     public static int DateNumber(string? value)
     {
-        var text = Clean(value);
-        if (text.Length < 10) return 0;
-        if (!int.TryParse(text.AsSpan(0, 2), out var day)) return 0;
-        if (text[2] != '/' || text[5] != '/') return 0;
-        if (!int.TryParse(text.AsSpan(3, 2), out var month)) return 0;
-        if (!int.TryParse(text.AsSpan(6, 4), out var year)) return 0;
-        return year * 10000 + month * 100 + day;
+        return ParseDay(value) is { } day ? day.Year * 10000 + day.Month * 100 + day.Day : 0;
     }
 
     /// <summary>
@@ -169,7 +167,7 @@ public static partial class Formats
     public static (string Year, string Month, string Day) PartsOf(string? value)
     {
         var text = Clean(value);
-        if (text.Length < 10 || text[2] != '/' || text[5] != '/') return ("", "", "");
+        if (ParseDay(text) is null) return ("", "", "");
         return (text[6..10], text[3..5], text[0..2]);
     }
 }

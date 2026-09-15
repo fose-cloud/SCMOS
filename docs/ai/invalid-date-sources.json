@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "items": [{
+    "id": "invalid-date-impact",
+    "title": "ผลกระทบของวันที่ไม่มีจริงต่อ KPI",
+    "queries": [{
+      "id": "classification-20260915",
+      "source": {
+        "label": "Azure SQL — operation_jobs, 15/09/2026 14:05 Asia/Bangkok",
+        "files": ["Scmos.DateImpact/Program.cs", "SCMOS_INVALID_DATE_IMPACT.md", "Formats.cs", "JobDateInputGuard.cs"],
+        "caveats": ["อ่านครบ 3,537 งาน ไม่มีการเขียนข้อมูล Production", "รูปแบบข้อความไม่สามารถยืนยันวันที่ที่ผู้ใช้ตั้งใจกรอกได้", "การแก้โค้ดยังไม่ Deploy; ไม่ได้แก้วันที่เก่า"]
+      },
+      "summary": "DATE ที่อ่านไม่ได้: WAIT 7 และข้อความผสม 1; ARRIVAL DATE: รูปแบบ slash ไม่ตรง DD/MM/YYYY 201 และข้อความผสม 4 ทั้ง 205 งานถูกจัดว่าเสร็จแล้วและยังไม่เข้าการวัด OTD"
+    }, {
+      "id": "production-read-only-census-20260915",
+      "source": {
+        "label": "Azure SQL — operation_jobs, 15/09/2026 14:00 Asia/Bangkok",
+        "files": ["Scmos.DateImpact/Program.cs", "SCMOS_INVALID_DATE_IMPACT.md"],
+        "caveats": ["SELECT ครบ 3,537 แถว ภายใต้ READ_COMMITTED_SNAPSHOT ไม่มีการแก้ข้อมูลหรือการตั้งค่า", "รวมทุกประเภทและสถานะ ไม่ใช่การตรวจหน้าจอที่มีตัวกรองเฉพาะ", "ข้อมูลว่างไม่ได้หมายถึงข้อมูลผิดทั้งหมด; ตัวเลข DATE และ ARRIVAL DATE อาจซ้อนกัน"]
+      },
+      "summary": "KPI ตรงเวลาเดิมและแบบตรวจปฏิทินเท่ากัน: 1,377/1,935 = 71.162791%, เปลี่ยน 0 จุดเปอร์เซ็นต์ ไม่พบวันที่ไม่มีจริง DATE ว่าง 5 และอ่านไม่ได้ 8; ARRIVAL DATE ว่าง 433 และอ่านไม่ได้ 205 ยังไม่แก้สูตรหรือข้อมูล"
+    }, {
+      "id": "code-and-fixture-checks",
+      "source": {
+        "label": "SCMOS rules and KPI consumers",
+        "files": ["Formats.cs", "JobRules.cs", "KpiService.cs", "KpiEngine.cs", "MonthlyReport.cs", "SemanticBoundaryChecks.cs"],
+        "caveats": ["ตรวจจากโค้ดและข้อมูลทดสอบ ไม่ใช่การนับข้อมูล Production", "ยังไม่ได้แก้สูตรหรือข้อมูลงานจริง"]
+      },
+      "summary": "โค้ดก่อนแก้มีช่องโหว่ DateNumber ไม่ตรวจวันตามปฏิทิน ชุดแก้ในเครื่องเพิ่มการตรวจปฏิทินและผ่าน 343 checks แล้ว แต่ยังไม่ได้ Deploy"
+    }]
+  }]
+}

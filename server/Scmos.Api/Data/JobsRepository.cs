@@ -156,7 +156,7 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
             try
             {
                 if (JsonNode.Parse(row.Data) is JsonObject job)
-                    foreach (var name in new[] { "licence", "driver", "planTime" })
+                    foreach (var name in new[] { "licence", "driver", "planTime", "arrDate", "closingDate" })
                         fields[name] = job[name]?.ToString() ?? "";
             }
             catch (JsonException) { /* unparseable row: no old values to report */ }
