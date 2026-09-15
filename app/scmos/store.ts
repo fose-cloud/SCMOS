@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import type { RegisterDelta } from "./registerSync";
 import type { Job, RawOps } from "./ops";
 
 /**
@@ -43,6 +44,22 @@ export async function loadJobs(): Promise<LoadResult> {
       updatedAt: "",
       error: error instanceof Error ? error.message : String(error),
     };
+  }
+}
+
+/**
+ * What changed since a stamp. Null when the API could not be asked — a
+ * blip on the way to it is not a change, and the next ask is twenty
+ * seconds away.
+ */
+export async function loadJobsSince(after: string): Promise<RegisterDelta | null> {
+  try {
+    const response = await apiFetch(API + "/since?after=" + encodeURIComponent(after),
+      { headers: { accept: "application/json" } });
+    if (!response.ok) return null;
+    return await response.json() as RegisterDelta;
+  } catch {
+    return null;
   }
 }
 

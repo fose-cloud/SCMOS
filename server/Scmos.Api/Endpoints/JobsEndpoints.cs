@@ -95,6 +95,28 @@ public static class JobsEndpoints
                 : ApiResults.Error(outcome.Message, StatusCodes.Status400BadRequest);
         });
 
+        // What changed since a stamp, for a workspace already open — asked a
+        // few times a minute so nobody has to press F5 to see a colleague's
+        // row. Same gate as the register itself.
+        group.MapGet("/since", async (string? after, HttpContext context, IUserAccessor users,
+            JobsRepository jobs, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (string.Equals(user.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase))
+                return ApiResults.Error("บัญชีผู้รับเหมาดูงานได้ที่หน้างานของบริษัทตัวเอง",
+                    StatusCodes.Status403Forbidden);
+            if (!DateTimeOffset.TryParse(after ?? "", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var stamp))
+                return ApiResults.Error("after ต้องเป็นเวลาแบบ ISO-8601", StatusCodes.Status400BadRequest);
+
+            var (json, count, updatedAt, full) = await jobs.ChangedSinceAsync(stamp, token);
+            return Results.Text(
+                "{\"jobs\":" + json + ",\"count\":" + count + ",\"full\":" + (full ? "true" : "false")
+                + ",\"updatedAt\":" + JsonSerializer.Serialize(updatedAt.ToUniversalTime().ToString("O")) + "}",
+                "application/json");
+        });
+
         // Cancelled or moved, straight from SQL. See JobsRepository.ChangedAsync
         // for why this does not go through the workspace's paging endpoint.
         group.MapGet("/changed", async (HttpContext context, IUserAccessor users,

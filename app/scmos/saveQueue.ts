@@ -13,11 +13,22 @@ type Saver<T> = (batch: T[], reason: string) => Promise<SaveResult>;
  */
 export class SaveQueue<T extends Keyed> {
   private readonly pending = new Map<string, T>();
+  /** The batch a save is carrying right now, until it lands or comes back. */
+  private readonly inFlight = new Map<string, T>();
   private pendingReason = "";
   private tail: Promise<void> = Promise.resolve();
 
   get size() {
     return this.pending.size;
+  }
+
+  /**
+   * This screen's version of an item the database has not got yet — queued
+   * or on its way. A page re-read while an edit is still travelling would
+   * otherwise put the old value back for the second the write takes.
+   */
+  peek(key: string): T | undefined {
+    return this.pending.get(key) ?? this.inFlight.get(key);
   }
 
   enqueue(items: T[], reason = "") {
@@ -31,6 +42,7 @@ export class SaveQueue<T extends Keyed> {
       if (!batch.length) return { ok: true, message: "" };
 
       this.pending.clear();
+      batch.forEach((item) => this.inFlight.set(item.key, item));
       const reason = this.pendingReason;
       this.pendingReason = "";
 
@@ -39,6 +51,8 @@ export class SaveQueue<T extends Keyed> {
         result = await save(batch, reason);
       } catch (error) {
         result = { ok: false, message: error instanceof Error ? error.message : String(error) };
+      } finally {
+        batch.forEach((item) => { if (this.inFlight.get(item.key) === item) this.inFlight.delete(item.key); });
       }
 
       if (!result.ok) {

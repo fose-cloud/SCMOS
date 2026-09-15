@@ -65,6 +65,57 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
     }
 
     /// <summary>
+    /// Above this many changed rows a delta is not worth sending row by row —
+    /// a plan import touches thousands — and the caller is told to read the
+    /// whole register instead.
+    /// </summary>
+    public const int DeltaLimit = 400;
+
+    /// <summary>
+    /// What changed since a stamp, for a workspace that is already open.
+    ///
+    /// Rows written after <paramref name="after"/>, as stored, with the
+    /// register's count and its newest stamp at full precision — the cached
+    /// snapshot's stamp is cut to milliseconds, so a caller that asked from
+    /// that would be sent the last write again every time. Deletions are
+    /// not rows and cannot be listed; the count is how the caller notices
+    /// one. Read straight from SQL, not the snapshot: this is asked every
+    /// twenty seconds by every open workspace, and the answer is usually
+    /// nothing.
+    /// </summary>
+    public async Task<(string Json, int Count, DateTimeOffset UpdatedAt, bool Full)> ChangedSinceAsync(
+        DateTimeOffset after, CancellationToken token)
+    {
+        var count = await db.OperationJobs.CountAsync(token);
+        var newest = count == 0
+            ? default
+            : await db.OperationJobs.MaxAsync(job => job.UpdatedAt, token);
+        if (newest <= after) return ("[]", count, newest, false);
+
+        var changed = await db.OperationJobs.AsNoTracking()
+            .Where(job => job.UpdatedAt > after)
+            .OrderBy(job => job.UpdatedAt)
+            .Take(DeltaLimit + 1)
+            .Select(job => job.Data)
+            .ToListAsync(token);
+        if (changed.Count > DeltaLimit) return ("[]", count, newest, true);
+
+        // Written through verbatim, as the full load does: each row is JSON
+        // already, checked on the way in.
+        var json = new StringBuilder(changed.Count * 900 + 2).Append('[');
+        var first = true;
+        foreach (var row in changed)
+        {
+            try { using var _ = JsonDocument.Parse(row); }
+            catch (JsonException) { continue; }
+            if (!first) json.Append(',');
+            json.Append(row);
+            first = false;
+        }
+        return (json.Append(']').ToString(), count, newest, false);
+    }
+
+    /// <summary>
     /// What the register currently says about these jobs, keyed by job key.
     ///
     /// Read before a save so the audit trail can record what a field changed

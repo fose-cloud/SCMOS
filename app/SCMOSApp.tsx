@@ -16,7 +16,8 @@ import { bookingStats } from "./scmos/booking";
 import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
-import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadPlanFile, saveJobs } from "./scmos/store";
+import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadJobsSince, loadPlanFile, saveJobs } from "./scmos/store";
+import { SYNC_EVERY_MS, applyDelta, needsFullReload } from "./scmos/registerSync";
 import { SaveQueue } from "./scmos/saveQueue";
 import { forget, pageCacheKey, readCachedPage, rememberOperator, writeCachedPage } from "./scmos/pageCache";
 import { cleanupJobs, duplicateGroups, type CleanupReport, type DupGroup } from "./scmos/cleanup";
@@ -374,6 +375,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       setSync((prev) => (prev.state === "off" ? prev
         : result.ok ? { state: "saved", at: nowHM(), message: "" }
           : { state: "error", at: prev.at, message: result.message }));
+      // The grid is drawn from the API's answer, and the edit used to trigger
+      // its re-read before the write had landed — so the page came back with
+      // the old value, and the person who typed it pressed F5 to get it back.
+      // Re-read now, after the write.
+      if (result.ok) setRevision((r) => r + 1);
       return result;
     });
   }, []);
@@ -438,6 +444,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     || importOpen;
   const registerLoadStarted = useRef(false);
   const appMounted = useRef(true);
+  /** The newest write this screen has seen, as /api/jobs stamps it. See syncRegister. */
+  const registerStamp = useRef("");
+  const syncing = useRef(false);
+  /** The row being typed into right now, read by the sync without restarting it. */
+  const editingKey = useRef<string | undefined>(undefined);
+  editingKey.current = ws.edit?.key;
   useEffect(() => {
     // React Strict Mode mounts, cleans up and mounts effects again in
     // development. Resetting here keeps the second setup alive while the final
@@ -479,6 +491,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
       if (stored.jobs?.length) {
         setOps(prep({ jobs: stored.jobs }));
+        registerStamp.current = stored.updatedAt;
         setSync({ state: "saved", at: stored.updatedAt ? stored.updatedAt.slice(11, 16) : "", message: "" });
         return;
       }
@@ -657,6 +670,60 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
     return () => { cancelled = true; if (retry) clearTimeout(retry); };
   }, [isSignedIn, signedInAs, identityAttempt, identityRefresh]);
+
+  /*
+   * The register on screen follows the one in the database.
+   *
+   * Every open workspace asks, a few times a minute while somebody is
+   * looking at it, what changed since the stamp it last saw, and lays those
+   * rows over its own — a colleague's inserted row appears, a colleague's
+   * edit appears, without F5. A row this screen is editing or saving is
+   * left alone. When more changed than a delta carries, or the count says a
+   * row went away, the whole register is read again. See registerSync.
+   */
+  const syncRegister = useCallback(async () => {
+    if (syncing.current || !ops || !registerStamp.current) return;
+    syncing.current = true;
+    try {
+      const delta = await loadJobsSince(registerStamp.current);
+      if (!delta || !appMounted.current) return;
+      if (delta.jobs.length === 0 && !needsFullReload(delta, ops.jobs.length)) {
+        registerStamp.current = delta.updatedAt || registerStamp.current;
+        return;
+      }
+      if (needsFullReload(delta, ops.jobs.length + delta.jobs.filter((j) => !ops.jobs.some((o) => o.key === j.id)).length)) {
+        const stored = await loadJobs();
+        if (!appMounted.current || !stored.jobs?.length) return;
+        // Not while an edit is queued: the fresh register would drop it, and
+        // the next delta will carry it back after it lands.
+        if (jobSaveQueue.current.size > 0) return;
+        setOps(prep({ jobs: stored.jobs }));
+        registerStamp.current = stored.updatedAt || registerStamp.current;
+        touch();
+        return;
+      }
+      const fresh = prep({ jobs: delta.jobs }).jobs;
+      const editing = editingKey.current;
+      const done = applyDelta(ops.jobs, fresh,
+        (key) => key === editing || jobSaveQueue.current.peek(key) !== undefined);
+      registerStamp.current = delta.updatedAt || registerStamp.current;
+      if (done.replaced + done.added > 0) touch();
+    } finally { syncing.current = false; }
+  }, [ops, touch]);
+  const syncRef = useRef(syncRegister);
+  syncRef.current = syncRegister;
+  useEffect(() => {
+    if (!isSignedIn || !ops) return;
+    const tick = () => { if (document.visibilityState === "visible") void syncRef.current(); };
+    const timer = window.setInterval(tick, SYNC_EVERY_MS);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [isSignedIn, ops]);
 
   /**
    * A delegation can be scheduled days ahead, and becomes live from the
@@ -1282,8 +1349,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         // Through `prep`, because the grid draws fields it derives — the
         // priority column, the validation marks — and stored rows carry none
         // of them.
+        // A row this screen has edited and not yet saved — or saved a moment
+        // ago, still travelling — keeps this screen's version. The database's
+        // is older, and would put the old value back until the next read.
+        const own = jobSaveQueue.current;
         next[cat] = {
-          jobs: prep({ jobs: answer.jobs }).jobs,
+          jobs: prep({ jobs: answer.jobs }).jobs.map((job) => own.peek(job.key) ?? job),
           total: answer.total,
           pageCount: answer.pageCount,
           counts: answer.counts,
