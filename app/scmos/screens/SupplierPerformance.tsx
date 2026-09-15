@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
 import { ALL_PERIOD, monthLabel, periodLabel, type Period } from "../period";
 import { css } from "../theme";
+import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 
 /**
@@ -240,13 +241,7 @@ function Card({ children }: { children: React.ReactNode }) {
 }
 
 function Tile({ label, value, tone, note }: { label: string; value: string; tone?: string; note?: string }) {
-  return (
-    <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:12px 16px;min-width:150px;display:flex;flex-direction:column;gap:3px")}>
-      <span style={LABEL}>{label}</span>
-      <span style={css(`font-size:19px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${tone ?? "#0A2240"}`)}>{value}</span>
-      {note && <span style={css("font-size:10.5px;color:#94A3B8")}>{note}</span>}
-    </div>
-  );
+  return <StatCard label={label} value={value} tone={tone} note={note} compact />;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

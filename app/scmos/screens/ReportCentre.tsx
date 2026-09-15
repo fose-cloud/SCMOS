@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { StatCard } from "../StatCard";
 import {
   Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -703,17 +704,7 @@ function SectionTitle({ en, th }: { en: string; th: string }) {
 
 /** A headline figure. Tabular so a column of them lines up. */
 function Tile({ label, th, value, tone }: { label: string; th: string; value: string; tone?: string }) {
-  return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--muted)] px-3 py-3">
-      <div className="text-[22px] font-bold tabular-nums leading-none" style={{ color: tone ?? "#0A2240" }}>
-        {value}
-      </div>
-      <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-        {label}
-      </div>
-      <div className="text-[10.5px] text-[var(--muted-foreground)]">{th}</div>
-    </div>
-  );
+  return <StatCard label={label} value={value} note={th} tone={tone} compact />;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

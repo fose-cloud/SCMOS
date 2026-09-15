@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css, STATUS_RE } from "../theme";
+import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 import type { Period } from "../period";
 import type { Job } from "../ops";
@@ -664,17 +665,7 @@ function Trend({ points, unit }: { points: TrendPoint[] | null; unit: string }) 
 function Tile({ label, value, note, colour, onClick }: {
   label: string; value: string; note: string; colour: string; onClick?: () => void;
 }) {
-  const body = (
-    <>
-      <div style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</div>
-      <div style={css(`font-family:ui-monospace,monospace;font-size:26px;font-weight:600;line-height:1.25;margin-top:3px;color:${colour}`)}>{value}</div>
-      <div style={css("font-size:12px;color:#7B8CA0")}>{note}</div>
-    </>
-  );
-  const skin = `background:#fff;border-top:3px solid ${colour};border-right:1px solid #D8E0E8;border-bottom:1px solid #D8E0E8;border-left:1px solid #D8E0E8;border-radius:4px;padding:12px 15px 14px;text-align:left;width:100%`;
-  return onClick
-    ? <button onClick={onClick} style={css(skin + ";font-family:inherit;cursor:pointer")}>{body}</button>
-    : <div style={css(skin)}>{body}</div>;
+  return <StatCard label={label} value={value} note={note} tone={colour} onClick={onClick} />;
 }
 
 const NUM = "padding:8px 14px;text-align:right;font-family:ui-monospace,monospace;color:#16232F";

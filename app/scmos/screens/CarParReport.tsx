@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
 import { STAGES, stageLabel } from "../incidentStages";
 import { css } from "../theme";
+import { StatCard } from "../StatCard";
 
 /**
  * Where the CAR/PAR cases stand: how old, how many closed, what keeps coming back.
@@ -210,7 +211,6 @@ export function CarParReport({ onToast, onBack }: {
   );
 }
 
-const LABEL = css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600");
 const BTN_PRIMARY = "height:30px;padding:0 15px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit";
 const BTN_SECONDARY = css("height:30px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#31465C;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit");
 
@@ -250,11 +250,5 @@ function Row({ label, value, max, tone, note }: {
 }
 
 function Tile({ label, value, tone, note }: { label: string; value: string; tone?: string; note?: string }) {
-  return (
-    <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:12px 16px;min-width:140px;display:flex;flex-direction:column;gap:3px")}>
-      <span style={LABEL}>{label}</span>
-      <span style={css(`font-size:19px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${tone ?? "#0A2240"}`)}>{value}</span>
-      {note && <span style={css("font-size:10.5px;color:#94A3B8")}>{note}</span>}
-    </div>
-  );
+  return <StatCard label={label} value={value} tone={tone} note={note} compact />;
 }

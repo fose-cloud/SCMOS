@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { isCancelled, type Job } from "../ops";
 import { css } from "../theme";
+import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 import {
   busiest, byField, byOperator, byPeriod, owner, type Grain, type Scope, type Tally,
@@ -317,13 +318,7 @@ const BTN_PRIMARY = "height:32px;padding:0 16px;border:1px solid #0A2240;backgro
 const BTN_SECONDARY = css("height:30px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#31465C;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit");
 
 function Tile({ label, value, tone, note }: { label: string; value: string; tone?: string; note?: string }) {
-  return (
-    <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:12px 16px;min-width:130px;display:flex;flex-direction:column;gap:3px")}>
-      <span style={LABEL}>{label}</span>
-      <span style={css(`font-size:19px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${tone ?? "#0A2240"}`)}>{value}</span>
-      {note && <span style={css("font-size:10.5px;color:#94A3B8")}>{note}</span>}
-    </div>
-  );
+  return <StatCard label={label} value={value} tone={tone} note={note} compact />;
 }
 
 function Field({ label, width, children }: { label: string; width: string; children: React.ReactNode }) {

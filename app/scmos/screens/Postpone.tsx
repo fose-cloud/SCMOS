@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { isCancelled, prep, wasMoved, type Job } from "../ops";
 import { loadChangedJobs } from "../store";
 import { badge, css } from "../theme";
+import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 
 /**
@@ -119,11 +120,7 @@ export function Postpone({ me, onOpenJob }: {
           ["ยกเลิก", cancelled.length, "#B42318", "งานที่ไม่เกิดขึ้น — ยังอยู่ในระบบ ไม่ถูกลบ"],
           ["รวม", jobs.length, "#0A2240", "ทั้งหมดที่แผนเปลี่ยนไปจากที่จองไว้"],
         ] as [string, number, string, string][]).map(([label, value, colour, note]) => (
-          <div key={label} style={css("background:#fff;border:1px solid #E9EFF5;border-radius:5px;padding:12px 14px")}>
-            <div style={css("font-size:11px;color:#64748B")}>{label}</div>
-            <div style={css("font-size:26px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:" + colour)}>{value}</div>
-            <div style={css("font-size:10.5px;color:#94A3B8;line-height:1.45")}>{note}</div>
-          </div>
+          <StatCard key={label} label={label} value={value.toLocaleString()} tone={colour} note={note} />
         ))}
       </div>
 

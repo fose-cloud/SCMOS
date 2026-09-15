@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import { stamp } from "./WorkflowPanel";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 
 /**
@@ -249,14 +250,7 @@ function Row({ line, canEdit, busy, onSend, onRespond, onChase }: {
 }
 
 function Tile({ label, value, colour }: { label: string; value: number; colour: string }) {
-  return (
-    <div style={css(`background:#fff;border-top:3px solid ${colour};border-right:1px solid #D8E0E8;border-bottom:1px solid #D8E0E8;border-left:1px solid #D8E0E8;border-radius:4px;padding:11px 14px 13px`)}>
-      <div style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</div>
-      <div style={css(`font-family:ui-monospace,monospace;font-size:24px;font-weight:600;line-height:1.25;margin-top:2px;color:${colour}`)}>
-        {value.toLocaleString()}
-      </div>
-    </div>
-  );
+  return <StatCard label={label} value={value.toLocaleString()} tone={colour} />;
 }
 
 export { stamp };

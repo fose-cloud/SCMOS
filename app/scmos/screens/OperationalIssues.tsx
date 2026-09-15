@@ -8,6 +8,7 @@ import {
 import { parseIssueWorkbook } from "../issuesExcel";
 import type { Job } from "../ops";
 import { css } from "../theme";
+import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 import { apiFetch } from "../api";
 import { useCarriers } from "../carriers";
@@ -801,15 +802,7 @@ const BTN_PRIMARY = css("height:32px;padding:0 16px;border:1px solid #0A2240;bac
 const BTN_SECONDARY = css("height:32px;padding:0 14px;border:1px solid #C9D6E2;background:#fff;color:#31465C;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit");
 
 function Tile({ label, value, tone, note }: { label: string; value: number; tone?: string; note?: string }) {
-  return (
-    <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:12px 16px;min-width:150px;display:flex;flex-direction:column;gap:3px")}>
-      <span style={LABEL}>{label}</span>
-      <span style={css(`font-size:22px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:${tone ?? "#0A2240"}`)}>
-        {value.toLocaleString("en-US")}
-      </span>
-      {note && <span style={css("font-size:10.5px;color:#94A3B8")}>{note}</span>}
-    </div>
-  );
+  return <StatCard label={label} value={value.toLocaleString()} tone={tone} note={note} compact />;
 }
 
 function Picker({ label, value, onChange, options }: {

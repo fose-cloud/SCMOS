@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 import { REQUIREMENTS, STATE_TONE, stateLabel } from "../supplierCompliance";
 
@@ -1349,13 +1350,7 @@ function Button({ label, tone, busy, onClick }: { label: string; tone: string; b
 }
 
 function Tile({ label, value, note, colour }: { label: string; value: number; note: string; colour: string }) {
-  return (
-    <div style={css(`background:#fff;border-top:3px solid ${colour};border-right:1px solid #D8E0E8;border-bottom:1px solid #D8E0E8;border-left:1px solid #D8E0E8;border-radius:4px;padding:11px 14px 13px`)}>
-      <div style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</div>
-      <div style={css(`font-family:ui-monospace,monospace;font-size:24px;font-weight:600;line-height:1.25;margin-top:2px;color:${colour}`)}>{value.toLocaleString()}</div>
-      <div style={css("font-size:12px;color:#7B8CA0")}>{note}</div>
-    </div>
-  );
+  return <StatCard label={label} value={value.toLocaleString()} tone={colour} note={note} />;
 }
 
 /**

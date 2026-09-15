@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import { StatCard } from "../StatCard";
 import { CustomerTrainingRegister } from "./CustomerTrainingRegister";
 
 /**
@@ -683,12 +684,5 @@ function Field({ label, width, children }: { label: string; width: string; child
 }
 
 function Tile({ label, value, tone }: { label: string; value: number; tone: string }) {
-  return (
-    <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 15px")}>
-      <div style={css("font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600;line-height:1.4")}>
-        {label}
-      </div>
-      <div style={css("font-size:24px;font-weight:700;margin-top:4px;color:" + tone)}>{value}</div>
-    </div>
-  );
+  return <StatCard label={label} value={value.toLocaleString()} tone={tone} />;
 }
