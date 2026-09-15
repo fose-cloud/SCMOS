@@ -12,7 +12,9 @@ public sealed record CachedJobRow(
     string Key,
     string Trucker,
     JsonElement Raw,
-    JobRecord? Record);
+    JobRecord? Record,
+    /// <summary>When the row was last written — the column, which the JSON does not carry.</summary>
+    DateTimeOffset UpdatedAt = default);
 
 /// <summary>A coherent read of the operation register.</summary>
 public sealed record JobRegisterSnapshot(
@@ -120,7 +122,7 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
 
                 if (valid.Count > 0) json.Append(',');
                 json.Append(row.Data);
-                valid.Add(new CachedJobRow(row.Key, row.Trucker, raw, JobRecord.From(raw)));
+                valid.Add(new CachedJobRow(row.Key, row.Trucker, raw, JobRecord.From(raw), row.UpdatedAt));
                 if (row.UpdatedAt > updatedAt) updatedAt = row.UpdatedAt;
             }
 

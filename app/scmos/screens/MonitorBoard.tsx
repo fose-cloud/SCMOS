@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
+import { exportProblems } from "../excel";
 import { useRemembered } from "../pageCache";
+import { StatCard, StatGlyph } from "../StatCard";
+import { lastActiveLabel } from "../rotationPeople";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
 
@@ -39,6 +42,10 @@ type ProblemRow = {
   minutesLate: number; measurable: boolean; note: string; noteFrom: string;
   date: string; customer: string; trucker: string; owner: string; status: string; jobCode: string;
   planned: string; arrived: string;
+  /** The leg, as two places; either may be empty. Absent on an older API. */
+  routeFrom?: string; routeTo?: string;
+  /** When the row was last written, ISO-8601; empty when unknown. */
+  updatedAt?: string;
 };
 type Tally = {
   live: number; withProblem: number; unmeasurable: number; arrivedLate: number; lateMinutes: number;
@@ -69,6 +76,14 @@ const PROBLEM: Record<string, string> = {
  * here sorts to the front rather than disappearing.
  */
 const ORDER = ["Incident", "DelayOpen", "StageDelayed", "ArrivedLate", "DelayNoted"];
+
+/** The badge's glyph, by kind — the department's board marks each problem with one. */
+const PROBLEM_GLYPH: Record<string, "warning" | "clock" | "document"> = {
+  Incident: "warning", DelayOpen: "clock", StageDelayed: "clock", ArrivedLate: "clock", DelayNoted: "document",
+};
+
+/** How many rows a page of the problem list shows. */
+const PAGE_SIZES = [25, 50, 100];
 
 /** What put a job on the list, and how loudly to say it. */
 const RISK: Record<string, { th: string; tone: string }> = {
@@ -136,6 +151,8 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
    */
   const [kind, setKind] = useState("");
   const [query, setQuery] = useState("");
+  const [per, setPer] = useState(25);
+  const [page, setPage] = useState(1);
 
   // The Thai for each kind comes back beside the machine name on every row, so
   // the buttons are labelled in the API's words rather than a second copy of
@@ -167,6 +184,13 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
     });
   }, [problems, kind, query]);
 
+  // Pages over the narrowed list, the way the department's board pages: a
+  // change of filter or search starts again from the first page.
+  const pageCount = Math.max(1, Math.ceil(shown.length / per));
+  const at = Math.min(page, pageCount);
+  const paged = shown.slice((at - 1) * per, at * per);
+  const pick = (next: string) => { setKind(next); setPage(1); };
+
   if (denied) {
     return (
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:30px;text-align:center;font-size:12.5px;color:#7B8CA0")}>
@@ -184,21 +208,35 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:12px")}>
+      {/* The department's board: the views as chips, the one on screen lit, and
+          at the right when the figures were counted and a way to count again. */}
       <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
         {tabs.map(([key, label, count]) => (
           <button key={key} onClick={() => setTab(key)}
-            style={css("height:30px;padding:0 13px;border-radius:4px;font-size:12px;font-weight:600;"
-              + "font-family:inherit;cursor:pointer;border:1px solid "
-              + (tab === key ? "#0A2240;background:#0A2240;color:#fff" : "#C9D6E2;background:#fff;color:#0A2240"))}>
-            {label}{count === null ? "" : ` ${count}`}
+            style={css("height:34px;padding:0 15px;border-radius:6px;font-size:12.5px;font-weight:600;"
+              + "font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:7px;border:1px solid "
+              + (tab === key
+                ? "#0A2240;background:#0A2240;color:#fff;box-shadow:0 0 0 1px rgba(46,125,209,.35),0 0 14px rgba(46,125,209,.25)"
+                : "#C9D6E2;background:#fff;color:#0A2240"))}>
+            {label}
+            {count !== null && (
+              <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11px;padding:1px 7px;border-radius:10px;"
+                + (tab === key ? "background:rgba(255,255,255,.18);color:#fff" : "background:#EEF3F8;color:#31465C"))}>
+                {count}
+              </span>
+            )}
           </button>
         ))}
         <span style={css("margin-left:auto;display:flex;align-items:center;gap:10px;font-size:11.5px;color:#7B8CA0")}>
-          {board && <>นับ ณ {board.today} · งานที่ยังไม่จบ {board.live.toLocaleString()}</>}
+          {board && <span style={css("display:inline-flex;align-items:center;gap:6px")}>
+            <StatGlyph icon="calendar" size={14} />
+            อัปเดตล่าสุด: {board.today} · งานที่ยังไม่จบ {board.live.toLocaleString()}
+          </span>}
           <button onClick={refresh} disabled={busy}
-            style={css("height:26px;padding:0 10px;border:1px solid #C9D6E2;border-radius:4px;background:#fff;"
-              + "font-size:11.5px;font-family:inherit;cursor:pointer;color:#0A2240")}>
-            {busy ? "กำลังอ่าน…" : "อ่านใหม่"}
+            style={css("height:30px;padding:0 12px;border:1px solid #C9D6E2;border-radius:6px;background:#fff;"
+              + "font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;color:#0A2240;display:inline-flex;align-items:center;gap:6px")}>
+            <StatGlyph icon="refresh" size={14} />
+            {busy ? "กำลังอ่าน…" : "รีเฟรช"}
           </button>
         </span>
       </div>
@@ -218,24 +256,34 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
             + " · มีบันทึกความล่าช้า"}
           tools={
             <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px")}>
-              <Pick on={kind === ""} tone="#0A2240" onClick={() => setKind("")}>
-                ทั้งหมด {problems.length}
+              <Pick on={kind === ""} tone="#0A2240" count={problems.length} onClick={() => pick("")}>
+                ปัญหาทั้งหมด
               </Pick>
               {/* Only kinds that have something behind them. A button that can
                   only ever come back empty is a button people stop trusting. */}
               {kinds.map((one) => (
-                <Pick key={one.name} on={kind === one.name} tone={PROBLEM[one.name] ?? "#0A2240"}
-                  onClick={() => setKind(kind === one.name ? "" : one.name)}>
-                  {one.thai} {one.count}
+                <Pick key={one.name} on={kind === one.name} tone={PROBLEM[one.name] ?? "#0A2240"} count={one.count}
+                  onClick={() => pick(kind === one.name ? "" : one.name)}>
+                  {one.thai}
                 </Pick>
               ))}
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="ค้นหา ลูกค้า / ผู้ขนส่ง / เจ้าของงาน / ข้อความ"
-                style={css("margin-left:auto;height:27px;border:1px solid #C9D6E2;border-radius:4px;"
-                  + "padding:0 9px;font-size:12px;font-family:inherit;min-width:250px")}
-              />
+              <span style={css("margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:30px;border:1px solid #C9D6E2;border-radius:6px;padding:0 9px;background:#fff;min-width:260px")}>
+                <span style={css("display:flex;color:#7B8CA0")}><StatGlyph icon="search" size={14} /></span>
+                <input
+                  value={query}
+                  onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+                  placeholder="ค้นหา ลูกค้า / ผู้ขนส่ง / เจ้าของงาน / ข้อความ"
+                  style={css("flex:1;border:0;outline:none;font-size:12px;font-family:inherit;background:transparent;color:#16232F")}
+                />
+              </span>
+              <button type="button" onClick={() => exportProblems(shown, kind || "all")}
+                disabled={shown.length === 0}
+                style={css("height:30px;padding:0 12px;border:1px solid #0A2240;border-radius:6px;background:#0A2240;color:#fff;"
+                  + "font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px"
+                  + (shown.length === 0 ? ";opacity:.5;cursor:not-allowed" : ""))}>
+                <StatGlyph icon="download" size={14} />
+                ส่งออก Excel
+              </button>
             </div>
           }>
           {problems.length === 0
@@ -247,18 +295,16 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
               </div>
             )
             : (
-              <Table heads={["ปัญหา", "ช้ากว่าแผน", "วันที่", "ลูกค้า", "ผู้ขนส่ง", "เจ้าของงาน", "สิ่งที่บันทึกไว้"]}>
-                {shown.slice(0, 200).map((row) => (
+              <Table heads={["สถานะ", "ช้ากว่าแผน", "วันที่", "ลูกค้า", "ผู้ขนส่ง", "เส้นทาง", "เหตุผล / สิ่งที่บันทึกไว้", "อัปเดตล่าสุด", "การดำเนินการ"]}>
+                {paged.map((row) => (
                   <tr key={row.key} className="row-hover" style={css("cursor:pointer")}
                     onClick={() => onOpenJob(row.key)}>
                     <td style={css(CELL)}>
                       <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
                         {row.problems.map((name, at) => (
-                          <span key={name} style={css("font-size:10.5px;font-weight:700;padding:2px 7px;"
-                            + "border-radius:3px;white-space:nowrap;border:1px solid "
-                            + (PROBLEM[name] ?? "#7B8CA0") + ";color:" + (PROBLEM[name] ?? "#7B8CA0"))}>
+                          <Badge key={name} tone={PROBLEM[name] ?? "#7B8CA0"} icon={PROBLEM_GLYPH[name] ?? "warning"}>
                             {row.problemsThai[at] ?? name}
-                          </span>
+                          </Badge>
                         ))}
                       </span>
                     </td>
@@ -272,8 +318,11 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
                     </td>
                     <td style={css(CELL + ";font-family:ui-monospace,monospace")}>{row.date || "—"}</td>
                     <td style={css(CELL)}>{row.customer || "—"}</td>
-                    <td style={css(CELL)}>{row.trucker || "—"}</td>
-                    <td style={css(CELL)}>{row.owner || "—"}</td>
+                    <td style={css(CELL)}>
+                      {row.trucker || "—"}
+                      {row.owner && <div style={css("font-size:11px;color:#94A3B8")}>เจ้าของงาน {row.owner}</div>}
+                    </td>
+                    <td style={css(CELL)}><Leg from={row.routeFrom ?? ""} to={row.routeTo ?? ""} /></td>
                     {/* The operator's own words, unedited, with where they wrote
                         them — the whole point of the column is that a supervisor
                         reads what a person said rather than what a rule inferred.
@@ -302,14 +351,24 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
                         <span style={css("color:#94A3B8")}>สถานะ {row.status || "—"}</span>
                       )}
                     </td>
+                    <td style={css(CELL + ";font-family:ui-monospace,monospace;color:#7B8CA0")}>
+                      {lastActiveLabel(row.updatedAt) || "—"}
+                    </td>
+                    <td style={css(CELL)}>
+                      <button type="button"
+                        onClick={(event) => { event.stopPropagation(); onOpenJob(row.key); }}
+                        style={css("height:26px;padding:0 10px;border:1px solid #C9D6E2;border-radius:5px;background:#fff;"
+                          + "color:#0A2240;font-size:11.5px;font-weight:600;font-family:inherit;cursor:pointer")}>
+                        ดูรายละเอียด
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </Table>
             )}
-          {shown.length > 200 && (
-            <div style={css("padding:9px 12px;font-size:11.5px;color:#94A3B8")}>
-              แสดง 200 แถวแรกจาก {shown.length} — เรียงจากร้ายแรงที่สุดแล้ว
-            </div>
+          {shown.length > 0 && (
+            <Pager total={shown.length} page={at} pageCount={pageCount} per={per}
+              onPage={setPage} onPer={(next) => { setPer(next); setPage(1); }} />
           )}
         </Card>
       )}
@@ -413,30 +472,83 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
  * perfectly look identical to every other number on this screen.
  */
 function Headline({ board, tally }: { board: Board; tally: Tally }) {
-  const figures: [string, string, string, string][] = [
-    ["งานที่ยังไม่จบ", tally.live.toLocaleString(), "#0A2240", "งานที่ยังไม่ปิดและไม่ถูกยกเลิก"],
+  // The department's board leads with five figures, each with its glyph.
+  // These are the register's own counts, said the same way the API counted
+  // them — no movement against last week, because nothing here measures it.
+  const figures: [string, string, string, string, "box" | "warning" | "clock" | "flag" | "search"][] = [
+    ["งานที่ยังไม่จบ", tally.live.toLocaleString(), "#0A2240", "งานที่ยังไม่ปิดและไม่ถูกยกเลิก", "box"],
     ["มีปัญหา", tally.withProblem.toLocaleString(),
-      tally.withProblem > 0 ? "#B42318" : "#16794C", "งานที่กำลังวิ่งและมีอย่างน้อย 1 ปัญหา"],
+      tally.withProblem > 0 ? "#B42318" : "#16794C", "งานที่กำลังวิ่งและมีอย่างน้อย 1 ปัญหา", "warning"],
     ["ถึงช้ากว่าแผน", tally.arrivedLate.toLocaleString(),
-      tally.arrivedLate > 0 ? "#B45309" : "#16794C", `วัดจากแผนเทียบเวลาถึงจริง เกิน ${tally.lateMinutes} นาที`],
+      tally.arrivedLate > 0 ? "#B45309" : "#16794C", `วัดจากแผนเทียบเวลาถึงจริง เกิน ${tally.lateMinutes} นาที`, "clock"],
     ["ต้องจัดการวันนี้", board.risks.length.toLocaleString(),
-      board.risks.length > 0 ? "#B45309" : "#16794C", "งานที่ยังขาดของก่อนออกวิ่ง"],
+      board.risks.length > 0 ? "#B45309" : "#16794C", "งานที่ยังขาดของก่อนออกวิ่ง", "flag"],
     ["ยังวัดไม่ได้", tally.unmeasurable.toLocaleString(), "#7B8CA0",
-      "ไม่มีเวลาแผนหรือเวลาถึง จึงบอกไม่ได้ว่าตรงเวลาหรือไม่"],
+      "ไม่มีเวลาแผนหรือเวลาถึง จึงบอกไม่ได้ว่าตรงเวลาหรือไม่", "search"],
   ];
 
   return (
-    <div style={css("display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr))")}>
-      {figures.map(([label, value, tone, why]) => (
-        <div key={label} title={why}
-          style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:11px 14px")}>
-          <div style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;"
-            + "color:#7B8CA0;font-weight:700")}>{label}</div>
-          <div style={css("font-size:23px;font-weight:650;font-family:ui-monospace,monospace;"
-            + "line-height:1.25;color:" + tone)}>{value}</div>
-          <div style={css("font-size:11px;color:#94A3B8;margin-top:1px")}>{why}</div>
-        </div>
+    <div style={css("display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))")}>
+      {figures.map(([label, value, tone, why, icon]) => (
+        <StatCard key={label} label={label} value={value} tone={tone} note={why} icon={icon} />
       ))}
+    </div>
+  );
+}
+
+/** A status badge: a glyph and the words, tinted in the problem's colour. */
+function Badge({ tone, icon, children }: {
+  tone: string; icon: "warning" | "clock" | "document"; children: React.ReactNode;
+}) {
+  return (
+    <span style={css("display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:3px 8px;"
+      + `border-radius:5px;white-space:nowrap;border:1px solid ${tone}66;color:${tone};background:${tone}14`)}>
+      <StatGlyph icon={icon} size={12} />
+      {children}
+    </span>
+  );
+}
+
+/** The leg: a glyph for the kind of run, then where from and where to. */
+function Leg({ from, to }: { from: string; to: string }) {
+  if (!from && !to) return <span style={css("color:#94A3B8")}>—</span>;
+  return (
+    <span style={css("display:inline-flex;align-items:center;gap:6px;white-space:nowrap")}>
+      <span style={css("display:flex;color:#2E7DD1")}><StatGlyph icon="truck" size={14} /></span>
+      <span>{from || "—"}</span>
+      <span style={css("color:#2E7DD1")}>→</span>
+      <span>{to || "—"}</span>
+    </span>
+  );
+}
+
+/** Which rows are on screen, and the way to the rest. */
+function Pager({ total, page, pageCount, per, onPage, onPer }: {
+  total: number; page: number; pageCount: number; per: number;
+  onPage: (page: number) => void; onPer: (per: number) => void;
+}) {
+  const from = (page - 1) * per + 1;
+  const to = Math.min(page * per, total);
+  const pages = Array.from({ length: Math.min(pageCount, 6) }, (_, i) => i + 1);
+  const btn = (on: boolean) =>
+    "min-width:30px;height:30px;padding:0 9px;border-radius:6px;font-size:12px;font-family:inherit;cursor:pointer;border:1px solid "
+    + (on ? "#1668AB;background:#1668AB;color:#fff;font-weight:600" : "#C9D6E2;background:#fff;color:#0A2240");
+  return (
+    <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid #E9EFF5;font-size:12px;color:#5A6B7D")}>
+      <span>แสดง {from.toLocaleString()}–{to.toLocaleString()} จาก <b style={css("color:#0A2240")}>{total.toLocaleString()}</b> รายการ</span>
+      <span style={css("margin-left:auto;display:flex;align-items:center;gap:5px")}>
+        <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} style={css(btn(false) + (page <= 1 ? ";opacity:.45;cursor:not-allowed" : ""))}>‹ Prev</button>
+        {pages.map((n) => <button key={n} type="button" onClick={() => onPage(n)} style={css(btn(n === page))}>{n}</button>)}
+        {pageCount > 6 && <span style={css("padding:0 4px")}>… {pageCount}</span>}
+        <button type="button" disabled={page >= pageCount} onClick={() => onPage(page + 1)} style={css(btn(false) + (page >= pageCount ? ";opacity:.45;cursor:not-allowed" : ""))}>Next ›</button>
+      </span>
+      <span style={css("display:flex;align-items:center;gap:6px")}>
+        Rows per page
+        <select value={per} onChange={(event) => onPer(Number(event.target.value))}
+          style={css("height:30px;border:1px solid #C9D6E2;border-radius:6px;padding:0 8px;font-size:12px;font-family:inherit;background:#fff;color:#0A2240")}>
+          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </span>
     </div>
   );
 }
@@ -469,16 +581,20 @@ function Card({ title, note, tools, children }: {
   );
 }
 
-/** One filter button: a kind and how many rows carry it. */
-function Pick({ on, tone, onClick, children }: {
-  on: boolean; tone: string; onClick: () => void; children: React.ReactNode;
+/** One filter button: a kind and, in a bubble, how many rows carry it. */
+function Pick({ on, tone, count, onClick, children }: {
+  on: boolean; tone: string; count: number; onClick: () => void; children: React.ReactNode;
 }) {
   return (
     <button type="button" onClick={onClick}
-      style={css("height:26px;padding:0 10px;border-radius:4px;font-size:11.5px;font-weight:600;"
-        + "font-family:inherit;cursor:pointer;white-space:nowrap;border:1px solid " + tone
+      style={css("height:30px;padding:0 6px 0 11px;border-radius:6px;font-size:12px;font-weight:600;"
+        + "font-family:inherit;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;border:1px solid " + tone
         + ";background:" + (on ? tone : "#fff") + ";color:" + (on ? "#fff" : tone))}>
       {children}
+      <span style={css("font-family:'IBM Plex Mono',monospace;font-size:11px;padding:1px 7px;border-radius:10px;"
+        + (on ? "background:rgba(255,255,255,.2);color:#fff" : `background:${tone}14;color:${tone}`))}>
+        {count}
+      </span>
     </button>
   );
 }

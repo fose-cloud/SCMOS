@@ -69,7 +69,7 @@ test("a late row carries the two readings it was worked out from", () => {
   // anything, and the plan against the arrival showed a plan time keyed as
   // 00:30 for what it was.
   assert.match(board, /แผน \{row\.planned\} → ถึง \{row\.arrived\}/);
-  assert.match(monitor, /string Planned, string Arrived\);/);
+  assert.match(monitor, /string Planned, string Arrived,/);
 });
 
 test("finished and cancelled work is not something to do this morning", () => {
@@ -87,9 +87,10 @@ test("the list can be narrowed, over all of it rather than the page on screen", 
   // The note is part of the search: "รถติดในท่า" is how somebody looks for every
   // job held up in the port, and thirty of them said exactly that.
   assert.match(board, /row\.customer, row\.trucker, row\.owner, row\.jobCode, row\.note, row\.status/);
-  // The row cap follows the filter. Reading "200 of 290" while looking at seven
+  // The pages follow the filter. Reading "1–25 of 290" while looking at seven
   // filtered rows is the screen describing a list it is not showing.
-  assert.match(board, /แสดง 200 แถวแรกจาก \{shown\.length\}/);
+  assert.match(board, /const paged = shown\.slice\(\(at - 1\) \* per, at \* per\);/);
+  assert.match(board, /<Pager total=\{shown\.length\}/);
   assert.doesNotMatch(board, /\{problems\.slice\(0, 200\)/);
 });
 

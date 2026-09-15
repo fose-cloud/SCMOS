@@ -926,6 +926,35 @@ export async function parseWorkbook(
  * grid can draw; an export that quietly held only that would be the file
  * somebody then negotiates from.
  */
+/**
+ * The shipment monitor's problem list, as shown — narrowed by the filter and
+ * the search, in the API's worst-first order — for the supervisor who takes
+ * the morning's list to a meeting.
+ */
+export function exportProblems(rows: {
+  problemsThai: string[]; minutesLate: number; measurable: boolean; date: string; customer: string;
+  trucker: string; owner: string; routeFrom?: string; routeTo?: string; note: string; noteFrom: string;
+  status: string; jobCode: string; planned: string; arrived: string;
+}[], scopeLabel: string): string {
+  const headers = ["ปัญหา", "ช้ากว่าแผน (นาที)", "วันที่", "ลูกค้า", "ผู้ขนส่ง", "เจ้าของงาน",
+    "ต้นทาง", "ปลายทาง", "สิ่งที่บันทึกไว้", "บันทึกที่", "แผน", "ถึง", "สถานะ", "Job"];
+  const out = rows.map((row) => ({
+    [headers[0]]: row.problemsThai.join(" · "),
+    [headers[1]]: row.minutesLate > 0 ? String(row.minutesLate) : row.measurable ? "0" : "",
+    [headers[2]]: row.date, [headers[3]]: row.customer, [headers[4]]: row.trucker, [headers[5]]: row.owner,
+    [headers[6]]: row.routeFrom ?? "", [headers[7]]: row.routeTo ?? "",
+    [headers[8]]: row.note, [headers[9]]: row.noteFrom, [headers[10]]: row.planned, [headers[11]]: row.arrived,
+    [headers[12]]: row.status, [headers[13]]: row.jobCode,
+  }));
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(out, { header: headers });
+  sheet["!cols"] = autoWidth(out, headers);
+  XLSX.utils.book_append_sheet(book, sheet, "Problems");
+  const filename = `SCMOS_Shipment_Problems_${scopeLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(book, filename);
+  return filename;
+}
+
 export function exportRateSheet(rows: SheetRow[], scopeLabel: string): string {
   const headers = SHEET_COLUMNS.map((column) => column.head);
   const out = rows.map((row) => {

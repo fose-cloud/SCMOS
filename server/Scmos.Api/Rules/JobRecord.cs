@@ -53,6 +53,27 @@ public class JobRecord
     [JsonPropertyName("incident")] public string Incident { get; set; } = "";
     [JsonPropertyName("seal")] public string Seal { get; set; } = "";
 
+    // The places, for the leg a monitor draws: an import runs from the yard
+    // the box is collected at to the customer; an export from the plant to the
+    // yard it returns to; a delivery from the warehouse to the drop.
+    [JsonPropertyName("plant")] public string Plant { get; set; } = "";
+    [JsonPropertyName("destination")] public string Destination { get; set; } = "";
+    [JsonPropertyName("cyYard")] public string CyYard { get; set; } = "";
+    [JsonPropertyName("wh")] public string Wh { get; set; } = "";
+
+    /// <summary>
+    /// The leg this job is, as two places — empty on either side when the
+    /// register does not say. Which two depends on the category, because the
+    /// same column means a different end of the trip on an import and an
+    /// export.
+    /// </summary>
+    public (string From, string To) Leg => Cat.ToUpperInvariant() switch
+    {
+        "EXPORT" => (Plant.Trim(), CyYard.Trim()),
+        "DELIVERY" => (Wh.Trim(), Destination.Trim()),
+        _ => (CyYard.Trim(), Destination.Trim()),
+    };
+
     /// <summary>The job's own key, falling back to the id older rows were saved with.</summary>
     public string Identity => Key.Length > 0 ? Key : Id;
 

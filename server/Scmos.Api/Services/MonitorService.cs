@@ -38,7 +38,10 @@ public record ProblemRow(
     // never typed one — and a column of "ไม่มีข้อความ" teaches a supervisor
     // nothing, where "plan 09:00, arrived 09:30 two days later" is the whole
     // finding and shows a mis-keyed plan time for what it is.
-    string Planned, string Arrived);
+    string Planned, string Arrived,
+    // The leg and the stamp, for the board the department drew: where the
+    // job runs from and to, and when its row was last written.
+    string RouteFrom = "", string RouteTo = "", string UpdatedAt = "");
 
 /// <param name="Unmeasurable">
 /// Live jobs whose lateness cannot be worked out at all.
@@ -209,6 +212,10 @@ public class MonitorService(ScmosDbContext db, JobRegisterCache register)
             .Where(record => record is not null && record.Identity.Length > 0)
             .Select(record => record!)
             .ToList();
+        var stamps = snapshot.Rows
+            .Where(row => row.Record is not null && row.Record.Identity.Length > 0)
+            .GroupBy(row => row.Record!.Identity, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Max(row => row.UpdatedAt), StringComparer.OrdinalIgnoreCase);
 
         var found = new List<(ProblemRules.Row Row, JobRecord Job)>();
         foreach (var record in records)
@@ -237,7 +244,10 @@ public class MonitorService(ScmosDbContext db, JobRegisterCache register)
                 pair.Job.Date, pair.Job.Customer, pair.Job.Trucker, pair.Job.Op,
                 pair.Job.Status, pair.Job.JobCode,
                 Moment(pair.Job.Date, pair.Job.PlanTime),
-                Moment(pair.Job.ArrDate, pair.Job.ArrTime)))
+                Moment(pair.Job.ArrDate, pair.Job.ArrTime),
+                pair.Job.Leg.From, pair.Job.Leg.To,
+                stamps.TryGetValue(pair.Job.Identity, out var at) && at != default
+                    ? at.ToUniversalTime().ToString("O") : ""))
             .ToList();
 
         return (rows, new ProblemTally(counted.Live, counted.WithProblem, counted.Unmeasurable,
