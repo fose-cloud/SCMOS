@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { LANE_REQUIRED, SHEET_COLUMNS, SHEET_VEHICLES, missingForLane } from "../app/scmos/rateSheetColumns.ts";
+import { LANE_REQUIRED, SHEET_COLUMNS, SHEET_VEHICLES, TICKED, UNTICKED, cellText, missingForLane } from "../app/scmos/rateSheetColumns.ts";
 
 /** The vehicle codes the register actually prices, read out of the C#. */
 function registerCodes() {
@@ -111,4 +111,25 @@ test("the price columns are not among them", () => {
   // rather than accepting it and dropping it.
   assert.equal(LANE_REQUIRED.some((one) => one.field.startsWith("price")), false);
   assert.equal(LANE_REQUIRED.length, 3);
+});
+
+test("a tick box copies as a box with a tick, and exports as the sheets' own x", () => {
+  const lane = {
+    laneId: 1, inquiryId: 1, date: "15/09/2026", no: 128, requestor: "Joy", customer: "KS",
+    fuelBand: "", fromPlace: "A", toPlace: "B", county: "", carriers: "",
+    fcl: true, lcl: false, domestic: true, remark: "", prices: {},
+  };
+  const fcl = SHEET_COLUMNS.find((column) => column.head === "FCL");
+  const lcl = SHEET_COLUMNS.find((column) => column.head === "LCL");
+  // The clipboard: what a pasted row shows — asked for on 15 Sep 2026, in
+  // place of the words true and false.
+  assert.equal(cellText(lane, fcl, "box"), TICKED);
+  assert.equal(cellText(lane, lcl, "box"), UNTICKED);
+  assert.equal(TICKED, "☑");
+  assert.equal(UNTICKED, "☐");
+  // The workbook keeps the mark the importer reads back.
+  assert.equal(cellText(lane, fcl), "x");
+  assert.equal(cellText(lane, lcl), "");
+  const screen = readFileSync(new URL("../app/scmos/screens/RateSheet.tsx", import.meta.url), "utf8");
+  assert.match(screen, /chosenColumns\.map\(\(column\) => cellText\(row, column, "box"\)\)/);
 });

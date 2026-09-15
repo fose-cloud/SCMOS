@@ -70,7 +70,7 @@ export function ImportWorkbook({ onToast, onDone }: { onToast: (m: string) => vo
           fuelBand: one.fuelBand,
           lanes: one.lanes.map((lane) => ({
             fromPlace: lane.fromPlace, toPlace: lane.toPlace, county: lane.county,
-            carriers: lane.carriers, fcl: lane.fcl, lcl: lane.lcl, remark: lane.remark,
+            carriers: lane.carriers, fcl: lane.fcl, lcl: lane.lcl, domestic: lane.domestic, remark: lane.remark,
             prices: lane.prices,
           })),
         }));

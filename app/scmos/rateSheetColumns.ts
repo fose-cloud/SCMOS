@@ -181,9 +181,29 @@ export function readCell(row: SheetRow, column: SheetColumn): string | number | 
  * A tick is an "x" because that is what the sheet holds, an absent price is
  * blank rather than nought, and everything else is its own text.
  */
-export function cellText(row: SheetRow, column: SheetColumn): string {
+/**
+ * A tick box as characters: the box with its tick, or the empty box.
+ *
+ * What a copied row shows for FCL and LCL wherever it is pasted — a mail, a
+ * spreadsheet, a chat. It used to paste as the word "true", which reads as
+ * a value somebody typed rather than a box somebody ticked, and "false" read
+ * back into the importer as a tick, because anything written in the box was
+ * one. The empty box is drawn too, so an unticked column is visibly a
+ * column and not a gap.
+ */
+export const TICKED = "\u2611";
+export const UNTICKED = "\u2610";
+
+/**
+ * A cell as text, for the clipboard and the workbook.
+ *
+ * A tick goes out as the box glyph for the clipboard and as the sheets' own
+ * "x" for the workbook — the file is what the importer reads back, and the
+ * team's own sheets mark a tick with x, X or ✓.
+ */
+export function cellText(row: SheetRow, column: SheetColumn, tick: "x" | "box" = "x"): string {
   const value = readCell(row, column);
-  if (column.kind === "tick") return value ? "x" : "";
+  if (column.kind === "tick") return tick === "box" ? (value ? TICKED : UNTICKED) : (value ? "x" : "");
   if (column.kind === "price") return typeof value === "number" && value > 0 ? String(value) : "";
   return String(value ?? "");
 }

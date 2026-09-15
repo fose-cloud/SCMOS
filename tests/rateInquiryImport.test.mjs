@@ -291,3 +291,15 @@ test("an older sheet's DG tick moves a side-curtain price to the DG vehicle", ()
   assert.equal(inquiries[0].lanes[0].prices["SIDE DG"], 11500);
   assert.equal(inquiries[0].lanes[0].prices["SIDE"], undefined);
 });
+
+test("a box written as 'no' is not a tick: the empty box glyph, FALSE, and a dash all read as unticked", () => {
+  // A sheet built from a pasted copy carries ☑ and ☐; a spreadsheet writes
+  // TRUE and FALSE for a boolean. Only the ways of writing "yes" are ticks.
+  const { inquiries } = readSheet("August 2026", [...MODERN,
+    row(46235, 1, "Tum", "SHPP", "A", "B", "", "SSL", "☑", "☐", "FALSE", 1000, null, null, null, null, ""),
+    row(46235, 2, "Tum", "SHPP", "C", "D", "", "SSL", "TRUE", "-", "✓", 1000, null, null, null, null, ""),
+  ]);
+  const [one, two] = inquiries.map((inquiry) => inquiry.lanes[0]);
+  assert.deepEqual([one.fcl, one.lcl, one.domestic], [true, false, false]);
+  assert.deepEqual([two.fcl, two.lcl, two.domestic], [true, false, true]);
+});

@@ -12,7 +12,7 @@ import { gridTabTarget } from "../gridEditKey";
 import { draftGroups, growDrafts, isDraft, sheetToday } from "../rateSheetDrafts";
 import { writeClipboardTable } from "../pasteBlock";
 import { NO_DATE, monthLabel, partsOf } from "../period";
-import { SHEET_COLUMNS, missingForLane, readCell, editRateDraft, type SheetColumn, type SheetRow } from "../rateSheetColumns";
+import { SHEET_COLUMNS, cellText, missingForLane, readCell, editRateDraft, type SheetColumn, type SheetRow } from "../rateSheetColumns";
 import { css } from "../theme";
 import { useGridRange } from "../useGridRange";
 import { cell, nowHM, type Cell } from "../util";
@@ -767,8 +767,10 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
 
   async function copyWithHeads() {
     const heads = chosenColumns.map((column) => column.head);
+    // Through cellText, so a tick box pastes as a box with a tick rather than
+    // as the word "true" — asked for on 15 September 2026.
     const lines = rows.map((row) =>
-      chosenColumns.map((column) => String(readCell(row, column) ?? "")));
+      chosenColumns.map((column) => cellText(row, column, "box")));
 
     if (!heads.length) { onToast("ยังไม่ได้เลือกคอลัมน์ — กด “เลือกคอลัมน์” ก่อน"); return; }
 

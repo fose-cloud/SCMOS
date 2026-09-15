@@ -29,6 +29,8 @@ export type ImportLane = {
   carriers: string;
   fcl: boolean;
   lcl: boolean;
+  /** The sheet's third mode box. Mapped since the column existed, read since 15 Sep 2026. */
+  domestic: boolean;
   remark: string;
   /** Vehicle code to price. Only the ones the sheet actually filled in. */
   prices: Record<string, number>;
@@ -125,8 +127,17 @@ const FIELD_BY_HEADING: Record<string, string> = {
 
 const text = (value: unknown) => (value === null || value === undefined ? "" : String(value).trim());
 
-/** A tick is anything written in the box — the sheets use x, X and ✓. */
-const ticked = (value: unknown) => text(value).length > 0;
+/**
+ * A tick is anything written in the box — the sheets use x, X and ✓ — except
+ * the ways of writing "no": the empty box glyph a copied row carries, and the
+ * words a spreadsheet writes for an unticked boolean. Without this, a sheet
+ * built from a paste read every FALSE as a tick.
+ */
+const UNTICKED_WORDS = new Set(["\u2610", "false", "no", "n", "0", "-", "\u2014"]);
+const ticked = (value: unknown) => {
+  const written = text(value);
+  return written.length > 0 && !UNTICKED_WORDS.has(written.toLowerCase());
+};
 
 /**
  * A price, or null when the cell holds anything else.
@@ -291,6 +302,7 @@ export function readSheet(sheet: string, rows: unknown[][]): ImportRead {
       carriers: at(row, "subcon"),
       fcl: field.fcl !== undefined && ticked(row[field.fcl]),
       lcl: field.lcl !== undefined && ticked(row[field.lcl]),
+      domestic: field.domestic !== undefined && ticked(row[field.domestic]),
       remark: at(row, "remark"),
       prices,
     };
