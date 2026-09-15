@@ -8,6 +8,7 @@ import { RETURN_SHARE, returnKind, returnLoadCharge, tripCost } from "./returnLo
 import { SHEET_COLUMNS, cellText, type SheetRow } from "./rateSheetColumns";
 import { QUOTE_TERMS, chargeText } from "./quoteTerms";
 import { STATUS_LADDER, STATUS_TH } from "./theme";
+import type { TripPrice } from "./tripPricing";
 import { dowOf, pad } from "./util";
 
 /**
@@ -251,20 +252,59 @@ export function exportRates(book: RateBook): string {
   return filename;
 }
 
-export function exportJobs(jobs: Job[], layout: string, scopeLabel: string): string {
+/**
+ * The Domestic money columns, written as numbers with a SUM under them.
+ *
+ * Asked for on 15 September 2026: the sheet used to carry only a keyed
+ * cost, so a run priced off the card — which is nearly every run — went
+ * out blank and the file could not be totalled. With `pricing` given, the
+ * rate is what the grid shows, keyed or read off the card at the month's
+ * diesel, the return leg and the total go out beside it as figures, and
+ * the last row sums each so the file agrees with the grid.
+ */
+const MONEY = ["Transport Cost", "Return Load Cost", "Total Transport Cost"];
+
+export function exportJobs(jobs: Job[], layout: string, scopeLabel: string, pricing?: (job: Job) => TripPrice): string {
   const columns = [...COMMON_HEAD, ...columnsFor(layout)];
   const headers = columns.map((c) => c.header);
+  const priced = layout === "DELIVERY" && pricing ? pricing : null;
 
   const rows = jobs.map((j) => {
-    const row: Record<string, string> = {};
+    const row: Record<string, string | number> = {};
     for (const c of columns) row[c.header] = c.pick(j) ?? "";
+    if (priced) {
+      const price = priced(j);
+      row["Transport Cost"] = price.rate ?? "";
+      row["Return Load Cost"] = price.returnCharge ?? "";
+      row["Total Transport Cost"] = price.total ?? "";
+      row["Diesel"] = price.diesel ? price.diesel.toFixed(2) : "";
+    }
     row["Data Issues"] = j.issues.map((i) => i.label).join(", ");
     return row;
   });
 
   const book = XLSX.utils.book_new();
-  const sheet = XLSX.utils.json_to_sheet(rows, { header: [...headers, "Data Issues"] });
-  sheet["!cols"] = autoWidth(rows, [...headers, "Data Issues"]);
+  const allHeads = [...headers, "Data Issues"];
+  const sheet = XLSX.utils.json_to_sheet(rows, { header: allHeads });
+  sheet["!cols"] = autoWidth(rows, allHeads);
+  if (priced && rows.length) {
+    // The sum as a formula, not a number: whoever opens the file edits rows
+    // and expects the total to follow.
+    const totalRow = rows.length + 2;
+    const firstCol = allHeads.indexOf(headers[0]);
+    sheet[XLSX.utils.encode_cell({ r: totalRow - 1, c: firstCol })] = { t: "s", v: "รวม" };
+    for (const head of MONEY) {
+      const col = allHeads.indexOf(head);
+      if (col < 0) continue;
+      const letter = XLSX.utils.encode_col(col);
+      // The formula and its value both: the value is what a reader that does
+      // not recalculate (a preview, a phone) shows, the formula is what Excel
+      // keeps live once rows are edited.
+      const sum = rows.reduce((total, row) => total + (typeof row[head] === "number" ? row[head] : 0), 0);
+      sheet[XLSX.utils.encode_cell({ r: totalRow - 1, c: col })] = { t: "n", v: sum, f: `SUM(${letter}2:${letter}${rows.length + 1})` };
+    }
+    sheet["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: totalRow - 1, c: allHeads.length - 1 } });
+  }
   XLSX.utils.book_append_sheet(book, sheet, layout.slice(0, 28) || "Jobs");
 
   const issueRows = jobs.flatMap((j) =>

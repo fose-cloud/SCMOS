@@ -155,14 +155,15 @@ test("the Chemours screen carries the diesel prices and the check as tabs, and t
   assert.match(screen, /if \(tab === CHECK_TAB\) \{\s*return <ChemoursCheck jobs=\{jobs\} card=\{card \?\? null\}/);
 });
 
-test("the Domestic grid reads each run at its month's average off Oil Rate, the job's own figure first", () => {
+test("the Domestic grid, the export and the check price a run through one rule: the job's own diesel, then its month's average", () => {
   const grid = readFileSync(new URL("../app/scmos/screens/Workspace.tsx", import.meta.url), "utf8");
-  assert.match(grid, /const dieselOf = \(j: Job\)[\s\S]*?const own = dieselRate\(j\.diesel\);[\s\S]*?rateForJob\(p\.dieselDays \?\? \[\], j\.date\)/);
-  assert.match(grid, /bandForDiesel\(p\.customerCard\.bands, dieselOf\(j\)\.price\)/);
-  assert.doesNotMatch(grid, /bandForDiesel\(p\.customerCard\.bands, p\.diesel\)/, "no column reads the screen-wide figure ahead of the month");
+  assert.match(grid, /priceTrip\(j, p\.customerCard, p\.dieselDays \?\? \[\], p\.diesel\)/);
+  assert.doesNotMatch(grid, /bandForDiesel\(/, "the grid no longer picks a band on its own");
+  assert.doesNotMatch(grid, /rateTrip\(/, "nor reads the card on its own");
   const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
   assert.match(app, /setDieselDays\(monthsCovered\(changes, today\)\.flatMap\(\(month\) => expand\(changes, month, today\)\)\)/);
   assert.match(app, /dieselDays=\{dieselDays\}/);
+  assert.match(app, /exportJobs\(jobs, layout, [^\n]*,\s*\(job\) => priceTrip\(job, customerCard, dieselDays, diesel\)\)/);
   // The Oil Rate tab keys one day at a time through its own route.
   const oil = readFileSync(new URL("../app/scmos/screens/OilRate.tsx", import.meta.url), "utf8");
   assert.match(oil, /apiFetch\(`\/api\/diesel\/\$\{date\}`, \{\s*method: "PUT"/);

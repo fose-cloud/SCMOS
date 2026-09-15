@@ -13,10 +13,10 @@ import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { writeClipboardTable } from "../pasteBlock";
-import { dieselRate, looksLikeDiesel } from "../diesel";
-import { rateForJob, type DieselDay } from "../dieselMonth";
-import { bandForDiesel } from "../rates";
-import { explain, rateTrip } from "../domesticRate";
+import { looksLikeDiesel } from "../diesel";
+import type { DieselDay } from "../dieselMonth";
+import { explain } from "../domesticRate";
+import { dieselNote, priceTrip, type TripPrice } from "../tripPricing";
 import {
   RETURN_SHARE, TICKED, UNTICKED, returnKind, returnLoadCharge, termCoversOrigin, tripCost,
   type ReturnKind,
@@ -1230,28 +1230,18 @@ export function Workspace(p: Props) {
    * in the next — the sum did not add up, which is exactly what a column of
    * money must never do.
    */
-  /**
-   * The diesel a trip is read at, and where the figure came from.
-   *
-   * The job's own figure first — that is what the trip was charged against.
-   * Then the average of the month it ran in, off the Oil Rate tab, which is
-   * the contract's rule and what the department asked for on 15 September
-   * 2026. Only then the screen-wide figure, which is a stand-in.
-   */
-  const dieselOf = (j: Job): { price: number; from: "job" | "month" | "default"; month: string } => {
-    const own = dieselRate(j.diesel);
-    if (own !== null) return { price: own, from: "job", month: "" };
-    const monthly = rateForJob(p.dieselDays ?? [], j.date);
-    if (monthly && monthly.average !== null) return { price: monthly.average, from: "month", month: monthly.month };
-    return { price: p.diesel, from: "default", month: "" };
+  // The rule itself is tripPricing.ts — the job's own diesel first, then the
+  // average of the month it ran in off Oil Rate, then the screen-wide
+  // stand-in; a keyed rate wins over the card. The export and the haulier
+  // reconciliation read the same function, so the file says what the grid
+  // says.
+  const priced = new Map<string, TripPrice>();
+  const priceOf = (j: Job): TripPrice => {
+    let held = priced.get(j.key);
+    if (!held) { held = priceTrip(j, p.customerCard, p.dieselDays ?? [], p.diesel); priced.set(j.key, held); }
+    return held;
   };
-
-  const tripRate = (j: Job): number | null => {
-    const keyed = Number(String(j.cost ?? "").replace(/[,\s฿]/g, ""));
-    if (Number.isFinite(keyed) && keyed > 0) return keyed;
-    if (!p.customerCard) return null;
-    return rateTrip(j, p.customerCard.lanes, bandForDiesel(p.customerCard.bands, dieselOf(j).price)).total;
-  };
+  const tripRate = (j: Job): number | null => priceOf(j).rate;
 
   // The three money columns whose figure comes off the rate card when the job
   // carries no keyed rate. They must sort on what they show — see sortJobs.
@@ -1624,13 +1614,13 @@ export function Workspace(p: Props) {
     // still being obviously not the job's own recorded rate. Typing over it
     // writes a real value.
     if (!j.diesel) {
-      const read = dieselOf(j);
+      const read = priceOf(j);
       return {
-        ...cell(read.price ? read.price.toFixed(2) : "", { mono: true, align: "right", mute: true }),
+        ...cell(read.diesel ? read.diesel.toFixed(2) : "", { mono: true, align: "right", mute: true }),
         field: "diesel",
-        title: read.from === "month"
-          ? `ค่าเฉลี่ยน้ำมันเดือน ${read.month} จาก Oil Rate (${read.price.toFixed(2)}) — พิมพ์ทับได้ถ้างานนี้คิดที่ราคาอื่น`
-          : `ยังไม่มีราคาน้ำมันของเดือนนี้ใน Oil Rate — แสดงค่าตั้งต้น (${read.price})`
+        title: read.dieselFrom === "month"
+          ? `ค่าเฉลี่ยน้ำมันเดือน ${read.month} จาก Oil Rate (${read.diesel.toFixed(2)}) — พิมพ์ทับได้ถ้างานนี้คิดที่ราคาอื่น`
+          : `ยังไม่มีราคาน้ำมันของเดือนนี้ใน Oil Rate — แสดงค่าตั้งต้น (${read.diesel})`
             + " · กรอกราคารายวันในแท็บ Oil Rate ของ The Chemours",
       };
     }
@@ -1656,9 +1646,8 @@ export function Workspace(p: Props) {
         title: "ยังไม่ได้โหลดการ์ดราคาขาย — เปิดแท็บ ค่าขนส่ง แล้วบันทึกไฟล์ราคาขายเข้าระบบ" };
     }
 
-    const read = dieselOf(j);
-    const band = bandForDiesel(p.customerCard.bands, read.price);
-    const rated = rateTrip(j, p.customerCard.lanes, band);
+    const read = priceOf(j);
+    const rated = read.rated!;
     if (rated.total === null) {
       // Say what was searched, not only that nothing was found. A postcode that
       // is simply not on the card and one that is there under another origin
@@ -1675,8 +1664,7 @@ export function Workspace(p: Props) {
       ...cell("฿" + rated.total.toLocaleString("en-US"), { mono: true, align: "right", mute: true }),
       title: "ราคาขาย · " + rated.parts
         .map((part) => `${part.trucks}×${part.vehicle} @ ฿${part.each.toLocaleString("en-US")}`)
-        .join(" + ") + ` · ที่ดีเซล ${read.price.toFixed(2)}`
-        + (read.from === "month" ? ` (เฉลี่ยเดือน ${read.month})` : read.from === "job" ? " (ของงานนี้)" : " (ค่าตั้งต้น)"),
+        .join(" + ") + " · " + dieselNote(read),
     };
   };
 

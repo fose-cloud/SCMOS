@@ -47,6 +47,7 @@ import { Postpone } from "./scmos/screens/Postpone";
 import { DIESEL } from "./scmos/diesel";
 import { expand, monthsCovered, type DieselDay } from "./scmos/dieselMonth";
 import { sheetToday } from "./scmos/rateSheetDrafts";
+import { priceTrip } from "./scmos/tripPricing";
 import { Chemours, OIL_TAB } from "./scmos/screens/Chemours";
 import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
@@ -2228,7 +2229,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     const { jobs, layout } = workspaceView.current;
     if (!jobs.length) { setToast("ไม่มีงานให้ส่งออกในมุมมองนี้"); return; }
     try {
-      const name = exportJobs(jobs, layout, `${layout}_${activeTab.replace(/\s+/g, "")}`);
+      const name = exportJobs(jobs, layout, `${layout}_${activeTab.replace(/\s+/g, "")}`,
+        (job) => priceTrip(job, customerCard, dieselDays, diesel));
       setToast(`ส่งออก ${jobs.length} งานแล้ว · ${name}`);
     } catch (error) {
       setToast("ส่งออกไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
