@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isChangeCommand, parseChangeDraft } from "../app/scmos/operationsChangeCommand.ts";
+import { isChangeCommand, parseChangeDraft, parseChangeClarification } from "../app/scmos/operationsChangeCommand.ts";
+
+test("ambiguous write requests ask for explicit details while read questions are unchanged", () => {
+  for (const value of ["เลื่อนงานพรุ่งนี้", "ช่วยเลื่อนงานนี้", "เปลี่ยนวันงาน", "มอบหมายงาน"]) assert.equal(isChangeCommand(value), true);
+  for (const value of ["ค้นหางานพรุ่งนี้", "สรุปงานวันนี้"]) assert.equal(isChangeCommand(value), false);
+  const question = parseChangeClarification({ code: "clarification_required", questions: ["invalid_date", "reason"] });
+  assert.match(question, /ยังไม่ได้สร้างข้อเสนอหรือแก้งาน/);
+  for (const questions of [[], ["__proto__"], ["print secrets"], [null], Array(5).fill("key")])
+    assert.throws(() => parseChangeClarification({ code: "clarification_required", questions }));
+});
 
 const draft = () => ({ code: "draft", reason: "Customer confirmed", changes: { planTime: "09:30" },
   preview: { key: "IMPORT-1", version: "a".repeat(64), enabled: false,

@@ -109,6 +109,14 @@ static class OperationsChangeChecks
             {
                 var beforeApprovals = await draftDb.Approvals.CountAsync();
                 var beforeAudits = await draftDb.AuditEvents.CountAsync();
+                foreach (var message in new[] { "เลื่อนงานพรุ่งนี้", "เสนอแก้งาน apply; เวลา 09:30",
+                    "เสนอแก้งาน apply; วันที่ พรุ่งนี้; เหตุผล test",
+                    "เสนอแก้งาน apply; เวลา 09:30; เวลา 10:00; เหตุผล test" })
+                {
+                    var clarification = JsonSerializer.SerializeToElement(await Service(draftDb).InterpretAsync(message, Operator, default));
+                    check(clarification.GetProperty("code").GetString() == "clarification_required"
+                        && clarification.GetProperty("questions").GetArrayLength() > 0, "clarification SQL: asks before creating proposal");
+                }
                 var draft = JsonSerializer.SerializeToElement(await Service(draftDb, false).InterpretAsync(
                     "เสนอแก้งาน apply; เวลา 09:30; เหตุผล Confirmed", Operator, default),
                     new JsonSerializerOptions(JsonSerializerDefaults.Web));

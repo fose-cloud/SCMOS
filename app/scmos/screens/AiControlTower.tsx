@@ -11,6 +11,7 @@ import {
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
+import { agentReadiness } from "../agentReadiness";
 import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, parseChangeClarification, type ChangeDraft } from "../operationsChangeCommand";
 
 /** Private, short-lived state only: no prompt/evidence in localStorage or shared page caches. */
@@ -375,8 +376,11 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           </div>}
         </div>
         <details className={s.agents}><summary>Agent ที่บัญชีนี้มองเห็น · ตามการตั้งค่าเซิร์ฟเวอร์</summary>
-          <ul>{status.data?.agents.map(agent => <li key={agent.id}><span>{agent.name}</span>
-            <Badge tone={agent.enabled && agent.connected ? "blue" : "muted"}>{!agent.enabled ? "ปิดอยู่" : !agent.connected ? "ยังไม่เชื่อมต่อ" : "เชื่อมต่อเครื่องมือ"}</Badge></li>)}</ul>
+          <ul>{status.data?.agents.map(agent => {
+            const readiness = agentReadiness(status.data, agent.id);
+            return <li key={agent.id}><span>{agent.name}<small className={s.hint}> · {readiness.detail}</small></span>
+              <Badge tone={readiness.ready ? "green" : "muted"}>{readiness.label}</Badge></li>;
+          })}</ul>
           <p className={s.hint}>การตั้งค่า provider ไม่ใช่ผลตรวจการเชื่อมต่อจริง Phase นี้เปิดให้ถามเฉพาะ Operations Agent</p>
           <button className={s.link} onClick={() => onNavigate("assistant")}>เปิดหน้า AI Assistant เดิม · สิทธิ์และคิวอนุมัติ</button>
         </details>
