@@ -40,6 +40,7 @@ export type CheckableJob = {
   destination?: string;
   jobCode?: string;
   dCode?: string;
+  tmsId?: string;
   v4?: string; v6?: string; v10?: string; vtl?: string;
   diesel?: string;
   cost?: string;

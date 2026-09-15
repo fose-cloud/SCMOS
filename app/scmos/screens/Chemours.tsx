@@ -403,7 +403,7 @@ export function Chemours({ jobs, tab, canEditRates, canRecordDiesel = false, onO
     return <OilRate canRecord={canRecordDiesel} changes={diesel} bands={card?.bands ?? []} onChanged={() => void loadDiesel()} onToast={onToast} />;
   }
   if (tab === CHECK_TAB) {
-    return <ChemoursCheck jobs={jobs} card={card ?? null} changes={diesel ?? []} onOpenJob={onOpenJob} />;
+    return <ChemoursCheck jobs={jobs} card={card ?? null} changes={diesel ?? []} onOpenJob={onOpenJob} onToast={onToast} />;
   }
 
   return (

@@ -3,11 +3,12 @@
 import { useMemo, useState } from "react";
 import { Badge, PAGE_SIZES, Pager, Pick } from "../BoardBits";
 import {
-  carrierTallies, checkTrips, monthsOf, placeOf, verdictField, verdictText,
+  carrierTallies, checkTrips, monthsOf, placeOf, trucksOf, verdictField, verdictText,
   type CarrierLane, type CheckedTrip, type Verdict,
 } from "../chemoursCheck";
 import type { DieselChange } from "../dieselMonth";
-import { exportChemoursCheck } from "../excel";
+import { exportChemoursCheck, exportHaulierReconciliation, parseWorkbook } from "../excel";
+import { reconcile, verdictWords, type Reconciled, type Reconciliation } from "../haulierReconcile";
 import type { Job } from "../ops";
 import { sheetToday } from "../rateSheetDrafts";
 import { StatCard, StatGlyph } from "../StatCard";
@@ -38,15 +39,19 @@ const MONO = "font-family:'IBM Plex Mono',ui-monospace,monospace";
 
 const baht = (n: number | null) => (n === null ? "—" : "฿" + n.toLocaleString("en-US"));
 
-export function ChemoursCheck({ jobs, card, changes, onOpenJob }: {
+export function ChemoursCheck({ jobs, card, changes, onOpenJob, onToast }: {
   jobs: Job[];
   /** The cost card — every haulier's lanes, as loaded on the ค่าขนส่ง tab. */
   card: RateCard | null;
   /** The published diesel changes, the same rows the Oil Rate tab keys. */
   changes: DieselChange[];
   onOpenJob?: (key: string) => void;
+  onToast?: (message: string) => void;
 }) {
   const [month, setMonth] = useState("");
+  /** The haulier's file, read into rows shaped like ours, and its name. */
+  const [file, setFile] = useState<{ name: string; rows: Job[] } | null>(null);
+  const [reading, setReading] = useState(false);
   const [carrier, setCarrier] = useState("");
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [query, setQuery] = useState("");
@@ -80,6 +85,31 @@ export function ChemoursCheck({ jobs, card, changes, onOpenJob }: {
   const paged = shown.slice((at - 1) * per, at * per);
 
   const costTotal = trips.reduce((sum, trip) => sum + (trip.total ?? 0), 0);
+
+  /**
+   * The haulier's file against the month's runs — see haulierReconcile.ts.
+   * Their rows are read by the same workbook reader the Domestic import
+   * uses, so a file shaped like the grid reads the way the grid would.
+   */
+  const reconciled = useMemo<Reconciliation | null>(() => {
+    if (!file) return null;
+    const monthJobs = domestic.filter((job) => !chosenMonth || job.date.slice(3) === chosenMonth);
+    return reconcile(file.rows, monthJobs, trips);
+  }, [file, domestic, chosenMonth, trips]);
+
+  async function readHaulierFile(picked: File) {
+    setReading(true);
+    try {
+      const preview = await parseWorkbook(picked, "", []);
+      const rows = preview.jobs;
+      if (rows.length === 0) { onToast?.("อ่านไฟล์ไม่ได้ — ไม่พบแถวงานที่มีวันที่หรือลูกค้า"); return; }
+      setFile({ name: picked.name, rows });
+      onToast?.(`อ่านไฟล์ ${picked.name} แล้ว ${rows.length} แถว`
+        + (preview.unmappedHeaders.length ? ` · ไม่รู้จักคอลัมน์ ${preview.unmappedHeaders.slice(0, 3).join(", ")}` : ""));
+    } catch (error) {
+      onToast?.("อ่านไฟล์ไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setReading(false); }
+  }
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:12px")}>
@@ -121,6 +151,11 @@ export function ChemoursCheck({ jobs, card, changes, onOpenJob }: {
         </div>
       )}
 
+      {reconciled && file && (
+        <ReconciliationBoard file={file.name} done={reconciled} month={chosenMonth}
+          onClear={() => setFile(null)} onOpenJob={onOpenJob} />
+      )}
+
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:10px 14px;border-bottom:1px solid #E9EFF5;display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
           <label style={css("display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#5A6B7D")}>
@@ -139,6 +174,14 @@ export function ChemoursCheck({ jobs, card, changes, onOpenJob }: {
               placeholder="ค้นหา Job / ลูกค้า / ผู้ขนส่ง / ปลายทาง"
               style={css("flex:1;border:0;outline:none;font-size:12px;font-family:inherit;background:transparent;color:#16232F")} />
           </span>
+          {/* The haulier's own list, read against the runs above. */}
+          <label style={css("height:30px;padding:0 12px;border:1px solid #0A2240;border-radius:6px;background:#fff;color:#0A2240;"
+            + "font-size:12px;font-weight:600;font-family:inherit;display:inline-flex;align-items:center;gap:6px;cursor:" + (reading ? "default" : "pointer"))}>
+            <StatGlyph icon="upload" size={14} />
+            {reading ? "กำลังอ่าน…" : "อัปโหลดไฟล์ผู้ขนส่ง"}
+            <input type="file" accept=".xlsx,.xls,.csv" disabled={reading} style={css("display:none")}
+              onChange={(e) => { const picked = e.target.files?.[0]; e.target.value = ""; if (picked) void readHaulierFile(picked); }} />
+          </label>
           <button type="button" disabled={shown.length === 0} onClick={() => exportChemoursCheck(shown, chosenMonth || "all")}
             style={css("height:30px;padding:0 12px;border:1px solid #0A2240;border-radius:6px;background:#0A2240;color:#fff;"
               + "font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px"
@@ -220,6 +263,136 @@ function Row({ trip, onOpenJob }: { trip: CheckedTrip; onOpenJob?: (key: string)
       </td>
     </tr>
   );
+}
+
+/** The tone a line's verdict is drawn in. */
+const LINE_TONE: Record<Reconciled["verdict"], string> = { match: "#16794C", differs: "#B42318", unmatched: "#B45309", unpriced: "#1668AB" };
+const RECON_HEADS = ["แถวในไฟล์", "งานในตาราง Domestic", "ผู้ขนส่งแจ้ง", "ตามตารางต้นทุน", "ผลการตรวจ"];
+
+/**
+ * The haulier's file, row by row, against the month's runs. Every line says
+ * which run it was taken to be, what they charge, what our card says, and
+ * where the two disagree — column by column, both ways round. Below it,
+ * the runs of ours the file does not carry.
+ */
+function ReconciliationBoard({ file, done, month, onClear, onOpenJob }: {
+  file: string; done: Reconciliation; month: string; onClear: () => void; onOpenJob?: (key: string) => void;
+}) {
+  const [only, setOnly] = useState<"" | Reconciled["verdict"]>("");
+  const lines = only ? done.lines.filter((line) => line.verdict === only) : done.lines;
+  const gap = done.theirTotal - done.ourTotal;
+  const describe = (row: { date?: string; jobCode?: string; dCode?: string; customer?: string; zip?: string; destination?: string; wh?: string }) => (
+    <>
+      <div style={css(`${MONO};font-size:12px;color:#0A2240;font-weight:600`)}>{row.jobCode || row.dCode || "—"}{row.jobCode && row.dCode ? <span style={css("color:#7B8CA0;font-weight:400")}> · {row.dCode}</span> : null}</div>
+      <div style={css("font-size:11.5px;color:#16232F")}>{row.date || "—"} · {row.customer || "—"}</div>
+      <div style={css("font-size:11px;color:#7B8CA0")}>{[row.wh, row.destination || "", row.zip].filter(Boolean).join(" · ") || "—"}</div>
+    </>
+  );
+  return (
+    <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
+      <div style={css("padding:10px 14px;border-bottom:1px solid #E9EFF5;display:flex;align-items:center;gap:6px;flex-wrap:wrap")}>
+        <span style={css("display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#0A2240")}>
+          <StatGlyph icon="sheet" size={15} />{file}
+        </span>
+        <span style={css("font-size:11.5px;color:#7B8CA0")}>เทียบกับงาน Domestic เดือน {month || "ทั้งหมด"}</span>
+        <Pick on={only === ""} tone="#0A2240" count={done.counts.rows} onClick={() => setOnly("")}>ทุกแถว</Pick>
+        <Pick on={only === "match"} tone={LINE_TONE.match} count={done.counts.match} onClick={() => setOnly("match")}>ตรงกัน</Pick>
+        <Pick on={only === "differs"} tone={LINE_TONE.differs} count={done.counts.differs} onClick={() => setOnly("differs")}>ต่างกัน</Pick>
+        <Pick on={only === "unmatched"} tone={LINE_TONE.unmatched} count={done.counts.unmatched} onClick={() => setOnly("unmatched")}>ไม่พบในตาราง</Pick>
+        {done.counts.unpriced > 0 && <Pick on={only === "unpriced"} tone={LINE_TONE.unpriced} count={done.counts.unpriced} onClick={() => setOnly("unpriced")}>คิดราคาไม่ได้</Pick>}
+        <span style={css(`margin-left:auto;font-size:12px;color:#0A2240;${MONO}`)}>
+          ผู้ขนส่งแจ้ง {baht(done.theirTotal)} · ตามตาราง {baht(done.ourTotal)}
+          {done.ourTotal > 0 && <span style={css("color:" + (gap === 0 ? "#16794C" : gap > 0 ? "#B42318" : "#B45309"))}> · {gap === 0 ? "เท่ากัน" : `${gap > 0 ? "+" : "−"}${baht(Math.abs(gap))}`}</span>}
+        </span>
+        <button type="button" onClick={() => exportHaulierReconciliation(done, file, month || "all")}
+          style={css("height:30px;padding:0 12px;border:1px solid #0A2240;border-radius:6px;background:#0A2240;color:#fff;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px")}>
+          <StatGlyph icon="download" size={14} />ส่งออกผลตรวจ
+        </button>
+        <button type="button" onClick={onClear}
+          style={css("height:30px;padding:0 10px;border:1px solid #C9D6E2;border-radius:6px;background:#fff;color:#5A6B7D;font-size:12px;font-family:inherit;cursor:pointer")}>
+          ปิดไฟล์
+        </button>
+      </div>
+
+      <ZoomBox capped={false}>
+        <table style={css("width:100%;border-collapse:collapse")}>
+          <thead><tr>{RECON_HEADS.map((head) => <th key={head} style={css(HEAD)}>{head}</th>)}</tr></thead>
+          <tbody>
+            {lines.map((line, index) => (
+              <tr key={line.row.key || index} style={css("background:" + (line.verdict === "differs" ? "#FFF5F5" : line.verdict === "unmatched" ? "#FFFBF5" : "#fff"))}>
+                <td style={css(CELL + ";min-width:200px")}>{describe(line.row)}</td>
+                <td style={css(CELL + ";min-width:200px")}>
+                  {line.job ? (
+                    <>
+                      {describe(line.job)}
+                      {onOpenJob && (
+                        <button type="button" onClick={() => onOpenJob(line.job!.key)}
+                          style={css("border:none;background:none;padding:0;font-size:11px;color:#0A5FA8;cursor:pointer;text-decoration:underline;font-family:inherit")}>
+                          เปิดงาน{line.matchedBy === "date+customer+zip" ? " · จับคู่จากวันที่+ลูกค้า+ZIP" : ""}
+                        </button>
+                      )}
+                    </>
+                  ) : <span style={css("color:#94A3B8")}>—</span>}
+                </td>
+                <td style={css(CELL + ";white-space:nowrap")}>
+                  <div>{trucksLine(line.row)}</div>
+                  <div style={css(`${MONO};font-weight:600`)}>{baht(line.theirCost)}</div>
+                </td>
+                <td style={css(CELL + ";white-space:nowrap")}>
+                  {line.job ? (
+                    <>
+                      <div>{trucksLine(line.job)}</div>
+                      <div style={css(`${MONO};font-weight:600`)}>{baht(line.check?.total ?? null)}</div>
+                      {line.check && line.check.total === null && <div style={css("font-size:10.5px;color:#7B8CA0;white-space:normal;max-width:220px")}>{verdictText(line.check)}</div>}
+                    </>
+                  ) : <span style={css("color:#94A3B8")}>—</span>}
+                </td>
+                <td style={css(CELL + ";min-width:240px")}>
+                  <Badge tone={LINE_TONE[line.verdict]} icon={line.verdict === "match" ? "check" : line.verdict === "unmatched" ? "search" : "warning"}>
+                    {line.verdict === "match" ? "ตรงกัน" : line.verdict === "differs" ? "ต่างกัน" : line.verdict === "unmatched" ? "ไม่พบในตาราง" : "คิดราคาไม่ได้"}
+                  </Badge>
+                  {line.differences.length > 0 && (
+                    <ul style={css("margin:5px 0 0;padding-left:16px;font-size:11.5px;color:#16232F")}>
+                      {line.differences.map((one) => (
+                        <li key={one.field}>
+                          <b>{one.label}</b>: ไฟล์ <span style={css(`${MONO}`)}>{one.theirs}</span> · ตาราง <span style={css(`${MONO}`)}>{one.ours}</span>
+                          {one.gap !== undefined && one.gap !== 0 && <span style={css("color:" + (one.gap > 0 ? "#B42318" : "#B45309"))}> ({one.gap > 0 ? "+" : "−"}฿{Math.abs(one.gap).toLocaleString("en-US")})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {line.verdict !== "differs" && line.verdict !== "match" && <div style={css("margin-top:4px;font-size:11px;color:#5A6B7D")}>{verdictWords(line)}</div>}
+                </td>
+              </tr>
+            ))}
+            {lines.length === 0 && (
+              <tr><td colSpan={RECON_HEADS.length} style={css("padding:22px;text-align:center;font-size:12.5px;color:#94A3B8")}>ไม่มีแถวตามเงื่อนไขนี้</td></tr>
+            )}
+          </tbody>
+        </table>
+      </ZoomBox>
+
+      {done.unbilled.length > 0 && (
+        <div style={css("padding:10px 14px;border-top:1px solid #E9EFF5;font-size:12px;color:#16232F")}>
+          <b style={css("color:#B45309")}>งานของเราที่ไม่อยู่ในไฟล์ {done.unbilled.length} เที่ยว</b>
+          <span style={css("color:#7B8CA0")}> — ผู้ขนส่งยังไม่ได้แจ้ง หรือแจ้งในรอบอื่น</span>
+          <div style={css("margin-top:6px;display:flex;flex-wrap:wrap;gap:6px")}>
+            {done.unbilled.map((job) => (
+              <button key={job.key} type="button" onClick={() => onOpenJob?.(job.key)}
+                style={css(`${MONO};font-size:11.5px;padding:3px 8px;border:1px solid #F1D48A;border-radius:4px;background:#FFF8E6;color:#8A5A12;cursor:pointer;font-family:inherit`)}>
+                {job.jobCode || job.dCode || job.key} · {job.date} · {job.customer}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The trucks a row says it sent, or a dash. */
+function trucksLine(row: { v4?: string; v6?: string; v10?: string; vtl?: string }): string {
+  return trucksOf({ key: "", date: "", trucker: "", customer: "", ...row }) || "—";
 }
 
 export type { Verdict };

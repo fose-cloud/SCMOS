@@ -550,7 +550,10 @@ const HEADER_ALIASES: Record<string, string[]> = {
   diesel: ["DIESEL", "DIESEL PRICE", "FUEL", "FUEL PRICE", "เรทน้ำมัน", "ราคาน้ำมัน"],
   returnLoad: ["RETURN LOAD", "RETURN", "BACKHAUL", "งานรับกลับ", "รับกลับ"],
   returnFinished: ["RETURN FG", "RETURN FINISHED", "FINISHED GOODS", "FINISH GOODS", "งานรับกลับ FG", "รับกลับ FG"],
-  cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง"],
+  cost: ["COST", "TRANSPORT COST", "TRANSPORTATION", "ค่าขนส่ง",
+    // The Domestic grid's own heading and the haulier's spellings of it, so a
+    // file built from the grid reads back with its price on.
+    "TRANSPORTATION RATE", "TRANSPORT RATE", "RATE", "PRICE", "ราคา", "ราคาค่าขนส่ง", "ค่าขนส่ง (บาท)", "AMOUNT"],
 };
 
 /**
@@ -1030,6 +1033,48 @@ export function exportChemoursCheck(trips: {
   sheet["!cols"] = autoWidth(out, headers);
   XLSX.utils.book_append_sheet(book, sheet, "Check");
   const filename = `SCMOS_Chemours_Check_${scopeLabel.replace("/", "-")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(book, filename);
+  return filename;
+}
+
+/**
+ * The haulier reconciliation as a file: one row per line of theirs with the
+ * run of ours it was taken to be, both prices, and every column that
+ * differs said both ways; then the runs of ours the file does not carry.
+ */
+export function exportHaulierReconciliation(done: {
+  lines: { row: { date?: string; jobCode?: string; dCode?: string; customer?: string; zip?: string; wh?: string };
+    job: { date: string; jobCode?: string; dCode?: string; customer: string; zip?: string; wh?: string } | null;
+    theirCost: number | null; check: { total: number | null } | null;
+    differences: { label: string; theirs: string; ours: string; gap?: number }[];
+    verdict: string }[];
+  unbilled: { date: string; jobCode?: string; dCode?: string; customer: string; zip?: string }[];
+}, fileName: string, scopeLabel: string): string {
+  const verdictTh: Record<string, string> = { match: "ตรงกัน", differs: "ต่างกัน", unmatched: "ไม่พบในตาราง Domestic", unpriced: "ตารางต้นทุนคิดราคาไม่ได้" };
+  const headers = ["ผลการตรวจ", "จุดที่ต่าง", "ไฟล์: Job", "ไฟล์: D-Code", "ไฟล์: วันที่", "ไฟล์: ลูกค้า", "ไฟล์: ZIP", "ไฟล์: W/H", "ผู้ขนส่งแจ้ง (บาท)",
+    "ตาราง: Job", "ตาราง: D-Code", "ตาราง: วันที่", "ตาราง: ลูกค้า", "ตาราง: ZIP", "ตาราง: W/H", "ตามตารางต้นทุน (บาท)", "ส่วนต่าง (บาท)"];
+  const out = done.lines.map((line) => ({
+    [headers[0]]: verdictTh[line.verdict] ?? line.verdict,
+    [headers[1]]: line.differences.map((one) => `${one.label}: ไฟล์ ${one.theirs} / ตาราง ${one.ours}`).join(" · "),
+    [headers[2]]: line.row.jobCode ?? "", [headers[3]]: line.row.dCode ?? "", [headers[4]]: line.row.date ?? "",
+    [headers[5]]: line.row.customer ?? "", [headers[6]]: line.row.zip ?? "", [headers[7]]: line.row.wh ?? "",
+    [headers[8]]: line.theirCost ?? "",
+    [headers[9]]: line.job?.jobCode ?? "", [headers[10]]: line.job?.dCode ?? "", [headers[11]]: line.job?.date ?? "",
+    [headers[12]]: line.job?.customer ?? "", [headers[13]]: line.job?.zip ?? "", [headers[14]]: line.job?.wh ?? "",
+    [headers[15]]: line.check?.total ?? "",
+    [headers[16]]: line.theirCost !== null && line.check?.total != null ? Math.round(line.theirCost - line.check.total) : "",
+  }));
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(out, { header: headers });
+  sheet["!cols"] = autoWidth(out, headers);
+  XLSX.utils.book_append_sheet(book, sheet, "Reconciliation");
+  if (done.unbilled.length) {
+    const missing = done.unbilled.map((job) => ({ Job: job.jobCode ?? "", "D-Code": job.dCode ?? "", "วันที่": job.date, "ลูกค้า": job.customer, ZIP: job.zip ?? "" }));
+    const missingSheet = XLSX.utils.json_to_sheet(missing);
+    missingSheet["!cols"] = autoWidth(missing, Object.keys(missing[0]));
+    XLSX.utils.book_append_sheet(book, missingSheet, "Not in file");
+  }
+  const filename = `SCMOS_Haulier_Check_${scopeLabel.replace("/", "-")}_${fileName.replace(/\.[^.]+$/, "").replace(/[^\w-]+/g, "_").slice(0, 40)}.xlsx`;
   XLSX.writeFile(book, filename);
   return filename;
 }
