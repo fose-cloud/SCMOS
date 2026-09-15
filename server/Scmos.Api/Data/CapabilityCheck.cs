@@ -33,6 +33,13 @@ public static class CapabilityCheck
         failed += Holds(Roles.Subcontractor, Capability.EditSuppliers, false);
         failed += Holds(Roles.Viewer, Capability.EditSuppliers, false);
         failed += Holds(Roles.CustomerService, Capability.EditSuppliers, false);
+        // The day's diesel price is the operators' to key; the rate book is not.
+        failed += Holds(Roles.Operation, Capability.RecordDiesel, true);
+        failed += Holds(Roles.Operation, Capability.EditRates, false);
+        failed += Holds(Roles.Supervisor, Capability.RecordDiesel, true);
+        failed += Holds(Roles.Subcontractor, Capability.RecordDiesel, false);
+        failed += Holds(Roles.Viewer, Capability.RecordDiesel, false);
+        failed += Holds(Roles.CustomerService, Capability.RecordDiesel, false);
 
         Console.WriteLine("Every capability holds a bit of its own.");
         Console.WriteLine();

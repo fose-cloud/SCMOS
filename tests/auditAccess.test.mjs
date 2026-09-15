@@ -90,3 +90,20 @@ test("an inserted row carries no date", () => {
     "today's date is still being worked out for the new row");
   assert.doesNotMatch(insert, /neu: today/);
 });
+
+/**
+ * Keying the day's diesel price is the operators' since 15 September 2026;
+ * replacing the whole table is still a rate change and stays with the roles
+ * that negotiate rates. The one-day routes are the operators' door.
+ */
+test("an operator may key the day's diesel price and still not replace the table", () => {
+  assert.match(operationGrants(), /Capability\.RecordDiesel\b/);
+  assert.doesNotMatch(operationGrants(), /Capability\.EditRates\b/);
+  const carrier = roles.match(/new\(Subcontractor,[\s\S]*?\),/)[0];
+  assert.doesNotMatch(carrier, /RecordDiesel/);
+  const diesel = readFileSync(new URL("../server/Scmos.Api/Endpoints/DieselEndpoints.cs", import.meta.url), "utf8");
+  assert.match(diesel, /group\.MapPut\("\/\{\*\*date\}"[\s\S]*?if \(!user\.Can\(Capability\.RecordDiesel\)\)/);
+  assert.match(diesel, /group\.MapDelete\("\/\{\*\*date\}"[\s\S]*?if \(!user\.Can\(Capability\.RecordDiesel\)\)/);
+  assert.match(diesel, /group\.MapPut\("", [\s\S]*?if \(!user\.Can\(Capability\.EditRates\)\)/, "the whole-table replace keeps its gate");
+  assert.match(app, /canRecordDiesel=\{able\("RecordDiesel"\)\}/);
+});

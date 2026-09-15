@@ -166,11 +166,13 @@ export function checkTrips(
   lanes: readonly CarrierLane[],
   bands: readonly FuelBand[],
   changes: readonly DieselChange[],
+  /** Today as dd/MM/yyyy; a month's average runs to here and no further. */
+  until?: string,
 ): CheckedTrip[] {
   const merged = mergeLanes(lanes);
   const carriers = [...new Set(merged.map((lane) => lane.carrier).filter(Boolean))];
   const byCarrier = new Map(carriers.map((carrier) => [carrier, merged.filter((lane) => lane.carrier === carrier)]));
-  const days = dieselDays(changes, jobs);
+  const days = dieselDays(changes, jobs, until);
 
   return jobs.map((job) => {
     const month = monthOf(job.date);
@@ -214,10 +216,10 @@ export function checkTrips(
  * published changes month by month — see dieselMonth for why a month's
  * opening price comes from a change before it.
  */
-function dieselDays(changes: readonly DieselChange[], jobs: readonly CheckableJob[]): DieselDay[] {
+function dieselDays(changes: readonly DieselChange[], jobs: readonly CheckableJob[], until?: string): DieselDay[] {
   if (changes.length === 0) return [];
   const months = [...new Set(jobs.map((job) => monthOf(job.date)).filter(Boolean))];
-  return months.flatMap((month) => expand(changes, month));
+  return months.flatMap((month) => expand(changes, month, until));
 }
 
 /** What a verdict means to the person reading the row. */

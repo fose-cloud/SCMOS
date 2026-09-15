@@ -15,14 +15,17 @@ namespace Scmos.Api.Endpoints;
 /// <para>
 /// Reading needs <see cref="Capability.ViewRates"/> — the figure sits on the
 /// Domestic grid and behind every quotation, so anyone who may see a rate may
-/// see what chose it. Writing needs <see cref="Capability.EditRates"/>, because
-/// a diesel figure <i>is</i> a rate: move it across a band and every lane on the
-/// card moves a step with it.
+/// see what chose it. Replacing the whole table needs <see cref="Capability.EditRates"/>,
+/// because a diesel figure <i>is</i> a rate: move it across a band and every
+/// lane on the card moves a step with it. Keying one day's published price
+/// needs <see cref="Capability.RecordDiesel"/>, which the operators hold — see
+/// the note on that flag.
 /// </para>
 /// </summary>
 public static partial class DieselEndpoints
 {
     public record DieselInput(string EffectiveDate, decimal Price, string? Source);
+    public record DayInput(decimal Price, string? Source);
 
     [GeneratedRegex(@"^\d{2}/\d{2}/\d{4}$")]
     private static partial Regex DayPattern();
@@ -54,6 +57,72 @@ public static partial class DieselEndpoints
                     recordedBy = one.RecordedBy,
                 })
                 .ToList());
+        });
+
+        // One day, written on its own — the way the operators keep the table,
+        // a price a day, each saved as it is keyed. An upsert rather than a
+        // replace, so two people keying two days never delete each other's.
+        group.MapPut("/{**date}", async (string date, [FromBody] DayInput? body, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.RecordDiesel))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์บันทึกราคาน้ำมัน", StatusCodes.Status403Forbidden);
+
+            var day = (date ?? "").Trim();
+            if (!DayPattern().IsMatch(day) || Formats.ParseDay(day) is null)
+                return ApiResults.Error("วันที่ต้องเป็น dd/MM/yyyy และมีจริงตามปฏิทิน", StatusCodes.Status400BadRequest);
+            if (body is null || body.Price <= 0 || body.Price >= 200)
+                return ApiResults.Error("ราคาน้ำมันดูไม่ถูกต้อง (บาทต่อลิตร)", StatusCodes.Status400BadRequest);
+            // Not tomorrow's: the pump price is published on the day, and a
+            // figure keyed ahead would sit in the average as though it had
+            // been read off the board.
+            if (Formats.ParseDay(day) > DateOnly.FromDateTime(Formats.Now.DateTime))
+                return ApiResults.Error("ยังบันทึกราคาล่วงหน้าไม่ได้ — ใส่ได้ถึงวันนี้", StatusCodes.Status400BadRequest);
+
+            var row = await db.DieselPrices.FirstOrDefaultAsync(one => one.EffectiveDate == day, token);
+            var before = row?.Price;
+            if (row is null)
+            {
+                db.DieselPrices.Add(new DieselPrice
+                {
+                    EffectiveDate = day, Price = body.Price, Source = body.Source ?? "",
+                    RecordedBy = user.Signature, RecordedAt = DateTimeOffset.UtcNow,
+                });
+            }
+            else if (row.Price != body.Price)
+            {
+                row.Price = body.Price;
+                row.Source = body.Source ?? row.Source;
+                row.RecordedBy = user.Signature;
+                row.RecordedAt = DateTimeOffset.UtcNow;
+            }
+            else return Results.Json(new { message = "ราคาเดิมอยู่แล้ว", date = day, price = row.Price });
+
+            await db.SaveChangesAsync(token);
+            await audit.RecordAsync(user, "save", "diesel", day, $"ราคาน้ำมันดีเซล {day}",
+                "บาท/ลิตร", before?.ToString() ?? "", body.Price.ToString(), "", token);
+            return Results.Json(new { message = $"บันทึกราคาวันที่ {day} แล้ว", date = day, price = body.Price });
+        });
+
+        group.MapDelete("/{**date}", async (string date, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.RecordDiesel))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์บันทึกราคาน้ำมัน", StatusCodes.Status403Forbidden);
+
+            var day = (date ?? "").Trim();
+            var row = await db.DieselPrices.FirstOrDefaultAsync(one => one.EffectiveDate == day, token);
+            if (row is null) return ApiResults.Error("ไม่มีราคาของวันนี้ให้ลบ", StatusCodes.Status404NotFound);
+
+            db.DieselPrices.Remove(row);
+            await db.SaveChangesAsync(token);
+            await audit.RecordAsync(user, "delete", "diesel", day, $"ราคาน้ำมันดีเซล {day}",
+                "บาท/ลิตร", row.Price.ToString(), "", "ลบราคาที่กรอกผิดวัน", token);
+            return Results.Json(new { message = $"ลบราคาวันที่ {day} แล้ว", date = day });
         });
 
         group.MapPut("", async ([FromBody] List<DieselInput> body, HttpContext context,

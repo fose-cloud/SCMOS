@@ -45,6 +45,8 @@ import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
 import { DIESEL } from "./scmos/diesel";
+import { expand, monthsCovered, type DieselDay } from "./scmos/dieselMonth";
+import { sheetToday } from "./scmos/rateSheetDrafts";
 import { Chemours, OIL_TAB } from "./scmos/screens/Chemours";
 import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
@@ -898,6 +900,29 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     { lanes: { from: string; county: string; prices: Record<string, (number | null)[]> }[];
       bands: { label: string; min: number; max: number }[] } | null>(null);
   const customerCardAsked = useRef(false);
+  /**
+   * The pump price day by day, for the Domestic grid to read each run at
+   * its month's average. Fetched every time the grid opens rather than
+   * once: it is a few rows, and the Oil Rate tab next door may have just
+   * added today's.
+   */
+  const [dieselDays, setDieselDays] = useState<DieselDay[]>([]);
+  useEffect(() => {
+    if (!domesticGrid) return;
+    let alive = true;
+    (async () => {
+      try {
+        const response = await apiFetch("/api/diesel", { headers: { accept: "application/json" } });
+        if (!response.ok || !alive) return;
+        const rows = await response.json() as { date: string; price: number }[];
+        const changes = rows.map((one) => ({ date: one.date, price: Number(one.price) }));
+        const today = sheetToday();
+        // Every month the changes cover, up to today.
+        if (alive) setDieselDays(monthsCovered(changes, today).flatMap((month) => expand(changes, month, today)));
+      } catch { /* the grid falls back to the screen-wide figure and says so */ }
+    })();
+    return () => { alive = false; };
+  }, [domesticGrid]);
 
   useEffect(() => {
     if (!domesticGrid || customerCardAsked.current) return;
@@ -2931,6 +2956,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   onSaveCell={saveCell}
                   customerCard={customerCard}
                   diesel={diesel}
+                  dieselDays={dieselDays}
                   onPasteCells={pasteCells}
                   onToast={setToast}
                   lockedCat={lockedCat}
@@ -3085,6 +3111,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 jobs={ops?.jobs ?? []}
                 tab={selectedTab("chemours", tab)}
                 canEditRates={able("EditRates")}
+                canRecordDiesel={able("RecordDiesel")}
                 onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }}
                 onToast={setToast}
               />

@@ -272,9 +272,11 @@ const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;co
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
 
 export function ChemoursRates({
-  card, sell, haulers, onLoad, onLoadSell, onSave, onSaveSell, canSave, saving, savingSell, onToast,
+  card, sell, haulers, onLoad, onLoadSell, onSave, onSaveSell, canSave, saving, savingSell, dieselDefault = null, onToast,
 }: {
   card: RateCard | null;
+  /** This month's average off the Oil Rate tab, which the diesel box opens on; null when none is keyed yet. */
+  dieselDefault?: number | null;
   /**
    * What we bill the customer, when it has been loaded.
    *
@@ -309,6 +311,14 @@ export function ChemoursRates({
    * rate about 3% each time diesel crosses a band.
    */
   const [diesel, setDiesel] = useState(DIESEL_DEFAULT);
+  // The box opens on the month's average once the Oil Rate tab has one, and
+  // follows it while nobody has typed over it. Compared during render, the
+  // way the carrier picker resets the page below, so the first frame is right.
+  const [followed, setFollowed] = useState<number | null>(null);
+  if (dieselDefault !== null && dieselDefault !== followed) {
+    setFollowed(dieselDefault);
+    if (diesel === DIESEL_DEFAULT || diesel === String(followed)) setDiesel(String(dieselDefault));
+  }
 
   const price = Number(diesel.replace(/,/g, ""));
   const readable = Number.isFinite(price) && price > 0;
@@ -537,7 +547,9 @@ export function ChemoursRates({
                   : "เกินช่วงสูงสุดที่การ์ดนี้ระบุไว้"}
               </span>
               <span style={css("font-size:10.5px;color:#94A3B8")}>
-                ค่าตั้งต้น {DIESEL.price} · {DIESEL.effective} · {DIESEL.source}
+                {dieselDefault !== null
+                  ? `ค่าเฉลี่ยเดือนนี้จาก Oil Rate ${dieselDefault}`
+                  : `ค่าตั้งต้น ${DIESEL.price} · ${DIESEL.effective} · ${DIESEL.source}`}
               </span>
             </div>
 

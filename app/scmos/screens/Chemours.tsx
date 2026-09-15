@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Job } from "../ops";
 import { useRemembered } from "../pageCache";
 import { apiFetch } from "../api";
+import { averageFor, expand, type DieselChange } from "../dieselMonth";
+import { sheetToday } from "../rateSheetDrafts";
 import { CargoForm, type FormTemplate } from "./CargoForm";
 import { ChemoursCheck } from "./ChemoursCheck";
 import { ChemoursRates, SELLER, readRateCard, readSellingCard, type RateCard } from "./ChemoursRates";
@@ -82,10 +84,12 @@ function fromStored(stored: StoredCard): RateCard {
   };
 }
 
-export function Chemours({ jobs, tab, canEditRates, onOpenJob, onToast }: {
+export function Chemours({ jobs, tab, canEditRates, canRecordDiesel = false, onOpenJob, onToast }: {
   jobs: Job[];
   /** Which of the account's documents is being looked at. */
   tab: string;
+  /** Whether this account may key a day's diesel price — the operators may. */
+  canRecordDiesel?: boolean;
   /** Opens a job from the check list, for the row that needs a ZIP or a truck count. */
   onOpenJob?: (key: string) => void;
   /**
@@ -110,6 +114,26 @@ export function Chemours({ jobs, tab, canEditRates, onOpenJob, onToast }: {
    * way the cost card was until it was given a home of its own.
    */
   const [sell, setSell] = useRemembered<RateCard>("chemours.selling");
+  /**
+   * The published diesel changes, read once for the three tabs that use
+   * them: Oil Rate keys them, the card reads this month's average as its
+   * default, the check prices every run at its month's average.
+   */
+  const [diesel, setDiesel] = useState<DieselChange[] | null>(null);
+  const loadDiesel = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/diesel", { headers: { accept: "application/json" } });
+      const rows = response.ok ? await response.json() as { date: string; price: number }[] : [];
+      setDiesel(rows.map((one) => ({ date: one.date, price: Number(one.price) })));
+    } catch { setDiesel([]); }
+  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadDiesel(); }, [loadDiesel]);
+  /** This month's average so far, the figure the card opens on. Null before any price is keyed. */
+  const thisMonthAverage = useMemo(() => {
+    const today = sheetToday();
+    return averageFor(expand(diesel ?? [], today.slice(3), today), today.slice(3)).average;
+  }, [diesel]);
   const [saving, setSaving] = useState(false);
   const [savingSell, setSavingSell] = useState(false);
   /** The receipt shapes already on file, so the picker is filled before anybody opens a folder. */
@@ -376,10 +400,10 @@ export function Chemours({ jobs, tab, canEditRates, onOpenJob, onToast }: {
     return <CargoForm jobs={jobs} stored={templates} onStore={saveTemplates} onToast={onToast} />;
   }
   if (tab === OIL_TAB) {
-    return <OilRate canEdit={canEditRates} onToast={onToast} />;
+    return <OilRate canRecord={canRecordDiesel} changes={diesel} bands={card?.bands ?? []} onChanged={() => void loadDiesel()} onToast={onToast} />;
   }
   if (tab === CHECK_TAB) {
-    return <ChemoursCheck jobs={jobs} card={card ?? null} onOpenJob={onOpenJob} />;
+    return <ChemoursCheck jobs={jobs} card={card ?? null} changes={diesel ?? []} onOpenJob={onOpenJob} />;
   }
 
   return (
@@ -394,6 +418,7 @@ export function Chemours({ jobs, tab, canEditRates, onOpenJob, onToast }: {
       onSave={saveCard}
       canSave={canEditRates}
       saving={saving}
+      dieselDefault={thisMonthAverage}
       onToast={onToast}
     />
   );

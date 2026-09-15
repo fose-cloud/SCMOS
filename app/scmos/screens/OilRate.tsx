@@ -1,262 +1,244 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
 import { DIESEL } from "../diesel";
 import {
-  averageFor, daysInMonth, describe, expand, monthKey,
+  averageFor, expand, monthDays, monthKey, monthsCovered, describe,
   type DieselChange,
 } from "../dieselMonth";
+import { bandForDiesel, type FuelBand } from "../rates";
+import { sheetToday } from "../rateSheetDrafts";
+import { StatCard, StatGlyph } from "../StatCard";
 
 /**
- * เรทน้ำมัน — the diesel prices, and the monthly average every rate is read at.
+ * เรทน้ำมัน — the month, a line per day, and the average the rest reads.
  *
- * Built to the shape of the sheet the account team already keep: a month down
- * the side, a price per day, and the average in a green cell at the bottom. The
- * difference is what gets typed. Their sheet has thirty-one rows a month; PTT OR
- * publish a *change*, and July 2569 had four of them. So changes are what is
- * entered here and the days are worked out — see dieselMonth.ts, which
- * reproduces their May'25 average of 36.05 from four rows.
+ * Redrawn on 15 September 2026 to the shape the account team's own sheet
+ * has: a month down the side, the day's pump price beside it, the average
+ * at the top. The department wants an operator to key the day's price as
+ * it is published, so the month's average is there when the invoice is —
+ * and that average is what chooses the band on the ค่าขนส่ง card and prices
+ * the Domestic runs.
  *
- * The average is the figure that matters. A month is priced at its own average,
- * not at whatever the pump said on the day somebody looked, so the whole point
- * of this screen is the column on the right.
+ * What is stored is still the price that took effect on a day, not a copy
+ * per day: PTT OR publish a change, and a day nobody keyed carries the last
+ * price recorded (see dieselMonth.expand). A day somebody keyed is drawn
+ * bold; a carried day is drawn grey with the figure it inherited; a day
+ * after today is drawn empty, because it has not happened.
+ *
+ * Each day saves on its own the moment it is keyed — PUT /api/diesel/{date}
+ * — so two operators keying two days never overwrite each other's month.
  */
 
-type Row = { date: string; price: string; source: string };
+const CELL = "padding:6px 10px;border-bottom:1px solid #EDF1F5;font-size:12.5px;vertical-align:middle";
+const HEAD = "padding:8px 10px;text-align:left;font-size:10.5px;font-weight:700;color:#465A6E;"
+  + "letter-spacing:.05em;text-transform:uppercase;background:#F4F7FA;border-bottom:1px solid #D8E0E8;white-space:nowrap";
+const MONO = "font-family:'IBM Plex Mono',ui-monospace,monospace";
+const WEEKDAY = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 
-const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600";
-const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
-const CELL = "padding:5px 10px;border-bottom:1px solid #EDF1F5;font-size:12.5px";
-const HEAD = "padding:7px 10px;background:#F4F7FA;font-size:10px;color:#465A6E;border-bottom:1px solid #D8E0E8;text-align:left;white-space:nowrap";
+/** dd/MM/yyyy → the weekday, as the sheet abbreviates it. */
+function weekdayOf(date: string): string {
+  const day = new Date(Date.UTC(Number(date.slice(6)), Number(date.slice(3, 5)) - 1, Number(date.slice(0, 2))));
+  return WEEKDAY[day.getUTCDay()] ?? "";
+}
 
-/** dd/MM/yyyy as yyyyMMdd, so the 30th does not sort before the 3rd. */
-const sortable = (date: string) =>
-  /^\d{2}\/\d{2}\/\d{4}$/.test(date) ? date.slice(6) + date.slice(3, 5) + date.slice(0, 2) : "";
+/** The month before or after, as MM/yyyy. */
+function stepMonth(month: string, by: 1 | -1): string {
+  let m = Number(month.slice(0, 2)) + by;
+  let y = Number(month.slice(3));
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  return `${String(m).padStart(2, "0")}/${y}`;
+}
 
-export function OilRate({ canEdit, onToast }: {
-  /** False for an account that may read a rate but not set one. */
-  canEdit: boolean;
+export function OilRate({ canRecord, changes, bands, onChanged, onToast }: {
+  /** Whether this account may key a day's price — the operators may. */
+  canRecord: boolean;
+  /** The published changes, as the register holds them; null while loading. */
+  changes: DieselChange[] | null;
+  /** The cost card's fuel clause, so the average can say which band it lands in. */
+  bands: FuelBand[];
+  /** The register changed under this screen; the owner re-reads it. */
+  onChanged: () => void;
   onToast: (message: string) => void;
 }) {
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState<Row>({ date: "", price: "", source: DIESEL.source });
+  const today = sheetToday();
+  const thisMonth = today.slice(3);
+  const [month, setMonth] = useState(thisMonth);
+  /** The day being typed into, and what is in the box. */
+  const [editing, setEditing] = useState<{ date: string; value: string } | null>(null);
+  const [saving, setSaving] = useState("");
 
-  const load = useCallback(async () => {
-    try {
-      const response = await apiFetch("/api/diesel", { headers: { accept: "application/json" } });
-      if (!response.ok) { setRows([]); return; }
-      const stored = await response.json() as { date: string; price: number; source: string }[];
-      setRows(stored.map((one) => ({ date: one.date, price: String(one.price), source: one.source ?? "" })));
-    } catch {
-      setRows([]);
+  const held = useMemo(() => changes ?? [], [changes]);
+  const days = useMemo(() => monthDays(held, month, today), [held, month, today]);
+  const average = useMemo(() => averageFor(expand(held, month, today), month), [held, month, today]);
+  const months = useMemo(() => monthsCovered(held, today).map((one) => averageFor(expand(held, one, today), one)), [held, today]);
+  const previous = months.find((one) => one.month === stepMonth(month, -1));
+  const band = average.average !== null && bands.length ? bandForDiesel(bands, average.average) : -1;
+  const keyedDays = days.filter((day) => day.keyed).length;
+  const latest = [...held].filter((one) => monthKey(one.date.slice(3)) <= monthKey(month))
+    .sort((a, b) => (b.date.slice(6) + b.date.slice(3, 5) + b.date.slice(0, 2)).localeCompare(a.date.slice(6) + a.date.slice(3, 5) + a.date.slice(0, 2)))[0];
+
+  async function saveDay(date: string, text: string) {
+    setEditing(null);
+    const price = Number(text.replace(/[,\s฿]/g, ""));
+    const was = held.find((one) => one.date === date);
+    if (!text.trim()) {
+      if (was) await removeDay(date);
+      return;
     }
-  }, []);
-
-  // Every setState is after an await, so it runs in a microtask rather than
-  // while this body does — the rule cannot see past the await.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(); }, [load]);
-
-  const changes: DieselChange[] = useMemo(
-    () => (rows ?? [])
-      .filter((row) => sortable(row.date) && Number(row.price) > 0)
-      .map((row) => ({ date: row.date, price: Number(row.price) })),
-    [rows],
-  );
-
-  /**
-   * Every month the recorded changes can speak for, newest first.
-   *
-   * Expanded month by month rather than in one pass, because a month's opening
-   * price comes from a change made before it started — May opens at April's
-   * price — and only the expander knows to look back for that.
-   */
-  const months = useMemo(() => {
-    if (changes.length === 0) return [];
-    const first = [...changes].sort((a, b) => sortable(a.date).localeCompare(sortable(b.date)))[0];
-    const startKey = monthKey(first.date.slice(3));
-    const seen: string[] = [];
-    // Every month from the first recorded change to the newest one.
-    const last = [...changes].sort((a, b) => sortable(b.date).localeCompare(sortable(a.date)))[0];
-    let year = Number(first.date.slice(6));
-    let month = Number(first.date.slice(3, 5));
-    const endKey = monthKey(last.date.slice(3));
-    for (let guard = 0; guard < 240; guard++) {
-      const key = `${String(month).padStart(2, "0")}/${year}`;
-      if (monthKey(key) > endKey) break;
-      if (monthKey(key) >= startKey) seen.push(key);
-      month += 1;
-      if (month > 12) { month = 1; year += 1; }
-    }
-    return seen
-      .map((one) => averageFor(expand(changes, one), one))
-      .sort((a, b) => monthKey(b.month).localeCompare(monthKey(a.month)));
-  }, [changes]);
-
-  function addRow() {
-    const date = draft.date.trim();
-    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(date)) { onToast("วันที่ต้องเป็น dd/mm/yyyy"); return; }
-    const price = Number(draft.price.replace(/,/g, ""));
-    if (!Number.isFinite(price) || price <= 0 || price >= 200) { onToast("ราคาน้ำมันดูไม่ถูกต้อง"); return; }
-
-    setRows((held) => {
-      const kept = (held ?? []).filter((row) => row.date !== date);
-      return [{ date, price: String(price), source: draft.source }, ...kept]
-        .sort((a, b) => sortable(b.date).localeCompare(sortable(a.date)));
-    });
-    setDraft({ date: "", price: "", source: draft.source });
-  }
-
-  async function save() {
-    if (!rows?.length) { onToast("ยังไม่มีราคาให้บันทึก"); return; }
-    setSaving(true);
+    if (!Number.isFinite(price) || price <= 0 || price >= 200) { onToast("ราคาน้ำมันดูไม่ถูกต้อง (บาทต่อลิตร)"); return; }
+    if (was && was.price === price) return;
+    setSaving(date);
     try {
-      const response = await apiFetch("/api/diesel", {
+      const response = await apiFetch(`/api/diesel/${date}`, {
         method: "PUT",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify(changes.map((one) => ({
-          effectiveDate: one.date,
-          price: one.price,
-          source: rows.find((row) => row.date === one.date)?.source ?? "",
-        }))),
+        body: JSON.stringify({ price, source: DIESEL.source }),
       });
-      const answer = await response.json().catch(() => null) as
-        { added?: number; changed?: number; removed?: number; message?: string } | null;
-      if (!response.ok) { onToast(answer?.message ?? `บันทึกไม่สำเร็จ (${response.status})`); return; }
-      onToast(`บันทึกแล้ว · เพิ่ม ${answer?.added ?? 0} · แก้ ${answer?.changed ?? 0} · ลบ ${answer?.removed ?? 0}`);
-    } catch (error) {
-      onToast("บันทึกไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
-    } finally {
-      setSaving(false);
-    }
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`);
+      if (response.ok) onChanged();
+    } finally { setSaving(""); }
   }
 
+  async function removeDay(date: string) {
+    setSaving(date);
+    try {
+      const response = await apiFetch(`/api/diesel/${date}`, { method: "DELETE", headers: { accept: "application/json" } });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? `ลบไม่สำเร็จ (${response.status})`);
+      if (response.ok) onChanged();
+    } finally { setSaving(""); }
+  }
+
+  const fmt = (n: number | null) => (n === null ? "—" : n.toFixed(2));
+
   return (
-    <div style={css("display:flex;flex-direction:column;gap:14px")}>
-      <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap")}>
-        <label style={css("display:flex;flex-direction:column;gap:3px")}>
-          <span style={css(LABEL)}>วันที่ราคาเปลี่ยน</span>
-          <input value={draft.date} placeholder="dd/mm/yyyy" disabled={!canEdit}
-            onChange={(e) => setDraft((one) => ({ ...one, date: e.target.value }))}
-            style={css(CONTROL + ";width:130px;font-family:'IBM Plex Mono',monospace")} />
-        </label>
-        <label style={css("display:flex;flex-direction:column;gap:3px")}>
-          <span style={css(LABEL)}>ราคา (บาท/ลิตร)</span>
-          <input value={draft.price} placeholder={String(DIESEL.price)} disabled={!canEdit}
-            onChange={(e) => setDraft((one) => ({ ...one, price: e.target.value }))}
-            onKeyDown={(e) => { if (e.key === "Enter") addRow(); }}
-            style={css(CONTROL + ";width:110px;font-family:'IBM Plex Mono',monospace")} />
-        </label>
-        <button onClick={addRow} disabled={!canEdit}
-          style={css("height:30px;padding:0 15px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;"
-            + (canEdit ? "border:1px solid #0A6E8A;background:#fff;color:#0A6E8A;cursor:pointer"
-                       : "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"))}>
-          + เพิ่มราคา
-        </button>
+    <div style={css("display:flex;flex-direction:column;gap:12px")}>
+      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:11px")}>
+        <StatCard label={`ค่าเฉลี่ยเดือน ${month}`} value={fmt(average.average)} tone={average.closed ? "#16794C" : "#B45309"} icon="calendar"
+          note={average.average === null ? "ยังไม่มีราคาในเดือนนี้"
+            : average.closed ? `ครบ ${average.days} วัน — ใช้ได้กับใบแจ้งหนี้`
+              : `${average.days} วันจนถึงวันนี้ · กรอกเอง ${keyedDays} วัน — ยังไม่สิ้นเดือน`} />
+        <StatCard label="ช่วงราคาน้ำมันในการ์ด" value={band >= 0 ? bands[band].label : "—"} tone="#1668AB" icon="money"
+          note={!bands.length ? "ยังไม่มีการ์ดต้นทุนในระบบ" : band >= 0 ? "ช่วงที่ค่าขนส่งและงาน Domestic อ่านราคา" : average.average === null ? "" : "เกินช่วงที่การ์ดระบุไว้"} />
+        <StatCard label="ราคาล่าสุดที่กรอก" value={latest ? latest.price.toFixed(2) : "—"} tone="#0A2240" icon="fuel"
+          note={latest ? `วันที่ ${latest.date}` : "ยังไม่มี"} />
+        <StatCard label={`เดือนก่อน ${stepMonth(month, -1)}`} value={fmt(previous?.average ?? null)} tone="#5A6B7D" icon="chart"
+          note={previous ? describe(previous).replace(/^[\d.]+ · /, "") : "ไม่มีราคาของเดือนก่อน"} />
+      </div>
 
-        <div style={css("margin-left:auto;display:flex;gap:8px;align-items:center")}>
-          <span style={css("font-size:11px;color:#7B8CA0")}>
-            อ่านจาก <a href="https://www.pttor.com/th/oil_price" target="_blank" rel="noreferrer"
-              style={css("color:#0A6E8A")}>pttor.com/th/oil_price</a>
+      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
+        <div style={css("padding:10px 14px;border-bottom:1px solid #E9EFF5;display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
+          <button type="button" onClick={() => setMonth(stepMonth(month, -1))} style={css(NAV_BTN)}>‹</button>
+          <span style={css(`${MONO};font-size:14px;font-weight:700;color:#0A2240;min-width:76px;text-align:center`)}>{month}</span>
+          <button type="button" onClick={() => setMonth(stepMonth(month, 1))} disabled={monthKey(month) >= monthKey(thisMonth)}
+            style={css(NAV_BTN + (monthKey(month) >= monthKey(thisMonth) ? ";opacity:.4;cursor:not-allowed" : ""))}>›</button>
+          {month !== thisMonth && (
+            <button type="button" onClick={() => setMonth(thisMonth)}
+              style={css("height:30px;padding:0 12px;border:1px solid #C9D6E2;border-radius:6px;background:#fff;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;color:#0A2240")}>
+              เดือนนี้
+            </button>
+          )}
+          <span style={css("margin-left:auto;font-size:11.5px;color:#7B8CA0;display:inline-flex;align-items:center;gap:6px")}>
+            <StatGlyph icon="fuel" size={14} />
+            อ่านจาก <a href="https://www.pttor.com/th/oil_price" target="_blank" rel="noreferrer" style={css("color:#0A6E8A")}>pttor.com/th/oil_price</a>
+            {!canRecord && <span style={css("color:#B45309")}> · บัญชีนี้ดูได้อย่างเดียว</span>}
           </span>
-          <button onClick={save} disabled={saving || !canEdit}
-            title={canEdit ? "" : "ต้องใช้บัญชีที่มีสิทธิ์แก้ราคาจึงจะบันทึกได้"}
-            style={css("height:32px;padding:0 16px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;"
-              + (saving || !canEdit ? "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"
-                                    : "border:1px solid #0A2240;background:#0A2240;color:#fff;cursor:pointer"))}>
-            {saving ? "กำลังบันทึก…" : "บันทึกเข้าระบบ"}
-          </button>
-        </div>
-      </div>
-
-      {/* Why only a handful of rows produce a month of prices. Said here rather
-          than left for somebody to work out from an empty-looking table. */}
-      <div style={css("font-size:11.5px;color:#7B8CA0;line-height:1.7;max-width:78ch")}>
-        กรอกเฉพาะ<b>วันที่ราคาเปลี่ยน</b> ไม่ต้องกรอกทุกวัน — ราคาจะถือไปจนถึงการเปลี่ยนครั้งถัดไป
-        เดือนหนึ่งมักเปลี่ยนแค่ 3–5 ครั้ง ระบบจะกระจายเป็นรายวันแล้วหาค่าเฉลี่ยทั้งเดือนให้เอง
-        ซึ่งเป็นตัวเลขที่ใช้เลือกช่วงราคาน้ำมันในการ์ดค่าขนส่ง
-      </div>
-
-      <div style={css("display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap")}>
-        {/* The averages. This is the column the rest of the system reads. */}
-        <div style={css("flex:1 1 320px;background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden")}>
-          <table style={css("width:100%;border-collapse:collapse")}>
-            <thead>
-              <tr>
-                <th style={css(HEAD)}>เดือน</th>
-                <th style={css(HEAD + ";text-align:right")}>ค่าเฉลี่ย</th>
-                <th style={css(HEAD)}>สถานะ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {months.length === 0 && (
-                <tr><td colSpan={3} style={css(CELL + ";color:#94A3B8;text-align:center;padding:22px")}>
-                  ยังไม่มีราคาน้ำมัน — เพิ่มวันที่ราคาเปลี่ยนด้านบน
-                </td></tr>
-              )}
-              {months.map((one) => (
-                <tr key={one.month}>
-                  <td style={css(CELL + ";font-family:'IBM Plex Mono',monospace")}>{one.month}</td>
-                  <td style={css(CELL + ";text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:600;"
-                    + (one.closed ? "color:#16794C" : "color:#B45309"))}>
-                    {one.average ?? "—"}
-                  </td>
-                  <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>
-                    {one.closed
-                      ? `ครบ ${one.days} วัน`
-                      : `${one.days}/${daysInMonth(one.month)} วัน — ยังไม่สิ้นเดือน`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
 
-        {/* The changes themselves, which is what gets typed. */}
-        <div style={css("flex:1 1 340px;background:#fff;border:1px solid #E3E8EE;border-radius:6px;overflow:hidden")}>
-          <table style={css("width:100%;border-collapse:collapse")}>
-            <thead>
-              <tr>
-                <th style={css(HEAD)}>วันที่เปลี่ยน</th>
-                <th style={css(HEAD + ";text-align:right")}>บาท/ลิตร</th>
-                <th style={css(HEAD)}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows === null && (
-                <tr><td colSpan={3} style={css(CELL + ";color:#94A3B8;text-align:center;padding:22px")}>กำลังโหลด…</td></tr>
-              )}
-              {rows?.length === 0 && (
-                <tr><td colSpan={3} style={css(CELL + ";color:#94A3B8;text-align:center;padding:22px")}>ยังไม่มีข้อมูล</td></tr>
-              )}
-              {(rows ?? []).map((row) => (
-                <tr key={row.date}>
-                  <td style={css(CELL + ";font-family:'IBM Plex Mono',monospace")}>{row.date}</td>
-                  <td style={css(CELL + ";text-align:right;font-family:'IBM Plex Mono',monospace")}>{row.price}</td>
-                  <td style={css(CELL + ";text-align:right")}>
-                    {canEdit && (
-                      <button onClick={() => setRows((held) => (held ?? []).filter((one) => one.date !== row.date))}
-                        title="ลบราคาวันนี้"
-                        style={css("border:none;background:transparent;color:#B45309;font-size:12px;cursor:pointer;font-family:inherit")}>
-                        ลบ
-                      </button>
+        <table style={css("width:100%;border-collapse:collapse")}>
+          <thead><tr>
+            <th style={css(HEAD)}>วันที่</th>
+            <th style={css(HEAD)}>วัน</th>
+            <th style={css(HEAD + ";text-align:right")}>ราคา (บาท/ลิตร)</th>
+            <th style={css(HEAD)}>ที่มา</th>
+            <th style={css(HEAD)}></th>
+          </tr></thead>
+          <tbody>
+            {changes === null && (
+              <tr><td colSpan={5} style={css(CELL + ";color:#94A3B8;text-align:center;padding:22px")}>กำลังโหลด…</td></tr>
+            )}
+            {changes !== null && days.map((day) => {
+              const isToday = day.date === today;
+              const editable = canRecord && !day.ahead;
+              const open = editing?.date === day.date;
+              return (
+                <tr key={day.date} style={css("background:" + (isToday ? "#EEF5FC" : day.keyed ? "#fff" : "#FBFCFD"))}>
+                  <td style={css(CELL + `;${MONO};white-space:nowrap;` + (isToday ? "font-weight:700;color:#0A2240" : ""))}>
+                    {day.date}{isToday && <span style={css("margin-left:6px;font-size:10px;font-weight:700;color:#1668AB;letter-spacing:.06em")}>วันนี้</span>}
+                  </td>
+                  <td style={css(CELL + ";color:#7B8CA0;white-space:nowrap")}>{weekdayOf(day.date)}</td>
+                  <td style={css(CELL + ";text-align:right;white-space:nowrap")} onClick={() => editable && !open && setEditing({ date: day.date, value: day.keyed ? String(day.price ?? "") : "" })}>
+                    {open ? (
+                      <input
+                        // eslint-disable-next-line jsx-a11y/no-autofocus
+                        autoFocus
+                        value={editing.value}
+                        placeholder={day.price === null ? "" : day.price.toFixed(2)}
+                        onChange={(e) => setEditing({ date: day.date, value: e.target.value })}
+                        onBlur={() => void saveDay(day.date, editing.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void saveDay(day.date, editing.value);
+                          if (e.key === "Escape") setEditing(null);
+                        }}
+                        style={css(`width:96px;height:28px;border:1px solid #0A5FA8;border-radius:4px;padding:0 8px;${MONO};font-size:12.5px;text-align:right`)} />
+                    ) : (
+                      <span title={day.ahead ? "ยังไม่ถึงวัน" : day.keyed ? "กรอกไว้วันนี้ — คลิกเพื่อแก้" : day.price === null ? "ยังไม่มีราคาก่อนหน้านี้" : "ต่อจากวันก่อนหน้า — คลิกเพื่อกรอกราคาของวันนี้"}
+                        style={css(`${MONO};font-size:12.5px;` + (day.keyed ? "font-weight:700;color:#0A2240" : "color:#94A3B8")
+                          + (editable ? ";cursor:text" : "") + (saving === day.date ? ";opacity:.5" : ""))}>
+                        {day.ahead ? "" : day.price === null ? "—" : day.price.toFixed(2)}
+                      </span>
+                    )}
+                  </td>
+                  <td style={css(CELL + ";font-size:11px;color:#7B8CA0;white-space:nowrap")}>
+                    {day.ahead ? "" : day.keyed ? "กรอกเอง" : day.price === null ? "" : "ต่อจากวันก่อน"}
+                  </td>
+                  <td style={css(CELL + ";text-align:right;white-space:nowrap")}>
+                    {editable && day.keyed && (
+                      <button type="button" onClick={() => void removeDay(day.date)} disabled={saving === day.date} title="ลบราคาที่กรอกไว้วันนี้"
+                        style={css("border:none;background:transparent;color:#B45309;font-size:11.5px;cursor:pointer;font-family:inherit")}>ลบ</button>
                     )}
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      {months.length > 0 && (
-        <div style={css("font-size:11.5px;color:#7B8CA0;line-height:1.7")}>
-          เดือนล่าสุด: {describe(months[0])}
+      {months.length > 1 && (
+        <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
+          <table style={css("width:100%;border-collapse:collapse")}>
+            <thead><tr>
+              <th style={css(HEAD)}>เดือน</th>
+              <th style={css(HEAD + ";text-align:right")}>ค่าเฉลี่ย</th>
+              <th style={css(HEAD)}>ช่วงในการ์ด</th>
+              <th style={css(HEAD)}>สถานะ</th>
+            </tr></thead>
+            <tbody>
+              {months.map((one) => {
+                const at = one.average !== null && bands.length ? bandForDiesel(bands, one.average) : -1;
+                return (
+                  <tr key={one.month} style={css("cursor:pointer;background:" + (one.month === month ? "#EEF5FC" : "#fff"))} onClick={() => setMonth(one.month)}>
+                    <td style={css(CELL + `;${MONO}`)}>{one.month}</td>
+                    <td style={css(CELL + `;text-align:right;${MONO};font-weight:600;` + (one.closed ? "color:#16794C" : "color:#B45309"))}>{fmt(one.average)}</td>
+                    <td style={css(CELL + ";font-size:11.5px;color:#0A2240")}>{at >= 0 ? bands[at].label : "—"}</td>
+                    <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>
+                      {one.average === null ? "ยังไม่มีราคา" : one.closed ? `ครบ ${one.days} วัน` : `${one.days} วัน — ยังไม่สิ้นเดือน`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
   );
 }
+
+const NAV_BTN = "width:30px;height:30px;border:1px solid #C9D6E2;border-radius:6px;background:#fff;font-size:15px;font-family:inherit;cursor:pointer;color:#0A2240";

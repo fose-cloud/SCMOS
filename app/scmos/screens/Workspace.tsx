@@ -13,7 +13,8 @@ import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
 import { writeClipboardTable } from "../pasteBlock";
-import { looksLikeDiesel } from "../diesel";
+import { dieselRate, looksLikeDiesel } from "../diesel";
+import { rateForJob, type DieselDay } from "../dieselMonth";
 import { bandForDiesel } from "../rates";
 import { explain, rateTrip } from "../domesticRate";
 import {
@@ -81,8 +82,14 @@ type Props = {
     lanes: { from: string; county: string; prices: Record<string, (number | null)[]> }[];
     bands: { label: string; min: number; max: number }[];
   } | null;
-  /** The diesel figure the card is read at. */
+  /** The diesel figure the card is read at when nothing better is known. */
   diesel: number;
+  /**
+   * The pump price day by day, off the Oil Rate tab, so a run is read at the
+   * average of the month it ran in — the contract's own rule. Empty until the
+   * grid has fetched it; the figure above stands in until then.
+   */
+  dieselDays?: DieselDay[];
   /** A dragged rectangle written in one go, each column keeping its own rule. */
   onPasteCells: (
     edits: { job: Job; field: keyof Job; value: string }[],
@@ -1223,11 +1230,27 @@ export function Workspace(p: Props) {
    * in the next — the sum did not add up, which is exactly what a column of
    * money must never do.
    */
+  /**
+   * The diesel a trip is read at, and where the figure came from.
+   *
+   * The job's own figure first — that is what the trip was charged against.
+   * Then the average of the month it ran in, off the Oil Rate tab, which is
+   * the contract's rule and what the department asked for on 15 September
+   * 2026. Only then the screen-wide figure, which is a stand-in.
+   */
+  const dieselOf = (j: Job): { price: number; from: "job" | "month" | "default"; month: string } => {
+    const own = dieselRate(j.diesel);
+    if (own !== null) return { price: own, from: "job", month: "" };
+    const monthly = rateForJob(p.dieselDays ?? [], j.date);
+    if (monthly && monthly.average !== null) return { price: monthly.average, from: "month", month: monthly.month };
+    return { price: p.diesel, from: "default", month: "" };
+  };
+
   const tripRate = (j: Job): number | null => {
     const keyed = Number(String(j.cost ?? "").replace(/[,\s฿]/g, ""));
     if (Number.isFinite(keyed) && keyed > 0) return keyed;
     if (!p.customerCard) return null;
-    return rateTrip(j, p.customerCard.lanes, bandForDiesel(p.customerCard.bands, p.diesel)).total;
+    return rateTrip(j, p.customerCard.lanes, bandForDiesel(p.customerCard.bands, dieselOf(j).price)).total;
   };
 
   // The three money columns whose figure comes off the rate card when the job
@@ -1601,11 +1624,14 @@ export function Workspace(p: Props) {
     // still being obviously not the job's own recorded rate. Typing over it
     // writes a real value.
     if (!j.diesel) {
+      const read = dieselOf(j);
       return {
-        ...cell(p.diesel ? String(p.diesel) : "", { mono: true, align: "right", mute: true }),
+        ...cell(read.price ? read.price.toFixed(2) : "", { mono: true, align: "right", mute: true }),
         field: "diesel",
-        title: `ยังไม่ได้บันทึกเรทน้ำมันของงานนี้ — แสดงค่าที่ใช้อ่านการ์ดราคาอยู่ (${p.diesel})`
-          + " · ตามข้อตกลงต้องใช้ค่าเฉลี่ยทั้งเดือน",
+        title: read.from === "month"
+          ? `ค่าเฉลี่ยน้ำมันเดือน ${read.month} จาก Oil Rate (${read.price.toFixed(2)}) — พิมพ์ทับได้ถ้างานนี้คิดที่ราคาอื่น`
+          : `ยังไม่มีราคาน้ำมันของเดือนนี้ใน Oil Rate — แสดงค่าตั้งต้น (${read.price})`
+            + " · กรอกราคารายวันในแท็บ Oil Rate ของ The Chemours",
       };
     }
     return looksLikeDiesel(j.diesel)
@@ -1630,7 +1656,8 @@ export function Workspace(p: Props) {
         title: "ยังไม่ได้โหลดการ์ดราคาขาย — เปิดแท็บ ค่าขนส่ง แล้วบันทึกไฟล์ราคาขายเข้าระบบ" };
     }
 
-    const band = bandForDiesel(p.customerCard.bands, p.diesel);
+    const read = dieselOf(j);
+    const band = bandForDiesel(p.customerCard.bands, read.price);
     const rated = rateTrip(j, p.customerCard.lanes, band);
     if (rated.total === null) {
       // Say what was searched, not only that nothing was found. A postcode that
@@ -1648,7 +1675,8 @@ export function Workspace(p: Props) {
       ...cell("฿" + rated.total.toLocaleString("en-US"), { mono: true, align: "right", mute: true }),
       title: "ราคาขาย · " + rated.parts
         .map((part) => `${part.trucks}×${part.vehicle} @ ฿${part.each.toLocaleString("en-US")}`)
-        .join(" + ") + ` · ที่ดีเซล ${p.diesel}`,
+        .join(" + ") + ` · ที่ดีเซล ${read.price.toFixed(2)}`
+        + (read.from === "month" ? ` (เฉลี่ยเดือน ${read.month})` : read.from === "job" ? " (ของงานนี้)" : " (ค่าตั้งต้น)"),
     };
   };
 

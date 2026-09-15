@@ -67,6 +67,19 @@ public enum Capability
     /// <summary>Add draft suppliers and edit company details, not approvals or deletion.</summary>
     EditSuppliers = 1 << 21,
 
+    /// <summary>
+    /// Key the day's diesel price into the Oil Rate table.
+    ///
+    /// Split from <see cref="EditRates"/> on 15 September 2026, when the
+    /// department asked for the operators to keep the pump price day by day
+    /// so a month's average is there when the invoice is. Writing the day's
+    /// price is not negotiating a rate: the figure is published by PTT OR and
+    /// copied, and what it decides — which band of the fuel clause a month's
+    /// work is read at — is the arithmetic of the average, not the operator's
+    /// choice. Replacing the whole table at once stays with EditRates.
+    /// </summary>
+    RecordDiesel = 1 << 22,
+
     /// <summary>Sign off a CAR/PAR.</summary>
     CloseCarPar = 1 << 9,
 
@@ -199,7 +212,7 @@ public static class Roles
     private const Capability OperationGrants =
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
         | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet
-        | Capability.ViewMailbox | Capability.EditSuppliers;
+        | Capability.ViewMailbox | Capability.EditSuppliers | Capability.RecordDiesel;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar

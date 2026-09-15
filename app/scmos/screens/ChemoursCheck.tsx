@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../api";
+import { useMemo, useState } from "react";
 import { Badge, PAGE_SIZES, Pager, Pick } from "../BoardBits";
 import {
   carrierTallies, checkTrips, monthsOf, placeOf, verdictField, verdictText,
@@ -10,6 +9,7 @@ import {
 import type { DieselChange } from "../dieselMonth";
 import { exportChemoursCheck } from "../excel";
 import type { Job } from "../ops";
+import { sheetToday } from "../rateSheetDrafts";
 import { StatCard, StatGlyph } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
@@ -38,32 +38,20 @@ const MONO = "font-family:'IBM Plex Mono',ui-monospace,monospace";
 
 const baht = (n: number | null) => (n === null ? "—" : "฿" + n.toLocaleString("en-US"));
 
-export function ChemoursCheck({ jobs, card, onOpenJob }: {
+export function ChemoursCheck({ jobs, card, changes, onOpenJob }: {
   jobs: Job[];
   /** The cost card — every haulier's lanes, as loaded on the ค่าขนส่ง tab. */
   card: RateCard | null;
+  /** The published diesel changes, the same rows the Oil Rate tab keys. */
+  changes: DieselChange[];
   onOpenJob?: (key: string) => void;
 }) {
-  /** The published diesel changes, the same rows the Oil Rate tab keeps. */
-  const [changes, setChanges] = useState<DieselChange[] | null>(null);
   const [month, setMonth] = useState("");
   const [carrier, setCarrier] = useState("");
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [per, setPer] = useState(PAGE_SIZES[0]);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const response = await apiFetch("/api/diesel", { headers: { accept: "application/json" } });
-        const rows = response.ok ? await response.json() as { date: string; price: number }[] : [];
-        if (alive) setChanges(rows.map((one) => ({ date: one.date, price: Number(one.price) })));
-      } catch { if (alive) setChanges([]); }
-    })();
-    return () => { alive = false; };
-  }, []);
 
   const domestic = useMemo(() => jobs.filter((job) => job.cat === "DELIVERY"), [jobs]);
   const months = useMemo(() => monthsOf(domestic), [domestic]);
@@ -75,7 +63,7 @@ export function ChemoursCheck({ jobs, card, onOpenJob }: {
 
   const trips = useMemo(() => checkTrips(
     domestic.filter((job) => !chosenMonth || job.date.slice(3) === chosenMonth),
-    lanes, card?.bands ?? [], changes ?? [],
+    lanes, card?.bands ?? [], changes, sheetToday(),
   ), [domestic, chosenMonth, lanes, card, changes]);
 
   const tallies = useMemo(() => carrierTallies(trips), [trips]);

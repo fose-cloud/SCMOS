@@ -81,7 +81,7 @@ export type DieselChange = {
  * fourteen, 35.79 for one and 36.69 for nine averages to 36.05, which is the
  * figure in the green cell at the bottom of it.
  */
-export function expand(changes: readonly DieselChange[], month: string): DieselDay[] {
+export function expand(changes: readonly DieselChange[], month: string, until?: string): DieselDay[] {
   const total = daysInMonth(month);
   if (total === 0) return [];
 
@@ -89,6 +89,10 @@ export function expand(changes: readonly DieselChange[], month: string): DieselD
     const parts = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(date ?? "").trim());
     return parts ? `${parts[3]}${parts[2]}${parts[1]}` : "";
   };
+  // A day after `until` — today, usually — has no price yet however the
+  // register reads: carrying this morning's figure into next week would make
+  // an open month look closed and average days that have not happened.
+  const stop = sortable(until ?? "");
 
   const usable = changes
     .filter((one) => sortable(one.date) && Number.isFinite(one.price) && one.price > 0)
@@ -107,6 +111,7 @@ export function expand(changes: readonly DieselChange[], month: string): DieselD
 
   for (let day = 1; day <= total; day++) {
     const date = `${String(day).padStart(2, "0")}/${month}`;
+    if (stop && sortable(date) > stop) break;
     const changed = usable.find((one) => one.date === date);
     if (changed) held = changed.price;
     // Nothing in force yet — the month began before the first price anybody
@@ -114,6 +119,63 @@ export function expand(changes: readonly DieselChange[], month: string): DieselD
     if (held !== null) days.push({ date, price: held });
   }
   return days;
+}
+
+/** One line of the month's table: the day, what it costs, and whether somebody keyed that or it carried. */
+export type MonthDay = {
+  date: string;
+  /** Baht per litre in force that day, or null before the first price recorded. */
+  price: number | null;
+  /** True when a price was recorded on this very day; false when it carried from an earlier one. */
+  keyed: boolean;
+  /** True for a day after `until`, which has no price yet. */
+  ahead: boolean;
+};
+
+/**
+ * The month as a table, one line per calendar day — the shape the account
+ * team's own sheet has and the one the Oil Rate tab draws since 15 September
+ * 2026, when the department asked for a day-by-day table an operator keys
+ * the current price into. Days after `until` are drawn and marked ahead; a
+ * day with no price in force yet is drawn with none.
+ */
+export function monthDays(changes: readonly DieselChange[], month: string, until?: string): MonthDay[] {
+  const total = daysInMonth(month);
+  if (total === 0) return [];
+  const known = new Map(expand(changes, month, until).map((day) => [day.date, day.price]));
+  const keyed = new Set(changes.map((one) => one.date));
+  const key = (date: string) => date.slice(6) + date.slice(3, 5) + date.slice(0, 2);
+  const stop = until && /^\d{2}\/\d{2}\/\d{4}$/.test(until) ? key(until) : "";
+  const days: MonthDay[] = [];
+  for (let day = 1; day <= total; day++) {
+    const date = `${String(day).padStart(2, "0")}/${month}`;
+    const ahead = !!stop && key(date) > stop;
+    days.push({ date, price: ahead ? null : known.get(date) ?? null, keyed: keyed.has(date) && !ahead, ahead });
+  }
+  return days;
+}
+
+/**
+ * Every month from the first price recorded to `until` (or to the newest
+ * price), newest first — the months the register can speak for at all.
+ */
+export function monthsCovered(changes: readonly DieselChange[], until?: string): string[] {
+  const dated = changes.map((one) => monthOf(one.date)).filter(Boolean);
+  if (dated.length === 0) return [];
+  const keys = dated.map(monthKey).concat(until ? [monthKey(monthOf(until))].filter(Boolean) : []);
+  const first = keys.reduce((a, b) => (a < b ? a : b));
+  const last = keys.reduce((a, b) => (a > b ? a : b));
+  const months: string[] = [];
+  let year = Number(first.slice(0, 4));
+  let month = Number(first.slice(4));
+  for (let guard = 0; guard < 240; guard++) {
+    const key = `${year}${String(month).padStart(2, "0")}`;
+    if (key > last) break;
+    months.push(`${String(month).padStart(2, "0")}/${year}`);
+    month += 1;
+    if (month > 12) { month = 1; year += 1; }
+  }
+  return months.reverse();
 }
 
 /** The month a dd/MM/yyyy date belongs to, as MM/yyyy. Empty when unreadable. */

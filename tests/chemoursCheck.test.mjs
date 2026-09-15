@@ -154,3 +154,18 @@ test("the Chemours screen carries the diesel prices and the check as tabs, and t
   assert.match(screen, /if \(tab === OIL_TAB\) \{\s*return <OilRate/);
   assert.match(screen, /if \(tab === CHECK_TAB\) \{\s*return <ChemoursCheck jobs=\{jobs\} card=\{card \?\? null\}/);
 });
+
+test("the Domestic grid reads each run at its month's average off Oil Rate, the job's own figure first", () => {
+  const grid = readFileSync(new URL("../app/scmos/screens/Workspace.tsx", import.meta.url), "utf8");
+  assert.match(grid, /const dieselOf = \(j: Job\)[\s\S]*?const own = dieselRate\(j\.diesel\);[\s\S]*?rateForJob\(p\.dieselDays \?\? \[\], j\.date\)/);
+  assert.match(grid, /bandForDiesel\(p\.customerCard\.bands, dieselOf\(j\)\.price\)/);
+  assert.doesNotMatch(grid, /bandForDiesel\(p\.customerCard\.bands, p\.diesel\)/, "no column reads the screen-wide figure ahead of the month");
+  const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
+  assert.match(app, /setDieselDays\(monthsCovered\(changes, today\)\.flatMap\(\(month\) => expand\(changes, month, today\)\)\)/);
+  assert.match(app, /dieselDays=\{dieselDays\}/);
+  // The Oil Rate tab keys one day at a time through its own route.
+  const oil = readFileSync(new URL("../app/scmos/screens/OilRate.tsx", import.meta.url), "utf8");
+  assert.match(oil, /apiFetch\(`\/api\/diesel\/\$\{date\}`, \{\s*method: "PUT"/);
+  assert.match(oil, /monthDays\(held, month, today\)/);
+  assert.doesNotMatch(oil, /"\/api\/diesel", \{\s*method: "PUT"/, "the whole-table replace is not what an operator presses");
+});

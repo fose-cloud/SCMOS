@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  averageFor, averages, daysInMonth, describe, expand, monthKey, monthOf, rateForJob,
+  averageFor, averages, daysInMonth, describe, expand, monthDays, monthKey, monthOf, monthsCovered, rateForJob,
 } from "../app/scmos/dieselMonth.ts";
 
 /*
@@ -193,4 +193,40 @@ test("a nonsense row is left out rather than averaged in", () => {
     { date: "23/05/2025", price: 36.69 },
   ];
   assert.equal(averageFor(expand(changes, "05/2025"), "05/2025").average, 36.05);
+});
+
+/*
+ * The day-by-day table the Oil Rate tab draws since 15 September 2026, and
+ * the line "today" draws through a month that is still running.
+ */
+const changes = [{ date: "01/09/2026", price: 31 }, { date: "10/09/2026", price: 33.2 }];
+
+test("expand stops at today: a month still running is averaged over the days that have happened", () => {
+  const upToToday = expand(changes, "09/2026", "15/09/2026");
+  assert.equal(upToToday.length, 15);
+  assert.equal(upToToday[14].date, "15/09/2026");
+  const whole = expand(changes, "09/2026");
+  assert.equal(whole.length, 30, "without a stop the month is carried to its end, as before");
+  // 9 days at 31.00 and 6 at 33.20 — not 21 at 33.20 that have not been read yet.
+  assert.equal(averageFor(upToToday, "09/2026").average, Math.round(((31 * 9 + 33.2 * 6) / 15) * 100) / 100);
+  assert.equal(averageFor(upToToday, "09/2026").closed, false);
+});
+
+test("the month's table has one line per day: keyed, carried, ahead, or nothing yet", () => {
+  const days = monthDays(changes, "09/2026", "15/09/2026");
+  assert.equal(days.length, 30);
+  assert.deepEqual(days[0], { date: "01/09/2026", price: 31, keyed: true, ahead: false });
+  assert.deepEqual(days[4], { date: "05/09/2026", price: 31, keyed: false, ahead: false }, "carried from the 1st");
+  assert.deepEqual(days[9], { date: "10/09/2026", price: 33.2, keyed: true, ahead: false });
+  assert.deepEqual(days[15], { date: "16/09/2026", price: null, keyed: false, ahead: true }, "tomorrow has no price");
+  // A month that began before any price was recorded: nothing to carry.
+  const before = monthDays([{ date: "10/08/2026", price: 30 }], "08/2026", "31/08/2026");
+  assert.equal(before[0].price, null);
+  assert.equal(before[9].price, 30);
+});
+
+test("the months covered run from the first price to today, newest first", () => {
+  assert.deepEqual(monthsCovered([{ date: "20/07/2026", price: 29.5 }], "15/09/2026"), ["09/2026", "08/2026", "07/2026"]);
+  assert.deepEqual(monthsCovered([], "15/09/2026"), []);
+  assert.deepEqual(monthsCovered([{ date: "05/09/2026", price: 33 }, { date: "20/08/2026", price: 31 }]), ["09/2026", "08/2026"]);
 });
