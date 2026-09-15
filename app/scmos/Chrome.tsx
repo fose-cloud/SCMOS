@@ -691,12 +691,13 @@ export function Chrome(p: Props) {
                   + (p.lockScroll ? "padding:5px 12px;display:flex;align-items:center;gap:10px" : "padding:9px 14px 10px"))}>
                 <div style={css("font-weight:700;letter-spacing:.14em;color:#DDF0FF;line-height:1;text-shadow:0 0 12px rgba(92,192,247,.5);font-size:"
                   + (p.lockScroll ? "13px" : "17px"))}>SCMOS</div>
+                {/* The system's name, the same words as under the mark in the rail. */}
                 {p.lockScroll
-                  ? <div style={css("font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.2em;color:#8FB4D4;white-space:nowrap")}>
-                      SMART LOGISTICS · BETTER <span style={css("color:#5CC0F7")}>TOMORROW</span>
+                  ? <div style={css("font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:.18em;color:#8FB4D4;white-space:nowrap")}>
+                      SUBCONTRACT MANAGEMENT · <span style={css("color:#5CC0F7")}>OPERATION SYSTEM</span>
                     </div>
-                  : <div style={css("margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.2em;line-height:1.55;color:#8FB4D4")}>
-                      SMART<br />LOGISTICS<br />BETTER<br /><span style={css("color:#5CC0F7")}>TOMORROW</span>
+                  : <div style={css("margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.18em;line-height:1.55;color:#8FB4D4")}>
+                      SUBCONTRACT<br />MANAGEMENT<br /><span style={css("color:#5CC0F7")}>OPERATION<br />SYSTEM</span>
                     </div>}
               </div>
             </div>
