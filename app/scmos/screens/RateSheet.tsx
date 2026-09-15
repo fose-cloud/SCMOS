@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { DataTable, type TableModel } from "../DataTable";
 import { exportRateSheet } from "../excel";
 import { FilterPickMany } from "../FilterPickMany";
+import { StatGlyph } from "../StatCard";
 import { chosenIn } from "../filterChoices";
 import { editHistoryShortcut } from "../editHistory";
 import { gridTabTarget } from "../gridEditKey";
@@ -895,7 +896,8 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
         ล้างตัวกรอง
       </button>
 
-      <span style={css("margin-left:auto;display:flex;align-items:baseline;gap:8px;white-space:nowrap")}>
+      <span style={css("margin-left:auto;display:flex;align-items:center;gap:8px;white-space:nowrap")}>
+        <span aria-hidden="true" style={css("display:flex;color:#5CC0F7")}><StatGlyph icon="chart" size={15} /></span>
         <span style={css("font-size:15px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#fff")}>
           {page.total.toLocaleString()}
         </span>

@@ -6,6 +6,8 @@ import { APP_ENVIRONMENT, APP_VERSION } from "./version";
 import { onFetching } from "./api";
 import { ALL_NAV, HEADINGS, NAV, NAV_GROUPS, NAV_TAGS, SUB_NAV, type Screen } from "./nav";
 import { NavGlyph } from "./navIcons";
+import { StatGlyph } from "./StatCard";
+import { tabIconFor } from "./statIcons";
 import type { SearchGroup, SearchHit } from "./search";
 
 /**
@@ -681,28 +683,35 @@ export function Chrome(p: Props) {
                 it, and you arrive at the tab having lost the heading that says
                 what you are looking at. */}
             {!p.hideTabs && (
-            <div style={css("display:flex;gap:2px;overflow-x:auto;scrollbar-width:thin;" +
+            <div style={css("display:flex;gap:6px;overflow-x:auto;scrollbar-width:thin;" +
               (p.lockScroll ? "margin-top:8px;" : "margin-top:14px;") +
               "-webkit-overflow-scrolling:touch;padding-bottom:2px")}>
-              {p.tabs.map((t) => (
-                <button
-                  key={t.label}
-                  onClick={t.go}
-                  style={css(
-                    "height:35px;padding:0 16px;border:1px solid " + (t.active ? strip.tabOnLine : "transparent") +
-                    ";border-bottom:1px solid " + (t.active ? strip.tabOnBg : strip.line) +
-                    ";background:" + (t.active ? strip.tabOnBg : "transparent") +
-                    ";color:" + (t.active ? strip.tabOn : strip.tab) +
-                    ";font-size:12.5px;font-weight:" + (t.active ? "600" : "400") +
-                    // A flex child shrinks by default, so without these the
-                    // eight tabs squeeze into unreadable slivers instead of
-                    // staying their own width and scrolling.
-                    ";border-radius:4px 4px 0 0;cursor:pointer;margin-bottom:-1px;flex:none;white-space:nowrap",
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
+              {p.tabs.map((t) => {
+                // Pills with a glyph, the current one lit — the department's
+                // template for the rate screens' three tabs, and so for all.
+                const glyph = tabIconFor(t.label);
+                return (
+                  <button
+                    key={t.label}
+                    onClick={t.go}
+                    style={css(
+                      "height:36px;padding:0 15px;border:1px solid " + (t.active ? "#3B9EE0" : "rgba(74,148,214,.32)") +
+                      ";background:" + (t.active ? "rgba(22,104,171,.85)" : "rgba(10,34,64,.55)") +
+                      ";color:" + (t.active ? strip.tabOn : strip.tab) +
+                      ";font-size:12.5px;font-weight:" + (t.active ? "600" : "400") +
+                      (t.active ? ";box-shadow:0 0 0 1px rgba(92,192,247,.25),0 0 14px rgba(59,158,224,.45)" : "") +
+                      // A flex child shrinks by default, so without these the
+                      // eight tabs squeeze into unreadable slivers instead of
+                      // staying their own width and scrolling.
+                      ";border-radius:8px 8px 0 0;cursor:pointer;flex:none;white-space:nowrap;" +
+                      "display:inline-flex;align-items:center;gap:7px;font-family:inherit",
+                    )}
+                  >
+                    {glyph && <span aria-hidden="true" style={css("display:flex;color:" + (t.active ? "#fff" : "#5CC0F7"))}><StatGlyph icon={glyph} size={15} /></span>}
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
             )}
           </div>

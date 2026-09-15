@@ -103,21 +103,25 @@ export function FilterPickMany({ label, value, options, onPick, render = (option
   const shown = options.filter((one) => chosen.includes(one) || pickMatches(render(one), query));
 
   return (
-    <div ref={box} style={css("position:relative;display:flex;align-items:center;gap:6px")}>
-      <span style={css(`font-size:10px;font-weight:700;color:${ink.label};letter-spacing:.06em`)}>{label}</span>
+    // The label over the box rather than beside it, as the department's
+    // template lays the bar out: each filter a small labelled field, the
+    // chosen value reading as a value and not as a caption's tail.
+    <div ref={box} style={css("position:relative;display:flex;flex-direction:column;gap:3px")}>
+      <span style={css(`font-size:10px;font-weight:700;color:${ink.label};letter-spacing:.06em;line-height:1`)}>{label}</span>
       <button type="button" onClick={() => { setOpen((was) => !was); setQuery(""); }}
         title={set ? label + ": " + chosen.map(render).join(", ") : label + ": ทั้งหมด"}
-        style={css("height:27px;max-width:190px;border:1px solid " + (set ? ink.buttonBorderSet : ink.buttonBorder)
+        style={css("height:30px;min-width:96px;max-width:210px;border:1px solid " + (set ? ink.buttonBorderSet : ink.buttonBorder)
           + ";background:" + (set ? ink.buttonBgSet : ink.buttonBg)
-          + ";color:" + ink.buttonInk + ";border-radius:4px;font-size:11.5px;font-family:inherit;padding:0 8px;cursor:pointer;"
-          + "display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden"
+          + ";color:" + ink.buttonInk + ";border-radius:6px;font-size:11.5px;font-family:inherit;padding:0 9px;cursor:pointer;"
+          + "display:flex;align-items:center;justify-content:space-between;gap:8px;white-space:nowrap;overflow:hidden"
           + (set ? ";font-weight:600" : ""))}>
         <span style={css("overflow:hidden;text-overflow:ellipsis")}>{pickLabel(value, render)}</span>
-        <span style={css("opacity:.7;font-size:9px")}>▼</span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+          strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .75, flex: "none" }}><path d="M6 9l6 6 6-6" /></svg>
       </button>
 
       {open && (
-        <div style={css("position:absolute;top:30px;left:0;z-index:60;min-width:230px;max-height:320px;"
+        <div style={css("position:absolute;top:48px;left:0;z-index:60;min-width:230px;max-height:320px;"
           + "overflow:auto;background:" + ink.panelBg + ";border:1px solid " + ink.panelBorder + ";border-radius:5px;"
           + "box-shadow:" + ink.panelShadow + ";padding:5px")}>
           <button type="button" onClick={() => { onPick(emptyValue); }}

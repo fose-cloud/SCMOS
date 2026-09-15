@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { css } from "./theme";
+import { StatGlyph } from "./StatCard";
+import { toolIconFor } from "./statIcons";
 import { ZoomBar, useTableZoom } from "./TableFrame";
 import type { Cell, Col } from "./util";
 
@@ -101,7 +103,26 @@ const TOOL_BTN_DARK =
 /** The one action the screen exists to do, still leading on the navy. */
 const ACTION_BTN_LEAD =
   "height:28px;padding:0 13px;border:1px solid #4E9BE8;background:#16406E;color:#fff;"
-  + "border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit";
+  + "border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;"
+  + "box-shadow:0 0 0 1px rgba(92,192,247,.25),0 0 12px rgba(46,125,209,.45)";
+
+/** The glyph sits beside the words, on every button of the bar. */
+const BTN_ROW = ";display:inline-flex;align-items:center;gap:6px;border-radius:6px";
+
+/**
+ * A button's words with the glyph its label earns, as the department's
+ * template draws them: a plus on the row that inserts, an arrow up on the
+ * import, an arrow down on the export, a gear on the column picker.
+ */
+function Labelled({ label, icon }: { label: string; icon?: import("./statIcons").StatIcon | null }) {
+  const glyph = icon === undefined ? toolIconFor(label) : icon;
+  return (
+    <>
+      {glyph && <StatGlyph icon={glyph} size={14} />}
+      <span>{label.replace(/^\+\s*/, "")}</span>
+    </>
+  );
+}
 
 export function DataTable(p: Props) {
   const { model, onPage, onTool } = p;
@@ -205,8 +226,14 @@ export function DataTable(p: Props) {
       */}
       <div style={css("display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;"
         + (model.fill ? "padding:7px 16px;background:#0A2240" : "padding:12px 16px;border-bottom:1px solid #E9EFF5"))}>
-        <div style={css("display:flex;align-items:baseline;gap:10px")}>
+        {/* The register's glyph, the title, a rule, the meta — the way the
+            department's template heads a grid's own bar. */}
+        <div style={css("display:flex;align-items:center;gap:10px")}>
+          <span aria-hidden="true" style={css("display:flex;color:" + (model.fill ? "#5CC0F7" : "#2E7DD1"))}>
+            <StatGlyph icon="database" size={18} />
+          </span>
           <span style={css("font-size:13.5px;font-weight:600;color:" + (model.fill ? "#fff" : "#0A2240"))}>{model.title}</span>
+          {model.meta && <span aria-hidden="true" style={css("width:1px;height:16px;background:" + (model.fill ? "rgba(143,180,220,.45)" : "#D8E0E8"))} />}
           <span style={css("font-size:11.5px;color:" + (model.fill ? "#CFE2F7" : "#94A3B8"))}>{model.meta}</span>
         </div>
         {full && model.search && (
@@ -231,19 +258,19 @@ export function DataTable(p: Props) {
             <button key={a.label} title={a.title} disabled={a.disabled} onClick={a.go}
               style={css((model.fill
                 ? (a.style.includes("background:#0A2240") ? ACTION_BTN_LEAD : TOOL_BTN_DARK)
-                : a.style) + (a.disabled ? ";opacity:.55;cursor:not-allowed" : ""))}>
-              {a.label}
+                : a.style) + BTN_ROW + (a.disabled ? ";opacity:.55;cursor:not-allowed" : ""))}>
+              <Labelled label={a.label} />
             </button>
           ))}
           {(model.tools ?? ["Columns", "Sort", "Export Excel"]).map((label) => (
             <button key={label} className="ghost-btn" onClick={() => onTool(label)}
-              style={css(model.fill ? TOOL_BTN_DARK : TOOL_BTN)}>
-              {label}
+              style={css((model.fill ? TOOL_BTN_DARK : TOOL_BTN) + BTN_ROW)}>
+              <Labelled label={label} />
             </button>
           ))}
-          <button className="ghost-btn" onClick={toggleFull} style={css(model.fill ? TOOL_BTN_DARK : TOOL_BTN)}
+          <button className="ghost-btn" onClick={toggleFull} style={css((model.fill ? TOOL_BTN_DARK : TOOL_BTN) + BTN_ROW)}
             title={full ? "ออกจากเต็มจอ (Esc)" : "เต็มจอ — เหลือแค่ตาราง ซ่อนแถบด้านบนทั้งหมด"}>
-            {full ? "ออกจากเต็มจอ (Esc)" : "เต็มจอ"}
+            <Labelled label={full ? "ออกจากเต็มจอ (Esc)" : "เต็มจอ"} icon="expand" />
           </button>
         </div>
       </div>
