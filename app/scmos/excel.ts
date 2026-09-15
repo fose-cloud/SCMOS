@@ -173,7 +173,7 @@ export function columnsFor(layout: string): Column[] {
   return ALL_COLUMNS;
 }
 
-function autoWidth(rows: Record<string, string>[], headers: string[]) {
+function autoWidth(rows: Record<string, string | number>[], headers: string[]) {
   return headers.map((h) => {
     const longest = rows.reduce((max, r) => Math.max(max, String(r[h] ?? "").length), h.length);
     return { wch: Math.min(38, Math.max(9, longest + 2)) };
@@ -951,6 +951,43 @@ export function exportProblems(rows: {
   sheet["!cols"] = autoWidth(out, headers);
   XLSX.utils.book_append_sheet(book, sheet, "Problems");
   const filename = `SCMOS_Shipment_Problems_${scopeLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(book, filename);
+  return filename;
+}
+
+/**
+ * The Domestic check list, for sending back to a haulier with the invoice.
+ *
+ * One row per trip as the screen shows it: what ran, what the card says it
+ * costs, and what stopped the card pricing it. The figures are numbers so the
+ * haulier's own sheet can sum them.
+ */
+export function exportChemoursCheck(trips: {
+  job: { date: string; jobCode?: string; dCode?: string; trucker: string; wh?: string; customer: string; zip?: string; destination?: string; province?: string };
+  carrier: string; trucks: string; diesel: number | null; bandLabel: string; dieselFrom: string;
+  cost: { total: number | null; parts: { vehicle: string; trucks: number; each: number }[] };
+  returnKind: string; total: number | null; verdict: string;
+}[], scopeLabel: string): string {
+  const headers = ["วันที่", "Job", "D-Code", "ผู้ขนส่ง", "W/H", "ลูกค้า", "ปลายทาง", "ZIP", "รถ",
+    "เรทน้ำมัน", "ช่วงน้ำมัน", "ที่มาเรทน้ำมัน", "ต้นทุนตามตาราง", "รายละเอียดราคา", "รับกลับ", "รวม", "ผลการตรวจ"];
+  const out = trips.map((trip) => ({
+    [headers[0]]: trip.job.date, [headers[1]]: trip.job.jobCode ?? "", [headers[2]]: trip.job.dCode ?? "",
+    [headers[3]]: trip.carrier || trip.job.trucker, [headers[4]]: trip.job.wh ?? "", [headers[5]]: trip.job.customer,
+    [headers[6]]: (trip.job.destination || trip.job.province || ""), [headers[7]]: trip.job.zip ?? "",
+    [headers[8]]: trip.trucks,
+    [headers[9]]: trip.diesel ?? "", [headers[10]]: trip.bandLabel,
+    [headers[11]]: trip.dieselFrom === "job" ? "บันทึกบนงาน" : trip.dieselFrom === "month" ? "เฉลี่ยเดือน" : "",
+    [headers[12]]: trip.cost.total ?? "",
+    [headers[13]]: trip.cost.parts.map((part) => `${part.trucks}x${part.vehicle} @ ${part.each}`).join(" + "),
+    [headers[14]]: trip.returnKind === "none" ? "" : trip.returnKind === "finished" ? "finished goods" : "รับกลับ",
+    [headers[15]]: trip.total ?? "",
+    [headers[16]]: trip.verdict === "" ? "ตรงตามตาราง" : trip.verdict,
+  }));
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(out, { header: headers });
+  sheet["!cols"] = autoWidth(out, headers);
+  XLSX.utils.book_append_sheet(book, sheet, "Check");
+  const filename = `SCMOS_Chemours_Check_${scopeLabel.replace("/", "-")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(book, filename);
   return filename;
 }

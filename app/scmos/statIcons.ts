@@ -8,7 +8,7 @@ export type StatIcon =
   | "check" | "users" | "document" | "chart" | "money" | "ship" | "search" | "shield"
   // The toolbar's and the tabs' — one stroke weight with the figures' glyphs.
   | "plus" | "upload" | "download" | "gear" | "copy" | "expand" | "columns" | "sort"
-  | "sheet" | "calculator" | "terms" | "refresh" | "database" | "keyboard" | "home";
+  | "sheet" | "calculator" | "terms" | "refresh" | "database" | "keyboard" | "home" | "fuel";
 
 export const STAT_PATHS: Record<StatIcon, string> = {
   box: "M3 7l9-4 9 4v10l-9 4-9-4V7zm9 4l9-4M12 11v10M12 11L3 7",
@@ -41,6 +41,7 @@ export const STAT_PATHS: Record<StatIcon, string> = {
   refresh: "M20 12a8 8 0 01-14.5 4.6M4 12a8 8 0 0114.5-4.6M4 5v4h4M20 19v-4h-4",
   database: "M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3zm-8 3v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
   keyboard: "M3 7h18v10H3zM6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10",
+  fuel: "M4 21V5a2 2 0 012-2h7a2 2 0 012 2v16M3 21h12M7 8h5M15 9h2a2 2 0 012 2v6a1.5 1.5 0 003 0v-7l-3-3",
   home: "M3 11l9-8 9 8v10h-6v-6H9v6H3z",
 };
 
@@ -86,6 +87,12 @@ const TAB_GLYPH: [RegExp, StatIcon][] = [
   [/calendar|ปฏิทิน/i, "calendar"],
   [/today|วันนี้/i, "home"],
   [/delay|ล่าช้า/i, "clock"],
+  // The Chemours' own: the runs, the card, the diesel, the check, the receipt.
+  [/domestic/i, "truck"],
+  [/oil|diesel|น้ำมัน/i, "fuel"],
+  [/ตรวจสอบ|verify|check/i, "search"],
+  [/receipt|ใบรับ/i, "document"],
+  [/ค่าขนส่ง|ราคา/i, "money"],
 ];
 
 export function tabIconFor(label: string): StatIcon | null {

@@ -74,9 +74,9 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["rates", "Rate Management", "อัตราค่าขนส่ง", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
     ["quotation", "Rate Quotation", "ขอใบเสนอราคา", [[2, 2, 10, 12], [4, 5, 6, 1.5], [4, 8, 6, 1.5], [4, 11, 4, 1.5]]],
     ["billing", "Billing Control", "ควบคุมการวางบิล", [[2, 4, 12, 8], [4, 7, 4, 2]]],
-    // Diesel decides which band of the fuel clause every lane is read at, so it
-    // belongs beside the rates it moves rather than in a settings screen.
-    ["oilrate", "Oil Rate", "เรทน้ำมัน", [[6, 2, 4, 3], [4, 5, 8, 9], [6, 8, 4, 3]]],
+    // Oil Rate left this list on 15 September 2026 for a tab on The Chemours,
+    // the one account whose card the diesel figure moves. The `oilrate`
+    // screen id still resolves — SCMOSApp sends it to that tab.
   ],
 
   // When something went wrong, and what was done about it.
@@ -279,7 +279,9 @@ export const TAB_DEFS: Record<string, string[]> = {
   // The two report tabs are gone at the account team's request — neither
   // was used. What is left is the work, what it costs, and the document
   // the customer signs.
-  chemours: ["งาน Domestic", "ค่าขนส่ง", "Cargo Receipt"],
+  // Then the diesel prices the card is read at, and the runs checked
+  // against the card — both moved in beside it on 15 September 2026.
+  chemours: ["งาน Domestic", "ค่าขนส่ง", "Oil Rate", "ตรวจสอบค่าขนส่ง", "Cargo Receipt"],
   billing: ["Aging", "Invoices", "Advance Receipts"],
   // Capacity, Document Center, Administration and Reports carry their own
   // controls now that they read the API; tabs that narrowed a demo table would

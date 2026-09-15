@@ -5,7 +5,9 @@ import type { Job } from "../ops";
 import { useRemembered } from "../pageCache";
 import { apiFetch } from "../api";
 import { CargoForm, type FormTemplate } from "./CargoForm";
+import { ChemoursCheck } from "./ChemoursCheck";
 import { ChemoursRates, SELLER, readRateCard, readSellingCard, type RateCard } from "./ChemoursRates";
+import { OilRate } from "./OilRate";
 
 /**
  * The Chemours account: what it costs to run, and what the customer signs for.
@@ -28,6 +30,14 @@ import { ChemoursRates, SELLER, readRateCard, readSellingCard, type RateCard } f
 
 /** The tab that holds this account's own transport prices. */
 export const RATES_TAB = "ค่าขนส่ง";
+/**
+ * The diesel prices, moved in from their own menu entry on 15 September 2026.
+ * They decide which band every lane on the card is read at, so they belong
+ * beside the card and the runs it prices rather than under Commercial.
+ */
+export const OIL_TAB = "Oil Rate";
+/** The Domestic runs held against the cost card, trip by trip. */
+export const CHECK_TAB = "ตรวจสอบค่าขนส่ง";
 
 /**
  * The card as the API stores it, and the translation into the one this screen
@@ -72,10 +82,12 @@ function fromStored(stored: StoredCard): RateCard {
   };
 }
 
-export function Chemours({ jobs, tab, canEditRates, onToast }: {
+export function Chemours({ jobs, tab, canEditRates, onOpenJob, onToast }: {
   jobs: Job[];
   /** Which of the account's documents is being looked at. */
   tab: string;
+  /** Opens a job from the check list, for the row that needs a ZIP or a truck count. */
+  onOpenJob?: (key: string) => void;
   /**
    * Whether this account may write a rate.
    *
@@ -362,6 +374,12 @@ export function Chemours({ jobs, tab, canEditRates, onToast }: {
   // carry for its reports. Both draw on their own.
   if (tab === "Cargo Receipt") {
     return <CargoForm jobs={jobs} stored={templates} onStore={saveTemplates} onToast={onToast} />;
+  }
+  if (tab === OIL_TAB) {
+    return <OilRate canEdit={canEditRates} onToast={onToast} />;
+  }
+  if (tab === CHECK_TAB) {
+    return <ChemoursCheck jobs={jobs} card={card ?? null} onOpenJob={onOpenJob} />;
   }
 
   return (

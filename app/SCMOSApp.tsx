@@ -45,7 +45,7 @@ import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
 import { DIESEL } from "./scmos/diesel";
-import { Chemours } from "./scmos/screens/Chemours";
+import { Chemours, OIL_TAB } from "./scmos/screens/Chemours";
 import { OperationalIssues } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
 import { JobRotation } from "./scmos/screens/JobRotation";
@@ -83,7 +83,6 @@ const OWN_SCREEN: Partial<Record<Screen, true>> = {
   // the period and filters that decide what should be in it.
   reports: true,
   capacity: true, documents: true, admin: true, docverify: true, loreal: true, carrier: true, training: true,
-  oilrate: true,
   // The integration screens are not listed here by name. They are read off
   // externalSystems.ts below, so adding a fifth system cannot quietly put the
   // lying Export button back on it — which is what happened to CCS, LINE and
@@ -97,7 +96,6 @@ import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, ty
 
 import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
 import { LineReview } from "./scmos/screens/LineReview";
-import { OilRate } from "./scmos/screens/OilRate";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
@@ -203,6 +201,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [tab, setTab] = useState("");
+
+  // Oil Rate became a tab on The Chemours on 15 September 2026. A saved
+  // landing or a link that still names the old screen opens that tab.
+  useEffect(() => {
+    if (screen !== "oilrate") return;
+    setScreen("chemours");
+    setTab(OIL_TAB);
+  }, [screen]);
   const [f, setF] = useState<Filters>(EMPTY_FILTERS);
   /** Day / month / year the dashboard reports on. */
   const [period, setPeriod] = useState<Period>(ALL_PERIOD);
@@ -3033,7 +3039,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "outlook" && (
               <Outlook canDecide={able("EditAnyJob")} onToast={setToast} />
             )}
-            {screen === "oilrate" && <OilRate canEdit={able("EditRates")} onToast={setToast} />}
             {screen === "carrier" && <CarrierPortal onToast={setToast} />}
             {screen === "training" && (
               <Training onToast={setToast} canManageRegister={able("ManageTraining")}
@@ -3080,6 +3085,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 jobs={ops?.jobs ?? []}
                 tab={selectedTab("chemours", tab)}
                 canEditRates={able("EditRates")}
+                onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }}
                 onToast={setToast}
               />
             )}
