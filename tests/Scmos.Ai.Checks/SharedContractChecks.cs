@@ -6,7 +6,19 @@ static class SharedContractChecks
 {
     public static void Run(Action<bool, string> check)
     {
+        SemanticBoundaryChecks.Run(check);
         var registry = new ToolRegistry();
+        var rules = Scmos.Api.Ai.Semantic.BusinessRuleRegistry.All;
+        check(rules.Count == 4 && rules.Select(r => r.Id).Distinct().Count() == rules.Count
+            && rules.All(r => r.Version == (r.Id == "arrival.on_time" ? "2" : "1")
+                && r.SourceMember.StartsWith("Rules/") && r.MissingData.Length > 0),
+            "1C: versioned rule descriptors retain code provenance and missing-data meaning");
+        check(Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time")?.ThresholdMinutes == 0
+            && Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.late_beyond")?.ThresholdMinutes == Scmos.Api.Rules.JobRules.LateMinutes,
+            "1C: zero-grace KPI is distinct from default lateness tolerance");
+        check(Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("unknown") is null
+            && Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "CUSTOMER-SLA") is null,
+            "1C: unknown rules and unverified customer contracts have no fallback");
         var budget = new AiDispatchBudget();
         check(budget.TryConsume() && !budget.TryConsume() && !budget.TryConsume(),
             "1B: one call per request including failed attempts");
