@@ -1,0 +1,90 @@
+namespace Scmos.Api.Rules;
+
+/// <summary>
+/// What the bot says back into a haulier's room about a message it just read.
+///
+/// <para>
+/// Asked for on 16 Sep 2026: a driver who types "TXGU8142057 ถึงโรงงาน 12:40"
+/// and hears nothing does not know whether anybody got it. So every message
+/// the queue takes gets one short line back — what was read, and that a
+/// person still has to confirm — and an approval gets one more, that it was
+/// written.
+/// </para>
+///
+/// <para>
+/// <b>Two things it never says.</b> Whether a number exists but belongs to
+/// another haulier: "not your job" and "no such job" read the same from the
+/// room, because telling a stranger a number is real is telling them
+/// something about somebody else's work (the note on <see cref="LineAuthority.Decide"/>).
+/// And anything at all into a room nobody has bound — an unbound room is not
+/// spoken to, so a bot added to the wrong group stays silent.
+/// </para>
+///
+/// <para>Pure: the reading and the verdict in, the sentence out — or null for silence.</para>
+/// </summary>
+public static class LineReply
+{
+    /// <summary>What the message pointed at, for the sentence: the container, the job number, the booking.</summary>
+    public static string Reference(LineParser.Parsed read) =>
+        read.Container ?? read.JobNumber ?? (read.References is { Count: > 0 } refs ? refs[0]
+            : read.Plates is { Count: > 0 } plates ? $"รถ {plates[0]}" : "");
+
+    /// <summary>What the message said, in the words that will be written, for the acknowledgement.</summary>
+    public static string Said(LineParser.Parsed read, string resolvedTo)
+    {
+        var parts = new List<string>();
+        if (resolvedTo.Length > 0) parts.Add(resolvedTo);
+        if (read.ArrivalTime is { } at) parts.Add($"ถึง {at:HH:mm}");
+        if (read.Plates is { Count: > 0 } plates) parts.Add($"ทะเบียน {plates[0]}");
+        if (read.Driver is not null) parts.Add($"คนขับ {read.Driver}");
+        if (read.Phone is not null) parts.Add($"เบอร์ {read.Phone}");
+        if (read.Eta is { } eta && read.ArrivalTime is null) parts.Add($"คาดถึง {eta:HH:mm}");
+        if (read.Delayed && read.DelayCategory is { } why) parts.Add($"ล่าช้า ({why})");
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// The line back for a text message the worker just filed, or null for
+    /// silence. <paramref name="outcome"/> is the row's error code — the
+    /// parser's warning or the rule's verdict.
+    /// </summary>
+    public static string? ForMessage(LineParser.Parsed read, string outcome, string resolvedTo)
+    {
+        if (read.Question) return null;
+        var reference = Reference(read);
+        var said = Said(read, resolvedTo);
+        return outcome switch
+        {
+            "ready-to-apply" => $"รับทราบ {reference}{(said.Length > 0 ? " — " + said : "")} · รอเจ้าหน้าที่ยืนยันครับ",
+            LineAuthority.Outcome.ManyJobs => $"รับทราบ {reference} — ตรงกับหลายงาน เจ้าหน้าที่จะเลือกงานให้ครับ",
+            LineAuthority.Outcome.AlreadyThere => $"รับทราบ {reference} — งานอยู่ที่สถานะนี้แล้วครับ",
+            // The same sentence for a number that is nobody's and one that is
+            // somebody else's — see the note above.
+            LineAuthority.Outcome.NoSuchJob or LineAuthority.Outcome.NotYourJob =>
+                $"ไม่พบ {reference} ในงานของท่านช่วงนี้ — ช่วยตรวจเลขตู้ / Job No. อีกครั้งครับ",
+            "no-reference" => "ยังอ่านไม่ออกว่าเป็นงานไหน — ช่วยส่งเลขตู้หรือ Job No. มาด้วยครับ เช่น TXGU8142057 ถึงโรงงาน 12:40",
+            "nothing-understood" => $"รับ {reference} แล้ว แต่ไม่พบสถานะ — ส่ง \"ถึงโรงงาน HH:MM\" หรือ \"ลงเสร็จ\" มาด้วยครับ",
+            "many-job-numbers" or "many-containers" => "ข้อความมีหลายงานปนกัน — ช่วยส่งทีละตู้ครับ",
+            LineAuthority.Outcome.NoStatus => null,
+            LineAuthority.Outcome.UnknownGroup or LineAuthority.Outcome.GroupInactive or LineAuthority.Outcome.GroupNotVendor => null,
+            "" => null,
+            _ => $"รับทราบ {reference} — เจ้าหน้าที่จะตรวจสอบครับ",
+        };
+    }
+
+    /// <summary>The line back for a photo the worker just read, or null for silence.</summary>
+    public static string? ForPhoto(string reading, IReadOnlyList<string> rejected, string outcome) => outcome switch
+    {
+        "ready-to-apply" => $"รับทราบ เลขตู้ {reading} จากรูป · รอเจ้าหน้าที่ยืนยันครับ",
+        LineAuthority.Outcome.ManyJobs => $"รับทราบ เลขตู้ {reading} จากรูป — ตรงกับหลายงาน เจ้าหน้าที่จะเลือกงานให้ครับ",
+        LineAuthority.Outcome.AlreadyThere => $"รับทราบ เลขตู้ {reading} — งานมีเลขนี้อยู่แล้วครับ",
+        LineAuthority.Outcome.NoOpenJob => $"อ่านเลขตู้ {reading} จากรูปได้ แต่ไม่พบงานวันนี้ที่รอเลขตู้ — เจ้าหน้าที่จะตรวจสอบครับ",
+        "container-check-digit" when rejected.Count > 0 =>
+            $"อ่านเลขตู้จากรูปได้ {string.Join(", ", rejected)} แต่เลขไม่ตรงมาตรฐาน — ช่วยพิมพ์เลขตู้มาด้วยครับ",
+        _ => null,
+    };
+
+    /// <summary>The line back once a person has approved: what was written.</summary>
+    public static string ForApproval(string reference, string written) =>
+        $"✔ อัปเดตแล้ว {reference}{(written.Length > 0 ? " — " + written : "")}";
+}

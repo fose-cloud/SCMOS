@@ -1,4 +1,5 @@
 using Scmos.Api.Rules;
+using Scmos.Api.Services;
 
 namespace Scmos.Api.Data;
 
@@ -430,6 +431,47 @@ public static class LineParserCheck
         {
             if (!ok) failed++;
             Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+        }
+        Console.WriteLine();
+
+        /* ------------------------------------------ what the bot says back */
+
+        Console.WriteLine("The room hears one line back, and never learns about another haulier's job.");
+        Console.WriteLine();
+        var arrivalRead = LineParser.Parse("TXGU8142057 ถึงโรงงาน 12:40", Received);
+        var truckRead = LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received);
+        var replies = new (string Why, bool Ok, string? Got)[]
+        {
+            ("an arrival that will be applied is acknowledged with what will be written",
+                LineReply.ForMessage(arrivalRead, "ready-to-apply", "DELIVERED") == "รับทราบ TXGU8142057 — DELIVERED · ถึง 12:40 · รอเจ้าหน้าที่ยืนยันครับ",
+                LineReply.ForMessage(arrivalRead, "ready-to-apply", "DELIVERED")),
+            ("the truck's details likewise",
+                LineReply.ForMessage(truckRead, "ready-to-apply", "") == "รับทราบ 260600800773 — ทะเบียน 70-1234 · คนขับ สมชาย ใจดี · เบอร์ 081-2345678 · รอเจ้าหน้าที่ยืนยันครับ",
+                LineReply.ForMessage(truckRead, "ready-to-apply", "")),
+            ("a number that is nobody's and one that is somebody else's get the same words",
+                LineReply.ForMessage(arrivalRead, LineAuthority.Outcome.NoSuchJob, "") == LineReply.ForMessage(arrivalRead, LineAuthority.Outcome.NotYourJob, "")
+                    && LineReply.ForMessage(arrivalRead, LineAuthority.Outcome.NotYourJob, "")!.Contains("ไม่พบ TXGU8142057", StringComparison.Ordinal),
+                LineReply.ForMessage(arrivalRead, LineAuthority.Outcome.NotYourJob, "")),
+            ("a question gets no answer",
+                LineReply.ForMessage(LineParser.Parse("AKZO NOBEL // LC2606594 ถึงโรงงานที่โมงคะ", Received), "question", "") is null, "-"),
+            ("an unbound room is not spoken to",
+                LineReply.ForMessage(arrivalRead, LineAuthority.Outcome.UnknownGroup, "") is null, "-"),
+            ("a message with nothing to find the job by is told what to send",
+                LineReply.ForMessage(LineParser.Parse("ถึงแล้วครับ", Received), "no-reference", "")!.Contains("เลขตู้หรือ Job No.", StringComparison.Ordinal), "-"),
+            ("a photo's number, read and checked, is acknowledged",
+                LineReply.ForPhoto("TEMU5246902", [], "ready-to-apply") == "รับทราบ เลขตู้ TEMU5246902 จากรูป · รอเจ้าหน้าที่ยืนยันครับ",
+                LineReply.ForPhoto("TEMU5246902", [], "ready-to-apply")),
+            ("a photo's number the digit refused asks for it typed",
+                LineReply.ForPhoto("", ["FFAU6031447"], "container-check-digit")!.Contains("FFAU6031447", StringComparison.Ordinal), "-"),
+            ("a photo of nothing is left alone", LineReply.ForPhoto("", [], LineEventWorker.NoContainerInPhoto) is null, "-"),
+            ("an approval says what was written", LineReply.ForApproval("TXGU8142057", "DELIVERED · ถึง 12:40") == "✔ อัปเดตแล้ว TXGU8142057 — DELIVERED · ถึง 12:40",
+                LineReply.ForApproval("TXGU8142057", "DELIVERED · ถึง 12:40")),
+        };
+        foreach (var (why, ok, got) in replies)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          got {got ?? "(null)"}");
         }
         Console.WriteLine();
 

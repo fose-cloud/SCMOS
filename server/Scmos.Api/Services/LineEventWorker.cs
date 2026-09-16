@@ -45,6 +45,9 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     /// <summary>The photo could not be fetched or read at all; the note says why.</summary>
     public const string ImageFailed = "image-failed";
 
+    /// <summary>The switch for the bot's replies in the room. On unless "off".</summary>
+    public const string RepliesKey = "Line:Replies";
+
     /// <summary>
     /// How often it looks for work.
     ///
@@ -166,11 +169,24 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         if (row.MessageType == "image")
         {
             await ProcessImageAsync(db, row, stopping);
+            if (row.ProcessingStatus != LineProcessing.Processing)
+                await AnswerAsync(db, row, LineReply.ForPhoto(row.ImageReading, LineImageReading.RejectedIn(row.ImageNote), row.ErrorCode), stopping);
             return;
         }
 
         var read = LineParser.Parse(row.RawText, row.ReceivedAt);
+        await ProcessTextAsync(db, row, read, stopping);
+        // The room hears back once the row is filed, whatever the filing was.
+        if (row.ProcessingStatus != LineProcessing.Processing)
+            await AnswerAsync(db, row, LineReply.ForMessage(read, row.ErrorCode, ResolvedTo(row, read)), stopping);
+    }
 
+    /// <summary>The status the message would set, as the matched job's ladder names it, for the acknowledgement.</summary>
+    private static string ResolvedTo(LineEvent row, LineParser.Parsed read) =>
+        read.Status is null ? "" : row.JobKey.Length > 0 && row.ErrorMessage.Length == 0 ? row.ParsedStatus : read.Status;
+
+    private async Task ProcessTextAsync(ScmosDbContext db, LineEvent row, LineParser.Parsed read, CancellationToken stopping)
+    {
         row.JobNumber = read.JobNumber ?? "";
         row.ParsedStatus = read.Status ?? "";
         row.Confidence = read.Confidence;
@@ -193,7 +209,7 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             row.ErrorCode = read.Warnings.Count > 0 ? read.Warnings[0] : "no-reference";
             row.ErrorMessage = "";
             await db.SaveChangesAsync(stopping);
-            log.LogInformation("LINE message {Id} needs review: {Reason}", id, row.ErrorCode);
+            log.LogInformation("LINE message {Id} needs review: {Reason}", row.Id, row.ErrorCode);
             return;
         }
 
@@ -219,7 +235,7 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             row.ErrorCode = decision.Result;
             await db.SaveChangesAsync(stopping);
             log.LogInformation("LINE message {Id}: job {Key} is already {Status}",
-                id, row.JobKey, decision.To);
+                row.Id, row.JobKey, decision.To);
             return;
         }
 
@@ -235,11 +251,56 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
          */
         row.ProcessingStatus = LineProcessing.NeedReview;
         row.ErrorCode = decision.Applies ? "ready-to-apply" : decision.Result;
+        // The status as the job's own ladder names it, for the room's acknowledgement.
+        if (decision.Applies && decision.To.Length > 0) row.ParsedStatus = decision.To;
         await db.SaveChangesAsync(stopping);
 
         log.LogInformation(
             "LINE message {Id}: job {Job} -> {Outcome} (key {Key}, {From} to {To})",
-            id, row.JobNumber, row.ErrorCode, row.JobKey, decision.From, decision.To);
+            row.Id, row.JobNumber, row.ErrorCode, row.JobKey, decision.From, decision.To);
+    }
+
+    /// <summary>
+    /// Says one line back into the room the message came from — only a room
+    /// somebody has bound, only while replies are on, and never in a way
+    /// that stops the filing: a reply that fails is logged and that is all.
+    /// The message's own reply token is tried first (free); an expired one
+    /// falls back to a push.
+    /// </summary>
+    private async Task AnswerAsync(ScmosDbContext db, LineEvent row, string? text, CancellationToken stopping)
+    {
+        if (text is null || row.LineGroupId.Length == 0) return;
+        using var scope = services.CreateScope();
+        var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+        if (string.Equals((config[RepliesKey] ?? "").Trim(), "off", StringComparison.OrdinalIgnoreCase)) return;
+        var notifier = scope.ServiceProvider.GetRequiredService<ILineNotifier>();
+        if (!notifier.Configured) return;
+
+        var bound = await db.LineGroups.AsNoTracking()
+            .AnyAsync(one => one.LineGroupId == row.LineGroupId && one.IsActive && one.GroupType == LineGroupType.Vendor && one.SupplierId > 0, stopping);
+        if (!bound) return;
+
+        try
+        {
+            var failure = await notifier.ReplyAsync(ReplyTokenOf(row.RawPayload), row.LineGroupId, [text], stopping);
+            if (failure.Length > 0) log.LogWarning("LINE reply for message {Id} failed: {Why}", row.Id, failure);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            log.LogWarning(error, "LINE reply for message {Id} threw", row.Id);
+        }
+    }
+
+    /// <summary>The reply token LINE sent with the event, out of the payload kept on the row.</summary>
+    private static string ReplyTokenOf(string payload)
+    {
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(payload);
+            return json.RootElement.TryGetProperty("replyToken", out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String
+                ? value.GetString() ?? "" : "";
+        }
+        catch (System.Text.Json.JsonException) { return ""; }
     }
 
     /// <summary>

@@ -29,11 +29,20 @@ public interface ILineNotifier
 
     /// <summary>Sends up to five texts to one group. Returns the failure in words, or empty.</summary>
     Task<string> PushAsync(string lineGroupId, IReadOnlyList<string> texts, CancellationToken token);
+
+    /// <summary>
+    /// Answers the message that carried this reply token — LINE's free
+    /// channel, good for about a minute after the message. When the token
+    /// has expired and a group is given, the text is pushed instead.
+    /// Returns the failure in words, or empty.
+    /// </summary>
+    Task<string> ReplyAsync(string replyToken, string lineGroupId, IReadOnlyList<string> texts, CancellationToken token);
 }
 
 public class LineNotifier(IHttpClientFactory factory, IConfiguration config, ILogger<LineNotifier> log) : ILineNotifier
 {
     private const string PushUrl = "https://api.line.me/v2/bot/message/push";
+    private const string ReplyUrl = "https://api.line.me/v2/bot/message/reply";
 
     public bool Configured => Missing.Length == 0;
 
@@ -54,17 +63,8 @@ public class LineNotifier(IHttpClientFactory factory, IConfiguration config, ILo
             to = lineGroupId,
             messages = texts.Select(text => new { type = "text", text }),
         });
-
-        var client = factory.CreateClient(LineImageReader.ClientName);
-        client.Timeout = TimeSpan.FromSeconds(30);
-        using var request = new HttpRequestMessage(HttpMethod.Post, PushUrl)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config[LineImageReader.TokenKey]);
-
-        using var response = await client.SendAsync(request, token);
-        if (response.IsSuccessStatusCode)
+        var (ok, status, detail) = await SendAsync(PushUrl, body, token);
+        if (ok)
         {
             log.LogInformation("LINE push to {Group}: {Count} message(s)", lineGroupId, texts.Count);
             return "";
@@ -72,17 +72,52 @@ public class LineNotifier(IHttpClientFactory factory, IConfiguration config, ILo
 
         // LINE's answer names the problem — a bot no longer in the group, a
         // bad token, a message too long — and that is what a person needs.
-        var answer = await response.Content.ReadAsStringAsync(token);
-        var detail = Detail(answer);
-        log.LogWarning("LINE push to {Group} refused: {Status} {Detail}", lineGroupId, (int)response.StatusCode, detail);
-        return response.StatusCode switch
+        log.LogWarning("LINE push to {Group} refused: {Status} {Detail}", lineGroupId, status, detail);
+        return status switch
         {
-            System.Net.HttpStatusCode.Unauthorized => "LINE ไม่รับ Line__ChannelAccessToken — ตรวจค่าใน Portal",
-            System.Net.HttpStatusCode.BadRequest when detail.Contains("not found", StringComparison.OrdinalIgnoreCase)
+            401 => "LINE ไม่รับ Line__ChannelAccessToken — ตรวจค่าใน Portal",
+            400 when detail.Contains("not found", StringComparison.OrdinalIgnoreCase)
                 || detail.Contains("invalid", StringComparison.OrdinalIgnoreCase)
                 => $"LINE ไม่รู้จักกลุ่มนี้ หรือ bot ไม่ได้อยู่ในกลุ่มแล้ว ({detail})",
-            _ => $"LINE ตอบ {(int)response.StatusCode}: {detail}",
+            _ => $"LINE ตอบ {status}: {detail}",
         };
+    }
+
+    public async Task<string> ReplyAsync(string replyToken, string lineGroupId, IReadOnlyList<string> texts, CancellationToken token)
+    {
+        if (!Configured) return Missing;
+        if (texts.Count == 0) return "ไม่มีข้อความ";
+        if (!string.IsNullOrWhiteSpace(replyToken))
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                replyToken,
+                messages = texts.Select(text => new { type = "text", text }),
+            });
+            var (ok, status, detail) = await SendAsync(ReplyUrl, body, token);
+            if (ok) return "";
+            // An expired or used token is the ordinary way a reply fails —
+            // the worker got to the message late. The push behind it costs a
+            // message from the account's monthly allowance, which is why the
+            // reply is tried first.
+            log.LogInformation("LINE reply refused ({Status} {Detail}); pushing instead", status, detail);
+        }
+        return await PushAsync(lineGroupId, texts, token);
+    }
+
+    private async Task<(bool Ok, int Status, string Detail)> SendAsync(string url, string body, CancellationToken token)
+    {
+        var client = factory.CreateClient(LineImageReader.ClientName);
+        client.Timeout = TimeSpan.FromSeconds(30);
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config[LineImageReader.TokenKey]);
+        using var response = await client.SendAsync(request, token);
+        if (response.IsSuccessStatusCode) return (true, (int)response.StatusCode, "");
+        var answer = await response.Content.ReadAsStringAsync(token);
+        return (false, (int)response.StatusCode, Detail(answer));
     }
 
     /// <summary>The message field of LINE's error body, or the body itself, kept short.</summary>

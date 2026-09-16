@@ -66,6 +66,22 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             }
         }
 
+        /* ---- 0b. a haulier's LINE message waiting on one of these jobs ---- */
+        // Pinned to one job by the rule and not yet approved or set aside;
+        // first, because it is the one alert a person can clear in a click.
+        var keys = jobs.Select(job => job.Key).ToHashSet(StringComparer.Ordinal);
+        var waiting = await db.LineEvents.AsNoTracking()
+            .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "")
+            .OrderByDescending(one => one.ReceivedAt)
+            .Select(one => new { one.JobKey, one.ErrorCode })
+            .ToListAsync(token);
+        var lineMine = waiting.Where(one => keys.Contains(one.JobKey)).ToList();
+        var ready = lineMine.Count(one => one.ErrorCode == "ready-to-apply");
+        Add(alerts, AlertKind.LineMessageWaiting, lineMine.Count,
+            $"{lineMine.Count} ข้อความ LINE รอการอนุมัติ",
+            ready > 0 ? $"{ready} ข้อความพร้อมอัปเดตงานทันทีที่กดอนุมัติ" : "เปิดงานเพื่อดูว่าผู้ขนส่งแจ้งอะไร",
+            lineMine.Count > 0 ? lineMine[0].JobKey : "", "job");
+
         /* ---- 1. supplier not confirmed ---- */
         var noCarrier = jobs.Where(Notifications.NeedsCarrier).ToList();
         var urgent = noCarrier.Where(job =>

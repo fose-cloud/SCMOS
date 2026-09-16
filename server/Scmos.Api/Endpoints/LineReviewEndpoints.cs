@@ -439,7 +439,8 @@ public static class LineReviewEndpoints
 
         group.MapPost("/events/{id:long}/apply", async (long id, [FromBody] ApplyBody body,
             HttpContext context, IUserAccessor users, ScmosDbContext db, JobsRepository jobs,
-            DelegationService delegations, AuditService audit, CancellationToken token) =>
+            DelegationService delegations, AuditService audit, ILineNotifier notifier, IConfiguration config,
+            ILoggerFactory logs, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
@@ -460,7 +461,7 @@ public static class LineReviewEndpoints
                     StatusCodes.Status409Conflict);
 
             if (row.MessageType == "image")
-                return await ApplyPhotoAsync(row, body, user, db, jobs, delegations, audit, token);
+                return await ApplyPhotoAsync(row, body, user, db, jobs, delegations, audit, notifier, config, logs, token);
 
             /*
              * Worked out again, now. Not read off the row.
@@ -566,6 +567,16 @@ public static class LineReviewEndpoints
             row.ErrorMessage = "";
             row.ProcessedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(token);
+
+            // The room hears that it was written — the one message a driver
+            // actually waits for. A push: the reply token is long gone.
+            var wroteWhat = string.Join(" · ", new[]
+            {
+                final.To.Length > 0 ? final.To : "",
+                stamp.Date is not null ? $"ถึง {stamp.Time}" : "",
+                truck.Written,
+            }.Where(part => part.Length > 0));
+            await TellRoomAsync(db, row, LineReply.ForApproval(LineReply.Reference(read), wroteWhat), notifier, config, logs, token);
 
             return Results.Json(new
             {
@@ -688,7 +699,8 @@ public static class LineReviewEndpoints
     /// offered, never an arbitrary key — and files the photo as done.
     /// </summary>
     private static async Task<IResult> ApplyPhotoAsync(LineEvent row, ApplyBody body, AppUser user,
-        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
+        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, ILineNotifier notifier,
+        IConfiguration config, ILoggerFactory logs, CancellationToken token)
     {
         var numbers = await PhotoNumbersAsync(row, db, token);
         if (numbers.Length != 1)
@@ -740,6 +752,8 @@ public static class LineReviewEndpoints
         row.ImageReading = container;
         row.ProcessedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
+
+        await TellRoomAsync(db, row, LineReply.ForApproval($"เลขตู้ {container}", ""), notifier, config, logs, token);
 
         return Results.Json(new
         {
@@ -810,6 +824,29 @@ public static class LineReviewEndpoints
         var note = written.Count > 0 ? "จะบันทึก " + string.Join(" · ", written) : "";
         if (notes.Count > 0) note = string.Join(" · ", new[] { note }.Concat(notes).Where(one => one.Length > 0));
         return (fields, note, string.Join(" · ", written));
+    }
+
+    /// <summary>
+    /// A line into the room a message came from, after a person acted on it.
+    /// Only a bound room, only while replies are on; a failure is logged and
+    /// never fails the approval that was already written.
+    /// </summary>
+    private static async Task TellRoomAsync(ScmosDbContext db, LineEvent row, string text, ILineNotifier notifier,
+        IConfiguration config, ILoggerFactory logs, CancellationToken token)
+    {
+        if (row.LineGroupId.Length == 0 || !notifier.Configured) return;
+        if (string.Equals((config[LineEventWorker.RepliesKey] ?? "").Trim(), "off", StringComparison.OrdinalIgnoreCase)) return;
+        var bound = await db.LineGroups.AsNoTracking()
+            .AnyAsync(one => one.LineGroupId == row.LineGroupId && one.IsActive && one.GroupType == LineGroupType.Vendor && one.SupplierId > 0, token);
+        if (!bound) return;
+        try
+        {
+            await notifier.PushAsync(row.LineGroupId, [text], token);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            logs.CreateLogger("Line.Reply").LogWarning(error, "LINE approval reply for {Id} threw", row.Id);
+        }
     }
 
     /// <summary>The arrival the message reported, as the register writes it, or empty.</summary>

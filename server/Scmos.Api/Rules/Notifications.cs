@@ -27,6 +27,7 @@ public enum AlertKind
     KpiBelowTarget,
     ActingForColleague,
     CoverArrangedForYou,
+    LineMessageWaiting,
 }
 
 /// <summary>Critical needs somebody now; Warning needs somebody today; Information is context.</summary>
@@ -72,6 +73,11 @@ public static class Notifications
     // seven alerts with them without anybody noticing.
     public static readonly AlertDefinition[] All =
     [
+        // A haulier said something about a job in LINE and a person has to
+        // approve it — from the job's drawer, since 16 Sep 2026.
+        new(AlertKind.LineMessageWaiting, "LINE message waiting", "ข้อความ LINE รอการอนุมัติ",
+            AlertLevel.Warning, "เปิดงานแล้วกดอนุมัติในกล่อง LINE", "myjob"),
+
         new(AlertKind.SupplierNotConfirmed, "Supplier not confirmed", "ผู้ขนส่งยังไม่ยืนยัน",
             AlertLevel.Critical, "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ", "myjob"),
 

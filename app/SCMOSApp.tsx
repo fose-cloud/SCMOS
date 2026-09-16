@@ -734,11 +734,18 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       const response = await apiFetch("/api/integrations/line/events/pending", { headers: { accept: "application/json" } });
       if (!response.ok) return;
       const body = await response.json().catch(() => null) as { items?: LinePending[] } | null;
-      if (body && appMounted.current) setLinePending(Array.isArray(body.items) ? body.items : []);
+      if (!body || !appMounted.current) return;
+      const items = Array.isArray(body.items) ? body.items : [];
+      setLinePending((was) => {
+        // The bell's feed is re-read on a revision change; a message landing
+        // on a job, or leaving it, is one.
+        if (was.length !== items.length || was.some((one, i) => one.id !== items[i]?.id)) touch();
+        return items;
+      });
     } catch {
       // The mark on a row is a convenience; the register is not.
     }
-  }, []);
+  }, [touch]);
   const linePendingRef = useRef(loadLinePending);
   linePendingRef.current = loadLinePending;
 
