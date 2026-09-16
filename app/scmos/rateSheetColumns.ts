@@ -199,11 +199,19 @@ export const UNTICKED = "\u2610";
  *
  * A tick goes out as the box glyph for the clipboard and as the sheets' own
  * "x" for the workbook — the file is what the importer reads back, and the
- * team's own sheets mark a tick with x, X or ✓.
+ * team's own sheets mark a tick with x, X or ✓. A price goes out grouped for
+ * the clipboard, "2,700", the way the screen shows it and the way Excel
+ * reads a pasted figure back as a number with its separator (asked for on
+ * 16 Sep 2026: the pasted sheet showed 2700); the workbook takes the bare
+ * number, which is what its cells hold.
  */
-export function cellText(row: SheetRow, column: SheetColumn, tick: "x" | "box" = "x"): string {
+export function cellText(row: SheetRow, column: SheetColumn, tick: "x" | "box" = "x",
+  numbers: "bare" | "grouped" = "bare"): string {
   const value = readCell(row, column);
   if (column.kind === "tick") return tick === "box" ? (value ? TICKED : UNTICKED) : (value ? "x" : "");
-  if (column.kind === "price") return typeof value === "number" && value > 0 ? String(value) : "";
+  if (column.kind === "price") {
+    if (typeof value !== "number" || value <= 0) return "";
+    return numbers === "grouped" ? value.toLocaleString("en-US") : String(value);
+  }
   return String(value ?? "");
 }

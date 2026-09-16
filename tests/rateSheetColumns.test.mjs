@@ -130,6 +130,13 @@ test("a tick box copies as a box with a tick, and exports as the sheets' own x",
   // The workbook keeps the mark the importer reads back.
   assert.equal(cellText(lane, fcl), "x");
   assert.equal(cellText(lane, lcl), "");
+  // Prices: grouped for the clipboard, as the screen shows them and as Excel
+  // reads them back; bare for the workbook, whose cells hold numbers.
+  const price = SHEET_COLUMNS.find((column) => column.kind === "price");
+  const priced = { ...lane, prices: { [price.vehicle]: 2700 } };
+  assert.equal(cellText(priced, price, "box", "grouped"), "2,700");
+  assert.equal(cellText(priced, price), "2700");
+  assert.equal(cellText(lane, price, "box", "grouped"), "");
   const screen = readFileSync(new URL("../app/scmos/screens/RateSheet.tsx", import.meta.url), "utf8");
-  assert.match(screen, /chosenColumns\.map\(\(column\) => cellText\(row, column, "box"\)\)/);
+  assert.match(screen, /chosenColumns\.map\(\(column\) => cellText\(row, column, "box", "grouped"\)\)/);
 });

@@ -321,10 +321,12 @@ export function DataTable(p: Props) {
                     style={css(c.td + (c.sel ? ";background:#DCEBFB;box-shadow:inset 0 0 0 1px #2E7DD1" : ""))}
                     title={c.title}
                     data-grid-active={c.active ? "true" : undefined}
+                    data-grid-cell={c.onDown ? "true" : undefined}
                     onClick={c.go}
                     onDoubleClick={c.onDouble}
                     onMouseDown={c.onDown}
                     onMouseEnter={c.onEnter}
+                    onContextMenu={c.onContext}
                   >
                     {c.kind === "check" ? (
                       <input

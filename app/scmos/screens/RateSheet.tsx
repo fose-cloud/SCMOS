@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { DataTable, type TableModel } from "../DataTable";
+import { GridMenu } from "../GridMenu";
 import { exportRateSheet } from "../excel";
 import { FilterPickMany } from "../FilterPickMany";
 import { StatGlyph } from "../StatCard";
@@ -275,7 +276,11 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     // dragged rectangle, a paste and a Delete off it.
     fieldsOf: () => [undefined, ...SHEET_COLUMNS.map((column) => column.kind === "tick" ? undefined : fieldOf(column))],
     headsOf: () => ["", ...SHEET_COLUMNS.map((column) => column.head)],
-    read: (row, field) => String(readCell(row, columnFor(field)) ?? ""),
+    // What Ctrl+C and the right-click copy put on the clipboard: a price
+    // grouped as the screen shows it, "2,400" — Excel reads that back as a
+    // number, and a paste back into this sheet strips the comma (editRateDraft,
+    // priceValue). Asked for on 16 Sep 2026: the pasted figures had no comma.
+    read: (row, field) => cellText(row, columnFor(field), "x", "grouped"),
     canEdit: () => canEdit && !saving,
     write: (edits, how) => void writeBlock(edits, how),
     openEditor: (row, field, seed) => {
@@ -288,9 +293,12 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
       });
     },
     editing: editing !== null,
-    tabDirection: "left",
+    // Tab steps right and Shift+Tab left, the way every spreadsheet does —
+    // asked for on 16 Sep 2026; it had been the other way round.
+    tabDirection: "right",
     onCopied: (lines, columns) => onToast(`คัดลอกแล้ว ${lines} แถว · ${columns} คอลัมน์`),
     onNothingToClear: () => onToast("ช่องที่เลือกว่างอยู่แล้ว"),
+    onClipboardBlocked: () => onToast("เบราว์เซอร์ไม่ให้อ่านคลิปบอร์ด — ใช้ Ctrl+V แทน"),
     onClipped: ({ rows, columns, unwritable }) => onToast(`วางได้เฉพาะหน้าปัจจุบัน · เกิน ${rows} แถว / ${columns} คอลัมน์ · ข้าม ${unwritable} ช่อง`),
   });
 
@@ -816,7 +824,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
     // Through cellText, so a tick box pastes as a box with a tick rather than
     // as the word "true" — asked for on 15 September 2026.
     const lines = rows.map((row) =>
-      chosenColumns.map((column) => cellText(row, column, "box")));
+      chosenColumns.map((column) => cellText(row, column, "box", "grouped")));
 
     if (!heads.length) { onToast("ยังไม่ได้เลือกคอลัมน์ — กด “เลือกคอลัมน์” ก่อน"); return; }
 
@@ -973,7 +981,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
         {canEdit
           ? <span style={css("font-size:11px;color:#8FB4DC")}>
               · <b style={css("color:#CFE2F7")}>ดับเบิลคลิกเพื่อแก้ไข</b> หรือเลือกช่องแล้วพิมพ์ทับ
-              · Ctrl+C / Ctrl+V · Tab ← · Shift+Tab → · Enter บันทึก · Esc ยกเลิก
+              · Ctrl+C / Ctrl+V · คลิกขวา คัดลอก/วาง · Tab → · Shift+Tab ← · Enter บันทึกแล้วลงแถวถัดไป · Esc ยกเลิก
             </span>
           : <span style={css("font-size:11px;color:#E0A33A")}>
               · อ่านอย่างเดียว — {needsSecondFactor
@@ -1228,7 +1236,7 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
               ? drafts.findIndex((one) => one.laneId === row.laneId)
               : drafts.length + rows.findIndex((one) => one.laneId === row.laneId);
             const next = gridTabTarget(event, { row: r, column: index + LEAD }, drafts.length + rows.length,
-              [undefined, ...SHEET_COLUMNS.map(col => col.kind === "tick" ? undefined : fieldOf(col))], "left");
+              [undefined, ...SHEET_COLUMNS.map(col => col.kind === "tick" ? undefined : fieldOf(col))], "right");
             const held = editing;
             setEditing(null);
             void save(row, column, held.value);
@@ -1240,6 +1248,16 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
             const held = editing;
             setEditing(null);
             void save(row, column, held.value);
+            // Enter saves and steps down a row (Shift+Enter up), the way a
+            // spreadsheet does — asked for on 16 Sep 2026, so a column of
+            // prices is keyed as type, Enter, type, Enter. The next cell is
+            // selected, not opened: the first key typed opens it.
+            const r = isDraft(row)
+              ? drafts.findIndex((one) => one.laneId === row.laneId)
+              : drafts.length + rows.findIndex((one) => one.laneId === row.laneId);
+            const last = drafts.length + rows.length - 1;
+            const target = Math.min(Math.max(r + (event.shiftKey ? -1 : 1), 0), last);
+            grid.setRange({ grid: "sheet", r1: target, r2: target, c1: index + LEAD, c2: index + LEAD });
           }
           // Escape closes the box before the blur that follows it, so the draft
           // is not written on the way out.
@@ -1283,6 +1301,8 @@ export function RateSheet({ canEdit, needsSecondFactor = false, onToast }: {
         model={model}
         onPage={(next) => { setEditing(null); setAt(next); }}
         onTool={(label) => { if (label === "คัดลอกพร้อมหัวตาราง") void copyWithHeads(); }} />
+      <GridMenu at={grid.menu} onClose={grid.closeMenu}
+        onCopy={() => void grid.copyToClipboard()} onPaste={() => void grid.pasteFromClipboard()} />
     </div>
   );
 }

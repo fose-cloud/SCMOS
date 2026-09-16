@@ -133,6 +133,8 @@ export type Cell = {
   /** Starts a drag-selection, and extends one already running. */
   onDown?: (e: MouseEvent<HTMLTableCellElement>) => void;
   onEnter?: (e: MouseEvent<HTMLTableCellElement>) => void;
+  /** A right click: the grid's own copy / paste menu, in place of the browser's. */
+  onContext?: (e: MouseEvent<HTMLTableCellElement>) => void;
   /** Which suggestion list a combo cell reads from, see TableModel.datalists. */
   listId?: string;
   v: string;

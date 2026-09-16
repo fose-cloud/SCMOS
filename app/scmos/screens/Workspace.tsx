@@ -9,6 +9,7 @@ import { isCancelled, STATUS_RE, wasMoved, type Job, type Ops } from "../ops";
 import type { Account } from "../nav";
 import { TOOLBAR_SLOT } from "../Chrome";
 import { DataTable, type TableModel, type TableRow } from "../DataTable";
+import { GridMenu } from "../GridMenu";
 import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
@@ -1342,6 +1343,7 @@ export function Workspace(p: Props) {
     onCopied: (lines, columns) =>
       p.onToast(`คัดลอกแล้ว ${lines} แถว · ${columns} คอลัมน์`),
     onNothingToClear: () => p.onToast("ช่องที่เลือกว่างอยู่แล้ว"),
+    onClipboardBlocked: () => p.onToast("เบราว์เซอร์ไม่ให้อ่านคลิปบอร์ด — ใช้ Ctrl+V แทน"),
     /*
      * What the block could not reach, said out loud.
      *
@@ -2462,6 +2464,11 @@ export function Workspace(p: Props) {
         the page header's slot, which is where it lived before.
       */}
       {grids.length === 0 && (slot ? createPortal(controlBar, slot) : controlBar)}
+
+      {/* The right-click menu, one for every grid on the screen: IMPORT and
+          EXPORT are two tables of one selection. */}
+      <GridMenu at={grid.menu} onClose={grid.closeMenu}
+        onCopy={() => void grid.copyToClipboard()} onPaste={() => void grid.pasteFromClipboard()} />
 
       {/* Both are rendered; the stylesheet shows one. `.grid-only` is hidden on
           a phone and `.cards-only` on everything else, so neither has to ask how

@@ -80,6 +80,8 @@ export type GridRangeOptions<TRow, TField> = {
    * like a paste that worked.
    */
   onClipped?: (clipped: { rows: number; columns: number; unwritable: number }) => void;
+  /** Told when the browser would not hand the menu the clipboard — permission refused, or no secure context. */
+  onClipboardBlocked?: () => void;
 };
 
 const TAB = "\t";
@@ -98,6 +100,14 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
    */
   const dragging = useRef(false);
   const [dragSelecting, setDragSelecting] = useState(false);
+  /**
+   * Where a right click asked for the menu, in viewport pixels, or null.
+   *
+   * Asked for on 16 Sep 2026: Ctrl+C and Ctrl+V were there, the menu the
+   * mouse expects was the browser's own. The menu offers the same copy and
+   * paste the keys do, on the same rectangle.
+   */
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   // A drag ends wherever the mouse is let go, including outside the table.
   useEffect(() => {
@@ -126,7 +136,14 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
         // Put keyboard/clipboard events on the cell, not the search box or
         // toolbar button that was focused before the user selected it.
         const target = event.target as HTMLElement;
-        if (target.closest("input,textarea,select,[contenteditable=true]")) return;
+        if (target.closest("input,textarea,select,[contenteditable=true]")) {
+          // A click on a dropdown opens the dropdown, as it should — but the
+          // rectangle still lands on that cell, so the arrows that follow
+          // move on from it rather than from wherever it was last.
+          if (target.closest("select") && !(range?.grid === grid && range.r2 === row && range.c2 === column))
+            setRange({ grid, r1: row, c1: column, r2: row, c2: column });
+          return;
+        }
         event.currentTarget.tabIndex = -1;
         event.currentTarget.focus({ preventScroll: true });
         // Shift extends from where the rectangle started rather than beginning
@@ -143,6 +160,15 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
       onEnter: () => {
         if (!dragging.current || range?.grid !== grid) return;
         setRange({ ...range, r2: row, c2: column });
+      },
+      onContext: (event: ReactMouseEvent<HTMLTableCellElement>) => {
+        const target = event.target as HTMLElement;
+        if (target.closest("input,textarea,select,[contenteditable=true]")) return;
+        event.preventDefault();
+        // A right click outside the rectangle selects that cell first, the way
+        // a spreadsheet does; inside it, the rectangle is what the menu acts on.
+        if (!inRange(grid, row, column)) setRange({ grid, r1: row, c1: column, r2: row, c2: column });
+        setMenu({ x: event.clientX, y: event.clientY });
       },
     };
   }
@@ -195,6 +221,35 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
     const onKey = (event: KeyboardEvent) => {
       const el = event.target as HTMLElement | null;
       const tag = el?.tagName;
+
+      /*
+       * Left and right on a dropdown cell move across the grid.
+       *
+       * A click on a status or customer cell leaves the focus on the
+       * <select>, and the browser's own answer to an arrow there is to change
+       * the value — so an operator walking along a row with the arrow keys
+       * found the keys "not following" (16 Sep 2026), and could quietly
+       * change a status on the way. Left and right are taken here; up and
+       * down stay the dropdown's, since inside an open list they are how a
+       * value is chosen. Enter, Space and the mouse still open the list.
+       */
+      if (tag === "SELECT" && range && !options.editing
+          && (event.key === "ArrowLeft" || event.key === "ArrowRight")
+          && el?.closest("td[data-grid-cell]")) {
+        const next = gridArrowTarget(
+          event,
+          { row: range.r2, column: range.c2 },
+          options.rowsOf(range.grid).length,
+          options.fieldsOf(range.grid).map((field) => (field === undefined ? undefined : String(field))),
+        );
+        if (next) {
+          event.preventDefault();
+          (el as HTMLSelectElement).blur();
+          setRange({ grid: range.grid, r1: next.row, c1: next.column, r2: next.row, c2: next.column });
+          return;
+        }
+      }
+
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON"
           || tag === "A" || el?.isContentEditable) return;
 
@@ -283,16 +338,10 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
 
     const onCopy = (event: ClipboardEvent) => {
       if (typing(event.target)) return;
-      const selection = resolve();
-      if (!selection.cells.length) return;
+      const text = copyText();
+      if (text === null) return;
       event.preventDefault();
-      // No headings: this is the copy that gets pasted back into the grid, and
-      // a heading row would be written in as data.
-      const text = selection.cells
-        .map((line) => line.map(({ row, field }) => options.read(row, field)).join(TAB))
-        .join(NEWLINE);
       event.clipboardData?.setData("text/plain", text);
-      options.onCopied?.(selection.cells.length, selection.cells[0].length);
     };
 
     const onPaste = (event: ClipboardEvent) => {
@@ -300,40 +349,7 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
       if (!range) return;
       const text = event.clipboardData?.getData("text/plain") ?? "";
       if (!text) return;
-
-      const rows = options.rowsOf(range.grid);
-      const fields = options.fieldsOf(range.grid);
-      if (rows.length === 0 || fields.length === 0) return;
-      event.preventDefault();
-
-      /*
-       * Spread from the corner the selection starts at, the way Excel does.
-       *
-       * Not clamped to the rectangle that was dragged. Nobody selects the exact
-       * shape of what is on their clipboard first — they click the cell it
-       * should start at and paste, and five columns of it arrive. Clamped, four
-       * of those five were dropped without a word.
-       */
-      const plan = planPaste(
-        readClipboardGrid(text),
-        { row: Math.min(range.r1, range.r2), column: Math.min(range.c1, range.c2) },
-        { row: Math.max(range.r1, range.r2), column: Math.max(range.c1, range.c2) },
-        { rows: rows.length, columns: fields.length },
-        (column) => fields[column],
-      );
-
-      const edits: GridEdit<TRow, TField>[] = plan.cells
-        .filter((cell) => options.canEdit(rows[cell.row]))
-        .map((cell) => ({ row: rows[cell.row], field: cell.field, value: cell.value }));
-
-      if (plan.rowsClipped || plan.columnsClipped || plan.cellsUnwritable) {
-        options.onClipped?.({
-          rows: plan.rowsClipped,
-          columns: plan.columnsClipped,
-          unwritable: plan.cellsUnwritable,
-        });
-      }
-      if (edits.length) options.write(edits, "paste");
+      if (pasteText(text)) event.preventDefault();
     };
 
     window.addEventListener("copy", onCopy);
@@ -344,12 +360,100 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
     };
   });
 
+  /**
+   * The rectangle as tab-separated text, or null when nothing is selected.
+   *
+   * No headings: this is the copy that gets pasted back into the grid, and a
+   * heading row would be written in as data. Shared by Ctrl+C and the menu.
+   */
+  function copyText(): string | null {
+    const selection = resolve();
+    if (!selection.cells.length) return null;
+    const text = selection.cells
+      .map((line) => line.map(({ row, field }) => options.read(row, field)).join(TAB))
+      .join(NEWLINE);
+    options.onCopied?.(selection.cells.length, selection.cells[0].length);
+    return text;
+  }
+
+  /**
+   * Writes clipboard text onto the grid from the selection's corner. Shared
+   * by Ctrl+V and the menu; false when there was nowhere to put it.
+   *
+   * Spread from the corner the selection starts at, the way Excel does. Not
+   * clamped to the rectangle that was dragged: nobody selects the exact shape
+   * of what is on their clipboard first — they click the cell it should start
+   * at and paste, and five columns of it arrive. Clamped, four of those five
+   * were dropped without a word.
+   */
+  function pasteText(text: string): boolean {
+    if (!range || !text) return false;
+    const rows = options.rowsOf(range.grid);
+    const fields = options.fieldsOf(range.grid);
+    if (rows.length === 0 || fields.length === 0) return false;
+
+    const plan = planPaste(
+      readClipboardGrid(text),
+      { row: Math.min(range.r1, range.r2), column: Math.min(range.c1, range.c2) },
+      { row: Math.max(range.r1, range.r2), column: Math.max(range.c1, range.c2) },
+      { rows: rows.length, columns: fields.length },
+      (column) => fields[column],
+    );
+
+    const edits: GridEdit<TRow, TField>[] = plan.cells
+      .filter((cell) => options.canEdit(rows[cell.row]))
+      .map((cell) => ({ row: rows[cell.row], field: cell.field, value: cell.value }));
+
+    if (plan.rowsClipped || plan.columnsClipped || plan.cellsUnwritable) {
+      options.onClipped?.({
+        rows: plan.rowsClipped,
+        columns: plan.columnsClipped,
+        unwritable: plan.cellsUnwritable,
+      });
+    }
+    if (edits.length) options.write(edits, "paste");
+    return true;
+  }
+
   return {
     range,
     setRange,
     /** True for the length of a drag, for the grid's `noSelect`. */
     dragSelecting,
     cellProps,
+    /** The right-click menu's place, or null; `closeMenu` puts it away. */
+    menu,
+    closeMenu: () => setMenu(null),
+    /**
+     * The menu's copy: the rectangle to the clipboard through the async API,
+     * which the click on a menu item is a user gesture for.
+     */
+    copyToClipboard: async () => {
+      setMenu(null);
+      const text = copyText();
+      if (text === null) return false;
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        options.onClipboardBlocked?.();
+        return false;
+      }
+    },
+    /**
+     * The menu's paste: reads the clipboard, which the browser may ask the
+     * person to allow once; a refusal is reported, not swallowed.
+     */
+    pasteFromClipboard: async () => {
+      setMenu(null);
+      try {
+        const text = await navigator.clipboard.readText();
+        return pasteText(text);
+      } catch {
+        options.onClipboardBlocked?.();
+        return false;
+      }
+    },
     /**
      * The rectangle as rows and fields, clamped to what is drawn.
      *
