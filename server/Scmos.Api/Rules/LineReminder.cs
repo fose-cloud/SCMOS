@@ -32,12 +32,16 @@ public static class LineReminder
 
     /// <summary>
     /// The clock times out of a setting: "08:00, 12:00", "8.00 12.00", or
-    /// "off" — empty when off, the default when the text is not a time.
+    /// "off" — empty when off, the default when the setting is absent, blank,
+    /// or not a time. Blank is the default and not "off": on 16 Sep 2026 the
+    /// setting was added to the Portal with no value, which switched the
+    /// morning off until this said otherwise.
     /// </summary>
     public static IReadOnlyList<TimeOnly> Times(string? setting)
     {
-        var text = (setting ?? DefaultTime).Trim();
-        if (text.Length == 0 || text.Equals("off", StringComparison.OrdinalIgnoreCase)) return [];
+        var text = (setting ?? "").Trim();
+        if (text.Length == 0) text = DefaultTime;
+        if (text.Equals("off", StringComparison.OrdinalIgnoreCase)) return [];
         var times = new List<TimeOnly>();
         foreach (var part in text.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
         {

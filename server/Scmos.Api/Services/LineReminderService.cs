@@ -21,7 +21,7 @@ namespace Scmos.Api.Services;
 public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, AuditService audit,
     IConfiguration config, ILogger<LineReminderService> log)
 {
-    /// <summary>Where the hour lives in configuration. Empty switches the schedule off; the button stays.</summary>
+    /// <summary>Where the hours live in configuration. "off" switches the schedule off; blank is the default; the button stays.</summary>
     public const string TimeKey = "Line:RemindAt";
 
     public const string Action = "notify";

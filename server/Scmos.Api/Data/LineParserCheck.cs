@@ -374,6 +374,7 @@ public static class LineParserCheck
             ("a setting may name its own hours, in any of the ways people write them",
                 LineReminder.Times("7.30, 13:00").Select(at => at.ToString("HH:mm")).SequenceEqual(["07:30", "13:00"])),
             ("\"off\" is no hours at all", LineReminder.Times("off").Count == 0),
+            ("a blank setting is the default, not off", LineReminder.Times("").Count == 2 && LineReminder.Times("  ").Count == 2),
             ("a setting that is not a time falls back to the default", LineReminder.Times("noon").Count == 2),
             ("a long day is split into whole parts under LINE's limit",
                 LineReminder.Compose("SHORE", day, Enumerable.Range(1, 80).Select(i => Line($"I{i}", "IMPORT", "READY")).ToList()) is { Count: > 1 } parts
