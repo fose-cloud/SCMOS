@@ -48,8 +48,34 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         string LineGroupId, string GroupName, long SupplierId, string Supplier,
         IReadOnlyList<LineReminder.JobLine> Jobs, IReadOnlyList<string> Messages, DateTimeOffset? SentAt, string SentBy);
 
+    /// <summary>A room and every job of its haulier on the day — what both the reminder and the chase read.</summary>
+    public record RoomJobs(string LineGroupId, string GroupName, long SupplierId, string Supplier,
+        IReadOnlyList<LineReminder.JobLine> AllJobs);
+
     /// <summary>Every active vendor room, with what today's reminder would say to it.</summary>
     public async Task<IReadOnlyList<Room>> PreviewAsync(DateOnly day, CancellationToken token)
+    {
+        // Today's sends, so a room already asked is shown as such.
+        var since = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7)).ToUniversalTime();
+        var sent = await db.AuditEvents.AsNoTracking()
+            .Where(one => one.Entity == Entity && one.Action == Action && one.At >= since)
+            .OrderByDescending(one => one.At)
+            .Select(one => new { one.EntityId, one.At, one.Who })
+            .ToListAsync(token);
+
+        var rooms = new List<Room>();
+        foreach (var room in await RoomsAsync(day, token))
+        {
+            var mine = room.AllJobs.Where(LineReminder.Wanted).ToList();
+            var last = sent.FirstOrDefault(one => one.EntityId == room.LineGroupId);
+            rooms.Add(new Room(room.LineGroupId, room.GroupName, room.SupplierId, room.Supplier,
+                mine, LineReminder.Compose(room.Supplier, day, mine), last?.At, last?.Who ?? ""));
+        }
+        return rooms;
+    }
+
+    /// <summary>Every active vendor room with a supplier, and that haulier's jobs on the day.</summary>
+    public async Task<IReadOnlyList<RoomJobs>> RoomsAsync(DateOnly day, CancellationToken token)
     {
         var groups = await db.LineGroups.AsNoTracking()
             .Where(one => one.IsActive && one.GroupType == LineGroupType.Vendor && one.SupplierId > 0)
@@ -65,30 +91,19 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
 
         var rows = await db.OperationJobs.AsNoTracking()
             .Where(one => one.WorkDate == Formats.PlanDate(day))
-            .Select(one => new { one.Key, one.Cat, one.Status, one.Customer, one.Trucker, one.JobCode, one.Container, one.Data })
+            .Select(one => new { one.Key, one.Cat, one.Status, one.Customer, one.Trucker, one.JobCode, one.Container, one.WorkDate, one.Data })
             .ToListAsync(token);
-        var lines = rows.Select(one => ToLine(one.Key, one.Cat, one.Status, one.Customer, one.Trucker, one.JobCode, one.Container, one.Data)).ToList();
+        var lines = rows.Select(one => ToLine(one.Key, one.Cat, one.Status, one.Customer, one.Trucker, one.JobCode, one.Container, one.WorkDate, one.Data)).ToList();
 
-        // Today's sends, so a room already asked is shown as such.
-        var since = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(7)).ToUniversalTime();
-        var sent = await db.AuditEvents.AsNoTracking()
-            .Where(one => one.Entity == Entity && one.Action == Action && one.At >= since)
-            .OrderByDescending(one => one.At)
-            .Select(one => new { one.EntityId, one.At, one.Who })
-            .ToListAsync(token);
-
-        var rooms = new List<Room>();
+        var rooms = new List<RoomJobs>();
         foreach (var group in groups)
         {
             var supplier = suppliers.GetValueOrDefault(group.SupplierId, "");
             if (supplier.Length == 0) continue;
             var mine = lines.Where(one => LineAuthority.SameCarrier(supplier, one.Carrier))
                 .Select(one => one.Line)
-                .Where(LineReminder.Wanted)
                 .ToList();
-            var last = sent.FirstOrDefault(one => one.EntityId == group.LineGroupId);
-            rooms.Add(new Room(group.LineGroupId, group.GroupName, group.SupplierId, supplier,
-                mine, LineReminder.Compose(supplier, day, mine), last?.At, last?.Who ?? ""));
+            rooms.Add(new RoomJobs(group.LineGroupId, group.GroupName, group.SupplierId, supplier, mine));
         }
         return rooms;
     }
@@ -131,13 +146,13 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
 
     /// <summary>The cells the message needs, out of the row and its JSON.</summary>
     private static (string Carrier, LineReminder.JobLine Line) ToLine(string key, string cat, string status,
-        string customer, string trucker, string jobCode, string container, string data)
+        string customer, string trucker, string jobCode, string container, string workDate, string data)
     {
         var fields = new Dictionary<string, string>(StringComparer.Ordinal);
         try
         {
             using var json = JsonDocument.Parse(data);
-            foreach (var name in new[] { "booking", "destination", "plant", "returnLoc", "emptyReturn", "planTime", "licence", "driver", "contact", "jobNo", "wh", "province", "zip" })
+            foreach (var name in new[] { "booking", "destination", "plant", "returnLoc", "emptyReturn", "planTime", "licence", "driver", "contact", "jobNo", "wh", "province", "zip", "arrDate", "arrTime" })
             {
                 if (json.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
                     fields[name] = value.GetString() ?? "";
@@ -152,7 +167,8 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
             key, cat, status, customer, jobCode, F("booking"), container,
             F("destination"), F("plant"), F("returnLoc").Length > 0 ? F("returnLoc") : F("emptyReturn"),
             F("planTime"), F("licence"), F("driver"), F("contact"),
-            JobNo: F("jobNo"), Warehouse: F("wh"), Province: province));
+            JobNo: F("jobNo"), Warehouse: F("wh"), Province: province,
+            Date: workDate, ArrDate: F("arrDate"), ArrTime: F("arrTime")));
     }
 }
 

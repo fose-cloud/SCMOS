@@ -181,15 +181,24 @@ public static class LineReviewEndpoints
 
         // What today's reminder would say to each room, and when it went.
         group.MapGet("/reminder", async (string? date, HttpContext context, IUserAccessor users,
-            LineReminderService reminders, ILineNotifier notifier, CancellationToken token) =>
+            LineReminderService reminders, LineChaseService chase, ILineNotifier notifier, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
             var day = Day(date);
             var rooms = await reminders.PreviewAsync(day, token);
+            // What the chase would ask right now, so the screen can say so.
+            var due = date is null ? await chase.DueAsync(DateTimeOffset.UtcNow, token) : [];
             return Results.Json(new
             {
                 date = Formats.PlanDate(day),
                 remindAt = reminders.RemindAt?.ToString("HH:mm") ?? "",
+                chaseMinutes = chase.Minutes,
+                chaseDue = due.Select(room => new
+                {
+                    room.LineGroupId, room.GroupName, room.Supplier,
+                    jobs = room.Jobs.Select(one => new { one.Job.Key, one.Job.Customer, one.Job.Container, one.Job.PlanTime, stage = one.Stage }),
+                    message = room.Message,
+                }),
                 canPush = notifier.Configured,
                 pushMessage = notifier.Configured ? "" : notifier.Missing,
                 rooms = rooms.Select(room => new

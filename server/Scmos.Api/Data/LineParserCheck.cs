@@ -382,6 +382,41 @@ public static class LineParserCheck
         if (reminder.Any(r => !r.Ok)) Console.WriteLine(whole);
         Console.WriteLine();
 
+        /* ------------------------------------------ the status chase */
+
+        Console.WriteLine("A job with no truck reported is chased before its plan time and again after — once each.");
+        Console.WriteLine();
+        LineReminder.JobLine Planned(string key, string cat, string status, string planTime, string arrDate = "", string arrTime = "") =>
+            new(key, cat, status, "ALLNEX", "260917600162", "LC2606594", "TXGU8142057", "WH ALLNEX", "YUSEN W/H", "LCB A0",
+                planTime, "70-1234", "สมชาย", "081-2345678", Date: "16/09/2026", ArrDate: arrDate, ArrTime: arrTime);
+        DateTimeOffset At(string clock) => new(2026, 9, 16, int.Parse(clock[..2]), int.Parse(clock[3..]), 0, TimeSpan.FromHours(7));
+        var chase = new (string Why, bool Ok)[]
+        {
+            ("nothing due an hour before the plan time", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:00"), 30) is null),
+            ("due 'before' inside the half hour ahead", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30) == LineChase.Before),
+            ("nothing between the plan time and the margin after it", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:10"), 30) is null),
+            ("due 'overdue' once the plan time is the margin behind", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:31"), 30) == LineChase.Overdue),
+            ("an arrival stamp on the job ends the chase", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "12:50"), At("13:40"), 30) is null),
+            ("an import at DELIVERED has arrived", LineChase.Stage(Planned("J", "IMPORT", "DELIVERED", "13:00"), At("13:40"), 30) is null),
+            ("an export at DISPATCHED has reached its plant", LineChase.Stage(Planned("J", "EXPORT", "DISPATCHED", "13:00"), At("13:40"), 30) is null),
+            ("an export still READY has not", LineChase.Stage(Planned("J", "EXPORT", "READY", "13:00"), At("13:40"), 30) == LineChase.Overdue),
+            ("a cancelled job is left alone", LineChase.Stage(Planned("J", "IMPORT", "CANCELLED", "13:00"), At("13:40"), 30) is null),
+            ("no plan time, nothing to chase", LineChase.Stage(Planned("J", "IMPORT", "READY", ""), At("13:40"), 30) is null),
+            ("the chase switched off chases nothing", LineChase.Stage(Planned("J", "IMPORT", "READY", "13:00"), At("13:40"), 0) is null),
+            ("the message names the job the department's way and says how to answer",
+                LineChase.Compose("SHORE", [(Planned("J", "EXPORT", "READY", "13:00"), LineChase.Overdue)], At("13:40")) is { } text
+                    && text.Contains("Booking LC2606594 · Job 260917600162 · ตู้ TXGU8142057 · ลูกค้า ALLNEX · โหลดที่ YUSEN W/H · รถ 70-1234", StringComparison.Ordinal)
+                    && text.Contains("แผน 13:00 — เลยมา 40 นาที", StringComparison.Ordinal)
+                    && text.Contains("TXGU8142057 ถึงโรงงาน 12:40", StringComparison.Ordinal)),
+            ("nothing due, no message", LineChase.Compose("SHORE", [], At("13:40")).Length == 0),
+        };
+        foreach (var (why, ok) in chase)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+        }
+        Console.WriteLine();
+
         /* ------------------------------------------ the signature */
 
         Console.WriteLine("Proving a delivery came from LINE.");

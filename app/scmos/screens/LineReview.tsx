@@ -66,7 +66,16 @@ type ReminderRoom = {
   missing: { key: string; category: string; customer: string; jobCode: string; booking: string; container: string; gaps: string[] }[];
   messages: string[]; sentAt: string | null; sentBy: string;
 };
-type Reminder = { date: string; remindAt: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[] };
+type ChaseRoom = {
+  lineGroupId: string; groupName: string; supplier: string;
+  jobs: { key: string; customer: string; container: string; planTime: string; stage: string }[];
+  message: string;
+};
+type Reminder = {
+  date: string; remindAt: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[];
+  /** The status chase: minutes either side of the plan time (0 = off), and what it would ask right now. */
+  chaseMinutes?: number; chaseDue?: ChaseRoom[];
+};
 
 type Option = {
   key: string; cat: string; customer: string; container: string;
@@ -355,6 +364,11 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
         <span style={css(LABEL)}>แจ้งเตือนงานวันนี้ {reminder.date}</span>
         <span style={css("font-size:12px;color:#475569")}>
           {reminder.remindAt ? `ส่งอัตโนมัติ ${reminder.remindAt} น.` : "ไม่มีกำหนดส่งอัตโนมัติ"}
+          {" · "}
+          {reminder.chaseMinutes ? `ติดตามสถานะรถ ${reminder.chaseMinutes} นาทีก่อนและหลังเวลาแผน` : "ไม่ติดตามสถานะรถ"}
+          {!!reminder.chaseDue?.length && (
+            <span style={css("color:#B45309")}> · ครบกำหนดตอนนี้ {reminder.chaseDue.reduce((n, room) => n + room.jobs.length, 0)} งาน</span>
+          )}
           {!reminder.canPush && reminder.pushMessage && <span style={css("color:#B45309")}> · {reminder.pushMessage}</span>}
         </span>
         {canSend && reminder.canPush && reminder.rooms.some((room) => room.jobs > 0) && (

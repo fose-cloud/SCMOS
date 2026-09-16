@@ -36,7 +36,9 @@ public static class LineReminder
         string Destination, string Plant, string ReturnLoc, string PlanTime,
         string Licence, string Driver, string Contact,
         /// <summary>The Domestic grid's own references, for a run that has no booking.</summary>
-        string JobNo = "", string Warehouse = "", string Province = "");
+        string JobNo = "", string Warehouse = "", string Province = "",
+        /// <summary>The plan date and the arrival stamp, for the status chase — see <see cref="LineChase"/>.</summary>
+        string Date = "", string ArrDate = "", string ArrTime = "");
 
     /// <summary>The three cells the message asks for, in the words it asks with.</summary>
     public static IReadOnlyList<string> Missing(JobLine job)

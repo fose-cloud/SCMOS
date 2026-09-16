@@ -43,7 +43,7 @@ public static class LineEndpoints
          * switched on and whether a secret is configured — never the secret,
          * and never any part of it.
          */
-        group.MapGet("/status", (IConfiguration config, ILineImageReader photos, LineReminderService reminders, ILineNotifier notifier) =>
+        group.MapGet("/status", (IConfiguration config, ILineImageReader photos, LineReminderService reminders, LineChaseService chase, ILineNotifier notifier) =>
         {
             var enabled = config.GetValue(EnabledKey, false);
             var configured = !string.IsNullOrWhiteSpace(config[SecretKey]);
@@ -54,6 +54,8 @@ public static class LineEndpoints
                 // The morning reminder: the Bangkok hour it goes at, or empty
                 // when the schedule is off, and whether a push can be sent at all.
                 remindAt = reminders.RemindAt?.ToString("HH:mm") ?? "",
+                // The status chase: minutes either side of the plan time, 0 when off.
+                chaseMinutes = chase.Minutes,
                 canPush = notifier.Configured,
                 pushMessage = notifier.Configured ? "" : notifier.Missing,
                 // Whether a driver's photo is read for its container number,

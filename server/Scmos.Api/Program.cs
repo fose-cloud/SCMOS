@@ -65,6 +65,7 @@ if (builder.Configuration.GetValue(LineEndpoints.EnabledKey, false))
 {
     builder.Services.AddHostedService<LineEventWorker>();
     builder.Services.AddHostedService<LineReminderScheduler>();
+    builder.Services.AddHostedService<LineChaseScheduler>();
 }
 builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<PreRunService>();
@@ -140,6 +141,7 @@ builder.Services.AddSingleton<ILineImageReader, LineImageReader>();
 // The one outbound message: the morning reminder to each haulier's room.
 builder.Services.AddSingleton<ILineNotifier, LineNotifier>();
 builder.Services.AddScoped<LineReminderService>();
+builder.Services.AddScoped<LineChaseService>();
 
 // Only when there is somewhere to send it. Registering the exporter without a
 // connection string throws during host start, which would take the whole API
