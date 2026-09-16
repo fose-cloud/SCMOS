@@ -84,7 +84,7 @@ export function JobDrawer(p: {
                   <span style={css("font-size:10.5px;color:#94A3B8")}>{one.group}{one.receivedAt ? " · " + new Date(one.receivedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</span>
                   {one.ready && writes
                     ? <span style={css("font-size:11.5px;font-weight:600;color:#B45309")}>{writes}</span>
-                    : <span style={css("font-size:11.5px;color:#B42318")}>{verdict.label}{one.detail ? " — " + one.detail : ""}</span>}
+                    : <span style={css(`font-size:11.5px;color:${one.ready ? "#B45309" : "#B42318"}`)}>{verdict.label}{one.detail ? " — " + one.detail : ""}</span>}
                   {p.onLineAct && (
                     <div style={css("display:flex;gap:6px;margin-top:2px")}>
                       {one.ready && (

@@ -82,6 +82,24 @@ public static class LineParser
         new(@"(?<![A-Za-z0-9-])(?=[A-Za-z0-9]{6,20}(?![A-Za-z0-9-]))(?=(?:[A-Za-z]*\d){3})[A-Za-z0-9]+", RegexOptions.Compiled);
 
     /// <summary>
+    /// A Thai mobile or landline in running text: 081-2345678, 0812345678,
+    /// 081 234 5678, 02-1234567. Written back as the register writes one,
+    /// 0XX-XXXXXXX.
+    /// </summary>
+    private static readonly Regex Phone =
+        new(@"(?<!\d)(0\d{1,2})[-\s]?(\d{3})[-\s]?(\d{4})(?!\d)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The words a haulier puts around a driver's name and number, which are
+    /// not the name: labels, titles, and the courtesy particles.
+    /// </summary>
+    private static readonly HashSet<string> LabelWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "คนขับ", "พขร", "พขร.", "ชื่อ", "ทะเบียน", "รถ", "เบอร์", "โทร", "โทร.", "ติดต่อ", "คุณ", "นาย", "นาง", "นางสาว",
+        "ครับ", "ค่ะ", "คะ", "นะครับ", "นะคะ", "จ้า", "จ้ะ", "driver", "tel", "tel.", "name", "plate", "phone", "mobile",
+    };
+
+    /// <summary>
     /// Words that make a message a question rather than a report. "ถึงโรงงานที่
     /// โมงคะ @Vad" — the second real message, 16 Sep 2026 — asks the driver
     /// when the truck arrived; it contains the arrival phrase and reports
@@ -240,8 +258,19 @@ public static class LineParser
         /// </summary>
         IReadOnlyList<string>? References = null,
         /// <summary>Whether the message asks rather than tells. A question reports no status.</summary>
-        bool Question = false)
+        bool Question = false,
+        /// <summary>The driver's contact number, as the register writes one, when the message carries it.</summary>
+        string? Phone = null,
+        /// <summary>
+        /// The driver's name, read as what is left of a message about a truck
+        /// once everything else is taken out. Offered, never written unasked;
+        /// the person approving sees it beside the message.
+        /// </summary>
+        string? Driver = null)
     {
+        /// <summary>Whether the message carries the truck's details — a plate, a number, a name — the morning reminder asks for.</summary>
+        public bool HasDetails => (Plates is not null && Plates.Count > 0) || Phone is not null || Driver is not null;
+
         /// <summary>Whether this may update a job without somebody reading it first.</summary>
         public bool CanAutoProcess => Confidence >= AutoThreshold
             && (JobNumber is not null || Container is not null)
@@ -327,6 +356,9 @@ public static class LineParser
         foreach (var match in Container.Matches(normalised).Cast<Match>())
             taken.Add((match.Groups[1].Value + match.Groups[2].Value).ToUpperInvariant());
         foreach (var number in JobCodes.All(normalised)) taken.Add(number);
+        // A phone number is the driver's, not a reference to a job.
+        foreach (var match in Phone.Matches(normalised).Cast<Match>())
+            taken.Add(match.Value.Replace("-", "").Replace(" ", ""));
 
         return [.. Reference.Matches(normalised)
             .Select(one => one.Value.ToUpperInvariant())
@@ -335,6 +367,44 @@ public static class LineParser
             .Where(one => !taken.Any(had => had.Contains(one, StringComparison.Ordinal)))
             .Distinct(StringComparer.Ordinal)
             .Take(5)];
+    }
+
+    /// <summary>The first phone number in a message, as 0XX-XXXXXXX, or null.</summary>
+    public static string? FindPhone(string normalised)
+    {
+        var match = Phone.Match(normalised);
+        if (!match.Success) return null;
+        return $"{match.Groups[1].Value}-{match.Groups[2].Value}{match.Groups[3].Value}";
+    }
+
+    /// <summary>
+    /// The driver's name: the Thai words left over once the numbers, the
+    /// plate, the status phrase, the dates, the clocks and the labels are
+    /// taken out of a message about a truck. One to three words, Thai
+    /// letters only. Null when nothing is left, or when the message carries
+    /// no plate and no number — a name on its own is not a truck.
+    /// </summary>
+    public static string? FindDriver(string normalised, IReadOnlyList<string> plates, string? phone)
+    {
+        if (plates.Count == 0 && phone is null) return null;
+
+        var text = normalised;
+        foreach (var (_, keyword) in FindStatuses(text))
+            text = Regex.Replace(text, Regex.Escape(keyword), " ", RegexOptions.IgnoreCase);
+        text = Phone.Replace(text, " ");
+        text = Plate.Replace(text, " ");
+        text = Container.Replace(text, " ");
+        text = Clock.Replace(text, " ");
+        // Anything with a digit or a Latin letter is a reference, a date, a
+        // time, a customer's name in English — not a Thai given name.
+        var words = text.Split([' ', '/', ',', '|', '(', ')', ':', ';', '-', '@', '#', '.'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => word.All(c => c >= '฀' && c <= '๿'))
+            .Where(word => word.Length >= 2 && word.Length <= 30)
+            .Where(word => !LabelWords.Contains(word))
+            .Where(word => !QuestionWords.Contains(word))
+            .Take(3)
+            .ToList();
+        return words.Count == 0 ? null : string.Join(" ", words);
     }
 
     /// <summary>Whether the message asks something rather than reporting it.</summary>
@@ -574,8 +644,19 @@ public static class LineParser
         if (arrival is not null) rules.Add($"arrival:{arrival.Value:HH:mm}");
         if (Clock.Matches(text).Count > 1 && arrival is null) warnings.Add("many-times");
 
+        // The truck's details — what the morning reminder asks for and what
+        // the haulier answers with: "LC2606594 70-1234 สมชาย ใจดี 081-2345678".
+        var phone = question ? null : FindPhone(text);
+        if (phone is not null) rules.Add($"phone:{phone}");
+        var driver = question ? null : FindDriver(text, plates, phone);
+        if (driver is not null) rules.Add($"driver:{driver}");
+        var details = plates.Count > 0 || phone is not null || driver is not null;
+
         var delayed = delayCategory is not null && !question;
-        var understood = status is not null || delayed || eta is not null;
+        // A message that names a job and gives its truck has said something
+        // worth applying, with or without a status.
+        var understood = status is not null || delayed || eta is not null
+            || (details && (jobNumber is not null || container is not null || references.Count > 0));
         if (question) warnings.Add("question");
         else if (!understood) warnings.Add("nothing-understood");
 
@@ -590,7 +671,9 @@ public static class LineParser
             Plates: plates,
             ArrivalTime: question ? null : arrival,
             References: references,
-            Question: question);
+            Question: question,
+            Phone: phone,
+            Driver: driver);
     }
 
     /// <summary>

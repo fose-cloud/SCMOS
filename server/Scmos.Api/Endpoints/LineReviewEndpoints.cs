@@ -164,9 +164,83 @@ public static class LineReviewEndpoints
                         // ladder names it, the arrival clock, or the box.
                         to = one.MessageType == "image" ? one.ImageReading : LineAuthority.ResolveSite(category, one.ParsedStatus),
                         arrival = read is null ? new { date = "", time = "" } : Arrival(read),
+                        // The truck's details the message carries, for the drawer's line.
+                        details = read is null ? "" : string.Join(" · ", new[]
+                        {
+                            read.Plates is { Count: > 0 } ? $"ทะเบียน {read.Plates[0]}" : "",
+                            read.Driver is not null ? $"คนขับ {read.Driver}" : "",
+                            read.Phone is not null ? $"เบอร์ {read.Phone}" : "",
+                        }.Where(part => part.Length > 0)),
                         ready = one.ErrorCode == "ready-to-apply",
                     };
                 }),
+            });
+        });
+
+        /* ------------------------------------------- the morning reminder */
+
+        // What today's reminder would say to each room, and when it went.
+        group.MapGet("/reminder", async (string? date, HttpContext context, IUserAccessor users,
+            LineReminderService reminders, ILineNotifier notifier, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var day = Day(date);
+            var rooms = await reminders.PreviewAsync(day, token);
+            return Results.Json(new
+            {
+                date = Formats.PlanDate(day),
+                remindAt = reminders.RemindAt?.ToString("HH:mm") ?? "",
+                canPush = notifier.Configured,
+                pushMessage = notifier.Configured ? "" : notifier.Missing,
+                rooms = rooms.Select(room => new
+                {
+                    room.LineGroupId, room.GroupName, room.Supplier,
+                    jobs = room.Jobs.Count,
+                    missing = room.Jobs.Select(job => new
+                    {
+                        job.Key, job.Category, job.Customer, job.JobCode, job.Booking, job.Container,
+                        gaps = LineReminder.Missing(job),
+                    }),
+                    messages = room.Messages,
+                    sentAt = room.SentAt,
+                    sentBy = room.SentBy,
+                }),
+            });
+        });
+
+        // Sends it now, to one room or to every room — a person's decision,
+        // by somebody who manages suppliers, and audited under their name.
+        group.MapPost("/reminder", async ([FromBody] ReminderBody body, HttpContext context, IUserAccessor users,
+            LineReminderService reminders, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("ทำได้เฉพาะผู้ที่ดูแลผู้ขนส่ง", StatusCodes.Status403Forbidden);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ManageSuppliers) is { } stop) return stop;
+
+            var day = Day(body.Date);
+            var wanted = (body.LineGroupId ?? "").Trim();
+            var rooms = (await reminders.PreviewAsync(day, token))
+                .Where(room => wanted.Length == 0 || room.LineGroupId == wanted)
+                .ToList();
+            if (rooms.Count == 0) return ApiResults.Error("ไม่พบกลุ่มที่ผูกกับผู้ขนส่ง", StatusCodes.Status404NotFound);
+
+            var results = new List<object>();
+            var sent = 0;
+            foreach (var room in rooms)
+            {
+                var failure = await reminders.SendAsync(room, user, "ส่งจากหน้าจอ LINE", token);
+                if (failure.Length == 0) sent++;
+                results.Add(new { room.LineGroupId, room.GroupName, room.Supplier, jobs = room.Jobs.Count, ok = failure.Length == 0, failure });
+            }
+            return Results.Json(new
+            {
+                message = sent == rooms.Count ? $"ส่งแจ้งเตือนแล้ว {sent} กลุ่ม"
+                    : sent == 0 ? (results.Count == 1 ? ((dynamic)results[0]).failure : "ส่งไม่สำเร็จ")
+                    : $"ส่งแล้ว {sent} จาก {rooms.Count} กลุ่ม",
+                sent,
+                results,
             });
         });
 
@@ -328,17 +402,19 @@ public static class LineReviewEndpoints
                     // set-level answer does not say. The carrier is left empty
                     // because Move does not read it — authority was settled when
                     // these keys came out of the decision's own filtered set.
-                    var move = LineAuthority.Move(
-                        new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status),
-                        read.Status);
+                    var candidate = new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status);
+                    var move = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
+                        ? LineAuthority.Details(candidate)
+                        : LineAuthority.Move(candidate, read.Status);
                     var stamp = ArrivalWrite(read, job.Data);
+                    var truck = DetailsWrite(read, job.Data);
                     return new
                     {
                         job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate,
                         move = new { move.Result, move.Detail, ok = move.Applies, to = move.To },
                         // What approving would write into ARRIVAL DATE / TIME,
-                        // or why it would not.
-                        arrival = stamp.Note,
+                        // or why it would not — and into LICENCE / DRIVER / CONTACT.
+                        arrival = string.Join(" · ", new[] { stamp.Note, truck.Note }.Where(one => one.Length > 0)),
                         // Whether this person may approve this row: anybody who
                         // edits every job, or the job's own owner.
                         mayApprove = await MayActOnAsync(user, job.Key, jobs, delegations, token),
@@ -422,8 +498,10 @@ public static class LineReviewEndpoints
                 .FirstOrDefaultAsync(token);
             if (one is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
 
-            var final = LineAuthority.Move(
-                new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), read.Status);
+            var candidate = new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status);
+            var final = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
+                ? LineAuthority.Details(candidate)
+                : LineAuthority.Move(candidate, read.Status);
             if (!final.Applies)
                 return ApiResults.Error(
                     final.Detail.Length > 0 ? final.Detail : final.Result,
@@ -435,12 +513,20 @@ public static class LineReviewEndpoints
             // chat room; the answer says so and the operator can change it on
             // the grid if the driver is right.
             var stamp = ArrivalWrite(read, one.Data);
-            var fields = new Dictionary<string, string> { ["status"] = final.To };
+            var fields = new Dictionary<string, string>();
+            if (final.To.Length > 0) fields["status"] = final.To;
             if (stamp.Date is { } date && stamp.Time is { } time)
             {
                 fields["arrDate"] = date;
                 fields["arrTime"] = time;
             }
+            // The truck's details, into the cells that are empty — the answer
+            // to the morning reminder, written onto the job the owner is
+            // looking at.
+            var truck = DetailsWrite(read, one.Data);
+            foreach (var (name, value) in truck.Fields) fields[name] = value;
+            if (fields.Count == 0)
+                return ApiResults.Error("ข้อความนี้ไม่มีอะไรให้บันทึก — งานมีข้อมูลเหล่านี้อยู่แล้ว", StatusCodes.Status409Conflict);
 
             var wrote = await jobs.PatchAsync(chosen, fields, user.Signature, token);
             if (!wrote) return ApiResults.Error("บันทึกไม่สำเร็จ", StatusCodes.Status409Conflict);
@@ -449,8 +535,9 @@ public static class LineReviewEndpoints
             // DELIVERED" should answer with the operator who approved it and
             // the fact that a vendor's message is why.
             var why = body.Reason ?? $"LINE: {row.RawText}";
-            await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
-                row.JobNumber, "status", final.From, final.To, why, token, EventSource.Line);
+            if (final.To.Length > 0)
+                await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
+                    row.JobNumber, "status", final.From, final.To, why, token, EventSource.Line);
             if (stamp.Date is not null)
             {
                 await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
@@ -458,6 +545,9 @@ public static class LineReviewEndpoints
                 await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
                     row.JobNumber, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
             }
+            foreach (var (name, value) in truck.Fields)
+                await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                    row.JobNumber, name, "", value, why, token, EventSource.Line);
 
             row.ProcessingStatus = LineProcessing.Processed;
             row.JobKey = chosen;
@@ -468,8 +558,9 @@ public static class LineReviewEndpoints
 
             return Results.Json(new
             {
-                message = $"อัปเดต {chosen} เป็น {final.To} แล้ว"
-                    + (stamp.Date is not null ? $" · บันทึกเวลาถึง {stamp.Date} {stamp.Time}" : ""),
+                message = (final.To.Length > 0 ? $"อัปเดต {chosen} เป็น {final.To} แล้ว" : $"บันทึกลงงาน {chosen} แล้ว")
+                    + (stamp.Date is not null ? $" · เวลาถึง {stamp.Date} {stamp.Time}" : "")
+                    + (truck.Fields.Count > 0 ? " · " + truck.Written : ""),
                 jobKey = chosen, from = final.From, to = final.To,
                 arrival = stamp.Note,
             });
@@ -662,6 +753,54 @@ public static class LineReviewEndpoints
         return [.. vouched];
     }
 
+    /// <summary>
+    /// What approving would write into LICENCE, DRIVER and CONTACT: the plate,
+    /// the name and the number the message carries, each into its cell only
+    /// when that cell is empty. A cell somebody keyed is not replaced from a
+    /// chat room; the note says so, and the grid is where it is changed.
+    /// </summary>
+    private static (Dictionary<string, string> Fields, string Note, string Written) DetailsWrite(LineParser.Parsed read, string data)
+    {
+        var fields = new Dictionary<string, string>();
+        var notes = new List<string>();
+        var written = new List<string>();
+        if (!read.HasDetails) return (fields, "", "");
+
+        var had = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(data);
+            foreach (var name in new[] { "licence", "driver", "contact" })
+            {
+                if (json.RootElement.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String)
+                    had[name] = Formats.Clean(value.GetString());
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+
+        void Offer(string name, string label, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            var current = had.GetValueOrDefault(name, "");
+            if (current.Length == 0)
+            {
+                fields[name] = value;
+                written.Add($"{label} {value}");
+            }
+            else if (!string.Equals(current, value, StringComparison.OrdinalIgnoreCase))
+            {
+                notes.Add($"งานมี{label} {current} อยู่แล้ว (ข้อความแจ้ง {value})");
+            }
+        }
+        Offer("licence", "ทะเบียน", read.Plates is { Count: > 0 } ? read.Plates[0] : null);
+        Offer("driver", "ชื่อคนขับ", read.Driver);
+        Offer("contact", "เบอร์", read.Phone);
+
+        var note = written.Count > 0 ? "จะบันทึก " + string.Join(" · ", written) : "";
+        if (notes.Count > 0) note = string.Join(" · ", new[] { note }.Concat(notes).Where(one => one.Length > 0));
+        return (fields, note, string.Join(" · ", written));
+    }
+
     /// <summary>The arrival the message reported, as the register writes it, or empty.</summary>
     private static object Arrival(LineParser.Parsed read) =>
         read.ArrivalTime is { } at
@@ -701,6 +840,18 @@ public static class LineReviewEndpoints
         return (null, null, hadDate, hadTime,
             $"งานมีเวลาถึง {hadDate} {hadTime} อยู่แล้ว — ข้อความแจ้ง {date} {time}; แก้ในตารางงานถ้าต้องการ");
     }
+
+    /// <summary>The day a reminder is about, read the way the register writes dates; today in Bangkok otherwise.</summary>
+    private static DateOnly Day(string? date)
+    {
+        var (year, month, day) = Formats.PartsOf(date ?? "");
+        if (year.Length > 0 && DateOnly.TryParseExact($"{year}-{month}-{day}", "yyyy-M-d",
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var chosen))
+            return chosen;
+        return DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime);
+    }
+
+    public record ReminderBody(string? LineGroupId, string? Date);
 
     public record GroupBody(
         string? LineGroupId, string? GroupName, long SupplierId,

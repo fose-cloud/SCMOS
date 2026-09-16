@@ -28,6 +28,9 @@ test("what approving writes is said in one line", () => {
   assert.equal(pendingWrites(text({ arrival: { date: "", time: "" } })), "สถานะ → DELIVERED");
   assert.equal(pendingWrites(text({ kind: "image", to: "TEMU5246902" })), "เลขตู้ TEMU5246902");
   assert.equal(pendingWrites(text({ to: "", arrival: { date: "", time: "" } })), "");
+  // The answer to the morning reminder: no status, the truck's details.
+  assert.equal(pendingWrites(text({ to: "", arrival: { date: "", time: "" }, details: "ทะเบียน 70-1234 · คนขับ สมชาย ใจดี · เบอร์ 081-2345678" })),
+    "ทะเบียน 70-1234 · คนขับ สมชาย ใจดี · เบอร์ 081-2345678");
 });
 
 test("a photo reads as what was seen on it", () => {

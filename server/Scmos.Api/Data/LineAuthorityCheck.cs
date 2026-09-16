@@ -304,6 +304,27 @@ public static class LineAuthorityCheck
             Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
         }
 
+        /* --------------------------------- the truck's details, no status */
+
+        Console.WriteLine();
+        Console.WriteLine("The answer to the morning reminder goes onto the open job it names.");
+        Console.WriteLine();
+        var truck = LineAuthority.Decide(Vendor("SHORE"), "", [Job("T1", "SHORE", "READY")],
+            new LineAuthority.Clue("เลขงาน 260600800773", null, ["70-1234"], "260600800773 70-1234 สมชาย ใจดี 081-2345678", null, Details: true));
+        var truckRight = truck.Result == LineAuthority.Outcome.TruckDetails && truck.Applies && truck.Keys is ["T1"] && truck.To == "";
+        if (!truckRight) failed++;
+        Console.WriteLine($"  {(truckRight ? "ok  " : "FAIL")}  a plate and a name with no status may be written, and move no status");
+        var truckClosed = LineAuthority.Decide(Vendor("SHORE"), "", [Job("T2", "SHORE", "COMPLETED")],
+            new LineAuthority.Clue("เลขงาน 260600800773", null, ["70-1234"], "", null, Details: true));
+        var closedRight = truckClosed.Result == LineAuthority.Outcome.JobClosed && !truckClosed.Applies;
+        if (!closedRight) failed++;
+        Console.WriteLine($"  {(closedRight ? "ok  " : "FAIL")}  not onto a finished job");
+        var bare = LineAuthority.Decide(Vendor("SHORE"), "", [Job("T3", "SHORE", "READY")],
+            new LineAuthority.Clue("เลขงาน 260600800773", null, [], "260600800773 ครับ", null));
+        var bareRight = bare.Result == LineAuthority.Outcome.NoStatus;
+        if (!bareRight) failed++;
+        Console.WriteLine($"  {(bareRight ? "ok  " : "FAIL")}  a number and nothing else is still filed, not applied");
+
         /* ------------------------------------- at the site, by category */
 
         Console.WriteLine();

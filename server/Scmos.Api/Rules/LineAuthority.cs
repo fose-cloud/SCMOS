@@ -75,6 +75,12 @@ public static class LineAuthority
         /// <summary>A number and no status: nothing to apply.</summary>
         public const string NoStatus = "no-status";
 
+        /// <summary>
+        /// No status, but the truck's plate, driver or number for a job
+        /// that may take them — the answer to the morning reminder.
+        /// </summary>
+        public const string TruckDetails = "truck-details";
+
         /// <summary>Reported a stage this job's category does not have.</summary>
         public const string NotOnLadder = "not-on-ladder";
 
@@ -140,7 +146,9 @@ public static class LineAuthority
         /// truck, and a truck's rows go back months; only the ones around the
         /// day of the message can be the trip it is talking about.
         /// </summary>
-        bool PlateOnly = false)
+        bool PlateOnly = false,
+        /// <summary>Whether the message carries the truck's details, which a job without a status word may still take.</summary>
+        bool Details = false)
     {
         public static readonly Clue None = new("เลขงานนี้", null, [], "", null);
     }
@@ -169,7 +177,7 @@ public static class LineAuthority
         string Detail)
     {
         /// <summary>Whether this decision should change a job at all.</summary>
-        public bool Applies => Result == Outcome.Ok;
+        public bool Applies => Result is Outcome.Ok or Outcome.TruckDetails;
     }
 
     private static readonly string[] NoKeys = [];
@@ -437,7 +445,23 @@ public static class LineAuthority
         // Asked after the job is found, not before: which job it is, and whether
         // the speaker may touch it, are true regardless of what they said about
         // it.
+        if (string.IsNullOrWhiteSpace(status) && clue.Details) return Details(mine[0]);
         return Move(mine[0], status);
+    }
+
+    /// <summary>
+    /// A message with the truck's details and no status: the plate, the
+    /// driver, the number, for a job that is still open. What is written,
+    /// and into which empty cells, the approval decides from the message; this
+    /// says only that the job may take them.
+    /// </summary>
+    public static LineDecision Details(JobCandidate job)
+    {
+        var one_key = new[] { job.Key };
+        if (string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+            return new(Outcome.JobClosed, one_key, job.Status, "", $"งานนี้ปิดแล้ว ({job.Status})");
+        return new(Outcome.TruckDetails, one_key, job.Status, "", "รายละเอียดรถสำหรับงานนี้ — รอการอนุมัติ");
     }
 
     /// <summary>

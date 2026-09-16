@@ -100,6 +100,8 @@ public static class LineParserCheck
             "AKZO NOBEL // LC2606594 16/09/2026 -- 14:00 ถึงโรงงานที่โมงคะ @Vad", null, null, false, false),
         new("a booking alone is a reference, and with a report it goes to be matched",
             "AKZO NOBEL // LC2606594 ถึงโรงงาน 14:20", null, LineParser.SiteArrival, false, false),
+        new("the answer to the morning reminder: a job, a plate, a name, a number, and no status",
+            "260600800773 70-1234 สมชาย ใจดี 081-2345678", "260600800773", null, false, false),
 
         /* ---- delay classified through the register's own rules ---- */
         new("a truck problem is a truck problem",
@@ -202,9 +204,22 @@ public static class LineParserCheck
             ("a D-code and a delivery note are references",
                 LineParser.Parse("D15441000 / 6317309804 ลงเสร็จ", Received).References is ["D15441000", "6317309804"],
                 string.Join("/", LineParser.Parse("D15441000 / 6317309804 ลงเสร็จ", Received).References ?? [])),
-            ("a phone number is not a reference",
-                LineParser.Parse("โทร 081-2345678 ลงเสร็จ", Received).References?.Count == 0,
-                string.Join("/", LineParser.Parse("โทร 081-2345678 ลงเสร็จ", Received).References ?? [])),
+            ("a phone number is not a reference, with or without its dash",
+                LineParser.Parse("โทร 081-2345678 ลงเสร็จ", Received).References?.Count == 0
+                    && LineParser.Parse("260600800773 70-5678 สมชาย 0812345678", Received).References?.Count == 0,
+                string.Join("/", LineParser.Parse("260600800773 70-5678 สมชาย 0812345678", Received).References ?? [])),
+            ("the truck out of the reminder's answer: plate, name, number",
+                LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received) is { Plates: ["70-1234"], Driver: "สมชาย ใจดี", Phone: "081-2345678" },
+                $"{string.Join("/", LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received).Plates ?? [])} {LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received).Driver} {LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received).Phone}"),
+            ("the labels and the titles are not the name",
+                LineParser.Parse("LC2606594 ทะเบียน 70-1234 คนขับ นาย สมชาย ใจดี โทร 0812345678 ครับ", Received) is { Driver: "สมชาย ใจดี", Phone: "081-2345678" },
+                $"{LineParser.Parse("LC2606594 ทะเบียน 70-1234 คนขับ นาย สมชาย ใจดี โทร 0812345678 ครับ", Received).Driver} {LineParser.Parse("LC2606594 ทะเบียน 70-1234 คนขับ นาย สมชาย ใจดี โทร 0812345678 ครับ", Received).Phone}"),
+            ("a name with no plate and no number is not a truck",
+                LineParser.Parse("260600800773 สมชาย ใจดี", Received).Driver is null, "-"),
+            ("a status report with a plate reads the plate and no name out of the status words",
+                LineParser.Parse("260600800773 70-1234 ถึงลูกค้าแล้ว 10.25", Received) is { Driver: null, Plates: ["70-1234"], Status: "DELIVERED" }, "-"),
+            ("such a message is understood, and would be matched",
+                LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received) is { Warnings.Count: 0, HasDetails: true }, "-"),
         };
         foreach (var (why, ok, got) in reads)
         {
@@ -319,6 +334,51 @@ public static class LineParserCheck
             Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
             if (!ok) Console.WriteLine($"          valid [{string.Join(",", got.Valid)}] rejected [{string.Join(",", got.Rejected)}] note {got.Note}");
         }
+        Console.WriteLine();
+
+        /* ------------------------------------------ the morning reminder */
+
+        Console.WriteLine("The morning message names each open job the way the department asked, and only the jobs short of a truck.");
+        Console.WriteLine();
+        var day = new DateOnly(2026, 9, 16);
+        LineReminder.JobLine Line(string key, string cat, string status, string licence = "", string driver = "", string contact = "") =>
+            new(key, cat, status, "L'OREAL", "260600800773", "LC2606594", "TEMU5246902",
+                "โรงงานบางปะกง", "YUSEN W/H", "LCB A0", "14:00", licence, driver, contact, JobNo: "D15441000", Warehouse: "JWD", Province: "สมุทรปราการ 10130");
+        var composed = LineReminder.Compose("SHORE", day, [
+            Line("I1", "IMPORT", "READY"),
+            Line("E1", "EXPORT", "READY", licence: "70-1234"),
+            Line("D1", "DELIVERY", "READY", driver: "สมชาย"),
+            Line("F1", "IMPORT", "READY", "70-1234", "สมชาย ใจดี", "081-2345678"),
+            Line("C1", "IMPORT", "CANCELLED"),
+            Line("X1", "EXPORT", "COMPLETED"),
+        ]);
+        var whole = composed.Count == 1 ? composed[0] : "";
+        var reminder = new (string Why, bool Ok)[]
+        {
+            ("one message for a short day", composed.Count == 1),
+            ("the heading names the day and the haulier", whole.StartsWith("งานวันนี้ 16/09/2026 — SHORE", StringComparison.Ordinal)),
+            ("an import is named by job, container, customer and delivery place",
+                whole.Contains("Job 260600800773 · ตู้ TEMU5246902 · ลูกค้า L'OREAL · ส่งที่ โรงงานบางปะกง", StringComparison.Ordinal)),
+            ("an export by booking, job, container, customer, loading plant and the return yard",
+                whole.Contains("Booking LC2606594 · Job 260600800773 · ตู้ TEMU5246902 · ลูกค้า L'OREAL · โหลดที่ YUSEN W/H · คืนตู้ที่ LCB A0", StringComparison.Ordinal)),
+            ("a Domestic run by its own job number and warehouse", whole.Contains("Job D15441000 · คลัง JWD", StringComparison.Ordinal)),
+            ("each job says what it is short of", whole.Contains("ขาด: ทะเบียนรถ, ชื่อ-สกุลคนขับ, เบอร์ติดต่อ", StringComparison.Ordinal)
+                && whole.Contains("ขาด: ชื่อ-สกุลคนขับ, เบอร์ติดต่อ", StringComparison.Ordinal)),
+            ("a job with its truck is not asked about", !whole.Contains("F1", StringComparison.Ordinal) && whole.Split("ขาด:").Length == 4),
+            ("a cancelled or finished job is not asked about", !whole.Contains("CANCELLED", StringComparison.Ordinal)),
+            ("it says how to answer so the answer can be read", whole.Contains("ตอบในกลุ่มนี้", StringComparison.Ordinal)
+                && whole.Contains("260600800773 70-1234 สมชาย ใจดี 081-2345678", StringComparison.Ordinal)),
+            ("nothing missing, nothing sent", LineReminder.Compose("SHORE", day, [Line("F1", "IMPORT", "READY", "70-1234", "สมชาย", "081-2345678")]).Count == 0),
+            ("a long day is split into whole parts under LINE's limit",
+                LineReminder.Compose("SHORE", day, Enumerable.Range(1, 80).Select(i => Line($"I{i}", "IMPORT", "READY")).ToList()) is { Count: > 1 } parts
+                    && parts.All(part => part.Length <= 5000)),
+        };
+        foreach (var (why, ok) in reminder)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+        }
+        if (reminder.Any(r => !r.Ok)) Console.WriteLine(whole);
         Console.WriteLine();
 
         /* ------------------------------------------ the signature */

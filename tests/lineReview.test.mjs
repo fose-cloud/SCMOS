@@ -179,3 +179,8 @@ test("a photo's row says what was read, or what the photo showed", () => {
   assert.equal(photoLabel({ imageReading: "", imageNote: "a delivery note" }), "รูป · a delivery note");
   assert.equal(photoLabel({ imageReading: "", imageNote: "" }), "รูป");
 });
+
+test("the answer to the morning reminder reads as ready", () => {
+  assert.equal(describe("truck-details").tone, "ready");
+  assert.equal(isActionable("truck-details"), true);
+});

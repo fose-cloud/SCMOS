@@ -28,6 +28,8 @@ export type LinePending = {
   /** What approving writes: the status as this job's ladder names it, or the container. */
   to: string;
   arrival: { date: string; time: string };
+  /** The truck's details the message carries — "ทะเบียน 70-1234 · คนขับ สมชาย · เบอร์ 081-…" — or empty. */
+  details?: string;
   ready: boolean;
 };
 
@@ -62,6 +64,8 @@ export function pendingWrites(item: LinePending): string {
   const time = String(item.arrival?.time ?? "").trim();
   const date = String(item.arrival?.date ?? "").trim();
   if (time.length > 0) parts.push(`เวลาถึง ${time}${date ? " " + date : ""}`);
+  const details = String(item.details ?? "").trim();
+  if (details.length > 0) parts.push(details);
   return parts.join(" · ");
 }
 

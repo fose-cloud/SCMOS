@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
@@ -59,6 +59,14 @@ type Event = {
 
 /** What the API says about reading photos: on, or which setting is missing. */
 type PhotoState = { readImages: boolean; readImagesMessage: string };
+
+/** One haulier's room and what today's reminder would say to it. */
+type ReminderRoom = {
+  lineGroupId: string; groupName: string; supplier: string; jobs: number;
+  missing: { key: string; category: string; customer: string; jobCode: string; booking: string; container: string; gaps: string[] }[];
+  messages: string[]; sentAt: string | null; sentBy: string;
+};
+type Reminder = { date: string; remindAt: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[] };
 
 type Option = {
   key: string; cat: string; customer: string; container: string;
@@ -281,8 +289,135 @@ export function LineReview({
         )}
       </div>
 
+      <ReminderCard canSend={canMap} onToast={onToast} />
+
       <Groups groups={groups} canMap={canMap} onToast={onToast} prefill={bindGroupId}
         onSaved={() => { setBindGroupId(""); void loadGroups(); void loadEvents(); }} />
+    </div>
+  );
+}
+
+/**
+ * The morning reminder: which of today's jobs each haulier's room will be
+ * asked about, when it goes, and the button to send it now.
+ *
+ * Asked for on 16 Sep 2026 — the rooms are told at 08:00 which jobs still
+ * have no plate, driver or number, and answer in the room; the answer comes
+ * back through the same queue and onto the job.
+ */
+function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (message: string) => void }) {
+  const [reminder, setReminder] = useState<Reminder | null>(null);
+  const [shown, setShown] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const fetchReminder = useCallback(async (): Promise<Reminder | null> => {
+    const response = await apiFetch("/api/integrations/line/reminder", { headers: { accept: "application/json" } });
+    if (!response.ok) return null;
+    return await response.json().catch(() => null) as Reminder | null;
+  }, []);
+  const load = useCallback(async () => {
+    const body = await fetchReminder();
+    if (body) setReminder(body);
+  }, [fetchReminder]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const body = await fetchReminder();
+      if (!cancelled && body) setReminder(body);
+    })();
+    return () => { cancelled = true; };
+  }, [fetchReminder]);
+
+  const send = async (lineGroupId: string) => {
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/integrations/line/reminder", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lineGroupId }),
+      });
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      onToast(answer?.message ?? answer?.error ?? `ส่งไม่สำเร็จ (${response.status})`);
+      await load();
+    } catch (error) {
+      onToast("ส่งไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (reminder === null) return null;
+  const when = (iso: string | null) => iso ? new Date(iso).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit" }) : "";
+
+  return (
+    <div style={css(`${CARD};overflow:hidden`)}>
+      <div style={css("display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #E6EBF0;flex-wrap:wrap")}>
+        <span style={css(LABEL)}>แจ้งเตือนงานวันนี้ {reminder.date}</span>
+        <span style={css("font-size:12px;color:#475569")}>
+          {reminder.remindAt ? `ส่งอัตโนมัติ ${reminder.remindAt} น.` : "ไม่มีกำหนดส่งอัตโนมัติ"}
+          {!reminder.canPush && reminder.pushMessage && <span style={css("color:#B45309")}> · {reminder.pushMessage}</span>}
+        </span>
+        {canSend && reminder.canPush && reminder.rooms.some((room) => room.jobs > 0) && (
+          <button disabled={busy} onClick={() => void send("")}
+            style={css(`${BUTTON};border-color:#0A2240;background:#0A2240;color:#fff;margin-left:auto`)}>
+            ส่งทุกกลุ่มตอนนี้
+          </button>
+        )}
+      </div>
+      {reminder.rooms.length === 0 ? (
+        <div style={css("padding:16px;font-size:12.5px;color:#94A3B8")}>ยังไม่มีกลุ่มที่ผูกกับผู้ขนส่ง</div>
+      ) : (
+        <ZoomBox capped={false} zoomable={false}>
+        <table style={css("width:100%;border-collapse:collapse")}>
+          <thead>
+            <tr>
+              <th style={css(HEAD)}>กลุ่ม</th>
+              <th style={css(HEAD)}>ผู้ขนส่ง</th>
+              <th style={css(HEAD)}>งานวันนี้ที่ขาดข้อมูลรถ</th>
+              <th style={css(HEAD)}>ส่งล่าสุดวันนี้</th>
+              <th style={css(HEAD)}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {reminder.rooms.map((room) => (
+              <Fragment key={room.lineGroupId}>
+                <tr>
+                  <td style={css(`${CELL};white-space:nowrap`)}>{room.groupName}</td>
+                  <td style={css(CELL)}>{room.supplier}</td>
+                  <td style={css(`${CELL};font-variant-numeric:tabular-nums`)}>
+                    {room.jobs}
+                    {room.jobs > 0 && (
+                      <button onClick={() => setShown(shown === room.lineGroupId ? null : room.lineGroupId)}
+                        style={css("margin-left:8px;border:1px solid #D3DBE3;background:#fff;color:#465A6E;border-radius:3px;padding:1px 8px;font-size:11px;font-family:inherit;cursor:pointer")}>
+                        {shown === room.lineGroupId ? "ซ่อนข้อความ" : "ดูข้อความ"}
+                      </button>
+                    )}
+                  </td>
+                  <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>{room.sentAt ? `${when(room.sentAt)} · ${room.sentBy}` : "—"}</td>
+                  <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
+                    {canSend && reminder.canPush && room.jobs > 0 && (
+                      <button disabled={busy} onClick={() => void send(room.lineGroupId)}
+                        style={css(`${BUTTON};border-color:#0A2240;background:#fff;color:#0A2240`)}>
+                        {room.sentAt ? "ส่งอีกครั้ง" : "ส่งตอนนี้"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {shown === room.lineGroupId && (
+                  <tr>
+                    <td colSpan={5} style={css("padding:0 12px 12px;border-bottom:1px solid #E6EBF0;background:#F8FAFC")}>
+                      {room.messages.map((text, i) => (
+                        <pre key={i} style={css("margin:8px 0 0;white-space:pre-wrap;font-family:inherit;font-size:12px;color:#334155;background:#fff;border:1px solid #E2E8F0;border-radius:4px;padding:10px 12px")}>{text}</pre>
+                      ))}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+        </ZoomBox>
+      )}
     </div>
   );
 }
@@ -556,7 +691,8 @@ function Detail({
                         <button disabled={busy}
                           onClick={() => onAct("apply", { jobKey: one.key, reason })}
                           style={css(`${BUTTON};border-color:#16A34A;background:#16A34A;color:#fff`)}>
-                          {options.kind === "image" ? `บันทึกเลขตู้ → ${one.move.to || options.to}` : `อนุมัติ → ${one.move.to || options.to}`}
+                          {options.kind === "image" ? `บันทึกเลขตู้ → ${one.move.to || options.to}`
+                            : (one.move.to || options.to) ? `อนุมัติ → ${one.move.to || options.to}` : "อนุมัติ"}
                         </button>
                       ) : (
                         <span style={css("font-size:11.5px;color:#94A3B8")}>อนุมัติได้เฉพาะเจ้าของงาน</span>
