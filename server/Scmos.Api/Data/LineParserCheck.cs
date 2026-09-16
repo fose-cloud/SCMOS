@@ -250,6 +250,52 @@ public static class LineParserCheck
         }
         Console.WriteLine();
 
+        /* ------------------------------------------ a photographed box */
+
+        Console.WriteLine("A container number read off a photo is trusted only when its check digit agrees.");
+        Console.WriteLine();
+        var digits = new (string Why, bool Want, bool Got)[]
+        {
+            // The ISO 6346 worked example, and six real boxes off the register.
+            ("the standard's own example", true, ContainerNumbers.IsValid("CSQU3054383")),
+            ("a real box: TEMU5246902", true, ContainerNumbers.IsValid("TEMU5246902")),
+            ("a real box: FSCU5037629", true, ContainerNumbers.IsValid("FSCU5037629")),
+            ("a real box: SEKU9220400 — a check digit of ten is written 0", true, ContainerNumbers.IsValid("SEKU9220400")),
+            ("a real box: GNCU8801516", true, ContainerNumbers.IsValid("GNCU8801516")),
+            ("one digit misread fails", false, ContainerNumbers.IsValid("TEMU5246903")),
+            ("two digits swapped fail", false, ContainerNumbers.IsValid("TEMU5264902")),
+            ("a letter misread fails", false, ContainerNumbers.IsValid("TEMV5246902")),
+            ("the haulier's typed TEMU7592765 does not pass — and is only noted, never refused", false, ContainerNumbers.IsValid("TEMU7592765")),
+            ("a seal number is not shaped like a box", false, ContainerNumbers.IsValid("SEAL1234567")),
+            ("lower case with a space is normalised first", true, ContainerNumbers.IsValid(ContainerNumbers.Normalise("temu 524690-2"))),
+        };
+        foreach (var (why, want, got) in digits)
+        {
+            var ok = got == want;
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+        }
+
+        var answers = new (string Why, string Answer, string[] Valid, string[] Rejected)[]
+        {
+            ("a clean reading", "{\"containers\":[\"TEMU5246902\"],\"note\":\"a 40ft box on a trailer\"}", ["TEMU5246902"], []),
+            ("a misread is kept aside, not offered", "{\"containers\":[\"TEMU5246903\"],\"note\":\"\"}", [], ["TEMU5246903"]),
+            ("the same box read twice is one box", "{\"containers\":[\"TEMU5246902\",\"temu 5246902\"],\"note\":\"\"}", ["TEMU5246902"], []),
+            ("two boxes in one photo are two", "{\"containers\":[\"TEMU5246902\",\"FSCU5037629\"],\"note\":\"\"}", ["TEMU5246902", "FSCU5037629"], []),
+            ("no box in the photo", "{\"containers\":[],\"note\":\"a delivery note\"}", [], []),
+            ("an answer that is not JSON reads as nothing, and does not throw", "not json", [], []),
+            ("an empty answer likewise", "", [], []),
+        };
+        foreach (var (why, answer, valid, rejected) in answers)
+        {
+            var got = LineImageReading.Read(answer);
+            var ok = got.Valid.SequenceEqual(valid) && got.Rejected.SequenceEqual(rejected);
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          valid [{string.Join(",", got.Valid)}] rejected [{string.Join(",", got.Rejected)}] note {got.Note}");
+        }
+        Console.WriteLine();
+
         /* ------------------------------------------ the signature */
 
         Console.WriteLine("Proving a delivery came from LINE.");

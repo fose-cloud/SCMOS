@@ -229,6 +229,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.Confidence).HasColumnName("confidence").HasDefaultValue(0d);
             entry.Property(e => e.MatchedRules).HasColumnName("matched_rules").HasMaxLength(500).HasDefaultValue("");
             entry.Property(e => e.Warnings).HasColumnName("warnings").HasMaxLength(500).HasDefaultValue("");
+            entry.Property(e => e.ImageKey).HasColumnName("image_key").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.ImageReading).HasColumnName("image_reading").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.ImageNote).HasColumnName("image_note").HasMaxLength(500).HasDefaultValue("");
 
             // Idempotency, enforced by the database rather than by a check the
             // worker might skip. LINE retries a webhook it did not get a fast

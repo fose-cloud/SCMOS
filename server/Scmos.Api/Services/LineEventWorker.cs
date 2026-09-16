@@ -36,6 +36,15 @@ namespace Scmos.Api.Services;
 public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker> log)
     : BackgroundService
 {
+    /// <summary>A photo with no container in it: filed, not queued. A driver's selfie is not for review.</summary>
+    public const string NoContainerInPhoto = "no-container-in-photo";
+
+    /// <summary>The model offered numbers and none passed the check digit: a person looks at the photo.</summary>
+    public const string ContainerCheckDigit = "container-check-digit";
+
+    /// <summary>The photo could not be fetched or read at all; the note says why.</summary>
+    public const string ImageFailed = "image-failed";
+
     /// <summary>
     /// How often it looks for work.
     ///
@@ -154,6 +163,12 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         var row = await db.LineEvents.FirstOrDefaultAsync(one => one.Id == id, stopping);
         if (row is null) return;
 
+        if (row.MessageType == "image")
+        {
+            await ProcessImageAsync(db, row, stopping);
+            return;
+        }
+
         var read = LineParser.Parse(row.RawText, row.ReceivedAt);
 
         row.JobNumber = read.JobNumber ?? "";
@@ -223,6 +238,101 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         log.LogInformation(
             "LINE message {Id}: job {Job} -> {Outcome} (key {Key}, {From} to {To})",
             id, row.JobNumber, row.ErrorCode, row.JobKey, decision.From, decision.To);
+    }
+
+    /// <summary>
+    /// A photograph: read for its container number, then matched to the job
+    /// waiting for one.
+    ///
+    /// The reading is kept on the row the first time it is made, so a retry
+    /// after a database fault does not pay for the model twice, and so what
+    /// the model said survives whatever the rule then decides.
+    /// </summary>
+    private async Task ProcessImageAsync(ScmosDbContext db, LineEvent row, CancellationToken stopping)
+    {
+        using var scope = services.CreateScope();
+        var reader = scope.ServiceProvider.GetRequiredService<ILineImageReader>();
+
+        if (row.ImageReading.Length == 0 && row.ImageNote.Length == 0)
+        {
+            var result = await reader.ReadAsync(row, stopping);
+            row.ImageKey = result.ImageKey.Length > 0 ? result.ImageKey : row.ImageKey;
+            row.ImageReading = string.Join(", ", result.Reading.Valid);
+            row.ImageNote = result.Failure.Length > 0
+                ? result.Failure
+                : Note(result.Reading);
+            row.MatchedRules = string.Join(", ", result.Reading.Valid.Select(one => $"container:{one}"));
+            row.Warnings = result.Reading.Rejected.Count > 0 ? "container-check-digit" : "";
+            row.ProcessedAt = DateTimeOffset.UtcNow;
+
+            if (result.Failure.Length > 0)
+            {
+                row.ProcessingStatus = LineProcessing.NeedReview;
+                row.ErrorCode = ImageFailed;
+                row.ErrorMessage = result.Failure;
+                await db.SaveChangesAsync(stopping);
+                log.LogWarning("LINE photo {Id} could not be read: {Why}", row.Id, result.Failure);
+                return;
+            }
+        }
+
+        var numbers = row.ImageReading.Split(", ", StringSplitOptions.RemoveEmptyEntries);
+        row.ProcessedAt = DateTimeOffset.UtcNow;
+
+        if (numbers.Length == 0)
+        {
+            // A misread — the model saw a number and none passed the check
+            // digit — is worth a person's look at the photo. A photo with no
+            // number in it is not.
+            var misread = row.Warnings.Contains(ContainerCheckDigit, StringComparison.Ordinal);
+            row.ProcessingStatus = misread ? LineProcessing.NeedReview : LineProcessing.Ignored;
+            row.ErrorCode = misread ? ContainerCheckDigit : NoContainerInPhoto;
+            row.ErrorMessage = row.ImageNote;
+            await db.SaveChangesAsync(stopping);
+            log.LogInformation("LINE photo {Id}: {Outcome}", row.Id, row.ErrorCode);
+            return;
+        }
+
+        if (numbers.Length > 1)
+        {
+            row.ProcessingStatus = LineProcessing.NeedReview;
+            row.ErrorCode = "many-containers";
+            row.ErrorMessage = $"อ่านได้ {numbers.Length} ตู้: {row.ImageReading}";
+            await db.SaveChangesAsync(stopping);
+            return;
+        }
+
+        var decision = await LineMatching.DecideContainerAsync(
+            db, row.LineGroupId, numbers[0], row.ReceivedAt, stopping);
+        row.JobKey = decision.Keys.Count == 1 ? decision.Keys[0] : "";
+        row.ErrorMessage = decision.Keys.Count > 1
+            ? $"{decision.Detail} ({string.Join(", ", decision.Keys)})"
+            : decision.Detail;
+
+        if (decision.Result == LineAuthority.Outcome.AlreadyThere)
+        {
+            row.ProcessingStatus = LineProcessing.Ignored;
+            row.ErrorCode = decision.Result;
+            await db.SaveChangesAsync(stopping);
+            log.LogInformation("LINE photo {Id}: {Container} is already on {Key}", row.Id, numbers[0], row.JobKey);
+            return;
+        }
+
+        // As for a text message: even a clean match waits for a person.
+        row.ProcessingStatus = LineProcessing.NeedReview;
+        row.ErrorCode = decision.Applies ? "ready-to-apply" : decision.Result;
+        await db.SaveChangesAsync(stopping);
+        log.LogInformation("LINE photo {Id}: {Container} -> {Outcome} (key {Key})",
+            row.Id, numbers[0], row.ErrorCode, row.JobKey);
+    }
+
+    /// <summary>The row's note: the model's sentence, and the numbers it offered that failed the check.</summary>
+    private static string Note(LineImageReading.Reading reading)
+    {
+        var note = reading.Note;
+        if (reading.Rejected.Count > 0)
+            note = $"{note} — เลขที่อ่านได้แต่ check digit ไม่ผ่าน: {string.Join(", ", reading.Rejected)}".Trim(' ', '—');
+        return note.Length > 500 ? note[..500] : note;
     }
 
     /// <summary>

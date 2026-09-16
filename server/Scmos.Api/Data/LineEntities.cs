@@ -207,6 +207,25 @@ public class LineEvent
     /// <summary>Which rules fired, and what gave the parser pause. Comma separated.</summary>
     public string MatchedRules { get; set; } = "";
     public string Warnings { get; set; } = "";
+
+    /* ---- a photograph, read by the model — since v2.7.22 ---- */
+
+    /// <summary>Where the photo was kept in the files container, or empty when it was not.</summary>
+    public string ImageKey { get; set; } = "";
+
+    /// <summary>
+    /// The container numbers the model read that passed the check digit,
+    /// comma separated. Empty when none did — and then <see cref="ImageNote"/>
+    /// says what the photo showed instead.
+    /// </summary>
+    public string ImageReading { get; set; } = "";
+
+    /// <summary>
+    /// The model's one sentence on the photo, the numbers it offered that
+    /// failed the check digit, or why the photo could not be read at all.
+    /// Kept so a reviewer can disagree with the reading by looking.
+    /// </summary>
+    public string ImageNote { get; set; } = "";
 }
 
 /// <summary>Where a stored event has got to.</summary>

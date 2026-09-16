@@ -5,7 +5,7 @@ import { apiFetch } from "../api";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
 import {
-  confidenceLabel, describe, isActionable, palette, referenceLabel, statusLabel, summarise, whenLabel,
+  confidenceLabel, describe, isActionable, palette, photoLabel, referenceLabel, statusLabel, summarise, whenLabel,
 } from "../lineReview";
 
 /**
@@ -50,7 +50,15 @@ type Event = {
   jobKey: string;
   retryCount: number;
   group: string;
+  /** "text" or "image". A photo carries what the model read instead of a text. */
+  messageType: string;
+  imageReading: string;
+  imageNote: string;
+  hasImage: boolean;
 };
+
+/** What the API says about reading photos: on, or which setting is missing. */
+type PhotoState = { readImages: boolean; readImagesMessage: string };
 
 type Option = {
   key: string; cat: string; customer: string; container: string;
@@ -65,6 +73,11 @@ type Options = {
   from: string; to: string; options: Option[]; stored: string;
   reference: { jobNumber: string; container: string; plates: string[] };
   arrival: { date: string; time: string };
+  /** "image" when approving writes a container number rather than a status. */
+  kind?: string;
+  imageReading?: string;
+  imageNote?: string;
+  hasImage?: boolean;
 };
 
 type Group = {
@@ -98,6 +111,18 @@ export function LineReview({
   const [busy, setBusy] = useState(false);
   /** A room an operator picked out of the queue to bind — the form opens on it. */
   const [bindGroupId, setBindGroupId] = useState("");
+  const [photos, setPhotos] = useState<PhotoState | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await apiFetch("/api/integrations/line/status", { headers: { accept: "application/json" } });
+      if (!response.ok) return;
+      const body = await response.json().catch(() => null) as PhotoState | null;
+      if (!cancelled && body) setPhotos({ readImages: !!body.readImages, readImagesMessage: String(body.readImagesMessage ?? "") });
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   /*
    * Fetch and store are kept apart.
@@ -202,7 +227,7 @@ export function LineReview({
 
   return (
     <div style={css("display:grid;gap:14px")}>
-      <Summary bands={bands} total={events?.length ?? 0} unmapped={unmapped} />
+      <Summary bands={bands} total={events?.length ?? 0} unmapped={unmapped} photos={photos} />
 
       <div style={css(`${CARD};overflow:hidden`)}>
         <div style={css("display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #E6EBF0;flex-wrap:wrap")}>
@@ -266,8 +291,8 @@ export function LineReview({
  * haulier fail, and it is fixed in the panel directly below.
  */
 function Summary({
-  bands, total, unmapped,
-}: { bands: ReturnType<typeof summarise>; total: number; unmapped: number }) {
+  bands, total, unmapped, photos,
+}: { bands: ReturnType<typeof summarise>; total: number; unmapped: number; photos: PhotoState | null }) {
   return (
     <div style={css("display:grid;gap:8px")}>
       <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>
@@ -289,6 +314,17 @@ function Summary({
           <div style={css(`${CARD};padding:8px 14px;min-width:96px`)}>
             <div style={css("font-size:19px;font-weight:600;color:#334155;line-height:1.2")}>{total}</div>
             <div style={css("font-size:11px;color:#7B8CA0")}>ทั้งหมดที่แสดง</div>
+          </div>
+        )}
+        {photos && (
+          // Whether a driver's photo is read for its container number. The
+          // figure is the switch; the line under it names the setting that
+          // is missing when it is off.
+          <div style={css(`${CARD};padding:8px 14px;min-width:120px;max-width:300px`)}>
+            <div style={css(`font-size:19px;font-weight:600;line-height:1.2;color:${photos.readImages ? "#15803D" : "#7B8CA0"}`)}>
+              {photos.readImages ? "เปิด" : "ปิด"}
+            </div>
+            <div style={css("font-size:11px;color:#7B8CA0")}>อ่านเลขตู้จากรูป · {photos.readImagesMessage}</div>
           </div>
         )}
       </div>
@@ -340,10 +376,17 @@ function Row({
             </span>
           )}
         </td>
-        <td style={css(`${CELL};max-width:280px`)}>{event.rawText}</td>
+        <td style={css(`${CELL};max-width:280px`)}>
+          {event.messageType === "image" ? (
+            <span style={css("display:flex;gap:8px;align-items:flex-start")}>
+              {event.hasImage && <Photo id={event.id} size={56} />}
+              <span>{photoLabel(event)}</span>
+            </span>
+          ) : event.rawText}
+        </td>
         <td style={css(`${CELL};white-space:nowrap;font-variant-numeric:tabular-nums`)}>{referenceLabel(event) || "—"}</td>
         <td style={css(`${CELL};white-space:nowrap`)}>
-          {statusLabel(event.parsedStatus) || "—"}
+          {event.messageType === "image" ? "เลขตู้จากรูป" : statusLabel(event.parsedStatus) || "—"}
           {confidenceLabel(event.confidence) && (
             <span style={css("color:#94A3B8;margin-left:6px")}>{confidenceLabel(event.confidence)}</span>
           )}
@@ -373,6 +416,42 @@ function Row({
         </tr>
       )}
     </>
+  );
+}
+
+/**
+ * A driver's photo, fetched through the API — the files container is
+ * private, and an <img src> cannot carry the sign-in the API insists on
+ * locally — and shown at the size the cell allows. Says so, quietly, when
+ * the photo is not there any more.
+ */
+function Photo({ id, size }: { id: number; size: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [gone, setGone] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let made: string | null = null;
+    (async () => {
+      const response = await apiFetch(`/api/integrations/line/events/${id}/image`);
+      if (!response.ok) { if (!cancelled) setGone(true); return; }
+      const blob = await response.blob();
+      made = URL.createObjectURL(blob);
+      if (!cancelled) setUrl(made);
+    })();
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [id]);
+
+  if (gone) return <span style={css("font-size:11px;color:#94A3B8")}>ไม่มีรูป</span>;
+  if (!url) return <span style={css(`display:inline-block;width:${size}px;height:${Math.round(size * 0.75)}px;background:#F1F5F9;border-radius:3px`)} />;
+  return (
+    // A blob URL made a moment ago; next/image has nothing to optimise here.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt="รูปที่ส่งมาในกลุ่ม LINE"
+      style={css(`max-width:${size}px;max-height:${size}px;border-radius:3px;border:1px solid #E2E8F0;object-fit:contain;background:#F8FAFC`)} />
   );
 }
 
@@ -411,12 +490,26 @@ function Detail({
         </div>
       )}
 
+      {options.kind === "image" && (
+        // The photo itself, beside what was read off it: the reviewer's
+        // eyes are the check the model does not have.
+        <div style={css("display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap")}>
+          {options.hasImage ? <Photo id={event.id} size={300} /> : (
+            <div style={css("font-size:12px;color:#94A3B8")}>ไม่ได้เก็บรูปไว้ (ยังไม่ได้ตั้งค่าที่เก็บไฟล์)</div>
+          )}
+          <div style={css("font-size:12.5px;color:#334155;display:grid;gap:4px")}>
+            <div>เลขตู้ที่อ่านได้: <strong style={css("font-family:ui-monospace,monospace")}>{options.imageReading || "—"}</strong></div>
+            {options.imageNote && <div style={css("color:#64748B")}>{options.imageNote}</div>}
+          </div>
+        </div>
+      )}
+
       <div style={css(`border:1px solid ${skin.line};background:${skin.fill};border-radius:4px;padding:9px 12px`)}>
         <div style={css(`font-size:12.5px;color:${skin.ink};font-weight:600`)}>{now.label}</div>
         {options.detail && <div style={css("font-size:12px;color:#475569;margin-top:2px")}>{options.detail}</div>}
         {options.canApply && (
           <div style={css("font-size:12px;color:#475569;margin-top:2px")}>
-            {options.from} → <strong>{options.to}</strong>
+            {options.kind === "image" ? <>บันทึกเลขตู้ <strong>{options.to}</strong></> : <>{options.from} → <strong>{options.to}</strong></>}
           </div>
         )}
         {options.arrival?.time && (
@@ -459,7 +552,7 @@ function Detail({
                         <button disabled={busy}
                           onClick={() => onAct("apply", { jobKey: one.key, reason })}
                           style={css(`${BUTTON};border-color:#16A34A;background:#16A34A;color:#fff`)}>
-                          อนุมัติ → {one.move.to || options.to}
+                          {options.kind === "image" ? `บันทึกเลขตู้ → ${one.move.to || options.to}` : `อนุมัติ → ${one.move.to || options.to}`}
                         </button>
                       ) : (
                         <span style={css("font-size:11.5px;color:#94A3B8")}>ไม่มีสิทธิ์อนุมัติ</span>

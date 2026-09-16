@@ -132,6 +132,10 @@ builder.Services.AddScoped<RoutingService>();
 builder.Services.AddScoped<SignInAccountService>();
 builder.Services.AddSingleton<IFileStore, BlobFileStore>();
 builder.Services.AddSingleton<IDocumentExtractor, DocumentExtractor>();
+// A driver's photo of a box door, read for its container number — off unless
+// Line__ReadImages says otherwise, because every photo is a model call.
+builder.Services.AddHttpClient(LineImageReader.ClientName);
+builder.Services.AddSingleton<ILineImageReader, LineImageReader>();
 
 // Only when there is somewhere to send it. Registering the exporter without a
 // connection string throws during host start, which would take the whole API

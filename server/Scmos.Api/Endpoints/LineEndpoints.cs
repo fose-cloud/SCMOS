@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
+using Scmos.Api.Services;
 
 namespace Scmos.Api.Endpoints;
 
@@ -42,7 +43,7 @@ public static class LineEndpoints
          * switched on and whether a secret is configured — never the secret,
          * and never any part of it.
          */
-        group.MapGet("/status", (IConfiguration config) =>
+        group.MapGet("/status", (IConfiguration config, ILineImageReader photos) =>
         {
             var enabled = config.GetValue(EnabledKey, false);
             var configured = !string.IsNullOrWhiteSpace(config[SecretKey]);
@@ -50,6 +51,10 @@ public static class LineEndpoints
             {
                 enabled,
                 configured,
+                // Whether a driver's photo is read for its container number,
+                // and if not, which setting is missing — by name only.
+                readImages = photos.Configured,
+                readImagesMessage = photos.Configured ? "อ่านเลขตู้จากรูปในกลุ่มได้" : photos.Missing,
                 webhook = "/api/integrations/line/webhook",
                 message = !enabled ? "ปิดใช้งานอยู่ — ตั้ง Line__Enabled เป็น true เมื่อพร้อม"
                     : configured ? "พร้อมรับข้อความจาก LINE"
@@ -97,7 +102,11 @@ public static class LineEndpoints
             var stored = 0;
             var duplicates = 0;
 
-            foreach (var one in Events(body, log))
+            // Photos are kept only when somebody will read them. Off, they
+            // would fill the table with rows no worker looks at.
+            var photos = config.GetValue(LineImageReader.ReadImagesKey, false);
+
+            foreach (var one in Events(body, log, photos))
             {
                 // The unique index on line_message_id is the real guard, and it
                 // is checked here as well only to keep the common retry off the
@@ -142,12 +151,13 @@ public static class LineEndpoints
     }
 
     /// <summary>
-    /// The text messages in a webhook body, as rows ready to store.
+    /// The text messages in a webhook body — and, when photos are being read,
+    /// the image messages — as rows ready to store.
     ///
     /// <para>
-    /// Everything that is not a text message is dropped here rather than stored
-    /// and ignored: stickers, images, joins and leaves arrive in the same
-    /// deliveries and would fill the table with rows no worker will ever read.
+    /// Everything else is dropped here rather than stored and ignored:
+    /// stickers, videos, joins and leaves arrive in the same deliveries and
+    /// would fill the table with rows no worker will ever read.
     /// </para>
     ///
     /// <para>
@@ -157,7 +167,7 @@ public static class LineEndpoints
     /// anybody finds out.
     /// </para>
     /// </summary>
-    private static List<LineEvent> Events(string body, ILogger log)
+    private static List<LineEvent> Events(string body, ILogger log, bool photos = false)
     {
         var rows = new List<LineEvent>();
         JsonElement root;
@@ -179,7 +189,8 @@ public static class LineEndpoints
             var type = Text(one, "type");
             if (type != "message") continue;
             if (!one.TryGetProperty("message", out var message)) continue;
-            if (Text(message, "type") != "text") continue;
+            var messageType = Text(message, "type");
+            if (messageType != "text" && !(photos && messageType == "image")) continue;
 
             var messageId = Text(message, "id");
             if (messageId.Length == 0) continue;
@@ -191,8 +202,9 @@ public static class LineEndpoints
                 LineMessageId = messageId,
                 LineGroupId = source.ValueKind == JsonValueKind.Object ? Text(source, "groupId") : "",
                 LineUserId = source.ValueKind == JsonValueKind.Object ? Text(source, "userId") : "",
-                MessageType = "text",
-                RawText = Text(message, "text"),
+                MessageType = messageType,
+                // A photo has no text; what the model reads goes in ImageReading.
+                RawText = messageType == "text" ? Text(message, "text") : "",
                 // The whole event, not the whole body: one row is one message,
                 // and a body carrying five would otherwise store the other four
                 // five times over.

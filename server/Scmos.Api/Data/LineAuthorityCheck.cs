@@ -327,6 +327,51 @@ public static class LineAuthorityCheck
         if (!plain) failed++;
         Console.WriteLine($"  {(plain ? "ok  " : "FAIL")}  every other status is its own");
 
+        /* ------------------------------ a photographed container */
+
+        Console.WriteLine();
+        Console.WriteLine("A photographed box goes into the haulier's job that is waiting for one.");
+        Console.WriteLine();
+        var waiting = Job("W1", "SHORE", "READY", "EXPORT", customer: "L'OREAL", workDate: "16/09/2026");
+        var waiting2 = Job("W2", "SHORE", "READY", "EXPORT", customer: "HENKEL BPK", workDate: "16/09/2026");
+        var filled = Job("F1", "SHORE", "IN_TRANSIT", "EXPORT", customer: "L'OREAL", workDate: "16/09/2026", container: "FSCU5037629");
+        var same = Job("S1", "SHORE", "IN_TRANSIT", "EXPORT", customer: "L'OREAL", workDate: "16/09/2026", container: "TEMU5246902");
+        var done = Job("D1", "SHORE", "COMPLETED", "EXPORT", customer: "L'OREAL", workDate: "16/09/2026");
+        var theirs = Job("T1", "SANGJA", "READY", "EXPORT", customer: "L'OREAL", workDate: "16/09/2026");
+
+        var photos = new (string Why, LineAuthority.LineDecision Got, string Want, string? Key)[]
+        {
+            ("one job waiting for a number takes it",
+                LineAuthority.DecideContainer(Vendor("SHORE"), "TEMU5246902", [waiting, filled]), LineAuthority.Outcome.Ok, "W1"),
+            ("two jobs waiting is a choice",
+                LineAuthority.DecideContainer(Vendor("SHORE"), "TEMU5246902", [waiting, waiting2]), LineAuthority.Outcome.ManyJobs, null),
+            ("a job that already carries the number is agreement, not a change",
+                LineAuthority.DecideContainer(Vendor("SHORE"), "TEMU5246902", [waiting, same]), LineAuthority.Outcome.AlreadyThere, "S1"),
+            ("a job with a different number keyed is never offered",
+                LineAuthority.DecideContainer(Vendor("SHORE"), "TEMU5246902", [filled]), LineAuthority.Outcome.NoOpenJob, null),
+            ("a finished job is not reopened for a photo",
+                LineAuthority.DecideContainer(Vendor("SHORE"), "TEMU5246902", [done]), LineAuthority.Outcome.NoOpenJob, null),
+            ("another haulier's waiting job is not this haulier's",
+                LineAuthority.DecideContainer(Vendor("SHORE"), "TEMU5246902", [theirs]), LineAuthority.Outcome.NoOpenJob, null),
+            ("an unmapped room writes nothing",
+                LineAuthority.DecideContainer(new(Known: false, Active: true, LineGroupType.Vendor, ""), "TEMU5246902", [waiting]),
+                LineAuthority.Outcome.UnknownGroup, null),
+            ("a customer's room writes nothing",
+                LineAuthority.DecideContainer(new(Known: true, Active: true, LineGroupType.Customer, "SHORE"), "TEMU5246902", [waiting]),
+                LineAuthority.Outcome.GroupNotVendor, null),
+        };
+        foreach (var (why, got, want, key) in photos)
+        {
+            var ok = got.Result == want && (key is null || (got.Keys.Count == 1 && got.Keys[0] == key));
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          want {want} {key ?? ""}, got {got.Result} [{string.Join(", ", got.Keys)}] {got.Detail}");
+        }
+        var written = LineAuthority.DecideContainer(Vendor("SHORE"), "TEMU5246902", [waiting]);
+        var carries = written.Applies && written.To == "TEMU5246902" && written.From == "";
+        if (!carries) failed++;
+        Console.WriteLine($"  {(carries ? "ok  " : "FAIL")}  the decision carries the number to write and nothing to move from");
+
         /* ------------------------------- the two ways in must agree */
 
         Console.WriteLine();

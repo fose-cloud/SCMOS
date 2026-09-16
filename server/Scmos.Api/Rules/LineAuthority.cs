@@ -64,6 +64,12 @@ public static class LineAuthority
         /// <summary>Several of the speaker's own rows carry it. A person chooses.</summary>
         public const string ManyJobs = "many-jobs";
 
+        /// <summary>
+        /// A photographed container, and none of the speaker's rows around
+        /// that day is waiting for one. Nothing to write it into.
+        /// </summary>
+        public const string NoOpenJob = "no-open-job";
+
         /* ---- the move ---- */
 
         /// <summary>A number and no status: nothing to apply.</summary>
@@ -361,21 +367,7 @@ public static class LineAuthority
     {
         /* ------------------------------------------------- the speaker */
 
-        if (!group.Known)
-            return new(Outcome.UnknownGroup, NoKeys, "", "",
-                "ยังไม่ได้ผูกกลุ่ม LINE นี้กับผู้ให้บริการขนส่ง");
-
-        if (!group.Active)
-            return new(Outcome.GroupInactive, NoKeys, "", "",
-                "กลุ่ม LINE นี้ถูกปิดการใช้งานแล้ว");
-
-        // LineGroupType, not a copy of its four words. Every rule written
-        // twice in this repo has ended up disagreeing with itself, and
-        // ScorecardColumn already reaches into Data for the same reason: a
-        // shared vocabulary is worth the reference.
-        if (!string.Equals(group.GroupType, LineGroupType.Vendor, StringComparison.OrdinalIgnoreCase))
-            return new(Outcome.GroupNotVendor, NoKeys, "", "",
-                $"กลุ่มประเภท {group.GroupType} ไม่มีสิทธิ์อัปเดตสถานะงาน");
+        if (RefuseSpeaker(group) is { } refused) return refused;
 
         /* ----------------------------------------------------- the job */
 
@@ -457,6 +449,83 @@ public static class LineAuthority
     /// having to invent a speaker to ask it through.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The speaker's standing, asked before anything about a job: a room
+    /// nobody has mapped, a room switched off, a room that is not a vendor's.
+    /// Null when the speaker may go on.
+    /// </summary>
+    private static LineDecision? RefuseSpeaker(SpeakerGroup group)
+    {
+        if (!group.Known)
+            return new(Outcome.UnknownGroup, NoKeys, "", "",
+                "ยังไม่ได้ผูกกลุ่ม LINE นี้กับผู้ให้บริการขนส่ง");
+
+        if (!group.Active)
+            return new(Outcome.GroupInactive, NoKeys, "", "",
+                "กลุ่ม LINE นี้ถูกปิดการใช้งานแล้ว");
+
+        // LineGroupType, not a copy of its four words. Every rule written
+        // twice in this repo has ended up disagreeing with itself, and
+        // ScorecardColumn already reaches into Data for the same reason: a
+        // shared vocabulary is worth the reference.
+        if (!string.Equals(group.GroupType, LineGroupType.Vendor, StringComparison.OrdinalIgnoreCase))
+            return new(Outcome.GroupNotVendor, NoKeys, "", "",
+                $"กลุ่มประเภท {group.GroupType} ไม่มีสิทธิ์อัปเดตสถานะงาน");
+
+        return null;
+    }
+
+    /// <summary>
+    /// A container read off a photograph, against the haulier's rows around
+    /// the day it was posted.
+    ///
+    /// <para>
+    /// A photo of a box door says which container a truck is carrying and
+    /// nothing about which job — so the job is the one of this haulier's, on
+    /// or about that day, that is still waiting for its container number.
+    /// One such row and the number can be written into it (once a person
+    /// approves); several and the person chooses; a row that already carries
+    /// the number is agreement, not a change; none and there is nothing to
+    /// write it into. A row that already holds a <i>different</i> container is
+    /// never offered: a chat photo does not overwrite what an operator keyed
+    /// from the booking.
+    /// </para>
+    /// </summary>
+    /// <param name="group">The room, resolved by the caller.</param>
+    /// <param name="container">The number that passed the check digit.</param>
+    /// <param name="candidates">The rows within the day window — not yet filtered by carrier.</param>
+    public static LineDecision DecideContainer(
+        SpeakerGroup group,
+        string container,
+        IReadOnlyList<JobCandidate> candidates)
+    {
+        if (RefuseSpeaker(group) is { } refused) return refused;
+
+        var mine = (candidates ?? []).Where(one => SameCarrier(group.SupplierName, one.Carrier)).ToList();
+
+        var carrying = mine.Where(one => ContainerMatches(one.Container, container)).Select(one => one.Key).ToList();
+        if (carrying.Count > 0)
+            return new(Outcome.AlreadyThere, carrying, container, container,
+                $"งาน {string.Join(", ", carrying)} มีเลขตู้ {container} อยู่แล้ว");
+
+        var open = mine
+            .Where(one => Formats.Clean(one.Container).Length == 0)
+            .Where(one => !string.Equals(one.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(one.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var keys = open.Select(one => one.Key).ToList();
+
+        if (open.Count == 0)
+            return new(Outcome.NoOpenJob, NoKeys, "", container,
+                $"ไม่พบงานของ {group.SupplierName} ในช่วงวันที่ส่งรูปที่ยังไม่มีเลขตู้");
+
+        if (open.Count > 1)
+            return new(Outcome.ManyJobs, keys, "", container,
+                $"งานของ {group.SupplierName} ที่ยังไม่มีเลขตู้มี {open.Count} รายการ — ต้องเลือกก่อน");
+
+        return new(Outcome.Ok, keys, "", container, "");
+    }
+
     /// <summary>The rows a clue keeps, or all of them when it keeps none.</summary>
     private static List<JobCandidate> Narrow(List<JobCandidate> rows, Func<JobCandidate, bool> keep)
     {

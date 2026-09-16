@@ -62,6 +62,45 @@ public static class LineMatching
         return LineAuthority.Decide(group, read.Status, candidates, clue);
     }
 
+    /// <summary>How many days either side of a photo the job it shows may be planned for.</summary>
+    public const int PhotoWindow = 1;
+
+    /// <summary>
+    /// What a photographed container would be written into, if anything.
+    ///
+    /// The rows are this haulier's around the day the photo was posted —
+    /// yesterday, today, tomorrow in Bangkok — because a box-door photo says
+    /// nothing about which job, and "the job this truck is on today" is the
+    /// only honest reading. The rule then wants the one still waiting for a
+    /// number.
+    /// </summary>
+    public static async Task<LineAuthority.LineDecision> DecideContainerAsync(
+        ScmosDbContext db,
+        string lineGroupId,
+        string container,
+        DateTimeOffset receivedAt,
+        CancellationToken token)
+    {
+        var group = await SpeakerAsync(db, lineGroupId, token);
+
+        var may = group.Known
+            && group.Active
+            && string.Equals(group.GroupType, LineGroupType.Vendor, StringComparison.OrdinalIgnoreCase)
+            && container.Length > 0;
+        if (!may) return LineAuthority.DecideContainer(group, container, []);
+
+        // WorkDate is text, dd/MM/yyyy, so the three days are named rather
+        // than ranged — the same shape the TODAY tab uses.
+        var day = DateOnly.FromDateTime(receivedAt.ToOffset(TimeSpan.FromHours(7)).DateTime);
+        var days = Enumerable.Range(-PhotoWindow, PhotoWindow * 2 + 1)
+            .Select(offset => Formats.PlanDate(day.AddDays(offset)))
+            .ToList();
+        var rows = await ToCandidates(db.OperationJobs.AsNoTracking()
+            .Where(one => days.Contains(one.WorkDate)), token);
+
+        return LineAuthority.DecideContainer(group, container, rows);
+    }
+
     /// <summary>
     /// The room, and the supplier it speaks for.
     ///
