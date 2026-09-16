@@ -111,10 +111,40 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
 
   // A drag ends wherever the mouse is let go, including outside the table.
   useEffect(() => {
-    const stop = () => { dragging.current = false; setDragSelecting(false); };
+    const stop = () => {
+      if (dragging.current) {
+        // A drag that ran past the table's edge leaves the browser's own
+        // blue text selection over whatever it crossed — the pager, the
+        // record count — and it stayed after the mouse was let go (16 Sep
+        // 2026). The rectangle is the selection here; the browser's is not.
+        window.getSelection()?.removeAllRanges();
+      }
+      dragging.current = false;
+      setDragSelecting(false);
+    };
     window.addEventListener("mouseup", stop);
     return () => window.removeEventListener("mouseup", stop);
   }, []);
+
+  /*
+   * A click anywhere that is not a grid cell puts the rectangle away.
+   *
+   * It used to stay until another cell was clicked, so a block dragged an
+   * hour ago was still lit while somebody worked the filters above it — and
+   * a Delete pressed for another reason would have emptied it. The grid's
+   * own menu is the one place outside a cell where the rectangle must
+   * survive, and its mousedown does not reach here.
+   */
+  useEffect(() => {
+    if (!range) return;
+    const away = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || target.closest("td[data-grid-cell], [role=\"menu\"]")) return;
+      setRange(null);
+    };
+    window.addEventListener("mousedown", away);
+    return () => window.removeEventListener("mousedown", away);
+  }, [range]);
 
   const inRange = (grid: string, row: number, column: number) =>
     !!range && range.grid === grid
@@ -146,6 +176,8 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
         }
         event.currentTarget.tabIndex = -1;
         event.currentTarget.focus({ preventScroll: true });
+        // Whatever the browser had selected before this drag is not part of it.
+        window.getSelection()?.removeAllRanges();
         // Shift extends from where the rectangle started rather than beginning
         // a new one, the way a spreadsheet does it.
         if (event.shiftKey && range?.grid === grid) {
