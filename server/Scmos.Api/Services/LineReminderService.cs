@@ -86,6 +86,12 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         var suppliers = await db.Suppliers.AsNoTracking()
             .Where(one => supplierIds.Contains(one.Id))
             .ToDictionaryAsync(one => (long)one.Id, one => one.Name, token);
+        var aliasRows = await db.SupplierAliases.AsNoTracking()
+            .Where(one => supplierIds.Contains(one.SupplierId))
+            .Select(one => new { one.SupplierId, one.Alias })
+            .ToListAsync(token);
+        var aliases = aliasRows.GroupBy(one => (long)one.SupplierId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(one => one.Alias).ToList());
 
         var rows = await db.OperationJobs.AsNoTracking()
             .Where(one => one.WorkDate == Formats.PlanDate(day))
@@ -98,7 +104,11 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         {
             var supplier = suppliers.GetValueOrDefault(group.SupplierId, "");
             if (supplier.Length == 0) continue;
-            var mine = lines.Where(one => LineAuthority.SameCarrier(supplier, one.Carrier))
+            // A room's jobs are the ones written under its supplier's name or
+            // any spelling the alias table says is the same haulier.
+            var speaker = new LineAuthority.SpeakerGroup(true, group.IsActive, group.GroupType, supplier,
+                aliases.GetValueOrDefault(group.SupplierId));
+            var mine = lines.Where(one => LineAuthority.SameCarrier(speaker, one.Carrier))
                 .Select(one => one.Line)
                 .ToList();
             rooms.Add(new RoomJobs(group.LineGroupId, group.GroupName, group.SupplierId, supplier, mine));

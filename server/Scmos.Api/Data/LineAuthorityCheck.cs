@@ -106,6 +106,16 @@ public static class LineAuthorityCheck
             Vendor("T.O."), "DELIVERED", [Job("J1", "TO.", "IN_TRANSIT")],
             LineAuthority.Outcome.Ok),
 
+        new("the register's short name is the room's supplier when the alias table says so",
+            new(Known: true, Active: true, LineGroupType.Vendor, "DGT Cross Haul Co., Ltd.", ["DGT", "DGT CROSS HAUL"]),
+            "DELIVERED", [Job("J1", "DGT", "IN_TRANSIT")],
+            LineAuthority.Outcome.Ok),
+
+        new("and a spelling the alias table does not know is still somebody else's",
+            new(Known: true, Active: true, LineGroupType.Vendor, "DGT Cross Haul Co., Ltd.", ["DGT"]),
+            "DELIVERED", [Job("J1", "D.G.T. LOGISTICS", "IN_TRANSIT")],
+            LineAuthority.Outcome.NotYourJob),
+
         new("but punctuation is all that is forgiven — WEALTHY is not WEALTH",
             Vendor("WEALTHY"), "DELIVERED", [Job("J1", "WEALTH", "IN_TRANSIT")],
             LineAuthority.Outcome.NotYourJob),

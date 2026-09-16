@@ -175,7 +175,14 @@ public static class LineMatching
         if (string.IsNullOrWhiteSpace(name))
             return new(Known: false, Active: false, group.GroupType, "");
 
-        return new(Known: true, Active: group.IsActive, group.GroupType, name);
+        // The register's other spellings of this haulier — the same table the
+        // carrier directory and the scorecard resolve names through.
+        var aliases = await db.SupplierAliases.AsNoTracking()
+            .Where(one => one.SupplierId == (int)group.SupplierId)
+            .Select(one => one.Alias)
+            .ToListAsync(token);
+
+        return new(Known: true, Active: group.IsActive, group.GroupType, name, aliases);
     }
 
     /// <summary>

@@ -105,7 +105,16 @@ public static class LineAuthority
     /// <param name="Active">Whether that mapping is still in use.</param>
     /// <param name="GroupType">VENDOR · INTERNAL · CUSTOMER · OTHER.</param>
     /// <param name="SupplierName">The supplier the room speaks for.</param>
-    public record SpeakerGroup(bool Known, bool Active, string GroupType, string SupplierName);
+    /// <param name="Aliases">
+    /// The register's other spellings of the same haulier, from SupplierAlias —
+    /// "DGT" for "DGT Cross Haul Co., Ltd.". The register writes a haulier
+    /// the way the plan workbook did, and the supplier list writes the
+    /// registered name; the alias table is where the two were settled, and
+    /// a room bound to the registered name must still own the jobs written
+    /// the other way.
+    /// </param>
+    public record SpeakerGroup(bool Known, bool Active, string GroupType, string SupplierName,
+        IReadOnlyList<string>? Aliases = null);
 
     /// <summary>
     /// One row the message might mean, as much as the decision needs.
@@ -321,6 +330,11 @@ public static class LineAuthority
         return a.Length > 0 && a == b;
     }
 
+    /// <summary>Whether a job's carrier is this room's supplier, under its registered name or any of its aliases.</summary>
+    public static bool SameCarrier(SpeakerGroup group, string? carrier) =>
+        SameCarrier(group.SupplierName, carrier)
+        || (group.Aliases ?? []).Any(alias => SameCarrier(alias, carrier));
+
     /// <summary>
     /// Where a status sits on its category's ladder, or -1.
     ///
@@ -389,7 +403,7 @@ public static class LineAuthority
             return new(Outcome.NoSuchJob, NoKeys, "", "",
                 $"ไม่พบ{clue.Named} ในระบบ");
 
-        var mine = all.Where(one => SameCarrier(group.SupplierName, one.Carrier)).ToList();
+        var mine = all.Where(one => SameCarrier(group, one.Carrier)).ToList();
         if (mine.Count == 0)
             return new(Outcome.NotYourJob, NoKeys, "", "",
                 $"{clue.Named} ไม่ได้อยู่กับ {group.SupplierName}");
@@ -530,7 +544,7 @@ public static class LineAuthority
     {
         if (RefuseSpeaker(group) is { } refused) return refused;
 
-        var mine = (candidates ?? []).Where(one => SameCarrier(group.SupplierName, one.Carrier)).ToList();
+        var mine = (candidates ?? []).Where(one => SameCarrier(group, one.Carrier)).ToList();
 
         var carrying = mine.Where(one => ContainerMatches(one.Container, container)).Select(one => one.Key).ToList();
         if (carrying.Count > 0)
