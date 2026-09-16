@@ -71,8 +71,15 @@ test("the screens the department asked the zoom off stay without it", () => {
     ["app/scmos/screens/Kpi.tsx", /<ZoomBox zoomable=\{false\}/],
     ["app/scmos/screens/Suppliers.tsx", /<ZoomBox zoomable=\{false\}/],
     ["app/scmos/screens/OperationalIssues.tsx", /<ZoomBox zoomable=\{false\}>/],
+    // LINE on 16 Sep 2026 — both its tables.
+    ["app/scmos/screens/LineReview.tsx", /<ZoomBox zoomable=\{false\}>[\s\S]*<ZoomBox capped=\{false\} zoomable=\{false\}>/],
   ]) {
     assert.match(readFileSync(path, "utf8"), pattern, path);
   }
   assert.doesNotMatch(readFileSync("app/scmos/screens/OperationalIssues.tsx", "utf8"), /<ZoomBox>/);
+  assert.doesNotMatch(readFileSync("app/scmos/screens/LineReview.tsx", "utf8"), /<ZoomBox>|<ZoomBox capped=\{false\}>/);
+  // The queue shows the room's own id when it is unbound, and offers to bind it from the row.
+  const line = readFileSync("app/scmos/screens/LineReview.tsx", "utf8");
+  assert.match(line, /\{event\.lineGroupId \|\| "\(ไม่มีรหัสกลุ่ม/);
+  assert.match(line, /onBind=\{canMap \? \(\) => setBindGroupId\(one\.lineGroupId\) : undefined\}/);
 });

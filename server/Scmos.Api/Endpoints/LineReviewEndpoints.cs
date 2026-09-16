@@ -80,6 +80,12 @@ public static class LineReviewEndpoints
                     one.Id, one.ReceivedAt, one.RawText, one.JobNumber, one.ParsedStatus,
                     one.Confidence, one.ProcessingStatus, one.ErrorCode, one.ErrorMessage,
                     one.JobKey, one.RetryCount,
+                    // The room's own id as well as its name: an unbound room
+                    // has no name yet, and the id is what the operator binds
+                    // it by. It was resolved to a name and then dropped, so
+                    // the first real message in (16 Sep 2026) said "ยังไม่ผูก"
+                    // and gave nothing to bind.
+                    one.LineGroupId,
                     group = names.GetValueOrDefault(one.LineGroupId, ""),
                 }),
                 count = rows.Count,

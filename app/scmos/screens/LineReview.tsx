@@ -34,6 +34,8 @@ const BUTTON = "height:28px;padding:0 12px;border-radius:4px;font-size:12px;font
 type Event = {
   id: number;
   receivedAt: string;
+  /** The room the message came from — LINE's own id, the key a binding is made on. */
+  lineGroupId: string;
   rawText: string;
   jobNumber: string;
   parsedStatus: string;
@@ -86,6 +88,8 @@ export function LineReview({
   const [open, setOpen] = useState<number | null>(null);
   const [options, setOptions] = useState<Options | null>(null);
   const [busy, setBusy] = useState(false);
+  /** A room an operator picked out of the queue to bind — the form opens on it. */
+  const [bindGroupId, setBindGroupId] = useState("");
 
   /*
    * Fetch and store are kept apart.
@@ -208,7 +212,7 @@ export function LineReview({
             ไม่มีข้อความในหมวดนี้
           </div>
         ) : (
-          <ZoomBox>
+          <ZoomBox zoomable={false}>
             <table style={css("width:100%;border-collapse:collapse;min-width:920px")}>
               <thead>
                 <tr>
@@ -229,6 +233,7 @@ export function LineReview({
                     busy={busy} canApprove={canApprove}
                     onOpen={() => void openRow(one.id)}
                     onAct={(what, body) => void act(one.id, what, body)}
+                    onBind={canMap ? () => setBindGroupId(one.lineGroupId) : undefined}
                   />
                 ))}
               </tbody>
@@ -237,8 +242,8 @@ export function LineReview({
         )}
       </div>
 
-      <Groups groups={groups} canMap={canMap} onToast={onToast}
-        onSaved={() => { void loadGroups(); void loadEvents(); }} />
+      <Groups groups={groups} canMap={canMap} onToast={onToast} prefill={bindGroupId}
+        onSaved={() => { setBindGroupId(""); void loadGroups(); void loadEvents(); }} />
     </div>
   );
 }
@@ -287,11 +292,13 @@ function Summary({
 }
 
 function Row({
-  event, open, options, busy, canApprove, onOpen, onAct,
+  event, open, options, busy, canApprove, onOpen, onAct, onBind,
 }: {
   event: Event;
   open: boolean;
   options: Options | null;
+  /** Opens the bind form on this row's room; absent for an account that may not map rooms. */
+  onBind?: () => void;
   busy: boolean;
   canApprove: boolean;
   onOpen: () => void;
@@ -305,7 +312,24 @@ function Row({
     <>
       <tr style={css(open ? "background:#F8FAFC" : "")}>
         <td style={css(`${CELL};white-space:nowrap;color:#64748B`)}>{whenLabel(event.receivedAt)}</td>
-        <td style={css(`${CELL};white-space:nowrap`)}>{event.group || <em style={css("color:#B45309;font-style:normal")}>ยังไม่ผูก</em>}</td>
+        <td style={css(`${CELL};white-space:nowrap`)}>
+          {event.group || (
+            // The room's id is the one thing an operator needs to bind it, and
+            // it used to be the one thing this cell did not say. Seen on 16
+            // September 2026, the first real message in: "ยังไม่ผูก" and
+            // nowhere to read the code from.
+            <span style={css("display:flex;flex-direction:column;gap:2px")}>
+              <em style={css("color:#B45309;font-style:normal")}>ยังไม่ผูก</em>
+              <code style={css("font-family:ui-monospace,monospace;font-size:11px;color:#64748B;user-select:all")}>{event.lineGroupId || "(ไม่มีรหัสกลุ่ม — ข้อความส่วนตัว)"}</code>
+              {onBind && event.lineGroupId && (
+                <button type="button" onClick={onBind}
+                  style={css("align-self:flex-start;border:1px solid #0A2240;background:#fff;color:#0A2240;border-radius:3px;padding:1px 8px;font-size:11px;font-family:inherit;cursor:pointer")}>
+                  ผูกกลุ่มนี้
+                </button>
+              )}
+            </span>
+          )}
+        </td>
         <td style={css(`${CELL};max-width:280px`)}>{event.rawText}</td>
         <td style={css(`${CELL};white-space:nowrap;font-variant-numeric:tabular-nums`)}>{event.jobNumber || "—"}</td>
         <td style={css(`${CELL};white-space:nowrap`)}>
@@ -389,7 +413,7 @@ function Detail({
           {/* Short by nature — the rows one job number covers. Uncapped, so it
               does not measure the room below its own top edge and end up two
               rows tall inside a row that is already expanded. */}
-          <ZoomBox capped={false}>
+          <ZoomBox capped={false} zoomable={false}>
           <table style={css("width:100%;border-collapse:collapse")}>
             <thead>
               <tr>
@@ -460,16 +484,25 @@ function Detail({
  * complaint is answered here, in view of the complaint.
  */
 function Groups({
-  groups, canMap, onToast, onSaved,
+  groups, canMap, onToast, onSaved, prefill = "",
 }: {
   groups: Group[] | null;
   canMap: boolean;
   onToast: (message: string) => void;
   onSaved: () => void;
+  /** A room id picked out of the queue above; the form opens on it. */
+  prefill?: string;
 }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [form, setForm] = useState({ lineGroupId: "", groupName: "", supplierId: "", groupType: "VENDOR" });
   const [busy, setBusy] = useState(false);
+  // Taken during render on the value changing, the way the sheet's pickers
+  // reset a page: the first frame after the click already shows the code.
+  const [taken, setTaken] = useState("");
+  if (prefill && prefill !== taken) {
+    setTaken(prefill);
+    setForm((was) => ({ ...was, lineGroupId: prefill }));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -508,7 +541,7 @@ function Groups({
         </div>
       </div>
 
-      <ZoomBox capped={false}>
+      <ZoomBox capped={false} zoomable={false}>
         <table style={css("width:100%;border-collapse:collapse;min-width:720px")}>
           <thead>
             <tr>
