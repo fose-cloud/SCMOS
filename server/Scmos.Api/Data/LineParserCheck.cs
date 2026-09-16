@@ -286,6 +286,13 @@ public static class LineParserCheck
             ("an answer that is not JSON reads as nothing, and does not throw", "not json", [], []),
             ("an empty answer likewise", "", [], []),
         };
+        var noted = LineImageReading.RejectedIn("a 40ft box — เลขที่อ่านได้แต่ check digit ไม่ผ่าน: TEMU7592765, SEAL1234567");
+        var notedRight = noted is ["TEMU7592765"];
+        if (!notedRight) failed++;
+        Console.WriteLine($"  {(notedRight ? "ok  " : "FAIL")}  a set-aside number is read back off the row's note, and only a number");
+        var unnoted = LineImageReading.RejectedIn("a delivery note").Count == 0;
+        if (!unnoted) failed++;
+        Console.WriteLine($"  {(unnoted ? "ok  " : "FAIL")}  a note with nothing set aside yields nothing");
         foreach (var (why, answer, valid, rejected) in answers)
         {
             var got = LineImageReading.Read(answer);

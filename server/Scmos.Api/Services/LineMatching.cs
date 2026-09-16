@@ -65,6 +65,50 @@ public static class LineMatching
     /// <summary>How many days either side of a photo the job it shows may be planned for.</summary>
     public const int PhotoWindow = 1;
 
+    /// <summary>How many days either side of a photo a haulier's typed message may vouch for a number.</summary>
+    public const int VouchWindow = 3;
+
+    /// <summary>
+    /// Whether a number the check digit refused is nonetheless one this
+    /// register, or this haulier in this room, already writes.
+    ///
+    /// The register: any job's CONTAINER cell. The room: any text message
+    /// within a few days of the photo whose letters and digits carry the
+    /// number — a driver typing "TEMU 7592765" and photographing the same
+    /// door is two readings of one box, and that is what the check digit was
+    /// standing in for. A number nobody else has ever written stays refused.
+    /// </summary>
+    public static async Task<bool> IsKnownContainerAsync(
+        ScmosDbContext db, string lineGroupId, string container, DateTimeOffset around, CancellationToken token)
+    {
+        if (container.Length == 0) return false;
+
+        if (await db.OperationJobs.AsNoTracking().AnyAsync(one => one.Container.Contains(container), token))
+            return true;
+
+        if (lineGroupId.Length == 0) return false;
+        var from = around.AddDays(-VouchWindow);
+        var to = around.AddDays(VouchWindow);
+        var texts = await db.LineEvents.AsNoTracking()
+            .Where(one => one.LineGroupId == lineGroupId && one.MessageType == "text"
+                && one.ReceivedAt >= from && one.ReceivedAt <= to)
+            .Select(one => one.RawText)
+            .ToListAsync(token);
+        return texts.Any(text => ContainerNumbers.Normalise(text).Contains(container, StringComparison.Ordinal));
+    }
+
+    /// <summary>The set-aside numbers that turn out to be known, in the order they were read.</summary>
+    public static async Task<List<string>> VouchedAsync(
+        ScmosDbContext db, string lineGroupId, IEnumerable<string> rejected, DateTimeOffset around, CancellationToken token)
+    {
+        var vouched = new List<string>();
+        foreach (var number in rejected)
+        {
+            if (await IsKnownContainerAsync(db, lineGroupId, number, around, token)) vouched.Add(number);
+        }
+        return vouched;
+    }
+
     /// <summary>
     /// What a photographed container would be written into, if anything.
     ///

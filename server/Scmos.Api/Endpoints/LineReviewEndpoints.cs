@@ -446,7 +446,7 @@ public static class LineReviewEndpoints
     /// </summary>
     private static async Task<IResult> PhotoOptionsAsync(LineEvent row, ScmosDbContext db, CancellationToken token)
     {
-        var numbers = row.ImageReading.Split(", ", StringSplitOptions.RemoveEmptyEntries);
+        var numbers = await PhotoNumbersAsync(row, db, token);
         var container = numbers.Length == 1 ? numbers[0] : "";
         var now = container.Length > 0
             ? await LineMatching.DecideContainerAsync(db, row.LineGroupId, container, row.ReceivedAt, token)
@@ -492,7 +492,7 @@ public static class LineReviewEndpoints
     private static async Task<IResult> ApplyPhotoAsync(LineEvent row, ApplyBody body, AppUser user,
         ScmosDbContext db, JobsRepository jobs, AuditService audit, CancellationToken token)
     {
-        var numbers = row.ImageReading.Split(", ", StringSplitOptions.RemoveEmptyEntries);
+        var numbers = await PhotoNumbersAsync(row, db, token);
         if (numbers.Length != 1)
             return ApiResults.Error(numbers.Length == 0 ? "รูปนี้ไม่มีเลขตู้ที่อ่านได้" : "รูปนี้มีหลายตู้ — บันทึกในตารางงานเอง",
                 StatusCodes.Status409Conflict);
@@ -535,6 +535,9 @@ public static class LineReviewEndpoints
         row.JobKey = chosen;
         row.ErrorCode = "";
         row.ErrorMessage = "";
+        // A number vouched for after the photo was read is written onto the
+        // row now, so the queue says what was applied.
+        row.ImageReading = container;
         row.ProcessedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
 
@@ -543,6 +546,22 @@ public static class LineReviewEndpoints
             message = $"บันทึกเลขตู้ {container} ลงงาน {chosen} แล้ว",
             jobKey = chosen, from = "", to = container, arrival = "",
         });
+    }
+
+    /// <summary>
+    /// The numbers a photo stands for, right now: the ones it was read with,
+    /// or — when the check digit refused every one — the refused ones that
+    /// the register or the haulier's typed messages have since vouched for.
+    /// Asked at the moment a person looks, because the vouching message may
+    /// have arrived after the photo did.
+    /// </summary>
+    private static async Task<string[]> PhotoNumbersAsync(LineEvent row, ScmosDbContext db, CancellationToken token)
+    {
+        var numbers = row.ImageReading.Split(", ", StringSplitOptions.RemoveEmptyEntries);
+        if (numbers.Length > 0) return numbers;
+        var vouched = await LineMatching.VouchedAsync(
+            db, row.LineGroupId, LineImageReading.RejectedIn(row.ImageNote), row.ReceivedAt, token);
+        return [.. vouched];
     }
 
     /// <summary>The arrival the message reported, as the register writes it, or empty.</summary>

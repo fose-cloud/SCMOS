@@ -257,12 +257,23 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         {
             var result = await reader.ReadAsync(row, stopping);
             row.ImageKey = result.ImageKey.Length > 0 ? result.ImageKey : row.ImageKey;
-            row.ImageReading = string.Join(", ", result.Reading.Valid);
+
+            // A number the check digit refused is kept if the register or the
+            // haulier's own typed messages already carry it — see
+            // LineImageReading.RejectedIn for the photo that taught this.
+            var vouched = result.Failure.Length > 0
+                ? []
+                : await LineMatching.VouchedAsync(db, row.LineGroupId, result.Reading.Rejected, row.ReceivedAt, stopping);
+            var accepted = result.Reading.Valid.Concat(vouched).ToList();
+
+            row.ImageReading = string.Join(", ", accepted);
             row.ImageNote = result.Failure.Length > 0
                 ? result.Failure
-                : Note(result.Reading);
-            row.MatchedRules = string.Join(", ", result.Reading.Valid.Select(one => $"container:{one}"));
-            row.Warnings = result.Reading.Rejected.Count > 0 ? "container-check-digit" : "";
+                : Note(result.Reading, vouched);
+            row.MatchedRules = string.Join(", ",
+                result.Reading.Valid.Select(one => $"container:{one}")
+                    .Concat(vouched.Select(one => $"container-vouched:{one}")));
+            row.Warnings = result.Reading.Rejected.Count > vouched.Count ? "container-check-digit" : "";
             row.ProcessedAt = DateTimeOffset.UtcNow;
 
             if (result.Failure.Length > 0)
@@ -326,12 +337,18 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             row.Id, numbers[0], row.ErrorCode, row.JobKey);
     }
 
-    /// <summary>The row's note: the model's sentence, and the numbers it offered that failed the check.</summary>
-    private static string Note(LineImageReading.Reading reading)
+    /// <summary>
+    /// The row's note: the model's sentence, the numbers that failed the
+    /// check but are known anyway, and the ones that failed and are not.
+    /// </summary>
+    private static string Note(LineImageReading.Reading reading, IReadOnlyList<string> vouched)
     {
         var note = reading.Note;
-        if (reading.Rejected.Count > 0)
-            note = $"{note} — เลขที่อ่านได้แต่ check digit ไม่ผ่าน: {string.Join(", ", reading.Rejected)}".Trim(' ', '—');
+        if (vouched.Count > 0)
+            note = $"{note} — {string.Join(", ", vouched)} check digit ไม่ผ่าน แต่ตรงกับที่ผู้ขนส่งพิมพ์/ทะเบียนงาน".Trim(' ', '—');
+        var refused = reading.Rejected.Where(one => !vouched.Contains(one, StringComparer.Ordinal)).ToList();
+        if (refused.Count > 0)
+            note = $"{note} — เลขที่อ่านได้แต่ {LineImageReading.RejectedMark} {string.Join(", ", refused)}".Trim(' ', '—');
         return note.Length > 500 ? note[..500] : note;
     }
 

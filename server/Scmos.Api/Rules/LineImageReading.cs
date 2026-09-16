@@ -44,6 +44,32 @@ public static class LineImageReading
         public static readonly Reading Empty = new([], [], "");
     }
 
+    /// <summary>What the worker writes before the numbers it set aside, so they can be read back.</summary>
+    public const string RejectedMark = "check digit ไม่ผ่าน:";
+
+    /// <summary>
+    /// The numbers a reading set aside, read back off the row's note.
+    ///
+    /// A number that fails the check digit is not always a misread. The first
+    /// real photo, 16 Sep 2026, showed TEMU7592765 — the same number the
+    /// driver had typed that morning — and the standard says its digit should
+    /// be 1. Two independent readings agreeing is better evidence than the
+    /// digit, so a set-aside number is looked at again against what the
+    /// register and the haulier's own messages already carry; this is how it
+    /// is found on a row read before that rule existed.
+    /// </summary>
+    public static IReadOnlyList<string> RejectedIn(string? note)
+    {
+        var text = note ?? "";
+        var at = text.IndexOf(RejectedMark, StringComparison.Ordinal);
+        if (at < 0) return [];
+        return [.. text[(at + RejectedMark.Length)..]
+            .Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(ContainerNumbers.Normalise)
+            .Where(ContainerNumbers.IsShaped)
+            .Distinct(StringComparer.Ordinal)];
+    }
+
     /// <summary>Reads the model's JSON answer. Never throws: an unreadable answer is a Reading with a note.</summary>
     public static Reading Read(string? answer)
     {
