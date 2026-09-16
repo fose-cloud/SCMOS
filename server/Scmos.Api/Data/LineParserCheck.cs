@@ -370,6 +370,11 @@ public static class LineParserCheck
                 whole.Contains("ตอบในกลุ่มนี้ทีละตู้", StringComparison.Ordinal)
                 && whole.Contains("TXGU8142057 70-1234 สมชาย ใจดี 081-2345678", StringComparison.Ordinal)),
             ("nothing missing, nothing sent", LineReminder.Compose("SHORE", day, [Line("F1", "IMPORT", "READY", "70-1234", "สมชาย", "081-2345678")]).Count == 0),
+            ("the hours are 08:00 and 12:00 unless set", LineReminder.Times(null).Select(at => at.ToString("HH:mm")).SequenceEqual(["08:00", "12:00"])),
+            ("a setting may name its own hours, in any of the ways people write them",
+                LineReminder.Times("7.30, 13:00").Select(at => at.ToString("HH:mm")).SequenceEqual(["07:30", "13:00"])),
+            ("\"off\" is no hours at all", LineReminder.Times("off").Count == 0),
+            ("a setting that is not a time falls back to the default", LineReminder.Times("noon").Count == 2),
             ("a long day is split into whole parts under LINE's limit",
                 LineReminder.Compose("SHORE", day, Enumerable.Range(1, 80).Select(i => Line($"I{i}", "IMPORT", "READY")).ToList()) is { Count: > 1 } parts
                     && parts.All(part => part.Length <= 5000)),
@@ -396,6 +401,16 @@ public static class LineParserCheck
             ("due 'before' inside the half hour ahead", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30) == LineChase.Before),
             ("nothing between the plan time and the margin after it", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:10"), 30) is null),
             ("due 'overdue' once the plan time is the margin behind", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:31"), 30) == LineChase.Overdue),
+            ("still 'overdue' — not asked again — an hour and a half later", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:00"), 30) == LineChase.Overdue),
+            ("asked again two hours after the overdue ask", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:31"), 30) == "overdue#2"),
+            ("and every two hours after that, each its own stage", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30) == "overdue#3"
+                && LineChase.AskNumber("overdue#3") == 3),
+            ("not through the night: the repeats stop after six", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "03:00"), At("20:00"), 30) is null),
+            ("repeats switched off leave the one overdue ask", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30, 0) == LineChase.Overdue),
+            ("an arrival keyed in between ends the repeats", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "15:10"), At("17:45"), 30) is null),
+            ("a repeat says how long it has been and which ask this is",
+                LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), "overdue#3")], At("17:45")) is { } again
+                    && again.Contains("เลยมา 4 ชม. 45 นาที ยังไม่มีรายงานถึง (ติดตามครั้งที่ 3)", StringComparison.Ordinal)),
             ("an arrival stamp on the job ends the chase", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "12:50"), At("13:40"), 30) is null),
             ("an import at DELIVERED has arrived", LineChase.Stage(Planned("J", "IMPORT", "DELIVERED", "13:00"), At("13:40"), 30) is null),
             ("an export at DISPATCHED has reached its plant", LineChase.Stage(Planned("J", "EXPORT", "DISPATCHED", "13:00"), At("13:40"), 30) is null),

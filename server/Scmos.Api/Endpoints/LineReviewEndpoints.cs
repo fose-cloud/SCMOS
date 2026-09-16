@@ -191,8 +191,9 @@ public static class LineReviewEndpoints
             return Results.Json(new
             {
                 date = Formats.PlanDate(day),
-                remindAt = reminders.RemindAt?.ToString("HH:mm") ?? "",
+                remindAt = reminders.RemindAtText,
                 chaseMinutes = chase.Minutes,
+                chaseEveryHours = chase.RepeatHours,
                 chaseDue = due.Select(room => new
                 {
                     room.LineGroupId, room.GroupName, room.Supplier,
@@ -213,6 +214,7 @@ public static class LineReviewEndpoints
                     messages = room.Messages,
                     sentAt = room.SentAt,
                     sentBy = room.SentBy,
+                    sentSlots = room.SentSlots,
                 }),
             });
         });
@@ -239,7 +241,7 @@ public static class LineReviewEndpoints
             var sent = 0;
             foreach (var room in rooms)
             {
-                var failure = await reminders.SendAsync(room, user, "ส่งจากหน้าจอ LINE", token);
+                var failure = await reminders.SendAsync(room, user, "ส่งจากหน้าจอ LINE", LineReminderService.ManualSlot, token);
                 if (failure.Length == 0) sent++;
                 results.Add(new { room.LineGroupId, room.GroupName, room.Supplier, jobs = room.Jobs.Count, ok = failure.Length == 0, failure });
             }

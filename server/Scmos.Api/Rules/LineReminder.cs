@@ -23,8 +23,32 @@ namespace Scmos.Api.Rules;
 /// </summary>
 public static class LineReminder
 {
-    /// <summary>The hour the department chose, Bangkok. Configuration may move it.</summary>
-    public const string DefaultTime = "08:00";
+    /// <summary>
+    /// The hours the department chose, Bangkok: the morning ask, and a second
+    /// at noon for what is still missing (asked for 16 Sep 2026). Configuration
+    /// may move them — a comma-separated list, or "off".
+    /// </summary>
+    public const string DefaultTime = "08:00, 12:00";
+
+    /// <summary>
+    /// The clock times out of a setting: "08:00, 12:00", "8.00 12.00", or
+    /// "off" — empty when off, the default when the text is not a time.
+    /// </summary>
+    public static IReadOnlyList<TimeOnly> Times(string? setting)
+    {
+        var text = (setting ?? DefaultTime).Trim();
+        if (text.Length == 0 || text.Equals("off", StringComparison.OrdinalIgnoreCase)) return [];
+        var times = new List<TimeOnly>();
+        foreach (var part in text.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (TimeOnly.TryParseExact(part.Replace('.', ':'), "H:mm", null, System.Globalization.DateTimeStyles.None, out var at)
+                && !times.Contains(at))
+                times.Add(at);
+        }
+        if (times.Count == 0 && setting is not null) return Times(null);
+        times.Sort();
+        return times;
+    }
 
     /// <summary>LINE refuses a text over 5,000 characters; well under it, per message.</summary>
     public const int MaxChars = 4200;

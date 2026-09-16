@@ -22,6 +22,9 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
     /// <summary>Where the margin lives in configuration; "off" or 0 stops the chase.</summary>
     public const string MinutesKey = "Line:ChaseMinutes";
 
+    /// <summary>How often an unreported job is asked again after the overdue ask; 0 stops the repeats.</summary>
+    public const string RepeatKey = "Line:ChaseEveryHours";
+
     public const string Action = "chase";
 
     private static readonly TimeSpan Thailand = TimeSpan.FromHours(7);
@@ -35,6 +38,18 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             if (text.Length == 0) return LineChase.DefaultMinutes;
             if (text.Equals("off", StringComparison.OrdinalIgnoreCase)) return 0;
             return int.TryParse(text, out var minutes) && minutes >= 0 ? minutes : LineChase.DefaultMinutes;
+        }
+    }
+
+    /// <summary>Hours between repeated asks; 0 when repeats are off.</summary>
+    public int RepeatHours
+    {
+        get
+        {
+            var text = (config[RepeatKey] ?? "").Trim();
+            if (text.Length == 0) return LineChase.DefaultRepeatHours;
+            if (text.Equals("off", StringComparison.OrdinalIgnoreCase)) return 0;
+            return int.TryParse(text, out var hours) && hours >= 0 ? hours : LineChase.DefaultRepeatHours;
         }
     }
 
@@ -63,7 +78,7 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
         foreach (var room in await reminders.RoomsAsync(day, token))
         {
             var due = room.AllJobs
-                .Select(job => (Job: job, Stage: LineChase.Stage(job, here, minutes)))
+                .Select(job => (Job: job, Stage: LineChase.Stage(job, here, minutes, RepeatHours)))
                 .Where(one => one.Stage is not null && !done.Contains(one.Job.Key + "|" + one.Stage))
                 .Select(one => (one.Job, one.Stage!))
                 .ToList();
@@ -90,7 +105,10 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             foreach (var (job, stage) in room.Jobs)
             {
                 await audit.RecordAsync(by, Action, "job", job.Key, job.JobCode.Length > 0 ? job.JobCode : job.Booking,
-                    stage, "", room.GroupName, $"ติดตามสถานะรถ {Minutes} นาที{(stage == LineChase.Before ? "ก่อน" : "หลัง")}เวลาแผน",
+                    stage, "", room.GroupName,
+                    stage == LineChase.Before ? $"ติดตามสถานะรถ {Minutes} นาทีก่อนเวลาแผน"
+                    : stage == LineChase.Overdue ? $"ติดตามสถานะรถ {Minutes} นาทีหลังเวลาแผน"
+                    : $"ติดตามสถานะรถซ้ำ ครั้งที่ {LineChase.AskNumber(stage)} — ยังไม่มีเวลาถึง",
                     token, EventSource.Line);
                 asked++;
             }

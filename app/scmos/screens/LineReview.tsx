@@ -65,6 +65,8 @@ type ReminderRoom = {
   lineGroupId: string; groupName: string; supplier: string; jobs: number;
   missing: { key: string; category: string; customer: string; jobCode: string; booking: string; container: string; gaps: string[] }[];
   messages: string[]; sentAt: string | null; sentBy: string;
+  /** Which of today's sends have gone: "08:00", "12:00", "manual". */
+  sentSlots?: string[];
 };
 type ChaseRoom = {
   lineGroupId: string; groupName: string; supplier: string;
@@ -74,7 +76,7 @@ type ChaseRoom = {
 type Reminder = {
   date: string; remindAt: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[];
   /** The status chase: minutes either side of the plan time (0 = off), and what it would ask right now. */
-  chaseMinutes?: number; chaseDue?: ChaseRoom[];
+  chaseMinutes?: number; chaseEveryHours?: number; chaseDue?: ChaseRoom[];
 };
 
 type Option = {
@@ -365,7 +367,9 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
         <span style={css("font-size:12px;color:#475569")}>
           {reminder.remindAt ? `ส่งอัตโนมัติ ${reminder.remindAt} น.` : "ไม่มีกำหนดส่งอัตโนมัติ"}
           {" · "}
-          {reminder.chaseMinutes ? `ติดตามสถานะรถ ${reminder.chaseMinutes} นาทีก่อนและหลังเวลาแผน` : "ไม่ติดตามสถานะรถ"}
+          {reminder.chaseMinutes
+            ? `ติดตามสถานะรถ ${reminder.chaseMinutes} นาทีก่อนและหลังเวลาแผน${reminder.chaseEveryHours ? ` แล้วทุก ${reminder.chaseEveryHours} ชม. จนกว่าจะมีเวลาถึง` : ""}`
+            : "ไม่ติดตามสถานะรถ"}
           {!!reminder.chaseDue?.length && (
             <span style={css("color:#B45309")}> · ครบกำหนดตอนนี้ {reminder.chaseDue.reduce((n, room) => n + room.jobs.length, 0)} งาน</span>
           )}
@@ -407,7 +411,10 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
                       </button>
                     )}
                   </td>
-                  <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>{room.sentAt ? `${when(room.sentAt)} · ${room.sentBy}` : "—"}</td>
+                  <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>
+                    {room.sentAt ? `${when(room.sentAt)} · ${room.sentBy}` : "—"}
+                    {!!room.sentSlots?.length && <span style={css("color:#94A3B8")}> · {room.sentSlots.join(", ")}</span>}
+                  </td>
                   <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
                     {canSend && reminder.canPush && room.jobs > 0 && (
                       <button disabled={busy} onClick={() => void send(room.lineGroupId)}

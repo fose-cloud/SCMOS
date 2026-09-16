@@ -29,6 +29,17 @@ public static class LineChase
     public const string Overdue = "overdue";
 
     /// <summary>
+    /// How often a job still unreported after the overdue ask is asked again,
+    /// until the register says the truck arrived (asked for 16 Sep 2026:
+    /// "ทุกๆ 2 ชั่วโมงจนกว่าจะมีการอัพเดท"). Each repeat is its own stage —
+    /// "overdue#2", "overdue#3" — so each is sent once.
+    /// </summary>
+    public const int DefaultRepeatHours = 2;
+
+    /// <summary>The most repeats in a day; a job nobody reports on is not chased through the night.</summary>
+    public const int MaxRepeats = 6;
+
+    /// <summary>
     /// Whether the truck has been reported at the site: an arrival stamp on
     /// the job, or a status at or past the rung "ถึงโรงงาน" resolves to for
     /// the job's category — DELIVERED on an import or a Domestic run,
@@ -61,15 +72,32 @@ public static class LineChase
     /// the plan time is the margin behind. A job with no plan time, or one
     /// whose truck has been reported, is due nothing.
     /// </summary>
-    public static string? Stage(LineReminder.JobLine job, DateTimeOffset now, int minutes)
+    public static string? Stage(LineReminder.JobLine job, DateTimeOffset now, int minutes, int repeatHours = DefaultRepeatHours)
     {
         if (minutes <= 0 || Arrived(job)) return null;
         if (PlanAt(job) is not { } plan) return null;
         var margin = TimeSpan.FromMinutes(minutes);
-        if (now >= plan + margin) return Overdue;
+        if (now >= plan + margin)
+        {
+            if (repeatHours <= 0) return Overdue;
+            // The overdue ask, then one more every repeatHours after it while
+            // the register still shows no arrival.
+            var repeats = (int)Math.Floor((now - (plan + margin)).TotalHours / repeatHours);
+            if (repeats <= 0) return Overdue;
+            // Named by the ask, not the hours, so a changed interval keeps
+            // counting from where the day's ledger left off.
+            return repeats > MaxRepeats ? null : $"{Overdue}#{repeats + 1}";
+        }
         if (now >= plan - margin && now < plan) return Before;
         return null;
     }
+
+    /// <summary>Which ask this is for a job past its plan time: 1 for the overdue ask, 2 for the first repeat…</summary>
+    public static int AskNumber(string stage) =>
+        stage == Before ? 0
+        : stage == Overdue ? 1
+        : int.TryParse(stage.Replace(Overdue + "#", ""), out var ask) && ask > 1 ? ask
+        : 1;
 
     /// <summary>One job as the chase names it — the same cells the reminder uses, with the plan time.</summary>
     private static string Line(int number, LineReminder.JobLine job, string stage, DateTimeOffset now)
@@ -102,8 +130,17 @@ public static class LineChase
         var plan = PlanAt(job);
         var when = plan is null ? "" : stage == Before
             ? $"แผน {plan.Value:HH:mm} — อีก {Math.Max(1, (int)Math.Round((plan.Value - now).TotalMinutes))} นาที"
-            : $"แผน {plan.Value:HH:mm} — เลยมา {(int)Math.Round((now - plan.Value).TotalMinutes)} นาที ยังไม่มีรายงานถึง";
+            : $"แผน {plan.Value:HH:mm} — เลยมา {Elapsed(now - plan.Value)} ยังไม่มีรายงานถึง"
+              + (stage == Overdue ? "" : $" (ติดตามครั้งที่ {AskNumber(stage)})");
         return $"{number}) {string.Join(" · ", parts)}\n   {when}";
+    }
+
+    /// <summary>"45 นาที", "2 ชม.", "4 ชม. 5 นาที" — how long past the plan time.</summary>
+    private static string Elapsed(TimeSpan gap)
+    {
+        var minutes = Math.Max(0, (int)Math.Round(gap.TotalMinutes));
+        if (minutes < 60) return $"{minutes} นาที";
+        return minutes % 60 == 0 ? $"{minutes / 60} ชม." : $"{minutes / 60} ชม. {minutes % 60} นาที";
     }
 
     /// <summary>

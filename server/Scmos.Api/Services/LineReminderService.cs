@@ -27,26 +27,23 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
     public const string Action = "notify";
     public const string Entity = "line-group";
 
-    /// <summary>The Bangkok clock time the scheduler sends at, or null when the schedule is off.</summary>
-    public TimeOnly? RemindAt
-    {
-        get
-        {
-            var text = config[TimeKey];
-            if (text is null) text = LineReminder.DefaultTime;
-            text = text.Trim();
-            if (text.Length == 0 || text.Equals("off", StringComparison.OrdinalIgnoreCase)) return null;
-            return TimeOnly.TryParseExact(text.Replace('.', ':'), "H:mm", null, System.Globalization.DateTimeStyles.None, out var at)
-                ? at : TimeOnly.Parse(LineReminder.DefaultTime);
-        }
-    }
+    /// <summary>The Bangkok clock times the scheduler sends at — 08:00 and 12:00 unless set; empty when off.</summary>
+    public IReadOnlyList<TimeOnly> RemindTimes => LineReminder.Times(config[TimeKey]);
+
+    /// <summary>The times as the screen prints them: "08:00, 12:00", or empty when off.</summary>
+    public string RemindAtText => string.Join(", ", RemindTimes.Select(at => at.ToString("HH:mm")));
+
+    /// <summary>What a manual send is ledgered as, beside the clock-time slots.</summary>
+    public const string ManualSlot = "manual";
 
     /// <param name="Jobs">Today's jobs of this haulier that are short of something, as the message names them.</param>
     /// <param name="Messages">The text(s) that would go, or empty when nothing is missing.</param>
-    /// <param name="SentAt">When the room was last sent today's reminder, UTC, or null.</param>
+    /// <param name="SentAt">When the room was last sent a reminder today, UTC, or null.</param>
+    /// <param name="SentSlots">Which slots — "08:00", "12:00", "manual" — the room has been sent today.</param>
     public record Room(
         string LineGroupId, string GroupName, long SupplierId, string Supplier,
-        IReadOnlyList<LineReminder.JobLine> Jobs, IReadOnlyList<string> Messages, DateTimeOffset? SentAt, string SentBy);
+        IReadOnlyList<LineReminder.JobLine> Jobs, IReadOnlyList<string> Messages, DateTimeOffset? SentAt, string SentBy,
+        IReadOnlyList<string> SentSlots);
 
     /// <summary>A room and every job of its haulier on the day — what both the reminder and the chase read.</summary>
     public record RoomJobs(string LineGroupId, string GroupName, long SupplierId, string Supplier,
@@ -60,7 +57,7 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         var sent = await db.AuditEvents.AsNoTracking()
             .Where(one => one.Entity == Entity && one.Action == Action && one.At >= since)
             .OrderByDescending(one => one.At)
-            .Select(one => new { one.EntityId, one.At, one.Who })
+            .Select(one => new { one.EntityId, one.At, one.Who, one.Field })
             .ToListAsync(token);
 
         var rooms = new List<Room>();
@@ -68,8 +65,9 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         {
             var mine = room.AllJobs.Where(LineReminder.Wanted).ToList();
             var last = sent.FirstOrDefault(one => one.EntityId == room.LineGroupId);
+            var slots = sent.Where(one => one.EntityId == room.LineGroupId).Select(one => one.Field).Distinct().ToList();
             rooms.Add(new Room(room.LineGroupId, room.GroupName, room.SupplierId, room.Supplier,
-                mine, LineReminder.Compose(room.Supplier, day, mine), last?.At, last?.Who ?? ""));
+                mine, LineReminder.Compose(room.Supplier, day, mine), last?.At, last?.Who ?? "", slots));
         }
         return rooms;
     }
@@ -113,33 +111,35 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
     /// failure in words, or empty. A room with nothing missing is not sent
     /// and says so.
     /// </summary>
-    public async Task<string> SendAsync(Room room, AppUser by, string source, CancellationToken token)
+    /// <param name="slot">The clock time this send is for ("08:00", "12:00"), or "manual" — the ledger's key.</param>
+    public async Task<string> SendAsync(Room room, AppUser by, string source, string slot, CancellationToken token)
     {
         if (room.Messages.Count == 0) return "ไม่มีงานที่ขาดข้อมูลวันนี้ — ไม่ได้ส่ง";
         var failure = await notifier.PushAsync(room.LineGroupId, room.Messages, token);
         if (failure.Length > 0) return failure;
 
         await audit.RecordAsync(by, Action, Entity, room.LineGroupId, room.Supplier,
-            "reminder", "", $"{room.Jobs.Count} งาน · {room.Messages.Count} ข้อความ",
+            slot, "", $"{room.Jobs.Count} งาน · {room.Messages.Count} ข้อความ",
             source, token, EventSource.Line);
         log.LogInformation("LINE reminder sent to {Group} ({Supplier}): {Jobs} job(s)", room.GroupName, room.Supplier, room.Jobs.Count);
         return "";
     }
 
     /// <summary>
-    /// The scheduler's pass: every room not yet asked today, once. Returns
-    /// how many were sent.
+    /// The scheduler's pass for one slot: every room not yet sent that slot
+    /// today and still short of something — the noon ask goes only where
+    /// the morning's went unanswered. Returns how many were sent.
     /// </summary>
-    public async Task<int> SendDueAsync(DateOnly day, CancellationToken token)
+    public async Task<int> SendDueAsync(DateOnly day, string slot, CancellationToken token)
     {
         var by = new AppUser("scheduler", "", "SCMOS", "System", "", "system", Recognised: true);
         var sent = 0;
         foreach (var room in await PreviewAsync(day, token))
         {
-            if (room.SentAt is not null || room.Messages.Count == 0) continue;
-            var failure = await SendAsync(room, by, "กำหนดเวลา " + (RemindAt?.ToString("HH:mm") ?? ""), token);
+            if (room.SentSlots.Contains(slot) || room.Messages.Count == 0) continue;
+            var failure = await SendAsync(room, by, $"กำหนดเวลา {slot}", slot, token);
             if (failure.Length == 0) sent++;
-            else log.LogWarning("LINE reminder to {Group} failed: {Why}", room.GroupName, failure);
+            else log.LogWarning("LINE reminder to {Group} at {Slot} failed: {Why}", room.GroupName, slot, failure);
         }
         return sent;
     }
@@ -173,8 +173,9 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
 }
 
 /// <summary>
-/// Sends the reminder at the hour, Bangkok time — 08:00 unless
-/// <c>Line__RemindAt</c> says otherwise, or says "off".
+/// Sends the reminder at each hour, Bangkok time — 08:00 and 12:00 unless
+/// <c>Line__RemindAt</c> says otherwise, or says "off". The second ask goes
+/// only to a room still short of something.
 ///
 /// <para>
 /// Looks every minute and asks the ledger, so a container that restarts at
@@ -199,13 +200,14 @@ public class LineReminderScheduler(IServiceProvider services, ILogger<LineRemind
                 using var scope = services.CreateScope();
                 var reminders = scope.ServiceProvider.GetRequiredService<LineReminderService>();
                 var now = DateTimeOffset.UtcNow.ToOffset(Thailand);
-                var at = reminders.RemindAt;
-                // Within a ten-minute window after the hour, so a pass that
-                // waited on the database still counts as this morning's.
-                if (at is not null && now.TimeOfDay >= at.Value.ToTimeSpan() && now.TimeOfDay < at.Value.ToTimeSpan().Add(TimeSpan.FromMinutes(10)))
+                foreach (var at in reminders.RemindTimes)
                 {
-                    var sent = await reminders.SendDueAsync(DateOnly.FromDateTime(now.DateTime), stopping);
-                    if (sent > 0) log.LogInformation("LINE reminder: {Count} room(s) sent at {At}", sent, at);
+                    // Within a ten-minute window after the hour, so a pass that
+                    // waited on the database still counts as this slot's.
+                    if (now.TimeOfDay < at.ToTimeSpan() || now.TimeOfDay >= at.ToTimeSpan().Add(TimeSpan.FromMinutes(10))) continue;
+                    var slot = at.ToString("HH:mm");
+                    var sent = await reminders.SendDueAsync(DateOnly.FromDateTime(now.DateTime), slot, stopping);
+                    if (sent > 0) log.LogInformation("LINE reminder: {Count} room(s) sent at {At}", sent, slot);
                 }
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }
