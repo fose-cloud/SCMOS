@@ -29,7 +29,11 @@ public record KpiReport(
     IReadOnlyList<CarrierLoad> Carriers,
     IReadOnlyList<Counted> ByDay,
     Period Period,
-    string ComputedAt);
+    string ComputedAt)
+{
+    // Optional for older report producers: unavailable is not a measured zero.
+    public int? CompletedUnmeasurable { get; init; }
+}
 
 /// <summary>
 /// The operational KPIs, computed where the register lives.
@@ -132,7 +136,10 @@ public class KpiService(JobRegisterCache register, CarrierDirectory carriers)
             carrierLoads,
             byDay,
             period,
-            DateTimeOffset.UtcNow.ToString("O"));
+            DateTimeOffset.UtcNow.ToString("O"))
+        {
+            CompletedUnmeasurable = jobs.Count(JobRules.IsCompletedUnmeasurable),
+        };
     }
 
     /// <summary>

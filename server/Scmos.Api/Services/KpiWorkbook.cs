@@ -162,6 +162,8 @@ public static class KpiWorkbook
             ("รูปแบบข้อมูลผิด", operational.FormatErrors),
             ("เสี่ยงตกเรือ (Export)", operational.GateInRisk),
             ("ไม่มีวันที่ใช้ได้", operational.Undated),
+            ("เสร็จแล้ว · ประเมินตรงเวลาไม่ได้", operational.CompletedUnmeasurable is int count ? (object)count : "ยังไม่มีข้อมูล"),
+            ("หลักการประเมินเวลา", "วัน–เวลานัดหรือถึงจริงไม่ครบ/ใช้ไม่ได้: ไม่รวมฐานเปอร์เซ็นต์ตรงเวลา คงสถานะและข้อมูลเดิม"),
         }, ref row);
 
         Section("แยกตามหมวด", operational.ByCategory.Select(c => (c.Label, (object)c.Value)), ref row);

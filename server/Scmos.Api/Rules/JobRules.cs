@@ -216,6 +216,11 @@ public static partial class JobRules
         return true;
     }
 
+    /// <summary>A completed job can remain completed without enough evidence to score arrival.
+    /// This is a reporting classification only; it never changes status or dates.</summary>
+    public static bool IsCompletedUnmeasurable(JobRecord job) =>
+        IsDone(job.Status) && !IsMeasurable(job);
+
     public static bool IsMeasurable(JobRecord job) =>
         Formats.TimeMinutes(job.PlanTime) is not null
         && Formats.TimeMinutes(job.ArrTime) is not null

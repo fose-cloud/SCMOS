@@ -8,6 +8,29 @@ static class SemanticBoundaryChecks
     public static void Run(Action<bool, string> check)
     {
         var today = new DateOnly(2026, 9, 15);
+        foreach (var status in new[] { "COMPLETED", "completed", "delivery completed" })
+        {
+            var unfinishedEvidence = new JobRecord { Status = status, Date = "15/09/2026",
+                PlanTime = "09:00", ArrDate = "15/09/26", ArrTime = "09:00" };
+            var before = JsonSerializer.Serialize(unfinishedEvidence);
+            check(JobRules.IsCompletedUnmeasurable(unfinishedEvidence)
+                && !JobRules.IsOnTime(unfinishedEvidence) && !JobRules.LateBeyond(unfinishedEvidence)
+                && before == JsonSerializer.Serialize(unfinishedEvidence),
+                "completed with unusable arrival stays completed and unscored: " + status);
+        }
+        foreach (var status in new[] { "RECEIVED", "CANCELLED", "IN_TRANSIT" })
+            check(!JobRules.IsCompletedUnmeasurable(new JobRecord { Status = status }),
+                "non-completed work excluded from completed-unmeasurable count: " + status);
+        foreach (var time in new[] { "08:59", "09:00", "09:31" })
+            check(!JobRules.IsCompletedUnmeasurable(new JobRecord { Status = "COMPLETED",
+                Date = "15/09/2026", PlanTime = "09:00", ArrDate = "15/09/2026", ArrTime = time }),
+                "measurable completed work is not classified unknown: " + time);
+        check(JobRules.IsCompletedUnmeasurable(new JobRecord { Status = "COMPLETED",
+            Date = "15/09/2026", PlanTime = "09:00", ArrDate = "15/09/2026", ArrTime = "" }),
+            "completed work without arrival time is unscored");
+        check(JobRules.IsCompletedUnmeasurable(new JobRecord { Status = "COMPLETED",
+            Date = "15/09/2026", PlanTime = "", ArrDate = "15/09/2026", ArrTime = "09:00" }),
+            "completed work without planned time is unscored");
         JobRecord Arrival(string date, string planned, string arrivedDate, string arrived) =>
             new() { Date = date, PlanTime = planned, ArrDate = arrivedDate, ArrTime = arrived };
         foreach (var item in new[] { ("09:00", true, false), ("09:01", false, false),

@@ -32,6 +32,7 @@ export type KpiReport = {
   byCategory: Counted[];
   byStatus: Counted[];
   onTime: Measured;
+  completedUnmeasurable?: number | null;
   actionRequired: number;
   formatErrors: number;
   gateInRisk: number;
@@ -245,9 +246,23 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
           colour={report.onTime.percent >= 80 ? "#16794C" : report.onTime.percent >= 60 ? "#B45309" : "#B42318"}
         />
         <Tile label="เสร็จสิ้น" value={done.toLocaleString()} note="ตามสถานะในทะเบียน" colour="#16794C" />
+        <Tile
+          label="เสร็จแล้ว · ประเมินตรงเวลาไม่ได้"
+          value={report.completedUnmeasurable == null ? "—" : report.completedUnmeasurable.toLocaleString()}
+          note={report.completedUnmeasurable == null
+            ? "ยังไม่มีข้อมูลจาก API"
+            : "วัน–เวลานัดหรือถึงจริงไม่ครบ/ใช้ไม่ได้ · คงสถานะเสร็จแล้ว"}
+          colour="#64748B"
+        />
         <Tile label="ต้องดำเนินการ" value={report.actionRequired.toLocaleString()} note="ข้อมูลผิดหรือยังขาด" colour="#B45309" onClick={() => onDrill("myjob")} />
         <Tile label="รูปแบบข้อมูลผิด" value={report.formatErrors.toLocaleString()} note="ค่าที่อ่านไม่ได้ในฐานข้อมูล" colour="#B42318" />
         <Tile label="เสี่ยงตกเรือ (Export)" value={report.gateInRisk.toLocaleString()} note="เวลาปิดตู้มาก่อนรถถึง" colour="#B42318" />
+      </div>
+
+      <div style={css("font-size:12px;color:#5A6B7D;padding:0 4px")}>
+        งานที่ประเมินตรงเวลาไม่ได้ไม่รวมในฐานคำนวณเปอร์เซ็นต์ตรงเวลา
+        และไม่ถือว่าเป็นงานตรงเวลาหรือล่าช้าจากเวลาถึง
+        สถานะงานและเหตุผลล่าช้าที่บันทึกไว้ยังคงเดิม ไม่มีการเติมวัน–เวลาทดแทน
       </div>
 
       {engine && (
