@@ -8,7 +8,7 @@
  *
  * A leaf module on purpose: it imports nothing, so anything may import it.
  */
-export const APP_VERSION = "v2.7.23";
+export const APP_VERSION = "v2.7.24";
 
 /** Which deployment, for the sidebar's environment line. */
 export const APP_ENVIRONMENT = "Production · TH-BKK";
