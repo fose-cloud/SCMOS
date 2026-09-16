@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
@@ -27,13 +28,13 @@ public static class LineMatching
     /// </summary>
     /// <param name="db">A context the caller owns.</param>
     /// <param name="lineGroupId">The room the message came from.</param>
-    /// <param name="jobNumber">The twelve digits the parser read.</param>
-    /// <param name="status">The status it read, or empty.</param>
+    /// <param name="read">What the parser made of the message — the number, the box, the plates, the status.</param>
+    /// <param name="receivedAt">When the message arrived, for the day the trip is on.</param>
     public static async Task<LineAuthority.LineDecision> DecideAsync(
         ScmosDbContext db,
         string lineGroupId,
-        string jobNumber,
-        string status,
+        LineParser.Parsed read,
+        DateTimeOffset receivedAt,
         CancellationToken token)
     {
         var group = await SpeakerAsync(db, lineGroupId, token);
@@ -46,14 +47,19 @@ public static class LineMatching
          * operational record at all. Passing an empty list here is not a
          * shortcut — the rule returns on the speaker before it reads it.
          */
-        var candidates = group.Known
+        var may = group.Known
             && group.Active
             && string.Equals(group.GroupType, LineGroupType.Vendor, StringComparison.OrdinalIgnoreCase)
-            && jobNumber.Length > 0
-                ? await CandidatesAsync(db, jobNumber, token)
-                : [];
+            && read.HasReference;
+        var (candidates, named) = may
+            ? await CandidatesAsync(db, read, token)
+            : ([], "เลขงานนี้");
 
-        return LineAuthority.Decide(group, status, candidates);
+        var clue = new LineAuthority.Clue(
+            named, read.Container, read.Plates ?? [], read.Remark,
+            DateOnly.FromDateTime(receivedAt.ToOffset(TimeSpan.FromHours(7)).DateTime),
+            PlateOnly: read.JobNumber is null && read.Container is null);
+        return LineAuthority.Decide(group, read.Status, candidates, clue);
     }
 
     /// <summary>
@@ -89,16 +95,79 @@ public static class LineMatching
     }
 
     /// <summary>
-    /// Every row carrying this job number — not filtered by carrier here.
+    /// Every row the message could mean — not filtered by carrier here.
     ///
     /// The rule does the filtering, because "the number exists but is somebody
     /// else's" and "the number does not exist" are different answers and only
     /// the unfiltered set can tell them apart.
+    ///
+    /// <para>
+    /// By the job number when there is one; else by the container, which is a
+    /// column; else by the plate, which lives in the job's JSON. The plate
+    /// lookup is a text search on that JSON for the plate's digits and then a
+    /// proper comparison in memory — a truck runs many trips, so the rows come
+    /// back newest first and capped, and the rule's date tiebreak picks the
+    /// one this message is about.
+    /// </para>
     /// </summary>
-    private static async Task<List<LineAuthority.JobCandidate>> CandidatesAsync(
-        ScmosDbContext db, string jobNumber, CancellationToken token) =>
-        await db.OperationJobs.AsNoTracking()
-            .Where(one => one.JobCode == jobNumber)
-            .Select(one => new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status))
+    /// <returns>The rows, and what they were looked up by, for the sentence a person reads.</returns>
+    private static async Task<(List<LineAuthority.JobCandidate> Rows, string Named)> CandidatesAsync(
+        ScmosDbContext db, LineParser.Parsed read, CancellationToken token)
+    {
+        if (read.JobNumber is { } number)
+            return (await ToCandidates(db.OperationJobs.AsNoTracking()
+                .Where(one => one.JobCode == number), token), $"เลขงาน {number}");
+
+        if (read.Container is { } container)
+            return (await ToCandidates(db.OperationJobs.AsNoTracking()
+                .Where(one => one.Container.Contains(container)), token), $"ตู้ {container}");
+
+        var plates = read.Plates ?? [];
+        var rows = new List<LineAuthority.JobCandidate>();
+        foreach (var plate in plates)
+        {
+            // The digits after the dash are what a LIKE can find; the whole
+            // plate is compared afterwards, province and punctuation aside.
+            var digits = new string(plate.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+            if (digits.Length < 3) continue;
+            var found = await ToCandidates(db.OperationJobs.AsNoTracking()
+                .Where(one => one.Data.Contains(digits))
+                .OrderByDescending(one => one.UpdatedAt)
+                .Take(200), token);
+            rows.AddRange(found.Where(one => LineAuthority.PlateMatches(one.Plate, [plate])
+                && rows.All(had => had.Key != one.Key)));
+        }
+        return (rows, $"ทะเบียน {string.Join(" / ", plates)}");
+    }
+
+    /// <summary>
+    /// The columns the rule reads, plus the plate out of the JSON. Only the
+    /// matched rows are materialised, so reading their JSON is cheap.
+    /// </summary>
+    private static async Task<List<LineAuthority.JobCandidate>> ToCandidates(
+        IQueryable<OperationJob> rows, CancellationToken token)
+    {
+        var picked = await rows
+            .Select(one => new { one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container, one.WorkDate, one.Data })
             .ToListAsync(token);
+        return picked.Select(one => new LineAuthority.JobCandidate(
+            one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container, PlateOf(one.Data), one.WorkDate))
+            .ToList();
+    }
+
+    /// <summary>The job's LICENCE cell, out of its JSON, or empty.</summary>
+    private static string PlateOf(string data)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(data);
+            return json.RootElement.TryGetProperty("licence", out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString() ?? ""
+                : "";
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
+    }
 }

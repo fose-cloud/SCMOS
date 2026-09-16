@@ -163,12 +163,17 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         row.Warnings = string.Join(", ", read.Warnings);
         row.ProcessedAt = DateTimeOffset.UtcNow;
 
-        if (!read.CanAutoProcess)
+        // A message the parser had doubts about, or one with nothing to find a
+        // job by, is not a failure and not retried. Reading the same words
+        // again will not make them clearer, so it waits for a person. A
+        // message with a reference and no doubts goes on to be matched — a
+        // plate alone is under the auto threshold, and is matched anyway,
+        // because the match is what the reviewer needs to see. Nothing is
+        // applied here either way.
+        if (read.Warnings.Count > 0 || !read.HasReference)
         {
-            // Not a failure and not retried. Reading the same words again will
-            // not make them clearer, so it waits for a person.
             row.ProcessingStatus = LineProcessing.NeedReview;
-            row.ErrorCode = read.Warnings.Count > 0 ? read.Warnings[0] : "low-confidence";
+            row.ErrorCode = read.Warnings.Count > 0 ? read.Warnings[0] : "no-reference";
             row.ErrorMessage = "";
             await db.SaveChangesAsync(stopping);
             log.LogInformation("LINE message {Id} needs review: {Reason}", id, row.ErrorCode);
@@ -178,7 +183,7 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         // Understood. Now: is the room allowed to say it about that job, and
         // which job is it? The rule decides; this only stores the answer.
         var decision = await LineMatching.DecideAsync(
-            db, row.LineGroupId, row.JobNumber, row.ParsedStatus, stopping);
+            db, row.LineGroupId, read, row.ReceivedAt, stopping);
 
         // One key when there is one job. For a number that covers several of the
         // speaker's own rows the column cannot hold the choice, so it stays

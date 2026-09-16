@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  confidenceLabel, describe, isActionable, palette, summarise, whenLabel,
+  confidenceLabel, describe, isActionable, palette, referenceLabel, statusLabel, summarise, whenLabel,
 } from "../app/scmos/lineReview.ts";
 
 /*
@@ -128,4 +128,33 @@ test("a time that is not a time shows nothing rather than Invalid Date", () => {
   assert.equal(whenLabel(""), "");
   assert.equal(whenLabel(null), "");
   assert.equal(whenLabel("not a date"), "");
+});
+
+/*
+ * Since 16 Sep 2026 a haulier's message has carried a container and a plate
+ * and no job number — "L'Oréal / TEMU7592765 / สมใจ / 700-3232 / ถึงโรงงาน 05:00
+ * / ลงเสร็จ". The queue has to say what such a message pointed at.
+ */
+
+test("the reference column shows the number, else the box, else the plates", () => {
+  assert.equal(referenceLabel({ jobNumber: "260600800773", container: "TEMU7592765" }), "260600800773");
+  assert.equal(referenceLabel({ jobNumber: "", container: "TEMU7592765", plates: ["700-3232"] }), "TEMU7592765");
+  assert.equal(referenceLabel({ jobNumber: "", container: "", plates: ["75-4384", "75-4385"] }), "75-4384 / 75-4385");
+  assert.equal(referenceLabel({ jobNumber: null, container: null, plates: null }), "");
+});
+
+test("every code the parser and the rule can now produce has words on the screen", () => {
+  for (const code of ["no-reference", "many-containers", "many-job-numbers", "many-times", "nothing-understood"]) {
+    const outcome = describe(code);
+    assert.notEqual(outcome.label, code, `${code} has no label`);
+    assert.equal(outcome.tone, "attention");
+  }
+  // The rows stored before the parser read containers keep their word.
+  assert.notEqual(describe("no-job-number").label, "no-job-number");
+});
+
+test("the one status the parser cannot settle alone is named as such", () => {
+  assert.equal(statusLabel("ARRIVED"), "ถึงหน้างาน (ตามประเภทงาน)");
+  assert.equal(statusLabel("DELIVERED"), "DELIVERED");
+  assert.equal(statusLabel(""), "");
 });

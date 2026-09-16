@@ -44,6 +44,60 @@ public static class LineParser
         new(@"(?<!\d)([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)", RegexOptions.Compiled);
 
     /// <summary>
+    /// A container number in running text: an owner code of three letters
+    /// and a U, J or Z (ISO 6346), then seven digits, with or without a space
+    /// or dash between.
+    ///
+    /// Stricter than the register's own <c>[A-Z]{4}\d{7}</c> on purpose. That
+    /// rule checks a cell that is supposed to be a container; this reads a
+    /// chat message, where "SEAL 1234567" and a booking reference can sit on
+    /// the same line, and the fourth letter is the one thing that tells a box
+    /// from anything else that looks like one.
+    /// </summary>
+    private static readonly Regex Container =
+        new(@"(?<![A-Za-z0-9])([A-Za-z]{3}[UuJjZz])[\s-]?(\d{7})(?!\d)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A Thai plate in running text: 70-1234, 700-3232, กข 1234, 1กข-1234.
+    ///
+    /// Digits before the dash must have the dash: without it "1500" in
+    /// "จำนวน 1500 กก" is a plate, and the register's own plate rule accepts
+    /// exactly that because it is checking a plate cell, not reading prose.
+    /// Neither side may touch a digit, a dash or another Thai character —
+    /// "16-09-2026" holds no plate and "ถึง 1234" holds no plate either.
+    /// </summary>
+    private static readonly Regex Plate = new(
+        @"(?<![\d\u0E00-\u0E7FA-Za-z-])(?:(\d{1,3})-(\d{3,4})|(\d?[ก-ฮ]{1,3})[-\s]?(\d{3,4}))(?![\d-])",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// The clock that follows an arrival word: "ถึงโรงงาน 05:00", "ถึงลูกค้าแล้ว
+    /// 10.25", "arrived customer 10:25". Not the port — "ถึงท่า 08:10" is the
+    /// pickup, and writing it as the arrival would make every import trip look
+    /// hours early.
+    /// </summary>
+    private static readonly Regex ArrivalClock = new(
+        @"(?:ถึง(?!ท่า|ประมาณ)|arrived)[^\d]{0,24}?(?<!\d)([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// The one status a message cannot resolve on its own: the truck is at the
+    /// customer's site. On an import or a Domestic run that is the delivery; on
+    /// an export it is the pickup. <see cref="LineAuthority.ResolveSite"/>
+    /// settles it once the job — and so its category — is known.
+    /// </summary>
+    public const string SiteArrival = "ARRIVED";
+
+    /// <summary>
+    /// The order the statuses a vendor can report come in, so that a message
+    /// naming two of them is read as the later one: "ถึงโรงงาน 05:00 / ลงเสร็จ"
+    /// is a delivery, not an arrival. <see cref="SiteArrival"/> sits beside
+    /// DISPATCHED because that is the least it can mean.
+    /// </summary>
+    private static readonly string[] Progress =
+        ["TRUCK_ASSIGNED", "DISPATCHED", SiteArrival, "PICKED_UP", "IN_TRANSIT", "DELIVERED"];
+
+    /// <summary>
     /// What a message says happened, mapped to the ladder SCMOS already has.
     ///
     /// Longest keyword first, so "ถึงลูกค้าแล้ว" is not read as "ถึง". The list
@@ -66,7 +120,16 @@ public static class LineParser
         ("ถึงลูกค้า", "DELIVERED"),
         ("ส่งเสร็จแล้ว", "DELIVERED"),
         ("ส่งเสร็จ", "DELIVERED"),
+        ("ลงของเสร็จแล้ว", "DELIVERED"),
         ("ลงของเสร็จ", "DELIVERED"),
+        // "ลงเสร็จ" — unloading done — is how the first real message from a
+        // haulier's group put it, 16 Sep 2026. Not in the specification.
+        ("ลงเสร็จแล้ว", "DELIVERED"),
+        ("ลงเสร็จ", "DELIVERED"),
+        ("ส่งของเสร็จ", "DELIVERED"),
+        ("ส่งของแล้ว", "DELIVERED"),
+        ("unloading done", "DELIVERED"),
+        ("unloaded", "DELIVERED"),
         ("arrived customer", "DELIVERED"),
         ("arrived delivery", "DELIVERED"),
         ("delivered", "DELIVERED"),
@@ -90,10 +153,21 @@ public static class LineParser
 
         ("ถึงท่าแล้ว", "DISPATCHED"),
         ("ถึงท่า", "DISPATCHED"),
-        ("ถึงโรงงาน", "DISPATCHED"),
         ("รถออกแล้ว", "DISPATCHED"),
         ("arrived pickup", "DISPATCHED"),
         ("arrived port", "DISPATCHED"),
+
+        // At the customer's site — which end of the trip that is depends on
+        // the job. Resolved by category once the job is known; see SiteArrival.
+        ("ถึงโรงงานแล้ว", SiteArrival),
+        ("ถึงโรงงาน", SiteArrival),
+        ("ถึงคลังแล้ว", SiteArrival),
+        ("ถึงคลัง", SiteArrival),
+        ("ถึงหน้างาน", SiteArrival),
+        ("arrived site", SiteArrival),
+        ("arrived factory", SiteArrival),
+        ("arrived plant", SiteArrival),
+        ("arrived warehouse", SiteArrival),
 
         ("รับรถแล้ว", "TRUCK_ASSIGNED"),
         ("จัดรถแล้ว", "TRUCK_ASSIGNED"),
@@ -120,17 +194,40 @@ public static class LineParser
         DelayCategory? DelayCategory,
         /// <summary>Which words the delay classifier matched, so a reviewer can disagree.</summary>
         string? DelayBasis,
+        /// <summary>The first plate in the message, when one was read. See <see cref="Plates"/>.</summary>
         string? Plate,
         string Remark,
         double Confidence,
         IReadOnlyList<string> MatchedRules,
-        IReadOnlyList<string> Warnings)
+        IReadOnlyList<string> Warnings,
+        /// <summary>The container the message names, when it names exactly one.</summary>
+        string? Container = null,
+        /// <summary>
+        /// Every plate in the message. Two is ordinary — a tractor and its
+        /// trailer are written "75-4384 / 75-4385" — so unlike a second job
+        /// number it is not a warning, and any of them may match the job.
+        /// </summary>
+        IReadOnlyList<string>? Plates = null,
+        /// <summary>
+        /// When the truck reached the customer's site, when the message says
+        /// with a clock after an arrival word. This is the register's ARRIVAL
+        /// DATE / TIME — what on-time delivery is measured from.
+        /// </summary>
+        DateTimeOffset? ArrivalTime = null)
     {
         /// <summary>Whether this may update a job without somebody reading it first.</summary>
         public bool CanAutoProcess => Confidence >= AutoThreshold
-            && JobNumber is not null
+            && (JobNumber is not null || Container is not null)
             && Warnings.Count == 0
             && (Status is not null || Delayed || Eta is not null);
+
+        /// <summary>
+        /// Whether there is anything to look a job up by. The first real
+        /// messages carried a container and a plate and no job number at all —
+        /// "L'Oréal / TEMU7592765 / สมใจ / 700-3232 / ถึงโรงงาน 05:00 / ลงเสร็จ".
+        /// </summary>
+        public bool HasReference => JobNumber is not null || Container is not null
+            || (Plates is not null && Plates.Count > 0);
     }
 
     /// <summary>
@@ -178,17 +275,86 @@ public static class LineParser
     public static (string? Number, int Found) FindJobNumber(string normalised) =>
         JobCodes.FindOne(normalised);
 
-    /// <summary>The status a message reports, and the keyword that said so.</summary>
-    public static (string? Status, string? Keyword) FindStatus(string normalised)
+    /// <summary>
+    /// The container in a message, and how many there were. Null unless
+    /// exactly one, for the reason <see cref="FindJobNumber"/> gives.
+    /// </summary>
+    public static (string? Container, int Found) FindContainer(string normalised)
     {
-        var haystack = normalised.ToLowerInvariant();
-        // Longest first so a keyword that contains another wins.
+        var found = Container.Matches(normalised)
+            .Select(one => (one.Groups[1].Value + one.Groups[2].Value).ToUpperInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return (found.Count == 1 ? found[0] : null, found.Count);
+    }
+
+    /// <summary>Every plate in a message, as written, without duplicates.</summary>
+    public static IReadOnlyList<string> FindPlates(string normalised) =>
+        [.. Plate.Matches(normalised).Select(one => one.Value.Trim()).Distinct(StringComparer.Ordinal)];
+
+    /// <summary>
+    /// A plate reduced to what identifies it: the province off, then only its
+    /// letters and digits. "700-3232", "700 3232" and "700-3232 กทม." are one
+    /// plate; the register writes all three.
+    /// </summary>
+    public static string PlateKey(string? plate)
+    {
+        var text = Formats.StripProvince(Formats.Clean(plate));
+        var built = new System.Text.StringBuilder(text.Length);
+        foreach (var c in text)
+        {
+            if (char.IsDigit(c) || (c >= 'ก' && c <= 'ฮ')) built.Append(c);
+        }
+        return built.ToString();
+    }
+
+    /// <summary>
+    /// Every status keyword in a message, longest first, each span read once —
+    /// "ถึงลูกค้าแล้ว" is not also "ถึงลูกค้า".
+    /// </summary>
+    public static IReadOnlyList<(string Status, string Keyword)> FindStatuses(string normalised)
+    {
+        var haystack = normalised.ToLowerInvariant().ToCharArray();
+        var found = new List<(string Status, string Keyword, int At)>();
         foreach (var (keyword, status) in StatusWords.OrderByDescending(one => one.Keyword.Length))
         {
-            if (haystack.Contains(keyword.ToLowerInvariant(), StringComparison.Ordinal))
-                return (status, keyword);
+            var needle = keyword.ToLowerInvariant();
+            var from = 0;
+            while (true)
+            {
+                var at = new string(haystack).IndexOf(needle, from, StringComparison.Ordinal);
+                if (at < 0) break;
+                found.Add((status, keyword, at));
+                // Blanked so a shorter keyword inside this one is not read again.
+                for (var i = at; i < at + needle.Length; i++) haystack[i] = ' ';
+                from = at + needle.Length;
+            }
         }
-        return (null, null);
+        return [.. found.OrderBy(one => one.At).Select(one => (one.Status, one.Keyword))];
+    }
+
+    /// <summary>
+    /// The status a message reports, and the keyword that said so.
+    ///
+    /// When a message names more than one, the one furthest along
+    /// <see cref="Progress"/> wins: a driver writing "ถึงโรงงาน 05:00 / ลงเสร็จ"
+    /// is reporting the delivery and mentioning the arrival on the way. Used
+    /// to be the longest keyword, which read that message as the arrival.
+    /// </summary>
+    public static (string? Status, string? Keyword) FindStatus(string normalised)
+    {
+        var all = FindStatuses(normalised);
+        if (all.Count == 0) return (null, null);
+        var best = all.MaxBy(one => Array.IndexOf(Progress, one.Status));
+        return (best.Status, best.Keyword);
+    }
+
+    /// <summary>The clock after an arrival word, on the day the message arrived, or null.</summary>
+    public static DateTimeOffset? FindArrival(string normalised, DateTimeOffset receivedAt)
+    {
+        var match = ArrivalClock.Match(normalised);
+        if (!match.Success) return null;
+        return ResolveTime($"{match.Groups[1].Value}:{match.Groups[2].Value}", receivedAt);
     }
 
     /// <summary>
@@ -221,6 +387,10 @@ public static class LineParser
         // and Customer at once and dropped to 0.6, which sent an entirely
         // ordinary message to the review queue.
         var reason = normalised;
+        foreach (var (_, keyword) in FindStatuses(normalised))
+        {
+            reason = Regex.Replace(reason, Regex.Escape(keyword), " ", RegexOptions.IgnoreCase);
+        }
         if (!string.IsNullOrEmpty(statusKeyword))
         {
             reason = Regex.Replace(reason, Regex.Escape(statusKeyword), " ", RegexOptions.IgnoreCase);
@@ -285,12 +455,27 @@ public static class LineParser
         var warnings = new List<string>();
 
         var (jobNumber, found) = FindJobNumber(text);
-        if (found == 0) warnings.Add("no-job-number");
         if (found > 1) warnings.Add("many-job-numbers");
         if (jobNumber is not null) rules.Add("job-number");
 
+        // The container and the plates are read from every message, not only
+        // one about assigning a truck: since 16 Sep 2026 they are how a job is
+        // found when the haulier writes no job number, which is every time so
+        // far.
+        var (container, containers) = FindContainer(text);
+        if (containers > 1) warnings.Add("many-containers");
+        if (container is not null) rules.Add($"container:{container}");
+
+        var plates = FindPlates(text);
+        foreach (var plate in plates) rules.Add($"plate:{plate}");
+
+        // Nothing to find a job by. Was "no-job-number", which the rows already
+        // stored still carry and the screen still names.
+        if (jobNumber is null && container is null && plates.Count == 0 && found == 0)
+            warnings.Add("no-reference");
+
         var (status, statusWord) = FindStatus(text);
-        if (statusWord is not null) rules.Add($"status:{statusWord}");
+        foreach (var (_, keyword) in FindStatuses(text)) rules.Add($"status:{keyword}");
 
         var (delayCategory, delayBasis, delayConfidence) = FindDelay(text, statusWord);
         if (delayCategory is not null) rules.Add($"delay:{delayCategory}");
@@ -311,31 +496,26 @@ public static class LineParser
         }
 
         // A second clock reading in one message is two times and no way to say
-        // which is which. Reported rather than guessed at.
-        if (Clock.Matches(text).Count > 1) warnings.Add("many-times");
-
-        // A plate, and only on a message about assigning a truck. Read as the
-        // last token the register's own plate rule accepts, rather than by a
-        // pattern of this file's own — Formats.IsPlate already knows what a
-        // Thai plate looks like and already strips the province off one.
-        string? plateValue = null;
-        if (status == "TRUCK_ASSIGNED")
-        {
-            plateValue = text.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .LastOrDefault(Formats.IsPlate);
-            if (plateValue is not null) rules.Add("plate");
-        }
+        // which is which. Reported rather than guessed at — unless one of them
+        // stands after an arrival word, which says which it is.
+        var arrival = forecast ? null : FindArrival(text, receivedAt);
+        if (arrival is not null) rules.Add($"arrival:{arrival.Value:HH:mm}");
+        if (Clock.Matches(text).Count > 1 && arrival is null) warnings.Add("many-times");
 
         var delayed = delayCategory is not null;
         var understood = status is not null || delayed || eta is not null;
         if (!understood) warnings.Add("nothing-understood");
 
         return new Parsed(
-            jobNumber, status, eventTime, eta, delayed, delayCategory, delayBasis, plateValue,
+            jobNumber, status, eventTime, eta, delayed, delayCategory, delayBasis,
+            Plate: plates.Count > 0 ? plates[0] : null,
             Remark: text,
-            Confidence: Score(jobNumber, status, delayed, eta, warnings),
+            Confidence: Score(jobNumber, status, delayed, eta, warnings, container, plates.Count > 0),
             MatchedRules: rules,
-            Warnings: warnings);
+            Warnings: warnings,
+            Container: container,
+            Plates: plates,
+            ArrivalTime: arrival);
     }
 
     /// <summary>
@@ -352,11 +532,15 @@ public static class LineParser
     /// </summary>
     public static double Score(
         string? jobNumber, string? status, bool delayed, DateTimeOffset? eta,
-        IReadOnlyList<string> warnings)
+        IReadOnlyList<string> warnings, string? container = null, bool plate = false)
     {
-        if (jobNumber is null) return 0;
-
-        var score = 0.55;                       // one job number, unambiguous
+        // A job number or a container names one trip. A plate names a truck,
+        // which runs many — enough to find the candidates, never enough to
+        // reach the threshold on its own.
+        var score = jobNumber is not null || container is not null ? 0.55
+            : plate ? 0.35
+            : 0;
+        if (score == 0) return 0;
         if (status is not null) score += 0.35;  // and it says what happened
         // A message that gives only a reason — "260600800773 รถเสีย" — is as
         // clear as one that gives only a status, and worth the same. Scored

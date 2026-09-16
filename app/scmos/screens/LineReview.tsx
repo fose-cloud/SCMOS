@@ -5,7 +5,7 @@ import { apiFetch } from "../api";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
 import {
-  confidenceLabel, describe, isActionable, palette, summarise, whenLabel,
+  confidenceLabel, describe, isActionable, palette, referenceLabel, statusLabel, summarise, whenLabel,
 } from "../lineReview";
 
 /**
@@ -38,6 +38,10 @@ type Event = {
   lineGroupId: string;
   rawText: string;
   jobNumber: string;
+  /** The box and the plates the parser reads out of the text now, and the arrival clock after ถึง. */
+  container: string;
+  plates: string[];
+  arrival: { date: string; time: string };
   parsedStatus: string;
   confidence: number;
   processingStatus: string;
@@ -51,12 +55,16 @@ type Event = {
 type Option = {
   key: string; cat: string; customer: string; container: string;
   status: string; workDate: string;
-  move: { result: string; detail: string; ok: boolean };
+  move: { result: string; detail: string; ok: boolean; to: string };
+  /** What approving would write into ARRIVAL DATE / TIME, or why it would not. */
+  arrival: string;
 };
 
 type Options = {
   outcome: string; detail: string; canApply: boolean;
   from: string; to: string; options: Option[]; stored: string;
+  reference: { jobNumber: string; container: string; plates: string[] };
+  arrival: { date: string; time: string };
 };
 
 type Group = {
@@ -221,7 +229,7 @@ export function LineReview({
                   <th style={css(HEAD)}>เวลา</th>
                   <th style={css(HEAD)}>กลุ่ม</th>
                   <th style={css(HEAD)}>ข้อความ</th>
-                  <th style={css(HEAD)}>เลขงาน</th>
+                  <th style={css(HEAD)}>อ้างถึง</th>
                   <th style={css(HEAD)}>อ่านได้</th>
                   <th style={css(HEAD)}>ผลการตรวจ</th>
                   <th style={css(HEAD)}></th>
@@ -333,11 +341,14 @@ function Row({
           )}
         </td>
         <td style={css(`${CELL};max-width:280px`)}>{event.rawText}</td>
-        <td style={css(`${CELL};white-space:nowrap;font-variant-numeric:tabular-nums`)}>{event.jobNumber || "—"}</td>
+        <td style={css(`${CELL};white-space:nowrap;font-variant-numeric:tabular-nums`)}>{referenceLabel(event) || "—"}</td>
         <td style={css(`${CELL};white-space:nowrap`)}>
-          {event.parsedStatus || "—"}
+          {statusLabel(event.parsedStatus) || "—"}
           {confidenceLabel(event.confidence) && (
             <span style={css("color:#94A3B8;margin-left:6px")}>{confidenceLabel(event.confidence)}</span>
+          )}
+          {event.arrival?.time && (
+            <div style={css("font-size:11px;color:#475569;margin-top:2px")}>ถึง {event.arrival.time} · {event.arrival.date}</div>
           )}
         </td>
         <td style={css(CELL)}>
@@ -408,6 +419,11 @@ function Detail({
             {options.from} → <strong>{options.to}</strong>
           </div>
         )}
+        {options.arrival?.time && (
+          <div style={css("font-size:12px;color:#475569;margin-top:2px")}>
+            เวลาถึงในข้อความ <strong>{options.arrival.time}</strong> · {options.arrival.date}
+          </div>
+        )}
       </div>
 
       {options.options.length > 0 && (
@@ -424,6 +440,7 @@ function Detail({
                 <th style={css(HEAD)}>ตู้</th>
                 <th style={css(HEAD)}>วันที่</th>
                 <th style={css(HEAD)}>สถานะตอนนี้</th>
+                <th style={css(HEAD)}>เวลาถึง</th>
                 <th style={css(HEAD)}></th>
               </tr>
             </thead>
@@ -435,13 +452,14 @@ function Detail({
                   <td style={css(`${CELL};white-space:nowrap`)}>{one.container || "—"}</td>
                   <td style={css(`${CELL};white-space:nowrap`)}>{one.workDate}</td>
                   <td style={css(`${CELL};white-space:nowrap`)}>{one.status}</td>
+                  <td style={css(`${CELL};font-size:11.5px;color:#475569`)}>{one.arrival || "—"}</td>
                   <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
                     {one.move.ok ? (
                       canApprove ? (
                         <button disabled={busy}
                           onClick={() => onAct("apply", { jobKey: one.key, reason })}
                           style={css(`${BUTTON};border-color:#16A34A;background:#16A34A;color:#fff`)}>
-                          อนุมัติ → {options.to}
+                          อนุมัติ → {one.move.to || options.to}
                         </button>
                       ) : (
                         <span style={css("font-size:11.5px;color:#94A3B8")}>ไม่มีสิทธิ์อนุมัติ</span>

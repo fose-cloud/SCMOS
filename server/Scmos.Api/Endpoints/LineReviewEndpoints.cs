@@ -75,11 +75,21 @@ public static class LineReviewEndpoints
 
             return Results.Json(new
             {
-                events = rows.Select(one => new
+                events = rows.Select(one =>
                 {
+                    // Read again, now, by the parser as it stands — the row
+                    // stores the number and the status, and since 16 Sep 2026
+                    // the box, the plates and the arrival clock are what a
+                    // reviewer needs to see. Deterministic and cheap.
+                    var read = LineParser.Parse(one.RawText, one.ReceivedAt);
+                    return new
+                    {
                     one.Id, one.ReceivedAt, one.RawText, one.JobNumber, one.ParsedStatus,
                     one.Confidence, one.ProcessingStatus, one.ErrorCode, one.ErrorMessage,
                     one.JobKey, one.RetryCount,
+                    container = read.Container ?? "",
+                    plates = read.Plates ?? [],
+                    arrival = Arrival(read),
                     // The room's own id as well as its name: an unbound room
                     // has no name yet, and the id is what the operator binds
                     // it by. It was resolved to a name and then dropped, so
@@ -87,6 +97,7 @@ public static class LineReviewEndpoints
                     // and gave nothing to bind.
                     one.LineGroupId,
                     group = names.GetValueOrDefault(one.LineGroupId, ""),
+                    };
                 }),
                 count = rows.Count,
             });
@@ -193,8 +204,8 @@ public static class LineReviewEndpoints
              * stored verdict here would let the screen offer a button the
              * approval then refuses.
              */
-            var now = await LineMatching.DecideAsync(
-                db, row.LineGroupId, row.JobNumber, row.ParsedStatus, token);
+            var read = LineParser.Parse(row.RawText, row.ReceivedAt);
+            var now = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
 
             // Each offered row with its own status, because when a number covers
             // several the operator is choosing between them and the status is
@@ -202,7 +213,7 @@ public static class LineReviewEndpoints
             var keys = now.Keys.ToList();
             var offered = await db.OperationJobs.AsNoTracking()
                 .Where(job => keys.Contains(job.Key))
-                .Select(job => new { job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate })
+                .Select(job => new { job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate, job.Data })
                 .ToListAsync(token);
 
             return Results.Json(new
@@ -212,6 +223,8 @@ public static class LineReviewEndpoints
                 canApply = now.Applies,
                 from = now.From,
                 to = now.To,
+                reference = new { jobNumber = read.JobNumber ?? "", container = read.Container ?? "", plates = read.Plates ?? [] },
+                arrival = Arrival(read),
                 options = offered.Select(job =>
                 {
                     // Whether this particular row could take the move, which the
@@ -220,11 +233,15 @@ public static class LineReviewEndpoints
                     // these keys came out of the decision's own filtered set.
                     var move = LineAuthority.Move(
                         new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status),
-                        row.ParsedStatus);
+                        read.Status);
+                    var stamp = ArrivalWrite(read, job.Data);
                     return new
                     {
                         job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate,
-                        move = new { move.Result, move.Detail, ok = move.Applies },
+                        move = new { move.Result, move.Detail, ok = move.Applies, to = move.To },
+                        // What approving would write into ARRIVAL DATE / TIME,
+                        // or why it would not.
+                        arrival = stamp.Note,
                     };
                 }),
                 stored = row.ErrorCode,
@@ -257,8 +274,8 @@ public static class LineReviewEndpoints
              * moved it to another haulier — and this endpoint is the one that
              * writes, so it is the one that has to be right.
              */
-            var decision = await LineMatching.DecideAsync(
-                db, row.LineGroupId, row.JobNumber, row.ParsedStatus, token);
+            var read = LineParser.Parse(row.RawText, row.ReceivedAt);
+            var decision = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
 
             // The one place an operator's choice is allowed in: when a number
             // covers several of the haulier's own rows, they may say which. It
@@ -290,26 +307,46 @@ public static class LineReviewEndpoints
              */
             var one = await db.OperationJobs.AsNoTracking()
                 .Where(job => job.Key == chosen)
-                .Select(job => new LineAuthority.JobCandidate(job.Key, job.Cat, job.Trucker, job.Status))
+                .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data })
                 .FirstOrDefaultAsync(token);
             if (one is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
 
-            var final = LineAuthority.Move(one, row.ParsedStatus);
+            var final = LineAuthority.Move(
+                new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), read.Status);
             if (!final.Applies)
                 return ApiResults.Error(
                     final.Detail.Length > 0 ? final.Detail : final.Result,
                     StatusCodes.Status409Conflict);
 
-            var wrote = await jobs.PatchAsync(chosen,
-                new Dictionary<string, string> { ["status"] = final.To }, user.Signature, token);
+            // The arrival the driver reported goes in beside the status, into
+            // the cells on-time delivery is measured from — when they are
+            // empty. A stamp somebody already keyed is not overwritten from a
+            // chat room; the answer says so and the operator can change it on
+            // the grid if the driver is right.
+            var stamp = ArrivalWrite(read, one.Data);
+            var fields = new Dictionary<string, string> { ["status"] = final.To };
+            if (stamp.Date is { } date && stamp.Time is { } time)
+            {
+                fields["arrDate"] = date;
+                fields["arrTime"] = time;
+            }
+
+            var wrote = await jobs.PatchAsync(chosen, fields, user.Signature, token);
             if (!wrote) return ApiResults.Error("บันทึกไม่สำเร็จ", StatusCodes.Status409Conflict);
 
             // Source LINE, not web. Six months from now "who set this job to
             // DELIVERED" should answer with the operator who approved it and
             // the fact that a vendor's message is why.
+            var why = body.Reason ?? $"LINE: {row.RawText}";
             await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
-                row.JobNumber, "status", final.From, final.To,
-                body.Reason ?? $"LINE: {row.RawText}", token, EventSource.Line);
+                row.JobNumber, "status", final.From, final.To, why, token, EventSource.Line);
+            if (stamp.Date is not null)
+            {
+                await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                    row.JobNumber, "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.Line);
+                await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                    row.JobNumber, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
+            }
 
             row.ProcessingStatus = LineProcessing.Processed;
             row.JobKey = chosen;
@@ -320,8 +357,10 @@ public static class LineReviewEndpoints
 
             return Results.Json(new
             {
-                message = $"อัปเดต {chosen} เป็น {final.To} แล้ว",
+                message = $"อัปเดต {chosen} เป็น {final.To} แล้ว"
+                    + (stamp.Date is not null ? $" · บันทึกเวลาถึง {stamp.Date} {stamp.Time}" : ""),
                 jobKey = chosen, from = final.From, to = final.To,
+                arrival = stamp.Note,
             });
         });
 
@@ -356,6 +395,46 @@ public static class LineReviewEndpoints
 
             return Results.Json(new { message = "ปิดข้อความนี้แล้ว" });
         });
+    }
+
+    /// <summary>The arrival the message reported, as the register writes it, or empty.</summary>
+    private static object Arrival(LineParser.Parsed read) =>
+        read.ArrivalTime is { } at
+            ? new { date = Formats.PlanDate(DateOnly.FromDateTime(at.DateTime)), time = at.ToString("HH:mm") }
+            : new { date = "", time = "" };
+
+    /// <summary>
+    /// What approving would write into a job's ARRIVAL DATE / TIME.
+    ///
+    /// Written only into empty cells. Those two cells are what on-time delivery
+    /// is measured from, and a value an operator keyed from the paperwork is
+    /// not replaced by a driver's message — the note says which it was, and the
+    /// grid is where a person corrects a stamp.
+    /// </summary>
+    private static (string? Date, string? Time, string HadDate, string HadTime, string Note) ArrivalWrite(
+        LineParser.Parsed read, string data)
+    {
+        if (read.ArrivalTime is not { } at) return (null, null, "", "", "");
+
+        var date = Formats.PlanDate(DateOnly.FromDateTime(at.DateTime));
+        var time = at.ToString("HH:mm");
+        var (hadDate, hadTime) = ("", "");
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(data);
+            if (json.RootElement.TryGetProperty("arrDate", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String)
+                hadDate = Formats.Clean(d.GetString());
+            if (json.RootElement.TryGetProperty("arrTime", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String)
+                hadTime = Formats.Clean(t.GetString());
+        }
+        catch (System.Text.Json.JsonException) { }
+
+        if (hadDate.Length == 0 && hadTime.Length == 0)
+            return (date, time, hadDate, hadTime, $"จะบันทึกเวลาถึง {date} {time}");
+        if (hadDate == date && hadTime == time)
+            return (null, null, hadDate, hadTime, $"เวลาถึง {date} {time} ตรงกับที่บันทึกไว้แล้ว");
+        return (null, null, hadDate, hadTime,
+            $"งานมีเวลาถึง {hadDate} {hadTime} อยู่แล้ว — ข้อความแจ้ง {date} {time}; แก้ในตารางงานถ้าต้องการ");
     }
 
     public record GroupBody(

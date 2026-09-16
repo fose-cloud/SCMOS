@@ -14,11 +14,13 @@ namespace Scmos.Api.Data;
 /// </para>
 ///
 /// <para>
-/// <b>The messages below are not real yet.</b> They are the examples from the
-/// specification plus the shapes the register makes likely. Real messages from
-/// a vendor group have been asked for and have not arrived. When they do, they
-/// belong here — a parser checked only against invented examples is one that
-/// passes its own tests and fails on the first day.
+/// <b>Most of the messages below are the specification's, not a haulier's.</b>
+/// The first real one arrived on 16 Sep 2026 and is the first case under "as
+/// the hauliers actually write": a customer, a container, a driver, a plate,
+/// an arrival clock and "ลงเสร็จ" — and no job number at all. Every real
+/// message that shows the parser something new belongs here beside it; a
+/// parser checked only against invented examples is one that passes its own
+/// tests and fails on the first day.
 /// </para>
 /// </summary>
 public static class LineParserCheck
@@ -74,6 +76,26 @@ public static class LineParserCheck
             "8505076096 ถึงลูกค้าแล้ว", null, "DELIVERED", false, false),
         new("a longer run of digits does not yield a job number inside it",
             "2606008007731234 ถึงลูกค้าแล้ว", null, "DELIVERED", false, false),
+
+        /* ---- as the hauliers actually write, 16 Sep 2026 ---- */
+        new("the first real message: customer, container, driver, plate, arrival, unloaded — no job number",
+            "L'Oréal / TEMU7592765 / สมใจ / 700-3232 / ถึงโรงงาน 05:00 / ลงเสร็จ", null, "DELIVERED", false, true),
+        new("a container is as good a reference as a number",
+            "TEMU7592765 ลงเสร็จ 09:40", null, "DELIVERED", false, true),
+        new("a container written with a space is the same container",
+            "TEMU 7592765 ลงเสร็จ", null, "DELIVERED", false, true),
+        new("at the site, with nothing after it, is left for the job's category to settle",
+            "TEMU7592765 ถึงโรงงาน 05:00", null, LineParser.SiteArrival, false, true),
+        new("the later of two statuses is the one reported",
+            "260600800773 ออกจากท่าแล้ว กำลังไปลูกค้า", "260600800773", "IN_TRANSIT", false, true),
+        new("a plate alone finds the truck's trips, and is never enough on its own",
+            "700-3232 ลงเสร็จ", null, "DELIVERED", false, false),
+        new("two containers is two trips, not a guess",
+            "TEMU7592765 MSKU1234567 ลงเสร็จ", null, "DELIVERED", false, false),
+        new("a seal number is not a container",
+            "SEAL 1234567 ลงเสร็จ", null, "DELIVERED", false, false),
+        new("a date with dashes holds no plate",
+            "16-09-2026 ลงเสร็จ", null, "DELIVERED", false, false),
 
         /* ---- delay classified through the register's own rules ---- */
         new("a truck problem is a truck problem",
@@ -132,6 +154,45 @@ public static class LineParserCheck
             if (!same) failed++;
             Console.WriteLine($"  {(same ? "ok  " : "FAIL")}  {why}");
             if (!same) Console.WriteLine($"          want {want}  got {got?.ToString("yyyy-MM-ddTHH:mm:sszzz") ?? "-"}");
+        }
+        Console.WriteLine();
+
+        /* ------------------------------------------- what else it reads */
+
+        Console.WriteLine("The box, the truck and the arrival, out of a message with no number in it.");
+        Console.WriteLine();
+        var real = LineParser.Parse("L'Oréal / TEMU7592765 / สมใจ / 700-3232 / ถึงโรงงาน 05:00 / ลงเสร็จ", Received);
+        var reads = new (string Why, bool Ok, string Got)[]
+        {
+            ("the container", real.Container == "TEMU7592765", real.Container ?? "-"),
+            ("the plate", real.Plates is ["700-3232"], string.Join("/", real.Plates ?? [])),
+            ("the arrival, on the day the message came, in Bangkok",
+                real.ArrivalTime?.ToString("yyyy-MM-ddTHH:mm:sszzz") == "2026-09-07T05:00:00+07:00",
+                real.ArrivalTime?.ToString("yyyy-MM-ddTHH:mm:sszzz") ?? "-"),
+            ("every status word, for the reviewer",
+                real.MatchedRules.Contains("status:ถึงโรงงาน") && real.MatchedRules.Contains("status:ลงเสร็จ"),
+                string.Join(", ", real.MatchedRules)),
+            ("a tractor and its trailer are two plates and no warning",
+                LineParser.Parse("75-4384 ชบ. / 75-4385 ชบ. ถึงโรงงาน", Received) is { Plates: ["75-4384", "75-4385"], Warnings.Count: 0 },
+                string.Join("/", LineParser.Parse("75-4384 ชบ. / 75-4385 ชบ. ถึงโรงงาน", Received).Plates ?? [])),
+            ("a Thai-lettered plate", LineParser.Parse("กข 1234 ถึงโรงงาน", Received).Plates is ["กข 1234"],
+                string.Join("/", LineParser.Parse("กข 1234 ถึงโรงงาน", Received).Plates ?? [])),
+            ("a plate with its province is the plate", LineParser.PlateKey("700-3232 กทม.") == "7003232"
+                && LineParser.PlateKey("700 3232") == "7003232", LineParser.PlateKey("700-3232 กทม.")),
+            ("a phone number is not a plate", LineParser.Parse("โทร 081-2345678 ลงเสร็จ", Received).Plates?.Count == 0,
+                string.Join("/", LineParser.Parse("โทร 081-2345678 ลงเสร็จ", Received).Plates ?? [])),
+            ("the clock after the port is not the arrival",
+                LineParser.Parse("260600800773 ถึงท่าแล้ว 08:10", Received).ArrivalTime is null, "-"),
+            ("an estimate is not the arrival",
+                LineParser.Parse("260600800773 คาดถึง 14:30", Received).ArrivalTime is null, "-"),
+            ("the clock after the customer is",
+                LineParser.Parse("260600800773 ถึงลูกค้าแล้ว 10.25", Received).ArrivalTime?.ToString("HH:mm") == "10:25", "-"),
+        };
+        foreach (var (why, ok, got) in reads)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          got {got}");
         }
         Console.WriteLine();
 

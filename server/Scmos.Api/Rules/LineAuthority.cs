@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Scmos.Api.Data;
 
 namespace Scmos.Api.Rules;
@@ -93,8 +95,47 @@ public static class LineAuthority
     /// <param name="SupplierName">The supplier the room speaks for.</param>
     public record SpeakerGroup(bool Known, bool Active, string GroupType, string SupplierName);
 
-    /// <summary>One row the job number might mean, as much as the decision needs.</summary>
-    public record JobCandidate(string Key, string Category, string Carrier, string Status);
+    /// <summary>
+    /// One row the message might mean, as much as the decision needs.
+    ///
+    /// The last four are what tells two of a haulier's rows apart when the
+    /// message named a container or a plate rather than a number: which
+    /// customer it was for, which box, which truck, which day. Empty when the
+    /// caller did not read them, and then they narrow nothing.
+    /// </summary>
+    public record JobCandidate(
+        string Key, string Category, string Carrier, string Status,
+        string Customer = "", string Container = "", string Plate = "", string WorkDate = "");
+
+    /// <summary>
+    /// What else the message said, for telling candidates apart.
+    ///
+    /// Read by <see cref="LineParser"/>; carried here rather than re-read so
+    /// the rule stays pure. <paramref name="Text"/> is the normalised message,
+    /// which is where the customer's name is — a parser cannot know which word
+    /// is a customer, but the register can say whether a candidate's customer
+    /// is in there.
+    /// </summary>
+    /// <param name="Named">What the job was looked up by, for the sentence a person reads: "เลขงาน 2606…", "ตู้ TEMU…".</param>
+    public record Clue(
+        string Named,
+        string? Container,
+        IReadOnlyList<string> Plates,
+        string Text,
+        /// <summary>The day the message arrived, Bangkok. A row on a far-off day is the wrong trip.</summary>
+        DateOnly? Day,
+        /// <summary>
+        /// Whether the rows were found by a plate and nothing else. A plate is a
+        /// truck, and a truck's rows go back months; only the ones around the
+        /// day of the message can be the trip it is talking about.
+        /// </summary>
+        bool PlateOnly = false)
+    {
+        public static readonly Clue None = new("เลขงานนี้", null, [], "", null);
+    }
+
+    /// <summary>How many days either side of the message a plate-only match may lie.</summary>
+    public const int PlateWindow = 3;
 
     /// <summary>
     /// What should happen to the message.
@@ -139,9 +180,116 @@ public static class LineAuthority
         var built = new System.Text.StringBuilder(text.Length);
         foreach (var c in text)
         {
-            if (char.IsLetterOrDigit(c)) built.Append(char.ToUpperInvariant(c));
+            if (char.IsLetterOrDigit(c)) built.Append(char.ToUpperInvariant(Fold(c)));
         }
         return built.ToString();
+    }
+
+    /// <summary>
+    /// A Latin letter with its accent taken off — "L'Oréal" in the message is
+    /// "L'OREAL" in the register. Only Latin: Thai vowels and tone marks are
+    /// combining characters too, and stripping them would make ที่ and ท one word.
+    /// </summary>
+    private static char Fold(char c)
+    {
+        if (c < 128) return c;
+        var parts = c.ToString().Normalize(NormalizationForm.FormD);
+        return parts.Length > 1 && parts[0] < 128 && char.IsLetter(parts[0]) ? parts[0] : c;
+    }
+
+    /// <summary>
+    /// Words a customer's registered name carries that say nothing about which
+    /// customer it is. "AIR INTERNATIONAL" is found by AIR, not by INTERNATIONAL.
+    /// </summary>
+    private static readonly HashSet<string> CommonWords = new(StringComparer.Ordinal)
+    {
+        "CO", "LTD", "LIMITED", "COMPANY", "THAILAND", "THAI", "PUBLIC", "PCL", "INC",
+        "CORP", "CORPORATION", "GROUP", "INTERNATIONAL", "INDUSTRIES", "INDUSTRIAL",
+        "INDUSTRY", "MANUFACTURING", "TRADING", "ASIA", "PACIFIC", "AND", "THE",
+        "บริษัท", "จำกัด", "มหาชน",
+    };
+
+    /// <summary>
+    /// Whether a message names this customer.
+    ///
+    /// Word against word, never substring against the whole message: "AIR"
+    /// inside "REPAIR" is not a customer. A word of the message matches a
+    /// customer when it is one of the customer's own distinguishing words, or
+    /// when the customer's whole key begins with it — "Henkel" for "HENKEL
+    /// BPK", "Lotus" for "LOTUS ASIA".
+    /// </summary>
+    public static bool CustomerMentioned(string? customer, string? text)
+    {
+        var whole = NameKey(customer);
+        if (whole.Length < 2 || string.IsNullOrWhiteSpace(text)) return false;
+
+        var words = (customer ?? "")
+            .Split([' ', '/', ',', '(', ')', '-', '.', '&', '\''], StringSplitOptions.RemoveEmptyEntries)
+            .Select(NameKey)
+            .Where(word => word.Length >= 3 && !CommonWords.Contains(word))
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var token in text.Split([' ', '/', ',', '(', ')', ':', ';', '|'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var key = NameKey(token);
+            if (key.Length < 3) continue;
+            if (words.Contains(key)) return true;
+            if (key.Length >= 4 && whole.StartsWith(key, StringComparison.Ordinal)) return true;
+            if (key == whole) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Whether one of the message's plates is this job's truck. The register
+    /// writes a tractor and its trailer in one cell, "75-4384 ชบ. / 75-4385
+    /// ชบ.", and either is the truck.
+    /// </summary>
+    public static bool PlateMatches(string? registered, IReadOnlyList<string> plates)
+    {
+        if (plates.Count == 0) return false;
+        var keys = plates.Select(LineParser.PlateKey).Where(key => key.Length > 0).ToHashSet(StringComparer.Ordinal);
+        return (registered ?? "")
+            .Split(['/', ','], StringSplitOptions.RemoveEmptyEntries)
+            .Select(LineParser.PlateKey)
+            .Any(key => key.Length > 0 && keys.Contains(key));
+    }
+
+    /// <summary>Whether this job's container cell holds the box the message named.</summary>
+    public static bool ContainerMatches(string? registered, string? container) =>
+        !string.IsNullOrEmpty(container)
+        && NameKey(registered).Contains(NameKey(container), StringComparison.Ordinal);
+
+    /// <summary>
+    /// Days between a job's plan date and the message, or null when the date
+    /// is not one the register's rule can read.
+    /// </summary>
+    private static int? DaysFrom(string workDate, DateOnly day)
+    {
+        var (year, month, date) = Formats.PartsOf(workDate);
+        if (year.Length == 0) return null;
+        if (!DateOnly.TryParseExact($"{year}-{month}-{date}", "yyyy-M-d", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var planned))
+            return null;
+        return Math.Abs(planned.DayNumber - day.DayNumber);
+    }
+
+    /// <summary>
+    /// The status a message reported, as the job it turned out to be about
+    /// would call it.
+    ///
+    /// "ถึงโรงงาน" is one phrase and two events: on an import or a Domestic run
+    /// the truck at the plant is the delivery, on an export it is the pickup.
+    /// The parser cannot know which, so it says <see cref="LineParser.SiteArrival"/>
+    /// and this settles it by category. Every other status is its own.
+    /// </summary>
+    public static string ResolveSite(string category, string? status)
+    {
+        if (!string.Equals(status, LineParser.SiteArrival, StringComparison.OrdinalIgnoreCase))
+            return status ?? "";
+        return string.Equals(category, "EXPORT", StringComparison.OrdinalIgnoreCase)
+            ? JobStatus.Dispatched
+            : JobStatus.Delivered;
     }
 
     /// <summary>Whether a job's carrier is the supplier this room speaks for.</summary>
@@ -200,7 +348,16 @@ public static class LineAuthority
     public static LineDecision Decide(
         SpeakerGroup group,
         string? status,
-        IReadOnlyList<JobCandidate> candidates)
+        IReadOnlyList<JobCandidate> candidates) =>
+        Decide(group, status, candidates, Clue.None);
+
+    /// <inheritdoc cref="Decide(SpeakerGroup, string?, IReadOnlyList{JobCandidate})"/>
+    /// <param name="clue">What else the message said, to tell the speaker's rows apart.</param>
+    public static LineDecision Decide(
+        SpeakerGroup group,
+        string? status,
+        IReadOnlyList<JobCandidate> candidates,
+        Clue clue)
     {
         /* ------------------------------------------------- the speaker */
 
@@ -225,17 +382,60 @@ public static class LineAuthority
         var all = candidates ?? [];
         if (all.Count == 0)
             return new(Outcome.NoSuchJob, NoKeys, "", "",
-                "ไม่พบเลขงานนี้ในระบบ");
+                $"ไม่พบ{clue.Named} ในระบบ");
 
         var mine = all.Where(one => SameCarrier(group.SupplierName, one.Carrier)).ToList();
         if (mine.Count == 0)
             return new(Outcome.NotYourJob, NoKeys, "", "",
-                $"เลขงานนี้ไม่ได้อยู่กับ {group.SupplierName}");
+                $"{clue.Named} ไม่ได้อยู่กับ {group.SupplierName}");
+
+        // Found by the truck alone: only its trips around the day of the
+        // message count, however few that leaves. Measured on the local
+        // register, one real plate sat on nine of a haulier's rows going back
+        // two months, and a message about today is not about any of those.
+        if (clue.PlateOnly && clue.Day is { } day0)
+        {
+            mine = mine.Where(one => DaysFrom(one.WorkDate, day0) is { } n && n <= PlateWindow).ToList();
+            if (mine.Count == 0)
+                return new(Outcome.NoSuchJob, NoKeys, "", "",
+                    $"ไม่พบงานของ{clue.Named} ในช่วง {PlateWindow} วันรอบวันที่ส่งข้อความ");
+        }
+
+        /*
+         * Several of the speaker's own rows. What else the message said
+         * narrows them, one clue at a time, and only when the clue keeps at
+         * least one row — a clue that matches nothing says nothing.
+         *
+         * The customer first, because it is the clue the haulier writes
+         * first; then the truck, the box, and finally the day. The day is a
+         * tiebreak, not a filter: a trip that ran two days late is still the
+         * trip, so it is only used when it leaves exactly one row.
+         */
+        if (mine.Count > 1)
+        {
+            mine = Narrow(mine, one => CustomerMentioned(one.Customer, clue.Text));
+            mine = Narrow(mine, one => PlateMatches(one.Plate, clue.Plates));
+            mine = Narrow(mine, one => ContainerMatches(one.Container, clue.Container));
+            if (mine.Count > 1 && clue.Day is { } day)
+            {
+                // The rows nearest the message's day, all of them: two trips
+                // on the same day stay a question, a trip last month drops out.
+                var dated = mine
+                    .Select(one => (Job: one, Days: DaysFrom(one.WorkDate, day)))
+                    .Where(one => one.Days is not null)
+                    .ToList();
+                if (dated.Count > 0)
+                {
+                    var nearest = dated.Min(one => one.Days);
+                    mine = dated.Where(one => one.Days == nearest).Select(one => one.Job).ToList();
+                }
+            }
+        }
 
         var keys = mine.Select(one => one.Key).ToList();
         if (mine.Count > 1)
             return new(Outcome.ManyJobs, keys, "", status ?? "",
-                $"เลขงานนี้มี {mine.Count} รายการของ {group.SupplierName} — ต้องเลือกก่อน");
+                $"{clue.Named} มี {mine.Count} รายการของ {group.SupplierName} — ต้องเลือกก่อน");
 
         // Asked after the job is found, not before: which job it is, and whether
         // the speaker may touch it, are true regardless of what they said about
@@ -257,9 +457,20 @@ public static class LineAuthority
     /// having to invent a speaker to ask it through.
     /// </para>
     /// </summary>
+    /// <summary>The rows a clue keeps, or all of them when it keeps none.</summary>
+    private static List<JobCandidate> Narrow(List<JobCandidate> rows, Func<JobCandidate, bool> keep)
+    {
+        if (rows.Count < 2) return rows;
+        var kept = rows.Where(keep).ToList();
+        return kept.Count > 0 ? kept : rows;
+    }
+
     public static LineDecision Move(JobCandidate job, string? status)
     {
         var one_key = new[] { job.Key };
+        // "At the site" becomes the delivery or the pickup now that the job,
+        // and so its category, is known.
+        status = ResolveSite(job.Category, status);
 
         // A message that names a job and no status is still worth filing
         // against that job.

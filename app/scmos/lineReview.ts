@@ -48,7 +48,7 @@ const OUTCOMES: Outcome[] = [
   },
   {
     code: "many-jobs", tone: "attention",
-    label: "เลขงานนี้มีหลายรายการ",
+    label: "อ้างถึงงานได้หลายรายการ",
     next: "เลือกงานที่ต้องการอัปเดตก่อน",
   },
   {
@@ -68,18 +68,46 @@ const OUTCOMES: Outcome[] = [
   },
   {
     code: "not-your-job", tone: "refused",
-    label: "เลขงานนี้ไม่ได้อยู่กับผู้ขนส่งรายนี้",
+    label: "งานที่อ้างถึงไม่ได้อยู่กับผู้ขนส่งรายนี้",
     next: "",
   },
   {
     code: "no-such-job", tone: "attention",
-    label: "ไม่พบเลขงานนี้ในระบบ",
-    next: "ตรวจว่าเลขงานพิมพ์ถูกหรือยังไม่ได้นำเข้า",
+    label: "ไม่พบงานที่อ้างถึงในระบบ",
+    next: "ตรวจว่าเลขงาน เลขตู้ หรือทะเบียนพิมพ์ถูก หรืองานยังไม่ได้นำเข้า",
+  },
+  // A message with nothing to find the job by. "no-job-number" is what the
+  // rows stored before 16 Sep 2026 carry; "no-reference" is what the parser
+  // says now that a container or a plate finds the job as well.
+  {
+    code: "no-reference", tone: "attention",
+    label: "ไม่มีเลขงาน เลขตู้ หรือทะเบียนรถในข้อความ",
+    next: "ถามผู้ขนส่งให้ส่งเลขตู้หรือทะเบียนรถมาด้วย",
   },
   {
     code: "no-job-number", tone: "attention",
     label: "ไม่มีเลขงานในข้อความ",
     next: "ถามผู้ขนส่งให้ส่งเลขงานมาด้วย",
+  },
+  {
+    code: "many-containers", tone: "attention",
+    label: "ข้อความมีเลขตู้หลายตู้",
+    next: "อัปเดตทีละงานในตารางงาน หรือขอให้ส่งแยกข้อความ",
+  },
+  {
+    code: "many-job-numbers", tone: "attention",
+    label: "ข้อความมีเลขงานหลายเลข",
+    next: "อัปเดตทีละงานในตารางงาน หรือขอให้ส่งแยกข้อความ",
+  },
+  {
+    code: "many-times", tone: "attention",
+    label: "ข้อความมีเวลาหลายค่า อ่านไม่ออกว่าเวลาไหนคือเวลาถึง",
+    next: "อ่านข้อความเดิมแล้วอัปเดตเอง",
+  },
+  {
+    code: "nothing-understood", tone: "attention",
+    label: "อ้างถึงงานได้ แต่ไม่พบสถานะในข้อความ",
+    next: "อ่านข้อความเดิมแล้วอัปเดตเอง",
   },
   {
     code: "no-status", tone: "quiet",
@@ -215,6 +243,34 @@ export function palette(tone: Tone): { line: string; fill: string; ink: string }
 export function confidenceLabel(value: number | undefined | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "";
   return `${Math.round(value * 100)}%`;
+}
+
+/**
+ * What a message pointed at, for the queue's reference column: the job number
+ * when there is one, else the container, else the plates. Since 16 Sep 2026
+ * a haulier's message has carried a box and a plate and no number.
+ */
+export function referenceLabel(event: {
+  jobNumber?: string | null; container?: string | null; plates?: readonly string[] | null;
+}): string {
+  const number = String(event.jobNumber ?? "").trim();
+  if (number.length > 0) return number;
+  const container = String(event.container ?? "").trim();
+  if (container.length > 0) return container;
+  const plates = (event.plates ?? []).map((one) => String(one).trim()).filter((one) => one.length > 0);
+  return plates.join(" / ");
+}
+
+/**
+ * The status the parser read, as a person would say it. ARRIVED is the one
+ * word the parser cannot settle alone — at the plant is the delivery on an
+ * import and the pickup on an export — so it is named as such.
+ */
+export function statusLabel(code: string | undefined | null): string {
+  const key = String(code ?? "").trim();
+  if (key.length === 0) return "";
+  if (key === "ARRIVED") return "ถึงหน้างาน (ตามประเภทงาน)";
+  return key;
 }
 
 /** When the message arrived, in Bangkok, short enough for a table cell. */

@@ -26,8 +26,14 @@ public static class LineAuthorityCheck
         new(Known: true, Active: true, GroupType: LineGroupType.Vendor, SupplierName: supplier);
 
     private static LineAuthority.JobCandidate Job(
-        string key, string carrier, string status, string category = "IMPORT") =>
-        new(key, category, carrier, status);
+        string key, string carrier, string status, string category = "IMPORT",
+        string customer = "", string plate = "", string workDate = "", string container = "") =>
+        new(key, category, carrier, status, customer, container, plate, workDate);
+
+    /// <summary>What the first real message said, beside the rows it could mean.</summary>
+    private static LineAuthority.Clue Said(string text, string? container = "TEMU7592765",
+        string plate = "700-3232", string day = "2026-09-16") =>
+        new("ตู้ TEMU7592765", container, plate.Length > 0 ? [plate] : [], text, DateOnly.Parse(day));
 
     private record Case(
         string Why,
@@ -219,6 +225,107 @@ public static class LineAuthorityCheck
             .Count(got => got.Applies && got.Result != LineAuthority.Outcome.Ok);
         if (leaks > 0) failed++;
         Console.WriteLine($"  {(leaks == 0 ? "ok  " : "FAIL")}  only an \"ok\" decision is allowed to change anything");
+
+        /* ------------------------------ telling the rows apart */
+
+        Console.WriteLine();
+        Console.WriteLine("When a box or a plate is on several of the haulier's rows, the rest of the message decides.");
+        Console.WriteLine();
+
+        var loreal = Job("L1", "SHORE", "IN_TRANSIT", customer: "L'OREAL (THAILAND) LTD.", plate: "700-3232", workDate: "16/09/2026");
+        var henkel = Job("H1", "SHORE", "IN_TRANSIT", customer: "HENKEL BPK", plate: "72-1585", workDate: "16/09/2026");
+        var older = Job("L0", "SHORE", "DELIVERED", customer: "L'OREAL (THAILAND) LTD.", plate: "700-3232", workDate: "20/08/2026");
+
+        var narrowing = new (string Why, LineAuthority.LineDecision Got, string Want, string? Key)[]
+        {
+            ("the customer in the message picks the row, accent and all",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [henkel, loreal],
+                    Said("L'Oréal / TEMU7592765 / สมใจ / 700-3232 / ถึงโรงงาน 05:00 / ลงเสร็จ")),
+                LineAuthority.Outcome.Ok, "L1"),
+            ("the plate picks the row when the customer is not written",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [henkel, loreal],
+                    Said("TEMU7592765 / 700-3232 / ลงเสร็จ")),
+                LineAuthority.Outcome.Ok, "L1"),
+            ("the day picks the row when nothing else does",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [older, loreal],
+                    Said("TEMU7592765 / ลงเสร็จ", plate: "")),
+                LineAuthority.Outcome.Ok, "L1"),
+            ("two rows on the same day for the same customer and truck is a question",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED",
+                    [loreal, loreal with { Key = "L2" }],
+                    Said("L'Oréal / TEMU7592765 / 700-3232 / ลงเสร็จ")),
+                LineAuthority.Outcome.ManyJobs, null),
+            ("a clue that matches nothing narrows nothing",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [loreal, loreal with { Key = "L2" }],
+                    Said("DANA / TEMU7592765 / 99-9999 / ลงเสร็จ", plate: "99-9999")),
+                LineAuthority.Outcome.ManyJobs, null),
+            ("the haulier's other customer's row is not offered",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [henkel, loreal],
+                    Said("Henkel / 72-1585 / ลงเสร็จ", container: null, plate: "72-1585")),
+                LineAuthority.Outcome.Ok, "H1"),
+            ("the day keeps every row nearest it — two trips today stay a question",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [older, loreal, loreal with { Key = "L2" }],
+                    Said("TEMU7592765 / ลงเสร็จ", plate: "")),
+                LineAuthority.Outcome.ManyJobs, null),
+            ("a truck's trip from last month is not today's message, even when it is the only one",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [older],
+                    Said("700-3232 / ลงเสร็จ", container: null) with { PlateOnly = true }),
+                LineAuthority.Outcome.NoSuchJob, null),
+            ("a truck's trip this week is",
+                LineAuthority.Decide(Vendor("SHORE"), "DELIVERED", [older, loreal],
+                    Said("700-3232 / ลงเสร็จ", container: null) with { PlateOnly = true }),
+                LineAuthority.Outcome.Ok, "L1"),
+        };
+        foreach (var (why, got, want, key) in narrowing)
+        {
+            var ok = got.Result == want && (key is null || (got.Keys.Count == 1 && got.Keys[0] == key));
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          want {want} {key ?? ""}, got {got.Result} [{string.Join(", ", got.Keys)}] {got.Detail}");
+        }
+
+        var mentions = new (string Why, bool Want, bool Got)[]
+        {
+            ("L'Oréal names L'OREAL (THAILAND) LTD.", true,
+                LineAuthority.CustomerMentioned("L'OREAL (THAILAND) LTD.", "L'Oréal / TEMU7592765 / ลงเสร็จ")),
+            ("Henkel names HENKEL BPK", true, LineAuthority.CustomerMentioned("HENKEL BPK", "Henkel ถึงโรงงาน")),
+            ("Lotus names LOTUS ASIA", true, LineAuthority.CustomerMentioned("LOTUS ASIA", "lotus ลงเสร็จ")),
+            ("THAILAND names nobody", false, LineAuthority.CustomerMentioned("L'OREAL (THAILAND) LTD.", "Thailand ลงเสร็จ")),
+            ("AIR inside REPAIR is not AIR INTERNATIONAL", false,
+                LineAuthority.CustomerMentioned("AIR INTERNATIONAL", "repair done ลงเสร็จ")),
+            ("a plate with its province matches the register's tractor-and-trailer cell", true,
+                LineAuthority.PlateMatches("75-4384 ชบ. / 75-4385 ชบ.", ["75-4385 ชลบุรี"])),
+            ("a different truck does not", false, LineAuthority.PlateMatches("75-4384 ชบ.", ["75-4385"])),
+        };
+        foreach (var (why, want, got) in mentions)
+        {
+            var ok = got == want;
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+        }
+
+        /* ------------------------------------- at the site, by category */
+
+        Console.WriteLine();
+        Console.WriteLine("\"ถึงโรงงาน\" is the delivery on an import and the pickup on an export.");
+        Console.WriteLine();
+        var site = new (string Why, string Category, string From, string Want)[]
+        {
+            ("an import at the plant is delivered", "IMPORT", "IN_TRANSIT", "DELIVERED"),
+            ("a Domestic run at the plant is delivered", "DELIVERY", "IN_TRANSIT", "DELIVERED"),
+            ("an export at the plant is at its pickup", "EXPORT", "READY", "DISPATCHED"),
+        };
+        foreach (var (why, category, from, want) in site)
+        {
+            var move = LineAuthority.Move(Job("S1", "SHORE", from, category), LineParser.SiteArrival);
+            var ok = move.Result == LineAuthority.Outcome.Ok && move.To == want;
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          want {want}, got {move.Result} {move.To} ({move.Detail})");
+        }
+        var plain = LineAuthority.ResolveSite("IMPORT", "PICKED_UP") == "PICKED_UP";
+        if (!plain) failed++;
+        Console.WriteLine($"  {(plain ? "ok  " : "FAIL")}  every other status is its own");
 
         /* ------------------------------- the two ways in must agree */
 
