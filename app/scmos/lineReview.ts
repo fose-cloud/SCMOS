@@ -81,8 +81,13 @@ const OUTCOMES: Outcome[] = [
   // says now that a container or a plate finds the job as well.
   {
     code: "no-reference", tone: "attention",
-    label: "ไม่มีเลขงาน เลขตู้ หรือทะเบียนรถในข้อความ",
-    next: "ถามผู้ขนส่งให้ส่งเลขตู้หรือทะเบียนรถมาด้วย",
+    label: "ไม่มีเลขงาน booking เลขตู้ หรือทะเบียนรถในข้อความ",
+    next: "ถามผู้ขนส่งให้ส่ง booking เลขตู้ หรือทะเบียนรถมาด้วย",
+  },
+  {
+    code: "question", tone: "quiet",
+    label: "เป็นคำถามในกลุ่ม ไม่ใช่รายงานสถานะ",
+    next: "",
   },
   {
     code: "no-job-number", tone: "attention",

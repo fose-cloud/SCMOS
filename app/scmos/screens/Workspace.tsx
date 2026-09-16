@@ -132,6 +132,8 @@ type Props = {
   canAssign: boolean;
   /** Whose jobs this person is covering today, from /api/me. */
   covering: { id: string; name: string }[];
+  /** How many LINE messages wait on each job, by key — the row says so and opens the drawer. */
+  linePending?: Record<string, number>;
   /** Rows per page, from the viewer's settings. */
   per: number;
   /**
@@ -1789,11 +1791,16 @@ export function Workspace(p: Props) {
     // cell on it opens — and a badge saying so on a row somebody is keying for
     // the person on leave reads as the grant not working.
     const covering = !mine && !!j.opId && p.covering.some((one) => one.id === j.opId);
-    const c = cell(mine ? "MY JOB" : covering ? "COVERING" : "VIEW ONLY",
-      { tone: mine ? "blue" : covering ? "amber" : "gray" });
+    // A haulier's LINE message waiting on this job: the badge says LINE and
+    // turns amber, and opening the row is where the owner approves it.
+    const waiting = p.linePending?.[j.key] ?? 0;
+    const label = mine ? "MY JOB" : covering ? "COVERING" : "VIEW ONLY";
+    const c = cell(waiting > 0 ? `${label} · LINE ${waiting}` : label,
+      { tone: waiting > 0 ? "amber" : mine ? "blue" : covering ? "amber" : "gray" });
     c.td += "cursor:pointer;";
-    c.sp += "border:1px solid " + (mine ? "#9CC2E8" : covering ? "#F0C36D" : "#D0D8E0") + ";";
-    c.title = covering ? `งานของ ${j.op} — คุณดูแลแทนอยู่ · เปิดรายละเอียดงาน` : "เปิดรายละเอียดงาน";
+    c.sp += "border:1px solid " + (waiting > 0 || covering ? "#F0C36D" : mine ? "#9CC2E8" : "#D0D8E0") + ";";
+    c.title = waiting > 0 ? `มี ${waiting} ข้อความ LINE รออนุมัติ · เปิดรายละเอียดงาน`
+      : covering ? `งานของ ${j.op} — คุณดูแลแทนอยู่ · เปิดรายละเอียดงาน` : "เปิดรายละเอียดงาน";
     c.go = () => p.onDrawer(j.key);
     return c;
   };

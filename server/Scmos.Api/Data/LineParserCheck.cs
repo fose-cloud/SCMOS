@@ -96,6 +96,10 @@ public static class LineParserCheck
             "SEAL 1234567 ลงเสร็จ", null, "DELIVERED", false, false),
         new("a date with dashes holds no plate",
             "16-09-2026 ลงเสร็จ", null, "DELIVERED", false, false),
+        new("the second real message asks when, and reports nothing",
+            "AKZO NOBEL // LC2606594 16/09/2026 -- 14:00 ถึงโรงงานที่โมงคะ @Vad", null, null, false, false),
+        new("a booking alone is a reference, and with a report it goes to be matched",
+            "AKZO NOBEL // LC2606594 ถึงโรงงาน 14:20", null, LineParser.SiteArrival, false, false),
 
         /* ---- delay classified through the register's own rules ---- */
         new("a truck problem is a truck problem",
@@ -187,6 +191,20 @@ public static class LineParserCheck
                 LineParser.Parse("260600800773 คาดถึง 14:30", Received).ArrivalTime is null, "-"),
             ("the clock after the customer is",
                 LineParser.Parse("260600800773 ถึงลูกค้าแล้ว 10.25", Received).ArrivalTime?.ToString("HH:mm") == "10:25", "-"),
+            ("the booking out of the second real message, and nothing else",
+                LineParser.Parse("AKZO NOBEL // LC2606594 16/09/2026 -- 14:00 ถึงโรงงานที่โมงคะ @Vad", Received).References is ["LC2606594"],
+                string.Join("/", LineParser.Parse("AKZO NOBEL // LC2606594 16/09/2026 -- 14:00 ถึงโรงงานที่โมงคะ @Vad", Received).References ?? [])),
+            ("a question is marked as one, and its arrival clock is not an arrival",
+                LineParser.Parse("AKZO NOBEL // LC2606594 ถึงโรงงานที่โมงคะ 14:00", Received) is { Question: true, ArrivalTime: null, Status: null }, "-"),
+            ("a job number and a container are not also references",
+                LineParser.Parse("260600800773 TEMU5246902 ลงเสร็จ", Received).References?.Count == 0,
+                string.Join("/", LineParser.Parse("260600800773 TEMU5246902 ลงเสร็จ", Received).References ?? [])),
+            ("a D-code and a delivery note are references",
+                LineParser.Parse("D15441000 / 6317309804 ลงเสร็จ", Received).References is ["D15441000", "6317309804"],
+                string.Join("/", LineParser.Parse("D15441000 / 6317309804 ลงเสร็จ", Received).References ?? [])),
+            ("a phone number is not a reference",
+                LineParser.Parse("โทร 081-2345678 ลงเสร็จ", Received).References?.Count == 0,
+                string.Join("/", LineParser.Parse("โทร 081-2345678 ลงเสร็จ", Received).References ?? [])),
         };
         foreach (var (why, ok, got) in reads)
         {

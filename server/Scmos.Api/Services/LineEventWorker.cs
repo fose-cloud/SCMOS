@@ -187,7 +187,9 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         // applied here either way.
         if (read.Warnings.Count > 0 || !read.HasReference)
         {
-            row.ProcessingStatus = LineProcessing.NeedReview;
+            // A question — "ถึงโรงงานที่โมงคะ" — is the room talking to itself.
+            // Filed where it can be found, not queued for anybody.
+            row.ProcessingStatus = read.Question ? LineProcessing.Ignored : LineProcessing.NeedReview;
             row.ErrorCode = read.Warnings.Count > 0 ? read.Warnings[0] : "no-reference";
             row.ErrorMessage = "";
             await db.SaveChangesAsync(stopping);

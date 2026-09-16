@@ -113,6 +113,63 @@ public static class LineReviewEndpoints
             });
         });
 
+        /*
+         * What is waiting on which job — for the workspace, which draws a
+         * mark on the row and lets the job's owner approve from the drawer.
+         * Only messages the rule pinned to exactly one job; a message that
+         * could mean several is the review screen's to settle.
+         */
+        group.MapGet("/events/pending", async (HttpContext context, IUserAccessor users,
+            ScmosDbContext db, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+
+            var rows = await db.LineEvents.AsNoTracking()
+                .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "")
+                .OrderByDescending(one => one.ReceivedAt)
+                .Take(300)
+                .Select(one => new
+                {
+                    one.Id, one.JobKey, one.LineGroupId, one.MessageType, one.RawText, one.ReceivedAt,
+                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage, one.ImageReading, one.ImageKey,
+                })
+                .ToListAsync(token);
+
+            var keys = rows.Select(one => one.JobKey).Distinct().ToList();
+            var categories = await db.OperationJobs.AsNoTracking()
+                .Where(job => keys.Contains(job.Key))
+                .Select(job => new { job.Key, job.Cat })
+                .ToDictionaryAsync(job => job.Key, job => job.Cat, token);
+            var ids = rows.Select(one => one.LineGroupId).Distinct().ToList();
+            var names = await db.LineGroups.AsNoTracking()
+                .Where(one => ids.Contains(one.LineGroupId))
+                .ToDictionaryAsync(one => one.LineGroupId, one => one.GroupName, token);
+
+            return Results.Json(new
+            {
+                items = rows.Select(one =>
+                {
+                    var read = one.MessageType == "image" ? null : LineParser.Parse(one.RawText, one.ReceivedAt);
+                    var category = categories.GetValueOrDefault(one.JobKey, "");
+                    return new
+                    {
+                        one.Id, one.JobKey, one.ReceivedAt, one.ErrorCode,
+                        detail = one.ErrorMessage,
+                        kind = one.MessageType,
+                        text = one.RawText,
+                        reading = one.ImageReading,
+                        hasImage = one.ImageKey.Length > 0,
+                        group = names.GetValueOrDefault(one.LineGroupId, ""),
+                        // What approving would write: the status as this job's
+                        // ladder names it, the arrival clock, or the box.
+                        to = one.MessageType == "image" ? one.ImageReading : LineAuthority.ResolveSite(category, one.ParsedStatus),
+                        arrival = read is null ? new { date = "", time = "" } : Arrival(read),
+                        ready = one.ErrorCode == "ready-to-apply",
+                    };
+                }),
+            });
+        });
+
         /* --------------------------------------------------- the mapping */
 
         group.MapGet("/groups", async (HttpContext context, IUserAccessor users,
@@ -223,15 +280,17 @@ public static class LineReviewEndpoints
         });
 
         group.MapGet("/events/{id:long}/options", async (long id, HttpContext context,
-            IUserAccessor users, ScmosDbContext db, CancellationToken token) =>
+            IUserAccessor users, ScmosDbContext db, JobsRepository jobs, DelegationService delegations,
+            CancellationToken token) =>
         {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
 
             var row = await db.LineEvents.AsNoTracking()
                 .FirstOrDefaultAsync(one => one.Id == id, token);
             if (row is null) return ApiResults.Error("ไม่พบข้อความนี้", StatusCodes.Status404NotFound);
 
-            if (row.MessageType == "image") return await PhotoOptionsAsync(row, db, token);
+            if (row.MessageType == "image") return await PhotoOptionsAsync(row, db, user, jobs, delegations, token);
 
             /*
              * The decision as it is now, not as it was when the worker looked.
@@ -263,7 +322,7 @@ public static class LineReviewEndpoints
                 to = now.To,
                 reference = new { jobNumber = read.JobNumber ?? "", container = read.Container ?? "", plates = read.Plates ?? [] },
                 arrival = Arrival(read),
-                options = offered.Select(job =>
+                options = await Task.WhenAll(offered.Select(async job =>
                 {
                     // Whether this particular row could take the move, which the
                     // set-level answer does not say. The carrier is left empty
@@ -280,8 +339,11 @@ public static class LineReviewEndpoints
                         // What approving would write into ARRIVAL DATE / TIME,
                         // or why it would not.
                         arrival = stamp.Note,
+                        // Whether this person may approve this row: anybody who
+                        // edits every job, or the job's own owner.
+                        mayApprove = await MayActOnAsync(user, job.Key, jobs, delegations, token),
                     };
-                }),
+                })),
                 stored = row.ErrorCode,
             });
         });
@@ -290,13 +352,19 @@ public static class LineReviewEndpoints
 
         group.MapPost("/events/{id:long}/apply", async (long id, [FromBody] ApplyBody body,
             HttpContext context, IUserAccessor users, ScmosDbContext db, JobsRepository jobs,
-            AuditService audit, CancellationToken token) =>
+            DelegationService delegations, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!user.Can(Capability.EditAnyJob))
-                return ApiResults.Error("ทำได้เฉพาะผู้ที่แก้ไขงานได้ทุกงาน", StatusCodes.Status403Forbidden);
-            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditAnyJob) is { } stop) return stop;
+            // Since 16 Sep 2026 the job's own owner approves what a haulier
+            // said about their job, the way they edit it — "กำหนดให้เจ้าของงานกด
+            // Approve เองได้เลย". Which job it is comes out of the decision
+            // below; ownership is checked there, on the row that would change.
+            if (!user.Can(Capability.EditAnyJob) && !user.Can(Capability.EditOwnJobs))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขข้อมูลงาน", StatusCodes.Status403Forbidden);
+            if (ApiResults.NeedsSecondFactor(users, user,
+                    user.Can(Capability.EditAnyJob) ? Capability.EditAnyJob : Capability.EditOwnJobs) is { } stop)
+                return stop;
 
             var row = await db.LineEvents.FirstOrDefaultAsync(one => one.Id == id, token);
             if (row is null) return ApiResults.Error("ไม่พบข้อความนี้", StatusCodes.Status404NotFound);
@@ -305,7 +373,7 @@ public static class LineReviewEndpoints
                     StatusCodes.Status409Conflict);
 
             if (row.MessageType == "image")
-                return await ApplyPhotoAsync(row, body, user, db, jobs, audit, token);
+                return await ApplyPhotoAsync(row, body, user, db, jobs, delegations, audit, token);
 
             /*
              * Worked out again, now. Not read off the row.
@@ -338,6 +406,8 @@ public static class LineReviewEndpoints
                 return ApiResults.Error(
                     decision.Detail.Length > 0 ? decision.Detail : decision.Result,
                     StatusCodes.Status409Conflict);
+            if (!await MayActOnAsync(user, chosen, jobs, delegations, token))
+                return ApiResults.Error("อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
 
             /*
              * The key is one this haulier may speak for — it came out of the
@@ -406,20 +476,28 @@ public static class LineReviewEndpoints
         });
 
         group.MapPost("/events/{id:long}/dismiss", async (long id, [FromBody] ApplyBody body,
-            HttpContext context, IUserAccessor users, ScmosDbContext db,
-            AuditService audit, CancellationToken token) =>
+            HttpContext context, IUserAccessor users, ScmosDbContext db, JobsRepository jobs,
+            DelegationService delegations, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            if (!user.Can(Capability.EditAnyJob))
-                return ApiResults.Error("ทำได้เฉพาะผู้ที่แก้ไขงานได้ทุกงาน", StatusCodes.Status403Forbidden);
-            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditAnyJob) is { } stop) return stop;
+            if (!user.Can(Capability.EditAnyJob) && !user.Can(Capability.EditOwnJobs))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขข้อมูลงาน", StatusCodes.Status403Forbidden);
+            if (ApiResults.NeedsSecondFactor(users, user,
+                    user.Can(Capability.EditAnyJob) ? Capability.EditAnyJob : Capability.EditOwnJobs) is { } stop)
+                return stop;
 
             var row = await db.LineEvents.FirstOrDefaultAsync(one => one.Id == id, token);
             if (row is null) return ApiResults.Error("ไม่พบข้อความนี้", StatusCodes.Status404NotFound);
             if (row.ProcessingStatus != LineProcessing.NeedReview)
                 return ApiResults.Error($"ข้อความนี้ถูกจัดการไปแล้ว ({row.ProcessingStatus})",
                     StatusCodes.Status409Conflict);
+
+            // An owner sets aside only a message pinned to their own job. A
+            // message pinned to nothing is the review screen's to close.
+            if (!user.Can(Capability.EditAnyJob)
+                && (row.JobKey.Length == 0 || !await MayActOnAsync(user, row.JobKey, jobs, delegations, token)))
+                return ApiResults.Error("ปิดได้เฉพาะข้อความของงานตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
 
             // Set aside, never deleted. The message is what a vendor said, and
             // an operator deciding not to act on it is itself a fact worth
@@ -444,7 +522,8 @@ public static class LineReviewEndpoints
     /// What a photo's container would be written into, right now — the same
     /// question the worker asked, asked again at the moment a person looks.
     /// </summary>
-    private static async Task<IResult> PhotoOptionsAsync(LineEvent row, ScmosDbContext db, CancellationToken token)
+    private static async Task<IResult> PhotoOptionsAsync(LineEvent row, ScmosDbContext db, AppUser user,
+        JobsRepository jobs, DelegationService delegations, CancellationToken token)
     {
         var numbers = await PhotoNumbersAsync(row, db, token);
         var container = numbers.Length == 1 ? numbers[0] : "";
@@ -473,16 +552,33 @@ public static class LineReviewEndpoints
             imageReading = row.ImageReading,
             imageNote = row.ImageNote,
             hasImage = row.ImageKey.Length > 0,
-            options = offered.Select(job => new
+            options = await Task.WhenAll(offered.Select(async job => new
             {
                 job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate,
                 // Every offered row is one the rule found waiting for a number;
                 // the choice is which, and each may take it.
                 move = new { Result = LineAuthority.Outcome.Ok, Detail = "", ok = now.Keys.Contains(job.Key), to = container },
                 arrival = "",
-            }),
+                mayApprove = await MayActOnAsync(user, job.Key, jobs, delegations, token),
+            })),
             stored = row.ErrorCode,
         });
+    }
+
+    /// <summary>
+    /// Whether this person may write what a message says onto this job: they
+    /// edit every job, or it is their own — or one they are covering for a
+    /// colleague on leave. The same rule the jobs endpoint enforces on a save,
+    /// asked through the same two services, so the two cannot drift.
+    /// </summary>
+    private static async Task<bool> MayActOnAsync(AppUser user, string jobKey, JobsRepository jobs,
+        DelegationService delegations, CancellationToken token)
+    {
+        if (user.Can(Capability.EditAnyJob)) return true;
+        if (!user.Can(Capability.EditOwnJobs) || jobKey.Length == 0) return false;
+        var acting = await delegations.ActingForAsync(user.OperatorId, token);
+        var others = await jobs.OthersJobsAsync([jobKey], user.OperatorId, token, acting);
+        return others.Count == 0;
     }
 
     /// <summary>
@@ -490,7 +586,7 @@ public static class LineReviewEndpoints
     /// offered, never an arbitrary key — and files the photo as done.
     /// </summary>
     private static async Task<IResult> ApplyPhotoAsync(LineEvent row, ApplyBody body, AppUser user,
-        ScmosDbContext db, JobsRepository jobs, AuditService audit, CancellationToken token)
+        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
     {
         var numbers = await PhotoNumbersAsync(row, db, token);
         if (numbers.Length != 1)
@@ -512,6 +608,8 @@ public static class LineReviewEndpoints
         if (chosen.Length == 0)
             return ApiResults.Error(decision.Detail.Length > 0 ? decision.Detail : decision.Result,
                 StatusCodes.Status409Conflict);
+        if (!await MayActOnAsync(user, chosen, jobs, delegations, token))
+            return ApiResults.Error("อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
 
         // Read once more at the moment of writing: the row must still be
         // empty. Somebody keying the number on the grid a second earlier wins.

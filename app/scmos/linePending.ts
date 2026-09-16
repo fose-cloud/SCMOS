@@ -1,0 +1,73 @@
+/**
+ * What a haulier's LINE message is waiting to do to a job, as the workspace
+ * reads it.
+ *
+ * The review screen works the whole queue; the workspace only needs to know,
+ * for the rows on screen, "a message is waiting on this job, and approving it
+ * would write this" — so the job's owner can approve from the job itself,
+ * which is where they are. Asked of the API as one list and folded by job key
+ * here.
+ *
+ * No imports on purpose — see the other modules under this folder.
+ */
+
+export type LinePending = {
+  id: number;
+  jobKey: string;
+  receivedAt: string;
+  /** The rule's verdict as stored: ready-to-apply, backwards, no-status… */
+  errorCode: string;
+  detail: string;
+  /** "text" or "image". */
+  kind: string;
+  text: string;
+  /** The container read off a photo, when the message is one. */
+  reading: string;
+  hasImage: boolean;
+  group: string;
+  /** What approving writes: the status as this job's ladder names it, or the container. */
+  to: string;
+  arrival: { date: string; time: string };
+  ready: boolean;
+};
+
+/** The messages waiting on each job, newest first as the API sends them. */
+export function pendingByKey(items: readonly LinePending[] | null | undefined): Record<string, LinePending[]> {
+  const byKey: Record<string, LinePending[]> = {};
+  for (const one of items ?? []) {
+    const key = String(one.jobKey ?? "").trim();
+    if (key.length === 0) continue;
+    (byKey[key] ??= []).push(one);
+  }
+  return byKey;
+}
+
+/** How many messages wait on each job — what the grid marks a row with. */
+export function pendingCounts(items: readonly LinePending[] | null | undefined): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const [key, list] of Object.entries(pendingByKey(items))) counts[key] = list.length;
+  return counts;
+}
+
+/**
+ * What approving would write, in one line: "สถานะ → DELIVERED · เวลาถึง 05:00
+ * 16/09/2026", or "เลขตู้ TEMU5246902". Empty when the message can be
+ * applied to nothing — then the verdict is what the drawer shows instead.
+ */
+export function pendingWrites(item: LinePending): string {
+  const to = String(item.to ?? "").trim();
+  if (item.kind === "image") return to.length > 0 ? `เลขตู้ ${to}` : "";
+  const parts: string[] = [];
+  if (to.length > 0) parts.push(`สถานะ → ${to}`);
+  const time = String(item.arrival?.time ?? "").trim();
+  const date = String(item.arrival?.date ?? "").trim();
+  if (time.length > 0) parts.push(`เวลาถึง ${time}${date ? " " + date : ""}`);
+  return parts.join(" · ");
+}
+
+/** The message as a person reads it: the text, or what the photo showed. */
+export function pendingText(item: LinePending): string {
+  if (item.kind !== "image") return String(item.text ?? "");
+  const reading = String(item.reading ?? "").trim();
+  return reading.length > 0 ? `รูปตู้ · ${reading}` : "รูป";
+}

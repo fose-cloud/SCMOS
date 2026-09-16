@@ -66,6 +66,8 @@ type Option = {
   move: { result: string; detail: string; ok: boolean; to: string };
   /** What approving would write into ARRIVAL DATE / TIME, or why it would not. */
   arrival: string;
+  /** Whether this person may approve this row — every job, or their own. The API decides. */
+  mayApprove?: boolean;
 };
 
 type Options = {
@@ -97,11 +99,13 @@ const VIEWS: { value: string; label: string }[] = [
 ];
 
 export function LineReview({
-  canApprove, canMap, onToast,
+  canApprove, canMap, onToast, onApplied,
 }: {
   canApprove: boolean;
   canMap: boolean;
   onToast: (message: string) => void;
+  /** After a message is approved or set aside, so the workspace can follow. */
+  onApplied?: () => void;
 }) {
   const [view, setView] = useState("NEED_REVIEW");
   const [events, setEvents] = useState<Event[] | null>(null);
@@ -207,13 +211,13 @@ export function LineReview({
       });
       const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
       onToast(answer?.message ?? answer?.error ?? `ทำรายการไม่สำเร็จ (${response.status})`);
-      if (response.ok) { setOpen(null); setOptions(null); await loadEvents(); }
+      if (response.ok) { setOpen(null); setOptions(null); await loadEvents(); onApplied?.(); }
     } catch (error) {
       onToast("ทำรายการไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy(false);
     }
-  }, [loadEvents, onToast]);
+  }, [loadEvents, onToast, onApplied]);
 
   const bands = useMemo(
     () => summarise((events ?? []).map((one) => one.errorCode)),
@@ -548,14 +552,14 @@ function Detail({
                   <td style={css(`${CELL};font-size:11.5px;color:#475569`)}>{one.arrival || "—"}</td>
                   <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
                     {one.move.ok ? (
-                      canApprove ? (
+                      (one.mayApprove ?? canApprove) ? (
                         <button disabled={busy}
                           onClick={() => onAct("apply", { jobKey: one.key, reason })}
                           style={css(`${BUTTON};border-color:#16A34A;background:#16A34A;color:#fff`)}>
                           {options.kind === "image" ? `บันทึกเลขตู้ → ${one.move.to || options.to}` : `อนุมัติ → ${one.move.to || options.to}`}
                         </button>
                       ) : (
-                        <span style={css("font-size:11.5px;color:#94A3B8")}>ไม่มีสิทธิ์อนุมัติ</span>
+                        <span style={css("font-size:11.5px;color:#94A3B8")}>อนุมัติได้เฉพาะเจ้าของงาน</span>
                       )
                     ) : (
                       // Says why this particular row cannot take the message,

@@ -99,6 +99,7 @@ import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, ty
 
 import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
 import { LineReview } from "./scmos/screens/LineReview";
+import { pendingByKey, pendingCounts, type LinePending } from "./scmos/linePending";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
@@ -295,6 +296,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   // ---- workspace ---------------------------------------------------------
   const [ws, setWs] = useState(EMPTY_WS);
   const [drawer, setDrawer] = useState<string | null>(null);
+  /**
+   * What hauliers' LINE messages are waiting to do to which jobs — so the
+   * grid marks the row and the drawer offers the job's owner the approval.
+   * Read beside the register delta, on the same tick; written by nobody here.
+   */
+  const [linePending, setLinePending] = useState<LinePending[]>([]);
   /** The job whose date is being moved or which is being called off, and which of the two. */
   const [changing, setChanging] = useState<{ key: string; mode: "move" | "cancel" } | null>(null);
   /**
@@ -721,9 +728,29 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   }, [ops, touch]);
   const syncRef = useRef(syncRegister);
   syncRef.current = syncRegister;
+
+  const loadLinePending = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/integrations/line/events/pending", { headers: { accept: "application/json" } });
+      if (!response.ok) return;
+      const body = await response.json().catch(() => null) as { items?: LinePending[] } | null;
+      if (body && appMounted.current) setLinePending(Array.isArray(body.items) ? body.items : []);
+    } catch {
+      // The mark on a row is a convenience; the register is not.
+    }
+  }, []);
+  const linePendingRef = useRef(loadLinePending);
+  linePendingRef.current = loadLinePending;
+
   useEffect(() => {
     if (!isSignedIn || !ops) return;
-    const tick = () => { if (document.visibilityState === "visible") void syncRef.current(); };
+    const tick = () => {
+      if (document.visibilityState === "visible") void syncRef.current();
+      if (document.visibilityState === "visible") void linePendingRef.current();
+    };
+    // The marks are wanted from the first paint; the register delta keeps
+    // its own cadence.
+    void linePendingRef.current();
     const timer = window.setInterval(tick, SYNC_EVERY_MS);
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);
@@ -1008,6 +1035,30 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const owns = (job: Job) =>
     (!!me.opId && job.opId === me.opId)
     || (!!job.opId && actingFor.includes(job.opId));
+
+  const linePendingByKey = useMemo(() => pendingByKey(linePending), [linePending]);
+  const linePendingCounts = useMemo(() => pendingCounts(linePending), [linePending]);
+
+  /**
+   * Approving or setting aside a LINE message from the job drawer. The API
+   * works the decision out again at that moment and enforces ownership; the
+   * row on the grid follows through the register delta, pulled right away.
+   */
+  const lineAct = async (id: number, what: "apply" | "dismiss", jobKey: string) => {
+    try {
+      const response = await apiFetch(`/api/integrations/line/events/${id}/${what}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobKey: what === "apply" ? jobKey : "", reason: "" }),
+      });
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      setToast(answer?.message ?? answer?.error ?? `ทำรายการไม่สำเร็จ (${response.status})`);
+    } catch (error) {
+      setToast("ทำรายการไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+    void loadLinePending();
+    void syncRef.current();
+  };
 
   /** What the dashboard reports on: the register narrowed to the chosen period. */
   const periodJobs = useMemo(
@@ -2968,6 +3019,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   canEdit={(job) => !!ops && canEditJob(job)}
                   canAssign={able("AssignJobs")}
                   covering={covering}
+                  linePending={linePendingCounts}
                   serverPages={serverPages}
                   fullRegisterLoaded={!!ops}
                   sectionPages={sectionPages}
@@ -3054,8 +3106,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {/* LINE has outgrown the placeholder: it has a queue to work and a
                 mapping to keep. The other three are still the shared panel. */}
             {screen === "line" && (
-              <LineReview canApprove={able("EditAnyJob")} canMap={able("ManageSuppliers")}
-                onToast={setToast} />
+              // Anybody who edits jobs may open a row; whether they may approve
+              // a given one — every job, or their own — the API says per row.
+              <LineReview canApprove={able("EditAnyJob") || able("EditOwnJobs")} canMap={able("ManageSuppliers")}
+                onToast={setToast} onApplied={() => { void loadLinePending(); void syncRef.current(); }} />
             )}
             {/* One screen, three systems. `systemById` is the only thing that
                 decides which — a screen id with no definition renders nothing
@@ -3311,6 +3365,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           job={drawerJob}
           mine={owns(drawerJob)}
           canEdit={canEditJob(drawerJob)}
+          line={linePendingByKey[drawerJob.key] ?? []}
+          onLineAct={canEditJob(drawerJob) ? lineAct : undefined}
           onClose={() => setDrawer(null)}
           onRaiseIssue={() => {
             const now = new Date();

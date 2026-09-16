@@ -205,6 +205,24 @@ public static class LineMatching
             return (await ToCandidates(db.OperationJobs.AsNoTracking()
                 .Where(one => one.Container.Contains(container)), token), $"ตู้ {container}");
 
+        // A booking, an ABS, a D-code, a delivery note: looked for in the
+        // job's JSON by text, then held against the fields the register
+        // actually keeps a reference in — a number that merely appears
+        // somewhere in a row is not that row's reference.
+        var references = read.References ?? [];
+        var byReference = new List<LineAuthority.JobCandidate>();
+        foreach (var reference in references.Take(3))
+        {
+            var found = await ToCandidates(db.OperationJobs.AsNoTracking()
+                .Where(one => one.JobCode == reference || one.Data.Contains(reference))
+                .OrderByDescending(one => one.UpdatedAt)
+                .Take(100), token);
+            byReference.AddRange(found.Where(one => one.References.Contains(reference, StringComparer.OrdinalIgnoreCase)
+                && byReference.All(had => had.Key != one.Key)));
+        }
+        if (byReference.Count > 0)
+            return (byReference, $"เลขอ้างอิง {string.Join(" / ", references.Take(3))}");
+
         var plates = read.Plates ?? [];
         var rows = new List<LineAuthority.JobCandidate>();
         foreach (var plate in plates)
@@ -220,7 +238,8 @@ public static class LineMatching
             rows.AddRange(found.Where(one => LineAuthority.PlateMatches(one.Plate, [plate])
                 && rows.All(had => had.Key != one.Key)));
         }
-        return (rows, $"ทะเบียน {string.Join(" / ", plates)}");
+        if (plates.Count > 0) return (rows, $"ทะเบียน {string.Join(" / ", plates)}");
+        return (rows, $"เลขอ้างอิง {string.Join(" / ", references.Take(3))}");
     }
 
     /// <summary>
@@ -231,26 +250,43 @@ public static class LineMatching
         IQueryable<OperationJob> rows, CancellationToken token)
     {
         var picked = await rows
-            .Select(one => new { one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container, one.WorkDate, one.Data })
+            .Select(one => new { one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container, one.WorkDate, one.Data, one.JobCode })
             .ToListAsync(token);
-        return picked.Select(one => new LineAuthority.JobCandidate(
-            one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container, PlateOf(one.Data), one.WorkDate))
-            .ToList();
+        return picked.Select(one =>
+        {
+            var fields = FieldsOf(one.Data, ["licence", .. ReferenceFields]);
+            return new LineAuthority.JobCandidate(
+                one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container,
+                fields.GetValueOrDefault("licence", ""), one.WorkDate,
+                References: [.. ReferenceFields.Select(name => fields.GetValueOrDefault(name, ""))
+                    .Append(one.JobCode)
+                    .Select(value => value.Trim().ToUpperInvariant())
+                    .Where(value => value.Length > 0)]);
+        }).ToList();
     }
 
-    /// <summary>The job's LICENCE cell, out of its JSON, or empty.</summary>
-    private static string PlateOf(string data)
+    /// <summary>
+    /// The cells a haulier might quote a job by. The booking and the ABS on
+    /// an import or export, the D-code, job number, SID, TMS id and customer
+    /// PO on a Domestic run, the delivery note and SAP order on any.
+    /// </summary>
+    private static readonly string[] ReferenceFields =
+        ["booking", "abs", "jobCode", "jobNo", "sid", "dCode", "tmsId", "customerPo", "deliverNo", "sapOrder"];
+
+    /// <summary>The named string cells out of a job's JSON; a cell that is not there or not a string is absent.</summary>
+    private static Dictionary<string, string> FieldsOf(string data, IReadOnlyList<string> names)
     {
+        var found = new Dictionary<string, string>(StringComparer.Ordinal);
         try
         {
             using var json = JsonDocument.Parse(data);
-            return json.RootElement.TryGetProperty("licence", out var value) && value.ValueKind == JsonValueKind.String
-                ? value.GetString() ?? ""
-                : "";
+            foreach (var name in names)
+            {
+                if (json.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
+                    found[name] = value.GetString() ?? "";
+            }
         }
-        catch (JsonException)
-        {
-            return "";
-        }
+        catch (JsonException) { }
+        return found;
     }
 }

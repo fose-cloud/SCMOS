@@ -111,7 +111,12 @@ public static class LineAuthority
     /// </summary>
     public record JobCandidate(
         string Key, string Category, string Carrier, string Status,
-        string Customer = "", string Container = "", string Plate = "", string WorkDate = "");
+        string Customer = "", string Container = "", string Plate = "", string WorkDate = "",
+        /// <summary>The cells a haulier might quote this job by — booking, ABS, D-code… — upper case.</summary>
+        IReadOnlyList<string>? References = null)
+    {
+        public IReadOnlyList<string> References { get; init; } = References ?? [];
+    }
 
     /// <summary>
     /// What else the message said, for telling candidates apart.

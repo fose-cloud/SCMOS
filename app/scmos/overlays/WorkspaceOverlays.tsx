@@ -3,6 +3,8 @@
 import { useState, type ChangeEvent, type DragEvent } from "react";
 import { badge, css, opTone } from "../theme";
 import { isCancelled, MOVED_BY, wasMoved, type Job, type Masters } from "../ops";
+import { describe } from "../lineReview";
+import { pendingText, pendingWrites, type LinePending } from "../linePending";
 
 /* ---------------------------------------------------------- job drawer */
 
@@ -17,7 +19,10 @@ export function JobDrawer(p: {
   onDelete: () => void;
   /** Opens the issue log with this job already attached. */
   onRaiseIssue: () => void;
-  /** Opens a CAR/PAR case on this job, for the 5W1H and the photographs. */
+  /** Hauliers' LINE messages waiting on this job, newest first. */
+  line?: LinePending[];
+  /** Approves or sets aside one of them; absent when this person may not act on the job. */
+  onLineAct?: (id: number, what: "apply" | "dismiss", jobKey: string) => void;
 }) {
   const { job: j } = p;
   const rows: [string, string | undefined][] =
@@ -61,6 +66,45 @@ export function JobDrawer(p: {
       </div>
 
       <div style={css("flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:16px")}>
+        {!!p.line?.length && (
+          // What a haulier said about this job in LINE, waiting for the
+          // owner's word. Since 16 Sep 2026 that word is given here, on the
+          // job, and not only on the review screen — "ให้เจ้าของงานกด Approve เอง".
+          <div style={css("border:1px solid #F0C36D;background:#FFFBEB;border-radius:5px;padding:11px 13px;display:flex;flex-direction:column;gap:9px")}>
+            <div style={css("display:flex;align-items:center;gap:8px")}>
+              <span style={css(badge("LINE", "amber"))}>LINE</span>
+              <span style={css("font-size:11px;color:#64748B")}>{p.line.length} ข้อความรออนุมัติ</span>
+            </div>
+            {p.line.map((one) => {
+              const verdict = describe(one.errorCode);
+              const writes = pendingWrites(one);
+              return (
+                <div key={one.id} style={css("display:flex;flex-direction:column;gap:4px;padding-top:7px;border-top:1px solid #F5E3C7")}>
+                  <span style={css("font-size:11.5px;color:#0A2240")}>{pendingText(one)}</span>
+                  <span style={css("font-size:10.5px;color:#94A3B8")}>{one.group}{one.receivedAt ? " · " + new Date(one.receivedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                  {one.ready && writes
+                    ? <span style={css("font-size:11.5px;font-weight:600;color:#B45309")}>{writes}</span>
+                    : <span style={css("font-size:11.5px;color:#B42318")}>{verdict.label}{one.detail ? " — " + one.detail : ""}</span>}
+                  {p.onLineAct && (
+                    <div style={css("display:flex;gap:6px;margin-top:2px")}>
+                      {one.ready && (
+                        <button onClick={() => p.onLineAct?.(one.id, "apply", j.key)}
+                          style={css("height:26px;padding:0 12px;border-radius:4px;border:1px solid #16A34A;background:#16A34A;color:#fff;font-size:11.5px;font-family:inherit;cursor:pointer")}>
+                          อนุมัติ
+                        </button>
+                      )}
+                      <button onClick={() => p.onLineAct?.(one.id, "dismiss", j.key)}
+                        style={css("height:26px;padding:0 12px;border-radius:4px;border:1px solid #D3DBE3;background:#fff;color:#B91C1C;font-size:11.5px;font-family:inherit;cursor:pointer")}>
+                        ปิดข้อความ
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {(isCancelled(j) || wasMoved(j)) && (
           <div style={css("border:1px solid " + (isCancelled(j) ? "#F3C3BE" : "#F5E3C7") +
             ";background:" + (isCancelled(j) ? "#FDF6F5" : "#FFFAEF") +

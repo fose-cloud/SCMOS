@@ -71,6 +71,26 @@ public static class LineParser
         RegexOptions.Compiled);
 
     /// <summary>
+    /// A reference as the register writes one: a booking (LC2606594,
+    /// MAEU123456789), an ABS number, a D-code, a delivery note — letters and
+    /// digits, six to twenty long, at least three of them digits. Not a time
+    /// (has a colon), not a date (has a slash), not a plate (has a dash), not
+    /// the twelve-digit job number or a container, which have rules of their
+    /// own. Which field of which job it names is the register's to say.
+    /// </summary>
+    private static readonly Regex Reference =
+        new(@"(?<![A-Za-z0-9-])(?=[A-Za-z0-9]{6,20}(?![A-Za-z0-9-]))(?=(?:[A-Za-z]*\d){3})[A-Za-z0-9]+", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Words that make a message a question rather than a report. "ถึงโรงงานที่
+    /// โมงคะ @Vad" — the second real message, 16 Sep 2026 — asks the driver
+    /// when the truck arrived; it contains the arrival phrase and reports
+    /// nothing.
+    /// </summary>
+    private static readonly string[] QuestionWords =
+        ["กี่โมง", "ที่โมง", "หรือยัง", "รึยัง", "ไหม", "มั้ย", "หรือเปล่า", "หรือไม่", "?"];
+
+    /// <summary>
     /// The clock that follows an arrival word: "ถึงโรงงาน 05:00", "ถึงลูกค้าแล้ว
     /// 10.25", "arrived customer 10:25". Not the port — "ถึงท่า 08:10" is the
     /// pickup, and writing it as the arrival would make every import trip look
@@ -213,7 +233,14 @@ public static class LineParser
         /// with a clock after an arrival word. This is the register's ARRIVAL
         /// DATE / TIME — what on-time delivery is measured from.
         /// </summary>
-        DateTimeOffset? ArrivalTime = null)
+        DateTimeOffset? ArrivalTime = null,
+        /// <summary>
+        /// Booking-shaped tokens — a booking, an ABS, a D-code, a delivery
+        /// note — that the register may know a job by. See <see cref="FindReferences"/>.
+        /// </summary>
+        IReadOnlyList<string>? References = null,
+        /// <summary>Whether the message asks rather than tells. A question reports no status.</summary>
+        bool Question = false)
     {
         /// <summary>Whether this may update a job without somebody reading it first.</summary>
         public bool CanAutoProcess => Confidence >= AutoThreshold
@@ -227,7 +254,8 @@ public static class LineParser
         /// "L'Oréal / TEMU7592765 / สมใจ / 700-3232 / ถึงโรงงาน 05:00 / ลงเสร็จ".
         /// </summary>
         public bool HasReference => JobNumber is not null || Container is not null
-            || (Plates is not null && Plates.Count > 0);
+            || (Plates is not null && Plates.Count > 0)
+            || (References is not null && References.Count > 0);
     }
 
     /// <summary>
@@ -286,6 +314,34 @@ public static class LineParser
             .Distinct(StringComparer.Ordinal)
             .ToList();
         return (found.Count == 1 ? found[0] : null, found.Count);
+    }
+
+    /// <summary>
+    /// The booking-shaped tokens in a message, upper case, without repeats,
+    /// leaving out what other rules already read: the job number, the
+    /// containers, the plates.
+    /// </summary>
+    public static IReadOnlyList<string> FindReferences(string normalised)
+    {
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var match in Container.Matches(normalised).Cast<Match>())
+            taken.Add((match.Groups[1].Value + match.Groups[2].Value).ToUpperInvariant());
+        foreach (var number in JobCodes.All(normalised)) taken.Add(number);
+
+        return [.. Reference.Matches(normalised)
+            .Select(one => one.Value.ToUpperInvariant())
+            .Where(one => !taken.Contains(one))
+            // The container's digits alone, or its owner code, are not a reference.
+            .Where(one => !taken.Any(had => had.Contains(one, StringComparison.Ordinal)))
+            .Distinct(StringComparer.Ordinal)
+            .Take(5)];
+    }
+
+    /// <summary>Whether the message asks something rather than reporting it.</summary>
+    public static bool IsQuestion(string normalised)
+    {
+        var haystack = normalised.ToLowerInvariant();
+        return QuestionWords.Any(word => haystack.Contains(word, StringComparison.Ordinal));
     }
 
     /// <summary>Every plate in a message, as written, without duplicates.</summary>
@@ -469,13 +525,29 @@ public static class LineParser
         var plates = FindPlates(text);
         foreach (var plate in plates) rules.Add($"plate:{plate}");
 
+        // A booking, an ABS, a D-code: the second real message, 16 Sep 2026,
+        // named its job by the booking alone — "AKZO NOBEL // LC2606594
+        // 16/09/2026 -- 14:00".
+        var references = FindReferences(text);
+        foreach (var reference in references) rules.Add($"ref:{reference}");
+
         // Nothing to find a job by. Was "no-job-number", which the rows already
         // stored still carry and the screen still names.
-        if (jobNumber is null && container is null && plates.Count == 0 && found == 0)
+        if (jobNumber is null && container is null && plates.Count == 0 && references.Count == 0 && found == 0)
             warnings.Add("no-reference");
 
         var (status, statusWord) = FindStatus(text);
         foreach (var (_, keyword) in FindStatuses(text)) rules.Add($"status:{keyword}");
+
+        // A question carries the words of a report and reports nothing.
+        // "ถึงโรงงานที่โมงคะ" asks when; it does not say the truck arrived.
+        var question = IsQuestion(text);
+        if (question)
+        {
+            rules.Add("question");
+            status = null;
+            statusWord = null;
+        }
 
         var (delayCategory, delayBasis, delayConfidence) = FindDelay(text, statusWord);
         if (delayCategory is not null) rules.Add($"delay:{delayCategory}");
@@ -502,20 +574,23 @@ public static class LineParser
         if (arrival is not null) rules.Add($"arrival:{arrival.Value:HH:mm}");
         if (Clock.Matches(text).Count > 1 && arrival is null) warnings.Add("many-times");
 
-        var delayed = delayCategory is not null;
+        var delayed = delayCategory is not null && !question;
         var understood = status is not null || delayed || eta is not null;
-        if (!understood) warnings.Add("nothing-understood");
+        if (question) warnings.Add("question");
+        else if (!understood) warnings.Add("nothing-understood");
 
         return new Parsed(
-            jobNumber, status, eventTime, eta, delayed, delayCategory, delayBasis,
+            jobNumber, status, eventTime, eta, delayed, question ? null : delayCategory, question ? null : delayBasis,
             Plate: plates.Count > 0 ? plates[0] : null,
             Remark: text,
-            Confidence: Score(jobNumber, status, delayed, eta, warnings, container, plates.Count > 0),
+            Confidence: Score(jobNumber, status, delayed, eta, warnings, container, plates.Count > 0 || references.Count > 0),
             MatchedRules: rules,
             Warnings: warnings,
             Container: container,
             Plates: plates,
-            ArrivalTime: arrival);
+            ArrivalTime: question ? null : arrival,
+            References: references,
+            Question: question);
     }
 
     /// <summary>
