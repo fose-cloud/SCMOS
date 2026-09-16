@@ -107,8 +107,12 @@ public static class LineReminder
 
         var heading = $"งานวันนี้ {Formats.PlanDate(day)} — {supplier}\n"
             + "ขอทะเบียนรถ ชื่อ-สกุลคนขับ และเบอร์ติดต่อ สำหรับงานต่อไปนี้ครับ";
-        var footer = "ตอบในกลุ่มนี้ทีละงาน: <Job No. หรือ Booking> ทะเบียน ชื่อ-สกุลคนขับ เบอร์\n"
-            + "เช่น 260600800773 70-1234 สมชาย ใจดี 081-2345678";
+        // The first real message, 16 Sep 2026, listed five boxes on one job
+        // number — a booking is several containers — so the container is what
+        // an answer should lead with; the job number alone would leave the
+        // operator choosing between five rows.
+        var footer = "ตอบในกลุ่มนี้ทีละตู้: <เลขตู้ หรือ Job No. / Booking> ทะเบียน ชื่อ-สกุลคนขับ เบอร์\n"
+            + "เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678";
 
         var messages = new List<string>();
         var text = new StringBuilder(heading);

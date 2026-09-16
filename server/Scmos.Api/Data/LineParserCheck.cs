@@ -366,8 +366,9 @@ public static class LineParserCheck
                 && whole.Contains("ขาด: ชื่อ-สกุลคนขับ, เบอร์ติดต่อ", StringComparison.Ordinal)),
             ("a job with its truck is not asked about", !whole.Contains("F1", StringComparison.Ordinal) && whole.Split("ขาด:").Length == 4),
             ("a cancelled or finished job is not asked about", !whole.Contains("CANCELLED", StringComparison.Ordinal)),
-            ("it says how to answer so the answer can be read", whole.Contains("ตอบในกลุ่มนี้", StringComparison.Ordinal)
-                && whole.Contains("260600800773 70-1234 สมชาย ใจดี 081-2345678", StringComparison.Ordinal)),
+            ("it says how to answer so the answer can be read — leading with the container, since a job number is several boxes",
+                whole.Contains("ตอบในกลุ่มนี้ทีละตู้", StringComparison.Ordinal)
+                && whole.Contains("TXGU8142057 70-1234 สมชาย ใจดี 081-2345678", StringComparison.Ordinal)),
             ("nothing missing, nothing sent", LineReminder.Compose("SHORE", day, [Line("F1", "IMPORT", "READY", "70-1234", "สมชาย", "081-2345678")]).Count == 0),
             ("a long day is split into whole parts under LINE's limit",
                 LineReminder.Compose("SHORE", day, Enumerable.Range(1, 80).Select(i => Line($"I{i}", "IMPORT", "READY")).ToList()) is { Count: > 1 } parts
