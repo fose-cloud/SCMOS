@@ -172,9 +172,11 @@ export function LineReview({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const answer = await response.json() as { message?: string; error?: string };
-      onToast(answer.message ?? answer.error ?? "ไม่สำเร็จ");
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      onToast(answer?.message ?? answer?.error ?? `ทำรายการไม่สำเร็จ (${response.status})`);
       if (response.ok) { setOpen(null); setOptions(null); await loadEvents(); }
+    } catch (error) {
+      onToast("ทำรายการไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy(false);
     }
@@ -524,9 +526,14 @@ function Groups({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const answer = await response.json() as { message?: string; error?: string };
-      onToast(answer.message ?? answer.error ?? "ไม่สำเร็จ");
+      // The first real binding, 16 Sep 2026, landed while SQL was waking: the
+      // API answered 500 with no message, and the button looked dead. A
+      // failure says its status; a dropped connection says so too.
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      onToast(answer?.message ?? answer?.error ?? `ผูกกลุ่มไม่สำเร็จ (${response.status})`);
       if (response.ok) onSaved();
+    } catch (error) {
+      onToast("ผูกกลุ่มไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy(false);
     }
