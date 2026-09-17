@@ -173,6 +173,13 @@ test("a photo row from the two days photos were read is quiet", () => {
   assert.equal(isActionable("photo-reading-retired"), false);
 });
 
+// "ติดต่อแถวอยู่ลานดิน": into the job's REMARK, dated, unanswered (17 Sep 2026).
+test("a message written into the remark is filed quietly", () => {
+  assert.equal(describe("remark-written").tone, "quiet");
+  assert.equal(isActionable("remark-written"), false);
+  assert.match(describe("remark-written").label, /Remark/);
+});
+
 test("the answer to the morning reminder reads as ready", () => {
   assert.equal(describe("truck-details").tone, "ready");
   assert.equal(isActionable("truck-details"), true);

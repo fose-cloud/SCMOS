@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Scmos.Api.Auth;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
 
@@ -187,6 +188,55 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     /// </summary>
     public const string NotAboutAJob = "not-about-a-job";
 
+    /// <summary>
+    /// The message onto the REMARK of each job it names, dated, after
+    /// whatever the cell already holds. Written now, not approved: a remark
+    /// is the department's log of what the haulier said, and the department
+    /// asked for it to be kept as it comes. Ledgered on each job as LINE's.
+    /// </summary>
+    private async Task WriteRemarkAsync(ScmosDbContext db, LineEvent row, IReadOnlyList<string> keys, CancellationToken stopping)
+    {
+        using var scope = services.CreateScope();
+        var jobs = scope.ServiceProvider.GetRequiredService<JobsRepository>();
+        var audit = scope.ServiceProvider.GetRequiredService<AuditService>();
+        var by = new AppUser("line", "", "LINE", "System", "", "system", Recognised: true);
+
+        var note = LineRemark.Note(row.RawText, row.ReceivedAt);
+        var wanted = keys.ToList();
+        var rows = await db.OperationJobs.AsNoTracking()
+            .Where(one => wanted.Contains(one.Key))
+            .Select(one => new { one.Key, one.Data })
+            .ToListAsync(stopping);
+
+        var written = 0;
+        foreach (var one in rows)
+        {
+            var had = "";
+            try
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(one.Data);
+                if (json.RootElement.TryGetProperty("remark", out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String)
+                    had = value.GetString() ?? "";
+            }
+            catch (System.Text.Json.JsonException) { }
+            var next = LineRemark.Append(had, note);
+            if (next == had) { written++; continue; }
+            if (!await jobs.PatchAsync(one.Key, new Dictionary<string, string> { ["remark"] = next }, by.Signature, stopping)) continue;
+            await audit.RecordAsync(by, AuditActions.Update, "job", one.Key, row.JobNumber,
+                "remark", had, next, $"LINE: {row.RawText}", stopping, EventSource.Line);
+            written++;
+        }
+
+        row.JobKey = keys[0];
+        row.ProcessingStatus = written > 0 ? LineProcessing.Processed : LineProcessing.NeedReview;
+        row.ErrorCode = written > 0 ? LineRemark.Written : "nothing-understood";
+        row.ErrorMessage = written > 0
+            ? LineAuthority.KeysNote($"บันทึกลง Remark: {note}", keys)
+            : "บันทึกลง Remark ไม่สำเร็จ";
+        await db.SaveChangesAsync(stopping);
+        log.LogInformation("LINE message {Id}: remark on {Count} job(s)", row.Id, written);
+    }
+
     /// <summary>The status the message would set, as the matched job's ladder names it, for the acknowledgement.</summary>
     private static string ResolvedTo(LineEvent row, LineParser.Parsed read) =>
         read.Status is null ? "" : row.JobKey.Length > 0 && row.ErrorMessage.Length == 0 ? row.ParsedStatus : read.Status;
@@ -207,6 +257,25 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         // plate alone is under the auto threshold, and is matched anyway,
         // because the match is what the reviewer needs to see. Nothing is
         // applied here either way.
+        // A message that names a job and reports nothing the ladder knows —
+        // "ต่อคิวในท่าเรือ", "ติดต่อแถวอยู่ลานดิน" — goes into that job's REMARK
+        // with the time it was sent, and is not answered (17 Sep 2026). Only
+        // when the job is beyond doubt: one row, or every row of a number the
+        // message counts ("3 ตู้"). Anything less certain waits, as before.
+        if (read.Warnings is ["nothing-understood"] && read.HasReference && !read.Question)
+        {
+            var target = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, stopping);
+            var keys = target.Keys.Count == 1 ? target.Keys
+                : target.Result == LineAuthority.Outcome.ManyJobs && read.BoxCount == target.Keys.Count ? target.Keys
+                : [];
+            if (keys.Count > 0 && target.Result is not (LineAuthority.Outcome.NoSuchJob or LineAuthority.Outcome.NotYourJob
+                    or LineAuthority.Outcome.UnknownGroup or LineAuthority.Outcome.GroupInactive or LineAuthority.Outcome.GroupNotVendor))
+            {
+                await WriteRemarkAsync(db, row, keys, stopping);
+                return;
+            }
+        }
+
         if (read.Warnings.Count > 0 || !read.HasReference)
         {
             // A question — "ถึงโรงงานที่โมงคะ" — is the room talking to itself,

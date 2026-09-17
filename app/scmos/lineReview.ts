@@ -139,8 +139,15 @@ const OUTCOMES: Outcome[] = [
   },
   {
     code: "nothing-understood", tone: "attention",
-    label: "อ้างถึงงานได้ แต่ไม่พบสถานะในข้อความ",
+    label: "อ้างถึงงานได้ แต่ไม่พบสถานะในข้อความ และหางานที่แน่ชัดไม่ได้",
     next: "อ่านข้อความเดิมแล้วอัปเดตเอง",
+  },
+  // "ติดต่อแถวอยู่ลานดิน", "ต่อคิวในท่าเรือ": written into the job's REMARK with
+  // the time it was sent, unanswered (17 Sep 2026).
+  {
+    code: "remark-written", tone: "quiet",
+    label: "บันทึกลงช่อง Remark ของงานแล้ว (พร้อมวันที่-เวลาที่ส่ง)",
+    next: "",
   },
   {
     code: "no-status", tone: "quiet",

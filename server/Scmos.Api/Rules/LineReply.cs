@@ -75,7 +75,10 @@ public static class LineReply
             "no-reference" => null,
             // A greeting, a "รับทราบ": not about a job, and not answered.
             Services.LineEventWorker.NotAboutAJob => null,
-            "nothing-understood" => $"รับ {reference} แล้ว แต่ไม่พบสถานะ — ส่ง \"ถึงโรงงาน HH:MM\" หรือ \"ลงเสร็จ\" มาด้วยครับ",
+            // "ติดต่อแถวอยู่ลานดิน", "ต่อคิวในท่าเรือ": a status the ladder has no
+            // rung for goes into the job's REMARK, unanswered (17 Sep 2026).
+            "nothing-understood" => null,
+            LineRemark.Written => null,
             "many-job-numbers" or "many-containers" => "ข้อความมีหลายงานปนกัน — ช่วยส่งทีละตู้ครับ",
             LineAuthority.Outcome.NoStatus => null,
             LineAuthority.Outcome.UnknownGroup or LineAuthority.Outcome.GroupInactive or LineAuthority.Outcome.GroupNotVendor => null,

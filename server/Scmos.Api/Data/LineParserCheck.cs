@@ -576,6 +576,10 @@ public static class LineParserCheck
                 && LineReply.ForMessage(LineParser.Parse("รถติดบางนา", Received), "no-reference", "") is null, "-"),
             ("the room's own arranging is not answered either",
                 LineReply.ForMessage(LineParser.Parse("รับวันนี้ได้รับเลยค่ะ ส่วนเรื่องคืนตู้รอลูกค้าขอ EARLY OPENGATE อีกทีค่ะ @จัดส่ง DCH", Received), "no-reference", "") is null, "-"),
+            // "ติดต่อแถวอยู่ลานดิน", 17 Sep 2026: into REMARK, unanswered.
+            ("a status the ladder has no rung for is not answered — it goes into the remark",
+                LineReply.ForMessage(LineParser.Parse("ALLNEX 260900760168 B5 ติดต่อแถวอยู่ลานดินค่ะ", Received), "nothing-understood", "") is null
+                && LineReply.ForMessage(LineParser.Parse("ALLNEX 260900760168 B5 ติดต่อแถวอยู่ลานดินค่ะ", Received), LineRemark.Written, "") is null, "-"),
             ("a seal alone is a reference, and is answered by",
                 LineReply.Reference(LineParser.Parse("ซีล 123456 ลงเสร็จ", Received)) == "ซีล 123456", LineReply.Reference(LineParser.Parse("ซีล 123456 ลงเสร็จ", Received))),
             ("a greeting gets no answer at all",
@@ -590,6 +594,30 @@ public static class LineParserCheck
             if (!ok) failed++;
             Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
             if (!ok) Console.WriteLine($"          got {got ?? "(null)"}");
+        }
+        Console.WriteLine();
+
+        /* ------------------------------------------ the remark */
+
+        Console.WriteLine("What a haulier said that the ladder has no rung for goes into REMARK, dated, after what is there.");
+        Console.WriteLine();
+        var yard = LineRemark.Note("ALLNEX  260900760168 B5 ติดต่อแถวอยู่ลานดินค่ะ", new DateTimeOffset(2026, 9, 17, 4, 46, 10, TimeSpan.Zero));
+        var remarks = new (string Why, bool Ok, string Got)[]
+        {
+            ("the note is the send time in Bangkok and the words, tidied", yard == "17/09/2026 11:46 ALLNEX 260900760168 B5 ติดต่อแถวอยู่ลานดินค่ะ", yard),
+            ("an empty cell takes the note alone", LineRemark.Append("", yard) == yard, LineRemark.Append("", yard)),
+            ("a cell with words takes the note after a comma", LineRemark.Append("ส่งเอกสารแล้ว", yard) == "ส่งเอกสารแล้ว, " + yard, LineRemark.Append("ส่งเอกสารแล้ว", yard)),
+            ("the next update joins on the end", LineRemark.Append(yard, "17/09/2026 13:02 260900760168 ต่อคิวในท่าเรือ") == yard + ", 17/09/2026 13:02 260900760168 ต่อคิวในท่าเรือ",
+                LineRemark.Append(yard, "17/09/2026 13:02 260900760168 ต่อคิวในท่าเรือ")),
+            ("the same note twice is written once", LineRemark.Append(yard, yard) == yard, LineRemark.Append(yard, yard)),
+            ("such a message is understood as naming a job and nothing else",
+                LineParser.Parse("ALLNEX 260900760168 B5 ติดต่อแถวอยู่ลานดินค่ะ", Received) is { JobNumber: "260900760168", Status: null, Delayed: false, Warnings: ["nothing-understood"] }, "-"),
+        };
+        foreach (var (why, ok, got) in remarks)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          got {got}");
         }
         Console.WriteLine();
 
