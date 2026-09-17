@@ -202,6 +202,7 @@ public static class LineReviewEndpoints
             {
                 date = Formats.PlanDate(day),
                 remindAt = reminders.RemindAtText,
+                summaryAt = reminders.SummaryAtText,
                 chaseMinutes = chase.Minutes,
                 chaseEveryHours = chase.RepeatHours,
                 chaseBeforeMinutes = chase.BeforeMinutes,

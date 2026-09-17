@@ -33,6 +33,19 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
     /// <summary>The times as the screen prints them: "08:00, 12:00", or empty when off.</summary>
     public string RemindAtText => string.Join(", ", RemindTimes.Select(at => at.ToString("HH:mm")));
 
+    /// <summary>Where the day-before summary's hour lives; "off" switches it off; blank is 16:00.</summary>
+    public const string SummaryTimeKey = "Line:SummaryAt";
+
+    /// <summary>The Bangkok clock times tomorrow's summary goes at — 16:00 unless set; empty when off.</summary>
+    public IReadOnlyList<TimeOnly> SummaryTimes =>
+        string.IsNullOrWhiteSpace(config[SummaryTimeKey]) ? [new TimeOnly(16, 0)] : LineReminder.Times(config[SummaryTimeKey]);
+
+    /// <summary>The summary's times as the screen prints them, or empty when off.</summary>
+    public string SummaryAtText => string.Join(", ", SummaryTimes.Select(at => at.ToString("HH:mm")));
+
+    /// <summary>The ledger's key for a day's summary: once per room per day summarised.</summary>
+    public static string SummarySlot(DateOnly day) => $"summary:{Formats.PlanDate(day)}";
+
     /// <summary>What a manual send is ledgered as, beside the clock-time slots.</summary>
     public const string ManualSlot = "manual";
 
@@ -154,6 +167,42 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         return sent;
     }
 
+    /// <summary>
+    /// The scheduler's pass for the day-before summary: every room with jobs
+    /// on <paramref name="day"/> (tomorrow, when the scheduler calls) not yet
+    /// sent that day's summary. Returns how many were sent.
+    /// </summary>
+    public async Task<int> SendSummaryDueAsync(DateOnly day, CancellationToken token)
+    {
+        var by = new AppUser("scheduler", "", "SCMOS", "System", "", "system", Recognised: true);
+        var slot = SummarySlot(day);
+        var already = (await db.AuditEvents.AsNoTracking()
+            .Where(one => one.Entity == Entity && one.Action == Action && one.Field == slot)
+            .Select(one => one.EntityId)
+            .ToListAsync(token))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var sent = 0;
+        foreach (var room in await RoomsAsync(day, token))
+        {
+            if (already.Contains(room.LineGroupId)) continue;
+            var messages = LineReminder.ComposeSummary(room.Supplier, day, room.AllJobs);
+            if (messages.Count == 0) continue;
+            var failure = await notifier.PushAsync(room.LineGroupId, messages, token);
+            if (failure.Length > 0)
+            {
+                log.LogWarning("LINE summary for {Day} to {Group} failed: {Why}", Formats.PlanDate(day), room.GroupName, failure);
+                continue;
+            }
+            await audit.RecordAsync(by, Action, Entity, room.LineGroupId, room.Supplier,
+                slot, "", $"{room.AllJobs.Count} งาน · {messages.Count} ข้อความ",
+                $"สรุปงานวันที่ {Formats.PlanDate(day)}", token, EventSource.Line);
+            log.LogInformation("LINE summary for {Day} sent to {Group} ({Supplier}): {Jobs} job(s)", Formats.PlanDate(day), room.GroupName, room.Supplier, room.AllJobs.Count);
+            sent++;
+        }
+        return sent;
+    }
+
     /// <summary>The cells the message needs, out of the row and its JSON.</summary>
     private static (string Carrier, LineReminder.JobLine Line) ToLine(string key, string cat, string status,
         string customer, string trucker, string jobCode, string container, string workDate, string data)
@@ -218,6 +267,14 @@ public class LineReminderScheduler(IServiceProvider services, ILogger<LineRemind
                     var slot = at.ToString("HH:mm");
                     var sent = await reminders.SendDueAsync(DateOnly.FromDateTime(now.DateTime), slot, stopping);
                     if (sent > 0) log.LogInformation("LINE reminder: {Count} room(s) sent at {At}", sent, slot);
+                }
+                // The afternoon summary of tomorrow's jobs, on its own hour.
+                foreach (var at in reminders.SummaryTimes)
+                {
+                    if (now.TimeOfDay < at.ToTimeSpan() || now.TimeOfDay >= at.ToTimeSpan().Add(TimeSpan.FromMinutes(10))) continue;
+                    var tomorrow = DateOnly.FromDateTime(now.DateTime).AddDays(1);
+                    var sent = await reminders.SendSummaryDueAsync(tomorrow, stopping);
+                    if (sent > 0) log.LogInformation("LINE summary for {Day}: {Count} room(s) sent", Formats.PlanDate(tomorrow), sent);
                 }
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }

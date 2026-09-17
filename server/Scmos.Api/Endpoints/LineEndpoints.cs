@@ -54,6 +54,8 @@ public static class LineEndpoints
                 // The morning reminder: the Bangkok hour it goes at, or empty
                 // when the schedule is off, and whether a push can be sent at all.
                 remindAt = reminders.RemindAtText,
+                // The day-before summary of tomorrow's jobs: the hour, or empty when off.
+                summaryAt = reminders.SummaryAtText,
                 // The status chase: minutes after the plan time before the
                 // first ask (0 when off), hours between repeats, and minutes
                 // before the plan time when that ask is on.

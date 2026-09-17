@@ -187,6 +187,69 @@ public static class LineReminder
         return messages;
     }
 
+    /// <summary>
+    /// The day-before summary: every job of the haulier's planned for
+    /// <paramref name="day"/> — not only the ones short of something — sent
+    /// the afternoon before, so the room can line up its trucks. Asked for on
+    /// 17 Sep 2026: "สรุปงานวันที่ 18/09/2026, ส่ง 17/09/2026 เวลา 16:00". A job
+    /// still short of its truck says so on its line, so the answer can come
+    /// tonight. Cancelled and finished jobs are left out; a day with none
+    /// sends nothing. Split like the reminder when it would not fit.
+    /// </summary>
+    public static IReadOnlyList<string> ComposeSummary(string supplier, DateOnly day, IReadOnlyList<JobLine> jobs)
+    {
+        var listed = jobs
+            .Where(job => !string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(job => CategoryOrder(job.Category))
+            .ThenBy(job => Formats.TimeMinutes(job.PlanTime) ?? int.MaxValue)
+            .ThenBy(job => job.Customer, StringComparer.Ordinal)
+            .ToList();
+        if (listed.Count == 0) return [];
+
+        var heading = $"สรุปงานวันที่ {Formats.PlanDate(day)} — {supplier} · {listed.Count} งาน";
+        var footer = "ถ้างานไหนรับไม่ได้ หรือข้อมูลไม่ตรง แจ้งในกลุ่มนี้ครับ\n"
+            + "ทะเบียนรถและคนขับส่งได้เลย: <เลขตู้ หรือ Booking> ทะเบียน ชื่อ-สกุลคนขับ เบอร์ — เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678";
+
+        var messages = new List<string>();
+        var text = new StringBuilder(heading);
+        var category = "";
+        var number = 0;
+        foreach (var job in listed)
+        {
+            number++;
+            var block = new StringBuilder();
+            var thisCategory = job.Category.ToUpperInvariant();
+            if (thisCategory != category)
+            {
+                block.Append("\n\n").Append(CategoryName(thisCategory));
+                category = thisCategory;
+            }
+            block.Append('\n').Append(SummaryLine(number, job));
+
+            if (text.Length + block.Length + footer.Length + 2 > MaxChars)
+            {
+                messages.Add(text.ToString());
+                text = new StringBuilder($"สรุปงานวันที่ {Formats.PlanDate(day)} — {supplier} (ต่อ)");
+                block.Clear().Append("\n\n").Append(CategoryName(thisCategory)).Append('\n').Append(SummaryLine(number, job));
+            }
+            text.Append(block);
+        }
+        text.Append("\n\n").Append(footer);
+        messages.Add(text.ToString());
+        return messages;
+    }
+
+    /// <summary>One job in the summary: the reminder's line, and what is still missing only when something is.</summary>
+    private static string SummaryLine(int number, JobLine job)
+    {
+        var line = Line(number, job);
+        var cut = line.LastIndexOf("\n   ขาด: ", StringComparison.Ordinal);
+        var head = cut < 0 ? line : line[..cut];
+        var missing = Missing(job);
+        return missing.Count == 0 ? head : $"{head}\n   ยังขาด: {string.Join(", ", missing)}";
+    }
+
     private static int CategoryOrder(string category) => category.ToUpperInvariant() switch
     {
         "IMPORT" => 0,
