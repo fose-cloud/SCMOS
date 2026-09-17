@@ -84,9 +84,28 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
         var since = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), Thailand).ToUniversalTime();
         var asked = await db.AuditEvents.AsNoTracking()
             .Where(one => one.Entity == "job" && one.Action == Action && one.At >= since)
-            .Select(one => new { one.EntityId, one.Field })
+            .Select(one => new { one.EntityId, one.Field, one.At })
             .ToListAsync(token);
         var done = asked.Select(one => one.EntityId + "|" + one.Field).ToHashSet(StringComparer.Ordinal);
+        // How many asks after the plan time each job has had, and when the
+        // last word about it went — the spacing rule counts from there.
+        var askedCount = asked.Where(one => one.Field != LineChase.Before && !LineChase.IsDetailsStage(one.Field))
+            .GroupBy(one => one.EntityId)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var detailsCount = asked.Where(one => LineChase.IsDetailsStage(one.Field))
+            .GroupBy(one => one.EntityId)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        // The details ask starts at the morning reminder's hour, never earlier.
+        var earliest = reminders.RemindTimes.Count > 0 ? reminders.RemindTimes[0] : new TimeOnly(8, 0);
+        var lastAskedAt = asked.GroupBy(one => one.EntityId)
+            .ToDictionary(group => group.Key, group => group.Max(one => one.At), StringComparer.Ordinal);
+        // The morning reminder to each room today, the other word the spacing counts from.
+        var reminded = (await db.AuditEvents.AsNoTracking()
+            .Where(one => one.Entity == LineReminderService.Entity && one.Action == LineReminderService.Action && one.At >= since)
+            .Select(one => new { one.EntityId, one.At })
+            .ToListAsync(token))
+            .GroupBy(one => one.EntityId)
+            .ToDictionary(group => group.Key, group => group.Max(one => one.At), StringComparer.Ordinal);
 
         // Today's messages on a job, read again: which jobs have an answer
         // waiting for a person, and which have an estimate to be asked about.
@@ -120,12 +139,33 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
         var rooms = new List<Room>();
         foreach (var room in await reminders.RoomsAsync(day, token))
         {
+            // The latest word to this room about a job: its last ask, or the
+            // morning reminder, whichever came later.
+            var remindedAt = reminded.TryGetValue(room.LineGroupId, out var sentAt) ? sentAt : (DateTimeOffset?)null;
+            DateTimeOffset? LastWord(string key)
+            {
+                var ask = lastAskedAt.TryGetValue(key, out var at) ? at : (DateTimeOffset?)null;
+                return ask is null ? remindedAt : remindedAt is null ? ask : (ask > remindedAt ? ask : remindedAt);
+            }
             var due = room.AllJobs
                 .Where(job => !answered.Contains(job.Key))
-                .Select(job => (Job: job, Stage: LineChase.Stage(job, here, minutes, RepeatHours, BeforeMinutes)))
+                .Select(job => (Job: job, Stage: LineChase.Stage(job, here, minutes, RepeatHours, BeforeMinutes,
+                    askedCount.GetValueOrDefault(job.Key, 0), LastWord(job.Key)?.ToOffset(Thailand))))
                 .Where(one => one.Stage is not null && !done.Contains(one.Job.Key + "|" + one.Stage))
                 .Select(one => (one.Job, one.Stage!))
                 .ToList();
+
+            // The truck's details — LICENCE, DRIVER — on the same spacing, for
+            // a job the arrival ask is not already naming this tick (that
+            // line asks for both).
+            foreach (var job in room.AllJobs)
+            {
+                if (answered.Contains(job.Key) || due.Any(one => one.Job.Key == job.Key)) continue;
+                var stage = LineChase.DetailsStage(job, here, RepeatHours,
+                    detailsCount.GetValueOrDefault(job.Key, 0), LastWord(job.Key)?.ToOffset(Thailand), earliest);
+                if (stage is null || done.Contains(job.Key + "|" + stage)) continue;
+                due.Add((job, stage));
+            }
 
             // An estimate's ask, at its clock — in place of the plan-time ask
             // when both fall in the same five minutes, since one line per
@@ -169,7 +209,8 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             {
                 await audit.RecordAsync(by, Action, "job", job.Key, job.JobCode.Length > 0 ? job.JobCode : job.Booking,
                     stage, "", room.GroupName,
-                    LineChase.IsEtaStage(stage) ? $"ติดตามตามเวลาที่ผู้ขนส่งแจ้งคาดถึง {stage[4..]}"
+                    LineChase.IsDetailsStage(stage) ? $"ติดตามทะเบียนรถ/ชื่อคนขับ ครั้งที่ {LineChase.AskNumber(stage)}"
+                    : LineChase.IsEtaStage(stage) ? $"ติดตามตามเวลาที่ผู้ขนส่งแจ้งคาดถึง {stage[4..]}"
                     : stage == LineChase.Before ? $"ติดตามสถานะรถ {LineChase.Elapsed(TimeSpan.FromMinutes(BeforeMinutes))}ก่อนเวลาแผน"
                     : stage == LineChase.Overdue ? $"ติดตามสถานะรถ {LineChase.Elapsed(TimeSpan.FromMinutes(Minutes))}หลังเวลาแผน"
                     : $"ติดตามสถานะรถซ้ำ ครั้งที่ {LineChase.AskNumber(stage)} — ยังไม่มีเวลาถึง",

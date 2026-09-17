@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  confidenceLabel, describe, isActionable, palette, photoLabel, referenceLabel, spanLabel, statusLabel, summarise, whenLabel,
+  confidenceLabel, describe, isActionable, palette, referenceLabel, spanLabel, statusLabel, summarise, whenLabel,
 } from "../app/scmos/lineReview.ts";
 
 /*
@@ -166,25 +166,11 @@ test("the one status the parser cannot settle alone is named as such", () => {
   assert.equal(statusLabel(""), "");
 });
 
-/*
- * A driver's photograph of a box door, read for its number (v2.7.22). A
- * misread and a photo of nothing are different rows: one is for a person,
- * the other is filed.
- */
-
-test("a photo's outcomes have words, and a photo of nothing is quiet", () => {
-  assert.equal(describe("no-open-job").tone, "attention");
-  assert.equal(describe("container-check-digit").tone, "attention");
-  assert.equal(describe("image-failed").tone, "attention");
-  assert.equal(describe("no-container-in-photo").tone, "quiet");
-  assert.equal(isActionable("no-container-in-photo"), false);
-  assert.equal(isActionable("container-check-digit"), true);
-});
-
-test("a photo's row says what was read, or what the photo showed", () => {
-  assert.equal(photoLabel({ imageReading: "TEMU5246902", imageNote: "a box" }), "รูปตู้ · TEMU5246902");
-  assert.equal(photoLabel({ imageReading: "", imageNote: "a delivery note" }), "รูป · a delivery note");
-  assert.equal(photoLabel({ imageReading: "", imageNote: "" }), "รูป");
+// Photos were read for their container number on 16–17 Sep 2026 and the
+// department took that out; a row from those two days is filed quietly.
+test("a photo row from the two days photos were read is quiet", () => {
+  assert.equal(describe("photo-reading-retired").tone, "quiet");
+  assert.equal(isActionable("photo-reading-retired"), false);
 });
 
 test("the answer to the morning reminder reads as ready", () => {

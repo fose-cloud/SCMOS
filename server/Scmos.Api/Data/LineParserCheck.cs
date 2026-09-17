@@ -382,79 +382,6 @@ public static class LineParserCheck
         }
         Console.WriteLine();
 
-        /* ------------------------------------------ a photographed box */
-
-        Console.WriteLine("A container number read off a photo is trusted only when its check digit agrees.");
-        Console.WriteLine();
-        var digits = new (string Why, bool Want, bool Got)[]
-        {
-            // The ISO 6346 worked example, and six real boxes off the register.
-            ("the standard's own example", true, ContainerNumbers.IsValid("CSQU3054383")),
-            ("a real box: TEMU5246902", true, ContainerNumbers.IsValid("TEMU5246902")),
-            ("a real box: FSCU5037629", true, ContainerNumbers.IsValid("FSCU5037629")),
-            ("a real box: SEKU9220400 — a check digit of ten is written 0", true, ContainerNumbers.IsValid("SEKU9220400")),
-            ("a real box: GNCU8801516", true, ContainerNumbers.IsValid("GNCU8801516")),
-            ("one digit misread fails", false, ContainerNumbers.IsValid("TEMU5246903")),
-            ("two digits swapped fail", false, ContainerNumbers.IsValid("TEMU5264902")),
-            ("a letter misread fails", false, ContainerNumbers.IsValid("TEMV5246902")),
-            ("the haulier's typed TEMU7592765 does not pass — and is only noted, never refused", false, ContainerNumbers.IsValid("TEMU7592765")),
-            ("a seal number is not shaped like a box", false, ContainerNumbers.IsValid("SEAL1234567")),
-            ("lower case with a space is normalised first", true, ContainerNumbers.IsValid(ContainerNumbers.Normalise("temu 524690-2"))),
-        };
-        foreach (var (why, want, got) in digits)
-        {
-            var ok = got == want;
-            if (!ok) failed++;
-            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
-        }
-
-        var answers = new (string Why, string Answer, string[] Valid, string[] Rejected)[]
-        {
-            ("a clean reading", "{\"containers\":[\"TEMU5246902\"],\"note\":\"a 40ft box on a trailer\"}", ["TEMU5246902"], []),
-            ("a misread is kept aside, not offered", "{\"containers\":[\"TEMU5246903\"],\"note\":\"\"}", [], ["TEMU5246903"]),
-            ("the same box read twice is one box", "{\"containers\":[\"TEMU5246902\",\"temu 5246902\"],\"note\":\"\"}", ["TEMU5246902"], []),
-            ("two boxes in one photo are two", "{\"containers\":[\"TEMU5246902\",\"FSCU5037629\"],\"note\":\"\"}", ["TEMU5246902", "FSCU5037629"], []),
-            ("no box in the photo", "{\"containers\":[],\"note\":\"a delivery note\"}", [], []),
-            // The door that taught this, 17 Sep 2026: "GCXU 513490 [0]" over "45G1".
-            ("the framed check digit is part of the number", "{\"containers\":[\"GCXU 513490 0\"],\"note\":\"\"}", ["GCXU5134900"], []),
-            ("the size and type code under it is not", "{\"containers\":[\"GCXU 513490 0 45G1\"],\"note\":\"\"}", ["GCXU5134900"], []),
-            ("a reading that stopped at the frame is a fragment, kept aside for the register to complete",
-                "{\"containers\":[\"GCXU513490 45G1\"],\"note\":\"\"}", [], ["GCXU513490"]),
-            ("a fragment on its own likewise", "{\"containers\":[\"GCXU513490\"],\"note\":\"\"}", [], ["GCXU513490"]),
-            ("an answer that is not JSON reads as nothing, and does not throw", "not json", [], []),
-            ("an empty answer likewise", "", [], []),
-        };
-        var noted = LineImageReading.RejectedIn("a 40ft box — เลขที่อ่านได้แต่ check digit ไม่ผ่าน: TEMU7592765, SEAL1234567, GCXU513490");
-        var notedRight = noted is ["TEMU7592765", "GCXU513490"];
-        if (!notedRight) failed++;
-        Console.WriteLine($"  {(notedRight ? "ok  " : "FAIL")}  a set-aside number is read back off the row's note, and only a number");
-        var unnoted = LineImageReading.RejectedIn("a delivery note").Count == 0;
-        if (!unnoted) failed++;
-        Console.WriteLine($"  {(unnoted ? "ok  " : "FAIL")}  a note with nothing set aside yields nothing");
-        var completed = ContainerNumbers.Find("GCXU 513490-0", "GCXU513490") == "GCXU5134900"
-            && ContainerNumbers.Find("รถ 70-1234 GCXU 513490-0 ถึงโรงงาน 05:00", "GCXU513490") == "GCXU5134900"
-            && ContainerNumbers.Find("TEMU7592765", "GCXU513490") is null
-            && ContainerNumbers.Find("GCXU5134900", "GCXU5134900") == "GCXU5134900";
-        if (!completed) failed++;
-        Console.WriteLine($"  {(completed ? "ok  " : "FAIL")}  a fragment is completed from a cell or a message that carries the whole number, and from nothing else");
-        var waiting = LineAuthority.AwaitingArrival("IMPORT", "IN_TRANSIT", "", "")
-            && !LineAuthority.AwaitingArrival("IMPORT", "IN_TRANSIT", "17/09/2026", "10:23")
-            && !LineAuthority.AwaitingArrival("IMPORT", "DELIVERED", "", "")
-            && LineAuthority.AwaitingArrival("EXPORT", "READY", "", "")
-            && !LineAuthority.AwaitingArrival("EXPORT", "DISPATCHED", "", "")
-            && !LineAuthority.AwaitingArrival("IMPORT", "CANCELLED", "", "");
-        if (!waiting) failed++;
-        Console.WriteLine($"  {(waiting ? "ok  " : "FAIL")}  a job is waiting for its truck until a stamp or the site rung, and a closed one never is");
-        foreach (var (why, answer, valid, rejected) in answers)
-        {
-            var got = LineImageReading.Read(answer);
-            var ok = got.Valid.SequenceEqual(valid) && got.Rejected.SequenceEqual(rejected);
-            if (!ok) failed++;
-            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
-            if (!ok) Console.WriteLine($"          valid [{string.Join(",", got.Valid)}] rejected [{string.Join(",", got.Rejected)}] note {got.Note}");
-        }
-        Console.WriteLine();
-
         /* ------------------------------------------ the morning reminder */
 
         Console.WriteLine("The morning message names each open job the way the department asked, and only the jobs short of a truck.");
@@ -518,7 +445,7 @@ public static class LineParserCheck
 
         /* ------------------------------------------ the status chase */
 
-        Console.WriteLine("A job with no truck reported is chased half an hour after its plan time and every two hours on — once each, never before.");
+        Console.WriteLine("A job with no arrival written is chased half an hour after its plan time and every two hours after the last word to the room — once each, never before.");
         Console.WriteLine();
         LineReminder.JobLine Planned(string key, string cat, string status, string planTime, string arrDate = "", string arrTime = "") =>
             new(key, cat, status, "ALLNEX", "260917600162", "LC2606594", "TXGU8142057", "WH ALLNEX", "YUSEN W/H", "LCB A0",
@@ -538,34 +465,77 @@ public static class LineParserCheck
             ("nothing between the plan time and the margin after it", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:10"), 30) is null),
             ("due 'overdue' once the plan time is the margin behind", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:31"), 30) == LineChase.Overdue),
             ("still 'overdue' — not asked again — an hour and a half later", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:00"), 30) == LineChase.Overdue),
-            ("asked again two hours after the overdue ask", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:31"), 30) == "overdue#2"),
-            ("and every two hours after that, each its own stage", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30) == "overdue#3"
+            // Settled 17 Sep 2026: "ทุกๆ 2 ชั่วโมง นับจากการแจ้งเตือนและติดตามล่าสุด" —
+            // the spacing counts from the last word to the room, not the plan time.
+            ("the first ask waits two hours after the morning reminder, even past the margin",
+                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:31"), 30, 2, 0, 0, At("12:00")) is null
+                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("14:00"), 30, 2, 0, 0, At("12:00")) == LineChase.Overdue),
+            ("asked again two hours after the last ask, and not before",
+                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:29"), 30, 2, 0, 1, At("13:31")) is null
+                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:31"), 30, 2, 0, 1, At("13:31")) == "overdue#2"),
+            ("a late ask pushes the next one out with it: two hours from when it actually went",
+                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:00"), 30, 2, 0, 2, At("16:10")) is null
+                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("18:10"), 30, 2, 0, 2, At("16:10")) == "overdue#3"
                 && LineChase.AskNumber("overdue#3") == 3),
-            ("not through the night: the repeats stop after six", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "03:00"), At("20:00"), 30) is null),
-            ("repeats switched off leave the one overdue ask", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30, 0) == LineChase.Overdue),
-            ("an arrival keyed in between ends the repeats", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "15:10"), At("17:45"), 30) is null),
+            ("not through the night: the repeats stop after six", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "03:00"), At("20:00"), 30, 2, 0, 7, At("17:00")) is null),
+            ("repeats switched off leave the one overdue ask",
+                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30, 0) == LineChase.Overdue
+                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30, 0, 0, 1, At("13:31")) is null),
+            ("an arrival keyed in between ends the repeats", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "15:10"), At("17:45"), 30, 2, 0, 1, At("13:31")) is null),
             ("a repeat says how long it has been and which ask this is",
                 LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), "overdue#3")], At("17:45")) is { } again
                     && again.Contains("เลยมา 4 ชม. 45 นาที ยังไม่มีรายงานถึง (ติดตามครั้งที่ 3)", StringComparison.Ordinal)),
             ("an arrival stamp on the job ends the chase", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "12:50"), At("13:40"), 30) is null),
-            ("an import at DELIVERED has arrived", LineChase.Stage(Planned("J", "IMPORT", "DELIVERED", "13:00"), At("13:40"), 30) is null),
-            ("an export at DISPATCHED has reached its plant", LineChase.Stage(Planned("J", "EXPORT", "DISPATCHED", "13:00"), At("13:40"), 30) is null),
+            // 17 Sep 2026: the status does not excuse an empty arrival cell — a
+            // DELIVERED job with a date and no time is asked for the time.
+            ("an import at DELIVERED with no arrival written is still asked",
+                LineChase.Stage(Planned("J", "IMPORT", "DELIVERED", "13:00"), At("13:40"), 30) == LineChase.Overdue),
+            ("a date with no time is asked for the time, in those words",
+                LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "DELIVERED", "13:00", "16/09/2026", ""), LineChase.Overdue)], At("13:40"))
+                    .Contains("ยังไม่มีเวลาถึงในระบบ — รถถึงหน้างานกี่โมงครับ", StringComparison.Ordinal)),
+            ("both cells written ends it, whatever the status",
+                LineChase.Stage(Planned("J", "EXPORT", "READY", "13:00", "16/09/2026", "13:20"), At("13:40"), 30) is null),
             ("an export still READY has not", LineChase.Stage(Planned("J", "EXPORT", "READY", "13:00"), At("13:40"), 30) == LineChase.Overdue),
             ("a cancelled job is left alone", LineChase.Stage(Planned("J", "IMPORT", "CANCELLED", "13:00"), At("13:40"), 30) is null),
             ("no plan time, nothing to chase", LineChase.Stage(Planned("J", "IMPORT", "READY", ""), At("13:40"), 30) is null),
             ("the chase switched off chases nothing", LineChase.Stage(Planned("J", "IMPORT", "READY", "13:00"), At("13:40"), 0) is null),
+            ("a job is waiting for its arrival until both cells are filled — whatever its status — and a closed one never is",
+                LineAuthority.AwaitingArrival("IMPORT", "IN_TRANSIT", "", "")
+                && LineAuthority.AwaitingArrival("IMPORT", "DELIVERED", "17/09/2026", "")
+                && !LineAuthority.AwaitingArrival("IMPORT", "IN_TRANSIT", "17/09/2026", "10:23")
+                && LineAuthority.AwaitingArrival("EXPORT", "READY", "", "")
+                && !LineAuthority.AwaitingArrival("IMPORT", "CANCELLED", "", "")
+                && !LineAuthority.AwaitingArrival("IMPORT", "COMPLETED", "", "")),
             ("the message names the job the department's way and says how to answer",
                 LineChase.Compose("SHORE", [(Planned("J", "EXPORT", "READY", "13:00"), LineChase.Overdue)], At("13:40")) is { } text
                     && text.Contains("Booking LC2606594 · Job 260917600162 · ตู้ TXGU8142057 · ลูกค้า ALLNEX · โหลดที่ YUSEN W/H · รถ 70-1234", StringComparison.Ordinal)
                     && text.Contains("แผน 13:00 — เลยมา 40 นาที", StringComparison.Ordinal)
                     && text.Contains("TXGU8142057 ถึงโรงงาน 12:40", StringComparison.Ordinal)),
             ("nothing due, no message", LineChase.Compose("SHORE", [], At("13:40")).Length == 0),
+            // 17 Sep 2026: LICENCE or DRIVER empty is chased on the same spacing, imports and exports.
+            ("a job short of its plate or driver is asked from the morning hour, two hours after the last word, once each",
+                LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "", Driver = "" }, At("07:30"), 2, 0, null, new TimeOnly(8, 0)) is null
+                && LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "" }, At("08:05"), 2, 0, null, new TimeOnly(8, 0)) == LineChase.Details
+                && LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "" }, At("09:30"), 2, 0, At("08:00"), new TimeOnly(8, 0)) is null
+                && LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "" }, At("10:00"), 2, 1, At("08:00"), new TimeOnly(8, 0)) == "details#2"
+                && LineChase.DetailsStage(Planned("J", "EXPORT", "READY", "13:00") with { Driver = "" }, At("10:00"), 2, 0, At("08:00"), new TimeOnly(8, 0)) == LineChase.Details),
+            ("a job with its truck, a closed job and a Domestic run are not asked for details",
+                LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00"), At("10:00"), 2, 0, null, new TimeOnly(8, 0)) is null
+                && LineChase.DetailsStage(Planned("J", "IMPORT", "CANCELLED", "13:00") with { Licence = "" }, At("10:00"), 2, 0, null, new TimeOnly(8, 0)) is null
+                && LineChase.DetailsStage(Planned("J", "DELIVERY", "READY", "13:00") with { Licence = "" }, At("10:00"), 2, 0, null, new TimeOnly(8, 0)) is null),
+            ("the details ask names what is missing, and an arrival ask on such a job carries it too",
+                LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "", Driver = "" }, LineChase.Details)], At("10:00")) is { } ask
+                    && ask.Contains("ยังไม่มีทะเบียนรถและชื่อ-สกุลคนขับในระบบ — ขอทะเบียนรถและชื่อ-สกุลคนขับครับ", StringComparison.Ordinal)
+                    && !ask.Contains("รถถึงหน้างานหรือยังครับ", StringComparison.Ordinal)
+                    && ask.Contains("ทะเบียน ชื่อ-สกุลคนขับ เบอร์", StringComparison.Ordinal)
+                && LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "IN_TRANSIT", "13:00") with { Driver = "" }, LineChase.Overdue)], At("13:40"))
+                    .Contains("ยังไม่มีรายงานถึง · ขาด: ชื่อ-สกุลคนขับ", StringComparison.Ordinal)),
             // "ประมาณ 10.00 รถถึงโรงงาน" at 08:37: at 10:00 the room is asked whether it did.
             ("an estimate is due its ask at its clock, once the clock has come, and only if it lay ahead of the message",
                 !LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("08:37"), At("09:55"))
                 && LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("08:37"), At("10:00"))
                 && !LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("10:20"), At("10:25"))
-                && !LineChase.EtaDue(Planned("J", "IMPORT", "DELIVERED", "09:00"), At("10:00"), At("08:37"), At("10:05"))),
+                && !LineChase.EtaDue(Planned("J", "IMPORT", "DELIVERED", "09:00", "17/09/2026", "09:50"), At("10:00"), At("08:37"), At("10:05"))),
             ("the ask says what the driver promised",
                 LineChase.Compose("DGT", [(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), LineChase.EtaStage(At("10:00")))], At("10:00"))
                     .Contains("แจ้งไว้ว่าคาดถึง 10:00 — ถึงโรงงานแล้วหรือยังครับ", StringComparison.Ordinal)
@@ -614,7 +584,6 @@ public static class LineParserCheck
                 LineReply.ForMessage(LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received), "ready-to-apply", "DELIVERED") == "รับทราบ TXGU8142057 — DELIVERED · ถึง 11:00 (เวลาที่ส่งข้อความ) · รอเจ้าหน้าที่ยืนยันครับ",
                 LineReply.ForMessage(LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received), "ready-to-apply", "DELIVERED")),
             // A photo is never answered (17 Sep 2026): there is no ForPhoto to check.
-            ("a photo is never answered", typeof(LineReply).GetMethod("ForPhoto") is null, "-"),
         };
         foreach (var (why, ok, got) in replies)
         {

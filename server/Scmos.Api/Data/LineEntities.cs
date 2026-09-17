@@ -210,6 +210,12 @@ public class LineEvent
 
     /* ---- a photograph, read by the model — since v2.7.22 ---- */
 
+    /*
+     * Left from 16–17 Sep 2026, when a driver's photo was fetched, kept and
+     * read for its container number. The department took that out; the
+     * webhook stores no photos and nothing writes these. The columns stay so
+     * the rows from those two days keep what they carried.
+     */
     /// <summary>Where the photo was kept in the files container, or empty when it was not.</summary>
     public string ImageKey { get; set; } = "";
 

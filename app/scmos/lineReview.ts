@@ -115,25 +115,11 @@ const OUTCOMES: Outcome[] = [
     label: "ไม่มีเลขงานในข้อความ",
     next: "ถามผู้ขนส่งให้ส่งเลขงานมาด้วย",
   },
-  // A driver's photograph, read for its container number (v2.7.22).
+  // A photo row from 16–17 Sep 2026, when photos were read for their
+  // container number; the department took that out the same day.
   {
-    code: "no-open-job", tone: "attention",
-    label: "ไม่พบงานของผู้ขนส่งรายนี้ในช่วงวันที่ส่งรูปที่ยังไม่มีเลขตู้",
-    next: "ถ้างานอยู่คนละวัน กรอกเลขตู้ในตารางงานเอง",
-  },
-  {
-    code: "container-check-digit", tone: "attention",
-    label: "เลขตู้ที่อ่านจากรูป check digit ไม่ผ่าน",
-    next: "ดูรูปแล้วกรอกเลขตู้ในตารางงานเอง",
-  },
-  {
-    code: "image-failed", tone: "attention",
-    label: "อ่านรูปไม่สำเร็จ",
-    next: "ดูเหตุผลในรายละเอียด — การตั้งค่า Line__ReadImages / Line__ChannelAccessToken หรือ LINE ลบรูปแล้ว",
-  },
-  {
-    code: "no-container-in-photo", tone: "quiet",
-    label: "รูปนี้ไม่มีเลขตู้",
+    code: "photo-reading-retired", tone: "quiet",
+    label: "รูป — การอ่านรูปถูกถอดออกจากระบบแล้ว",
     next: "",
   },
   {
@@ -184,6 +170,13 @@ const OUTCOMES: Outcome[] = [
   {
     code: "not-on-ladder", tone: "attention",
     label: "งานประเภทนี้ไม่มีขั้นตอนที่แจ้งมา",
+    next: "",
+  },
+  // The answer to "ถึงหน้างานกี่โมงครับ" on a job the register already has
+  // at the site: the time is written, the status stays (17 Sep 2026).
+  {
+    code: "arrival-only", tone: "ready",
+    label: "งานอยู่ที่สถานะนี้แล้ว — อนุมัติเพื่อบันทึกเวลาถึงเท่านั้น",
     next: "",
   },
   {
@@ -318,17 +311,6 @@ export function statusLabel(code: string | undefined | null): string {
   if (key.length === 0) return "";
   if (key === "ARRIVED") return "ถึงหน้างาน (ตามประเภทงาน)";
   return key;
-}
-
-/**
- * What a photograph's row says in the message column: the number the model
- * read, or its one sentence on what the photo showed instead.
- */
-export function photoLabel(event: { imageReading?: string | null; imageNote?: string | null }): string {
-  const reading = String(event.imageReading ?? "").trim();
-  if (reading.length > 0) return `รูปตู้ · ${reading}`;
-  const note = String(event.imageNote ?? "").trim();
-  return note.length > 0 ? `รูป · ${note}` : "รูป";
 }
 
 /** "30 นาที", "2 ชม.", "2 ชม. 30 นาที" — a margin in minutes, as the chase sentence says it. */

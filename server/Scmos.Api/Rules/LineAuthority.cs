@@ -71,11 +71,6 @@ public static class LineAuthority
         /// </summary>
         public const string AllJobs = "all-jobs";
 
-        /// <summary>
-        /// A photographed container, and none of the speaker's rows around
-        /// that day is waiting for one. Nothing to write it into.
-        /// </summary>
-        public const string NoOpenJob = "no-open-job";
 
         /* ---- the move ---- */
 
@@ -96,6 +91,14 @@ public static class LineAuthority
 
         /// <summary>Already there. Not an error, and not a change.</summary>
         public const string AlreadyThere = "already-there";
+
+        /// <summary>
+        /// Already at that status, and the message gives the arrival time the
+        /// job is missing. Applies: the time is written, the status left as
+        /// it is. The answer to the chase's "ถึงหน้างานกี่โมงครับ" on a job
+        /// the register already had at DELIVERED (17 Sep 2026).
+        /// </summary>
+        public const string ArrivalOnly = "arrival-only";
 
         /// <summary>Would move the job back down the ladder.</summary>
         public const string Backwards = "backwards";
@@ -166,7 +169,9 @@ public static class LineAuthority
         /// <summary>Whether the message carries the truck's details, which a job without a status word may still take.</summary>
         bool Details = false,
         /// <summary>How many boxes the message says it is about — "3 ตู้" — or null.</summary>
-        int? BoxCount = null)
+        int? BoxCount = null,
+        /// <summary>Whether the message carries an arrival time, which a job already at the site may still be missing.</summary>
+        bool Arrival = false)
     {
         public static readonly Clue None = new("เลขงานนี้", null, [], "", null);
     }
@@ -195,7 +200,7 @@ public static class LineAuthority
         string Detail)
     {
         /// <summary>Whether this decision should change a job at all.</summary>
-        public bool Applies => Result is Outcome.Ok or Outcome.TruckDetails or Outcome.AllJobs;
+        public bool Applies => Result is Outcome.Ok or Outcome.TruckDetails or Outcome.AllJobs or Outcome.ArrivalOnly;
 
         /// <summary>Whether this decision writes every one of its keys, not one chosen among them.</summary>
         public bool Every => Result == Outcome.AllJobs;
@@ -335,21 +340,19 @@ public static class LineAuthority
     }
 
     /// <summary>
-    /// Whether a job is still waiting for its truck to reach the site: open —
-    /// not finished, cancelled or held — with no ARRIVAL DATE / TIME and a
-    /// status below the rung "ถึงโรงงาน" resolves to for its category. The
-    /// one question the chase, and a haulier's photo of the box, both ask.
+    /// Whether a job is still waiting for its arrival to be written: open —
+    /// not finished, cancelled or held — and ARRIVAL DATE or ARRIVAL TIME
+    /// empty. The status does not excuse it: a job at DELIVERED with a date
+    /// and no time is what the department pointed at on 17 Sep 2026 ("หาก
+    /// Arrival date หรือ Arrival time ยังไม่มีการลงข้อมูล ให้ส่งข้อความ"), and
+    /// those two cells are what on-time delivery is measured from.
     /// </summary>
     public static bool AwaitingArrival(string category, string status, string? arrDate, string? arrTime)
     {
         if (Formats.Clean(arrDate).Length > 0 && Formats.Clean(arrTime).Length > 0) return false;
-        if (string.Equals(status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(status, JobStatus.Hold, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase))
-            return false;
-        var site = Rank(category, ResolveSite(category, LineParser.SiteArrival));
-        var now = Rank(category, status);
-        return !(now >= 0 && site >= 0 && now >= site);
+        return !string.Equals(status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, JobStatus.Hold, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -519,7 +522,7 @@ public static class LineAuthority
         // the speaker may touch it, are true regardless of what they said about
         // it.
         if (string.IsNullOrWhiteSpace(status) && clue.Details) return Details(mine[0]);
-        return Move(mine[0], status);
+        return Move(mine[0], status, clue.Arrival);
     }
 
     /// <summary>
@@ -577,57 +580,6 @@ public static class LineAuthority
         return null;
     }
 
-    /// <summary>
-    /// A container read off a photograph, against the haulier's rows around
-    /// the day it was posted.
-    ///
-    /// <para>
-    /// A photo of a box door says which container a truck is carrying and
-    /// nothing about which job — so the job is the one of this haulier's, on
-    /// or about that day, that is still waiting for its container number.
-    /// One such row and the number can be written into it (once a person
-    /// approves); several and the person chooses; a row that already carries
-    /// the number is agreement, not a change; none and there is nothing to
-    /// write it into. A row that already holds a <i>different</i> container is
-    /// never offered: a chat photo does not overwrite what an operator keyed
-    /// from the booking.
-    /// </para>
-    /// </summary>
-    /// <param name="group">The room, resolved by the caller.</param>
-    /// <param name="container">The number that passed the check digit.</param>
-    /// <param name="candidates">The rows within the day window — not yet filtered by carrier.</param>
-    public static LineDecision DecideContainer(
-        SpeakerGroup group,
-        string container,
-        IReadOnlyList<JobCandidate> candidates)
-    {
-        if (RefuseSpeaker(group) is { } refused) return refused;
-
-        var mine = (candidates ?? []).Where(one => SameCarrier(group, one.Carrier)).ToList();
-
-        var carrying = mine.Where(one => ContainerMatches(one.Container, container)).Select(one => one.Key).ToList();
-        if (carrying.Count > 0)
-            return new(Outcome.AlreadyThere, carrying, container, container,
-                $"งาน {string.Join(", ", carrying)} มีเลขตู้ {container} อยู่แล้ว");
-
-        var open = mine
-            .Where(one => Formats.Clean(one.Container).Length == 0)
-            .Where(one => !string.Equals(one.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(one.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        var keys = open.Select(one => one.Key).ToList();
-
-        if (open.Count == 0)
-            return new(Outcome.NoOpenJob, NoKeys, "", container,
-                $"ไม่พบงานของ {group.SupplierName} ในช่วงวันที่ส่งรูปที่ยังไม่มีเลขตู้");
-
-        if (open.Count > 1)
-            return new(Outcome.ManyJobs, keys, "", container,
-                $"งานของ {group.SupplierName} ที่ยังไม่มีเลขตู้มี {open.Count} รายการ — ต้องเลือกก่อน");
-
-        return new(Outcome.Ok, keys, "", container, "");
-    }
-
     /// <summary>The rows a clue keeps, or all of them when it keeps none.</summary>
     private static List<JobCandidate> Narrow(List<JobCandidate> rows, Func<JobCandidate, bool> keep)
     {
@@ -636,7 +588,8 @@ public static class LineAuthority
         return kept.Count > 0 ? kept : rows;
     }
 
-    public static LineDecision Move(JobCandidate job, string? status)
+    /// <param name="arrival">Whether the message carries an arrival time: a job already at the status then takes the time alone.</param>
+    public static LineDecision Move(JobCandidate job, string? status, bool arrival = false)
     {
         var one_key = new[] { job.Key };
         // "At the site" becomes the delivery or the pickup now that the job,
@@ -672,8 +625,9 @@ public static class LineAuthority
                 $"สถานะปัจจุบันของงาน ({job.Status}) ไม่ใช่รหัสมาตรฐาน");
 
         if (to == from)
-            return new(Outcome.AlreadyThere, one_key, job.Status, status,
-                $"งานอยู่ที่ {status} อยู่แล้ว");
+            return arrival
+                ? new(Outcome.ArrivalOnly, one_key, job.Status, "", $"งานอยู่ที่ {status} แล้ว — บันทึกเวลาถึงเท่านั้น")
+                : new(Outcome.AlreadyThere, one_key, job.Status, status, $"งานอยู่ที่ {status} อยู่แล้ว");
 
         if (to < from)
             return new(Outcome.Backwards, one_key, job.Status, status,

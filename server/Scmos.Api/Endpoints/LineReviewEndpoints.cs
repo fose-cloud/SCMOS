@@ -65,9 +65,6 @@ public static class LineReviewEndpoints
                     one.JobKey,
                     one.RetryCount,
                     one.MessageType,
-                    one.ImageKey,
-                    one.ImageReading,
-                    one.ImageNote,
                 })
                 .ToListAsync(token);
 
@@ -91,15 +88,10 @@ public static class LineReviewEndpoints
                     one.Id, one.ReceivedAt, one.RawText, one.JobNumber, one.ParsedStatus,
                     one.Confidence, one.ProcessingStatus, one.ErrorCode, one.ErrorMessage,
                     one.JobKey, one.RetryCount,
-                    container = one.MessageType == "image" ? one.ImageReading : read.Container ?? "",
+                    container = read.Container ?? "",
                     plates = read.Plates ?? [],
                     arrival = Arrival(read),
-                    // A photo: what the model read, its sentence on the photo,
-                    // and whether the photo itself was kept to be shown.
                     messageType = one.MessageType,
-                    imageReading = one.ImageReading,
-                    imageNote = one.ImageNote,
-                    hasImage = one.ImageKey.Length > 0,
                     // The room's own id as well as its name: an unbound room
                     // has no name yet, and the id is what the operator binds
                     // it by. It was resolved to a name and then dropped, so
@@ -125,13 +117,13 @@ public static class LineReviewEndpoints
             if (users.Current(context) is null) return ApiResults.SignInRequired;
 
             var rows = await db.LineEvents.AsNoTracking()
-                .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "")
+                .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "" && one.MessageType == "text")
                 .OrderByDescending(one => one.ReceivedAt)
                 .Take(300)
                 .Select(one => new
                 {
                     one.Id, one.JobKey, one.LineGroupId, one.MessageType, one.RawText, one.ReceivedAt,
-                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage, one.ImageReading, one.ImageKey,
+                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage,
                 })
                 .ToListAsync(token);
 
@@ -158,7 +150,7 @@ public static class LineReviewEndpoints
                 }).Select(item =>
                 {
                     var one = item.Row;
-                    var read = one.MessageType == "image" ? null : LineParser.Parse(one.RawText, one.ReceivedAt);
+                    var read = LineParser.Parse(one.RawText, one.ReceivedAt);
                     var category = categories.GetValueOrDefault(item.JobKey, "");
                     return new
                     {
@@ -168,23 +160,16 @@ public static class LineReviewEndpoints
                         detail = one.ErrorMessage,
                         kind = one.MessageType,
                         text = one.RawText,
-                        reading = one.ImageReading,
-                        hasImage = one.ImageKey.Length > 0,
                         group = names.GetValueOrDefault(one.LineGroupId, ""),
                         // What approving would write: the status as this job's
-                        // ladder names it, the arrival clock, or the box.
-                        to = one.MessageType == "image" && one.ParsedStatus.Length == 0 ? one.ImageReading : LineAuthority.ResolveSite(category, one.ParsedStatus),
-                        // A photo pinned as the truck at the site: its send time is the arrival.
-                        arrivalPhoto = one.MessageType == "image" && one.ParsedStatus.Length > 0,
-                        arrival = read is not null ? Arrival(read)
-                            : one.ParsedStatus.Length > 0
-                                ? new { date = Formats.PlanDate(DateOnly.FromDateTime(LineParser.SentAt(one.ReceivedAt).DateTime)), time = LineParser.SentAt(one.ReceivedAt).ToString("HH:mm"), atSend = true }
-                                : new { date = "", time = "", atSend = false },
+                        // ladder names it, and the arrival clock.
+                        to = LineAuthority.ResolveSite(category, one.ParsedStatus),
+                        arrival = Arrival(read),
                         // "ประมาณ 10.00 รถถึงโรงงาน": when the truck is expected, for the
                         // owner to see — written nowhere.
-                        eta = read?.Eta is { } eta ? eta.ToString("HH:mm") : "",
+                        eta = read.Eta is { } eta ? eta.ToString("HH:mm") : "",
                         // The truck's details the message carries, for the drawer's line.
-                        details = read is null ? "" : string.Join(" · ", new[]
+                        details = string.Join(" · ", new[]
                         {
                             read.Plates is { Count: > 0 } ? $"ทะเบียน {read.Plates[0]}" : "",
                             read.Driver is not null ? $"คนขับ {read.Driver}" : "",
@@ -359,31 +344,6 @@ public static class LineReviewEndpoints
 
         /* ------------------------------------------ what it would do now */
 
-        /*
-         * The photo a driver posted, streamed from the private files container
-         * through the API — the same door the job documents go out of, for the
-         * same reason: a URL that works without a sign-in ends up in an email.
-         */
-        group.MapGet("/events/{id:long}/image", async (long id, HttpContext context,
-            IUserAccessor users, ScmosDbContext db, IFileStore files, CancellationToken token) =>
-        {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
-
-            var key = await db.LineEvents.AsNoTracking()
-                .Where(one => one.Id == id)
-                .Select(one => one.ImageKey)
-                .FirstOrDefaultAsync(token);
-            if (string.IsNullOrEmpty(key)) return ApiResults.Error("ไม่มีรูปสำหรับข้อความนี้", StatusCodes.Status404NotFound);
-            if (!files.Configured) return ApiResults.Error("ยังไม่ได้ตั้งค่าที่เก็บไฟล์", StatusCodes.Status503ServiceUnavailable);
-
-            var stream = await files.OpenAsync(key, token);
-            if (stream is null) return ApiResults.Error($"รูปหายจากที่เก็บ: {key}", StatusCodes.Status404NotFound);
-
-            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            context.Response.Headers["Cache-Control"] = "private, max-age=3600";
-            var type = key.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
-            return Results.File(stream, type);
-        });
 
         group.MapGet("/events/{id:long}/options", async (long id, HttpContext context,
             IUserAccessor users, ScmosDbContext db, JobsRepository jobs, DelegationService delegations,
@@ -396,7 +356,13 @@ public static class LineReviewEndpoints
                 .FirstOrDefaultAsync(one => one.Id == id, token);
             if (row is null) return ApiResults.Error("ไม่พบข้อความนี้", StatusCodes.Status404NotFound);
 
-            if (row.MessageType == "image") return await PhotoOptionsAsync(row, db, user, jobs, delegations, token);
+            if (row.MessageType == "image")
+                return Results.Json(new
+                {
+                    outcome = LineEventWorker.PhotoReadingRetired, detail = "การอ่านรูปถูกถอดออกจากระบบแล้ว (17 ก.ย. 2026)", canApply = false,
+                    from = "", to = "", reference = new { jobNumber = "", container = "", plates = Array.Empty<string>() },
+                    arrival = new { date = "", time = "", atSend = false }, options = Array.Empty<object>(), stored = row.ErrorCode,
+                });
 
             /*
              * The decision as it is now, not as it was when the worker looked.
@@ -437,7 +403,7 @@ public static class LineReviewEndpoints
                     var candidate = new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status);
                     var move = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
                         ? LineAuthority.Details(candidate)
-                        : LineAuthority.Move(candidate, read.Status);
+                        : LineAuthority.Move(candidate, read.Status, read.ArrivalTime is not null);
                     var stamp = ArrivalWrite(read, job.Data);
                     var truck = DetailsWrite(read, job.Data);
                     return new
@@ -587,7 +553,7 @@ public static class LineReviewEndpoints
         ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
     {
         if (row.MessageType == "image")
-            return await ApplyPhotoAsync(row, body, user, db, jobs, delegations, audit, token);
+            return ApiResults.Error("การอ่านรูปถูกถอดออกจากระบบแล้ว — รูปนี้อนุมัติไม่ได้", StatusCodes.Status409Conflict);
 
         /*
          * Worked out again, now. Not read off the row.
@@ -643,7 +609,7 @@ public static class LineReviewEndpoints
         var candidate = new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status);
         var final = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
             ? LineAuthority.Details(candidate)
-            : LineAuthority.Move(candidate, read.Status);
+            : LineAuthority.Move(candidate, read.Status, read.ArrivalTime is not null);
         if (!final.Applies)
             return ApiResults.Error(
                 final.Detail.Length > 0 ? final.Detail : final.Result,
@@ -747,7 +713,7 @@ public static class LineReviewEndpoints
             if (!await MayActOnAsync(user, key, jobs, delegations, token))
                 return ApiResults.Error($"อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่ ({key})", StatusCodes.Status403Forbidden);
 
-            var final = LineAuthority.Move(new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), read.Status);
+            var final = LineAuthority.Move(new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), read.Status, read.ArrivalTime is not null);
             if (!final.Applies) { skipped.Add($"{Name(one.Container, key)}: {(final.Detail.Length > 0 ? final.Detail : final.Result)}"); continue; }
 
             var stamp = ArrivalWrite(read, one.Data);
@@ -800,106 +766,6 @@ public static class LineReviewEndpoints
     /* ------------------------------------------------------ a photograph */
 
     /// <summary>
-    /// What a photo's container would be written into, right now — the same
-    /// question the worker asked, asked again at the moment a person looks.
-    /// </summary>
-    private static async Task<IResult> PhotoOptionsAsync(LineEvent row, ScmosDbContext db, AppUser user,
-        JobsRepository jobs, DelegationService delegations, CancellationToken token)
-    {
-        if (row.ParsedStatus.Length > 0) return await PhotoArrivalOptionsAsync(row, db, user, jobs, delegations, token);
-
-        var numbers = await PhotoNumbersAsync(row, db, token);
-        var container = numbers.Length == 1 ? numbers[0] : "";
-        var now = container.Length > 0
-            ? await LineMatching.DecideContainerAsync(db, row.LineGroupId, container, row.ReceivedAt, token)
-            : new LineAuthority.LineDecision(
-                numbers.Length > 1 ? "many-containers" : row.ErrorCode, [], "", "",
-                numbers.Length > 1 ? $"อ่านได้ {numbers.Length} ตู้ — บันทึกทีละงานในตารางงาน" : row.ImageNote);
-
-        var keys = now.Keys.ToList();
-        var offered = await db.OperationJobs.AsNoTracking()
-            .Where(job => keys.Contains(job.Key))
-            .Select(job => new { job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate })
-            .ToListAsync(token);
-
-        return Results.Json(new
-        {
-            kind = "image",
-            outcome = now.Result,
-            detail = now.Detail,
-            canApply = now.Applies,
-            from = now.From,
-            to = now.To,
-            reference = new { jobNumber = "", container, plates = Array.Empty<string>() },
-            arrival = new { date = "", time = "" },
-            imageReading = row.ImageReading,
-            imageNote = row.ImageNote,
-            hasImage = row.ImageKey.Length > 0,
-            options = await Task.WhenAll(offered.Select(async job => new
-            {
-                job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate,
-                // Every offered row is one the rule found waiting for a number;
-                // the choice is which, and each may take it.
-                move = new { Result = LineAuthority.Outcome.Ok, Detail = "", ok = now.Keys.Contains(job.Key), to = container },
-                arrival = "",
-                mayApprove = await MayActOnAsync(user, job.Key, jobs, delegations, token),
-            })),
-            stored = row.ErrorCode,
-        });
-    }
-
-    /// <summary>What approving a photo pinned as an arrival would do, worked out now.</summary>
-    private static async Task<IResult> PhotoArrivalOptionsAsync(LineEvent row, ScmosDbContext db, AppUser user,
-        JobsRepository jobs, DelegationService delegations, CancellationToken token)
-    {
-        var sent = LineParser.SentAt(row.ReceivedAt);
-        var job = await db.OperationJobs.AsNoTracking()
-            .Where(one => one.Key == row.JobKey)
-            .Select(one => new { one.Key, one.Cat, one.Customer, one.Container, one.Status, one.WorkDate, one.Data })
-            .FirstOrDefaultAsync(token);
-        if (job is null)
-            return Results.Json(new
-            {
-                kind = "image", arrivalPhoto = true, outcome = "no-such-job", detail = "ไม่พบงานนี้แล้ว", canApply = false,
-                from = "", to = "", reference = new { jobNumber = "", container = row.ImageReading, plates = Array.Empty<string>() },
-                arrival = new { date = "", time = "", atSend = false }, imageReading = row.ImageReading, imageNote = row.ImageNote,
-                hasImage = row.ImageKey.Length > 0, options = Array.Empty<object>(), stored = row.ErrorCode,
-            });
-
-        var move = LineAuthority.Move(new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status), LineParser.SiteArrival);
-        var stamp = StampWrite(sent, true, job.Data);
-        var can = move.Applies || stamp.Date is not null;
-        return Results.Json(new
-        {
-            kind = "image",
-            // The photo is the truck at the site: approving writes a status
-            // and the arrival, not a container.
-            arrivalPhoto = true,
-            outcome = can ? LineAuthority.Outcome.Ok : move.Result,
-            detail = can ? row.ErrorMessage : (move.Detail.Length > 0 ? move.Detail : move.Result),
-            canApply = can,
-            from = move.From,
-            to = move.Applies ? move.To : "",
-            reference = new { jobNumber = "", container = row.ImageReading, plates = Array.Empty<string>() },
-            arrival = new { date = Formats.PlanDate(DateOnly.FromDateTime(sent.DateTime)), time = sent.ToString("HH:mm"), atSend = true },
-            imageReading = row.ImageReading,
-            imageNote = row.ImageNote,
-            hasImage = row.ImageKey.Length > 0,
-            options = new[]
-            {
-                new
-                {
-                    job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate,
-                    move = new { move.Result, move.Detail, ok = can, to = move.Applies ? move.To : job.Status },
-                    arrival = stamp.Note,
-                    mayApprove = await MayActOnAsync(user, job.Key, jobs, delegations, token),
-                },
-            },
-            stored = row.ErrorCode,
-        });
-    }
-
-    /// <summary>
     /// Whether this person may write what a message says onto this job: they
     /// edit every job, or it is their own — or one they are covering for a
     /// colleague on leave. The same rule the jobs endpoint enforces on a save,
@@ -913,151 +779,6 @@ public static class LineReviewEndpoints
         var acting = await delegations.ActingForAsync(user.OperatorId, token);
         var others = await jobs.OthersJobsAsync([jobKey], user.OperatorId, token, acting);
         return others.Count == 0;
-    }
-
-    /// <summary>
-    /// Writes the photographed container into the chosen job — one the rule
-    /// offered, never an arbitrary key — and files the photo as done.
-    /// </summary>
-    private static async Task<IResult> ApplyPhotoAsync(LineEvent row, ApplyBody body, AppUser user,
-        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
-    {
-        // A photo of a box the job already carries: the truck at the site,
-        // at the time the photo was sent. The worker pinned it to the job and
-        // named the rung; this writes the status and the arrival, into empty
-        // cells, as an "ถึงโรงงาน" with no clock would.
-        if (row.ParsedStatus.Length > 0) return await ApplyPhotoArrivalAsync(row, body, user, db, jobs, delegations, audit, token);
-
-        var numbers = await PhotoNumbersAsync(row, db, token);
-        if (numbers.Length != 1)
-            return ApiResults.Error(numbers.Length == 0 ? "รูปนี้ไม่มีเลขตู้ที่อ่านได้" : "รูปนี้มีหลายตู้ — บันทึกในตารางงานเอง",
-                StatusCodes.Status409Conflict);
-        var container = numbers[0];
-
-        var decision = await LineMatching.DecideContainerAsync(db, row.LineGroupId, container, row.ReceivedAt, token);
-        var chosen = (body.JobKey ?? "").Trim();
-        if (chosen.Length > 0)
-        {
-            if (!decision.Keys.Contains(chosen) || decision.Result == LineAuthority.Outcome.AlreadyThere)
-                return ApiResults.Error("งานที่เลือกไม่อยู่ในรายการที่รูปนี้เขียนลงได้", StatusCodes.Status400BadRequest);
-        }
-        else if (decision.Applies)
-        {
-            chosen = decision.Keys[0];
-        }
-        if (chosen.Length == 0)
-            return ApiResults.Error(decision.Detail.Length > 0 ? decision.Detail : decision.Result,
-                StatusCodes.Status409Conflict);
-        if (!await MayActOnAsync(user, chosen, jobs, delegations, token))
-            return ApiResults.Error("อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
-
-        // Read once more at the moment of writing: the row must still be
-        // empty. Somebody keying the number on the grid a second earlier wins.
-        var had = await db.OperationJobs.AsNoTracking()
-            .Where(job => job.Key == chosen)
-            .Select(job => job.Container)
-            .FirstOrDefaultAsync(token);
-        if (had is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
-        if (Formats.Clean(had).Length > 0)
-            return ApiResults.Error($"งานนี้มีเลขตู้ {had} แล้ว", StatusCodes.Status409Conflict);
-
-        var wrote = await jobs.PatchAsync(chosen,
-            new Dictionary<string, string> { ["container"] = container }, user.Signature, token);
-        if (!wrote) return ApiResults.Error("บันทึกไม่สำเร็จ", StatusCodes.Status409Conflict);
-
-        await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-            container, "container", "", container,
-            body.Reason ?? $"LINE: รูปตู้ ({row.ImageNote})", token, EventSource.Line);
-
-        row.ProcessingStatus = LineProcessing.Processed;
-        row.JobKey = chosen;
-        row.ErrorCode = "";
-        row.ErrorMessage = "";
-        // A number vouched for after the photo was read is written onto the
-        // row now, so the queue says what was applied.
-        row.ImageReading = container;
-        row.ProcessedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(token);
-
-        return Results.Json(new
-        {
-            message = $"บันทึกเลขตู้ {container} ลงงาน {chosen} แล้ว",
-            jobKey = chosen, from = "", to = container, arrival = "",
-        });
-    }
-
-    private static async Task<IResult> ApplyPhotoArrivalAsync(LineEvent row, ApplyBody body, AppUser user,
-        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
-    {
-        var chosen = row.JobKey;
-        var asked = (body.JobKey ?? "").Trim();
-        if (asked.Length > 0 && asked != chosen)
-            return ApiResults.Error("รูปนี้ผูกกับงานอื่น", StatusCodes.Status400BadRequest);
-        if (!await MayActOnAsync(user, chosen, jobs, delegations, token))
-            return ApiResults.Error("อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
-
-        var one = await db.OperationJobs.AsNoTracking()
-            .Where(job => job.Key == chosen)
-            .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data })
-            .FirstOrDefaultAsync(token);
-        if (one is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
-
-        var final = LineAuthority.Move(new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), LineParser.SiteArrival);
-        var stamp = StampWrite(LineParser.SentAt(row.ReceivedAt), true, one.Data);
-        var fields = new Dictionary<string, string>();
-        if (final.Applies && final.To.Length > 0) fields["status"] = final.To;
-        if (stamp.Date is { } date && stamp.Time is { } time)
-        {
-            fields["arrDate"] = date;
-            fields["arrTime"] = time;
-        }
-        if (fields.Count == 0)
-            return ApiResults.Error(final.Applies ? "ข้อความนี้ไม่มีอะไรให้บันทึก — งานมีข้อมูลเหล่านี้อยู่แล้ว" : (final.Detail.Length > 0 ? final.Detail : final.Result),
-                StatusCodes.Status409Conflict);
-
-        if (!await jobs.PatchAsync(chosen, fields, user.Signature, token))
-            return ApiResults.Error("บันทึกไม่สำเร็จ", StatusCodes.Status409Conflict);
-
-        var why = body.Reason ?? $"LINE: รูปตู้ {row.ImageReading} ({row.ImageNote})";
-        if (fields.ContainsKey("status"))
-            await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
-                row.ImageReading, "status", final.From, final.To, why, token, EventSource.Line);
-        if (stamp.Date is not null)
-        {
-            await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                row.ImageReading, "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.Line);
-            await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                row.ImageReading, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
-        }
-
-        row.ProcessingStatus = LineProcessing.Processed;
-        row.ErrorCode = "";
-        row.ProcessedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(token);
-
-        return Results.Json(new
-        {
-            message = (fields.ContainsKey("status") ? $"อัปเดต {chosen} เป็น {final.To} แล้ว" : $"บันทึกลงงาน {chosen} แล้ว")
-                + (stamp.Date is not null ? $" · เวลาถึง {stamp.Date} {stamp.Time} (เวลาที่ส่งรูป)" : ""),
-            jobKey = chosen, from = final.From, to = fields.ContainsKey("status") ? final.To : "",
-            arrival = stamp.Note,
-        });
-    }
-
-    /// <summary>
-    /// The numbers a photo stands for, right now: the ones it was read with,
-    /// or — when the check digit refused every one — the refused ones that
-    /// the register or the haulier's typed messages have since vouched for.
-    /// Asked at the moment a person looks, because the vouching message may
-    /// have arrived after the photo did.
-    /// </summary>
-    private static async Task<string[]> PhotoNumbersAsync(LineEvent row, ScmosDbContext db, CancellationToken token)
-    {
-        var numbers = row.ImageReading.Split(", ", StringSplitOptions.RemoveEmptyEntries);
-        if (numbers.Length > 0) return numbers;
-        var vouched = await LineMatching.VouchedAsync(
-            db, row.LineGroupId, LineImageReading.RejectedIn(row.ImageNote), row.ReceivedAt, token);
-        return [.. vouched];
     }
 
     /// <summary>

@@ -12,13 +12,6 @@ namespace Scmos.Api.Rules;
 /// </para>
 ///
 /// <para>
-/// A photo is never answered: four photos of one delivery drew five replies
-/// on 17 Sep 2026, and the department asked for silence. What a photo says
-/// — a box number, or the truck at the site — waits in the queue like any
-/// message, unspoken.
-/// </para>
-///
-/// <para>
 /// <b>Two things it never says.</b> Whether a number exists but belongs to
 /// another haulier: "not your job" and "no such job" read the same from the
 /// room, because telling a stranger a number is real is telling them

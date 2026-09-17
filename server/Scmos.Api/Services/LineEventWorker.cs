@@ -36,14 +36,11 @@ namespace Scmos.Api.Services;
 public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker> log)
     : BackgroundService
 {
-    /// <summary>A photo with no container in it: filed, not queued. A driver's selfie is not for review.</summary>
-    public const string NoContainerInPhoto = "no-container-in-photo";
-
-    /// <summary>The model offered numbers and none passed the check digit: a person looks at the photo.</summary>
-    public const string ContainerCheckDigit = "container-check-digit";
-
-    /// <summary>The photo could not be fetched or read at all; the note says why.</summary>
-    public const string ImageFailed = "image-failed";
+    /// <summary>
+    /// A photo row from 16–17 Sep 2026, when photos were read for their
+    /// container number, still in the queue when that was taken out. Filed.
+    /// </summary>
+    public const string PhotoReadingRetired = "photo-reading-retired";
 
     /// <summary>The switch for the bot's replies in the room. On unless "off".</summary>
     public const string RepliesKey = "Line:Replies";
@@ -168,9 +165,11 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
 
         if (row.MessageType == "image")
         {
-            // Nothing is said back about a photo — asked to stop on 17 Sep
-            // 2026, when four photos of one delivery drew five replies.
-            await ProcessImageAsync(db, row, stopping);
+            // The webhook stores no photos any more; a row from before is filed.
+            row.ProcessingStatus = LineProcessing.Ignored;
+            row.ErrorCode = PhotoReadingRetired;
+            row.ProcessedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(stopping);
             return;
         }
 
@@ -313,137 +312,6 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
                 ? value.GetString() ?? "" : "";
         }
         catch (System.Text.Json.JsonException) { return ""; }
-    }
-
-    /// <summary>
-    /// A photograph: read for its container number, then matched to the job
-    /// waiting for one.
-    ///
-    /// The reading is kept on the row the first time it is made, so a retry
-    /// after a database fault does not pay for the model twice, and so what
-    /// the model said survives whatever the rule then decides.
-    /// </summary>
-    private async Task ProcessImageAsync(ScmosDbContext db, LineEvent row, CancellationToken stopping)
-    {
-        using var scope = services.CreateScope();
-        var reader = scope.ServiceProvider.GetRequiredService<ILineImageReader>();
-
-        if (row.ImageReading.Length == 0 && row.ImageNote.Length == 0)
-        {
-            var result = await reader.ReadAsync(row, stopping);
-            row.ImageKey = result.ImageKey.Length > 0 ? result.ImageKey : row.ImageKey;
-
-            // A number the check digit refused is kept if the register or the
-            // haulier's own typed messages already carry it — see
-            // LineImageReading.RejectedIn for the photo that taught this.
-            var vouched = result.Failure.Length > 0
-                ? []
-                : await LineMatching.VouchedAsync(db, row.LineGroupId, result.Reading.Rejected, row.ReceivedAt, stopping);
-            var accepted = result.Reading.Valid.Concat(vouched).ToList();
-
-            row.ImageReading = string.Join(", ", accepted);
-            row.ImageNote = result.Failure.Length > 0
-                ? result.Failure
-                : Note(result.Reading, vouched);
-            row.MatchedRules = string.Join(", ",
-                result.Reading.Valid.Select(one => $"container:{one}")
-                    .Concat(vouched.Select(one => $"container-vouched:{one}")));
-            row.Warnings = result.Reading.Rejected.Count > vouched.Count ? "container-check-digit" : "";
-            row.ProcessedAt = DateTimeOffset.UtcNow;
-
-            if (result.Failure.Length > 0)
-            {
-                row.ProcessingStatus = LineProcessing.NeedReview;
-                row.ErrorCode = ImageFailed;
-                row.ErrorMessage = result.Failure;
-                await db.SaveChangesAsync(stopping);
-                log.LogWarning("LINE photo {Id} could not be read: {Why}", row.Id, result.Failure);
-                return;
-            }
-        }
-
-        var numbers = row.ImageReading.Split(", ", StringSplitOptions.RemoveEmptyEntries);
-        row.ProcessedAt = DateTimeOffset.UtcNow;
-
-        if (numbers.Length == 0)
-        {
-            // A misread — the model saw a number and none passed the check
-            // digit — is worth a person's look at the photo. A photo with no
-            // number in it is not.
-            var misread = row.Warnings.Contains(ContainerCheckDigit, StringComparison.Ordinal);
-            row.ProcessingStatus = misread ? LineProcessing.NeedReview : LineProcessing.Ignored;
-            row.ErrorCode = misread ? ContainerCheckDigit : NoContainerInPhoto;
-            row.ErrorMessage = row.ImageNote;
-            await db.SaveChangesAsync(stopping);
-            log.LogInformation("LINE photo {Id}: {Outcome}", row.Id, row.ErrorCode);
-            return;
-        }
-
-        if (numbers.Length > 1)
-        {
-            row.ProcessingStatus = LineProcessing.NeedReview;
-            row.ErrorCode = "many-containers";
-            row.ErrorMessage = $"อ่านได้ {numbers.Length} ตู้: {row.ImageReading}";
-            await db.SaveChangesAsync(stopping);
-            return;
-        }
-
-        var decision = await LineMatching.DecideContainerAsync(
-            db, row.LineGroupId, numbers[0], row.ReceivedAt, stopping);
-        row.JobKey = decision.Keys.Count == 1 ? decision.Keys[0] : "";
-        row.ErrorMessage = decision.Keys.Count > 1
-            ? $"{decision.Detail} ({string.Join(", ", decision.Keys)})"
-            : decision.Detail;
-
-        if (decision.Result == LineAuthority.Outcome.AlreadyThere)
-        {
-            // A haulier's photo of a box the job already carries — the door,
-            // the seal — is the truck at the site, at the moment the photo
-            // was sent ("เวลาบริษัทขนส่ง", 17 Sep 2026). Offered as the
-            // arrival for the one job still waiting for it; a job already
-            // there, or two jobs on the same box, leaves the photo filed.
-            var waiting = await LineMatching.AwaitingArrivalAsync(db, decision.Keys, stopping);
-            if (waiting.Count == 1)
-            {
-                var sent = LineParser.SentAt(row.ReceivedAt);
-                row.JobKey = waiting[0].Key;
-                row.ParsedStatus = LineAuthority.ResolveSite(waiting[0].Category, LineParser.SiteArrival);
-                row.ProcessingStatus = LineProcessing.NeedReview;
-                row.ErrorCode = "ready-to-apply";
-                row.ErrorMessage = $"รูปตู้ {numbers[0]} จากผู้ขนส่ง = รถถึงหน้างาน {sent:HH:mm} (เวลาที่ส่งรูป)";
-                row.MatchedRules = string.Join(", ", new[] { row.MatchedRules, $"photo-arrival:{sent:HH:mm}" }.Where(one => one.Length > 0));
-                await db.SaveChangesAsync(stopping);
-                log.LogInformation("LINE photo {Id}: {Container} on {Key} — arrival at {Sent}", row.Id, numbers[0], row.JobKey, sent);
-                return;
-            }
-            row.ProcessingStatus = LineProcessing.Ignored;
-            row.ErrorCode = decision.Result;
-            await db.SaveChangesAsync(stopping);
-            log.LogInformation("LINE photo {Id}: {Container} is already on {Key}", row.Id, numbers[0], row.JobKey);
-            return;
-        }
-
-        // As for a text message: even a clean match waits for a person.
-        row.ProcessingStatus = LineProcessing.NeedReview;
-        row.ErrorCode = decision.Applies ? "ready-to-apply" : decision.Result;
-        await db.SaveChangesAsync(stopping);
-        log.LogInformation("LINE photo {Id}: {Container} -> {Outcome} (key {Key})",
-            row.Id, numbers[0], row.ErrorCode, row.JobKey);
-    }
-
-    /// <summary>
-    /// The row's note: the model's sentence, the numbers that failed the
-    /// check but are known anyway, and the ones that failed and are not.
-    /// </summary>
-    private static string Note(LineImageReading.Reading reading, IReadOnlyList<string> vouched)
-    {
-        var note = reading.Note;
-        if (vouched.Count > 0)
-            note = $"{note} — {string.Join(", ", vouched)} check digit ไม่ผ่าน แต่ตรงกับที่ผู้ขนส่งพิมพ์/ทะเบียนงาน".Trim(' ', '—');
-        var refused = reading.Rejected.Where(one => !vouched.Contains(one, StringComparer.Ordinal)).ToList();
-        if (refused.Count > 0)
-            note = $"{note} — เลขที่อ่านได้แต่ {LineImageReading.RejectedMark} {string.Join(", ", refused)}".Trim(' ', '—');
-        return note.Length > 500 ? note[..500] : note;
     }
 
     /// <summary>

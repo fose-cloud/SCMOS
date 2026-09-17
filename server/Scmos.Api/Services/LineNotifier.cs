@@ -41,6 +41,12 @@ public interface ILineNotifier
 
 public class LineNotifier(IHttpClientFactory factory, IConfiguration config, ILogger<LineNotifier> log) : ILineNotifier
 {
+    /// <summary>The Messaging API token, which is what pushing and replying need. Never logged, never echoed.</summary>
+    public const string TokenKey = "Line:ChannelAccessToken";
+
+    /// <summary>The named HttpClient every call to LINE goes through.</summary>
+    public const string ClientName = "line";
+
     private const string PushUrl = "https://api.line.me/v2/bot/message/push";
     private const string ReplyUrl = "https://api.line.me/v2/bot/message/reply";
 
@@ -48,7 +54,7 @@ public class LineNotifier(IHttpClientFactory factory, IConfiguration config, ILo
 
     public string Missing =>
         !config.GetValue("Line:Enabled", false) ? "ปิดอยู่ — ตั้ง Line__Enabled เป็น true เมื่อพร้อม"
-        : string.IsNullOrWhiteSpace(config[LineImageReader.TokenKey]) ? "ยังไม่ได้ตั้ง Line__ChannelAccessToken"
+        : string.IsNullOrWhiteSpace(config[TokenKey]) ? "ยังไม่ได้ตั้ง Line__ChannelAccessToken"
         : "";
 
     public async Task<string> PushAsync(string lineGroupId, IReadOnlyList<string> texts, CancellationToken token)
@@ -107,13 +113,13 @@ public class LineNotifier(IHttpClientFactory factory, IConfiguration config, ILo
 
     private async Task<(bool Ok, int Status, string Detail)> SendAsync(string url, string body, CancellationToken token)
     {
-        var client = factory.CreateClient(LineImageReader.ClientName);
+        var client = factory.CreateClient(ClientName);
         client.Timeout = TimeSpan.FromSeconds(30);
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config[LineImageReader.TokenKey]);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config[TokenKey]);
         using var response = await client.SendAsync(request, token);
         if (response.IsSuccessStatusCode) return (true, (int)response.StatusCode, "");
         var answer = await response.Content.ReadAsStringAsync(token);

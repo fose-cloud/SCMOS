@@ -35,6 +35,56 @@ public static class LineChase
     public const string Overdue = "overdue";
 
     /// <summary>
+    /// The job has no LICENCE or no DRIVER yet. Asked for on the same
+    /// two-hour spacing as the arrival, from the last word to the room —
+    /// "หาก LICENCE หรือ DRIVER ยังไม่มีการลงข้อมูล ให้ส่งข้อความ … ทุกๆ 2 ชั่วโมง",
+    /// 17 Sep 2026, imports and exports alike. Repeats are "details#2",
+    /// "details#3"…
+    /// </summary>
+    public const string Details = "details";
+
+    /// <summary>Whether a stage is the truck-details ask.</summary>
+    public static bool IsDetailsStage(string stage) => stage == Details || stage.StartsWith(Details + "#", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The two cells the details ask is about — LICENCE and DRIVER — in the
+    /// words it asks with; empty when both are filled. Imports and exports
+    /// only: a Domestic run is the company's own fleet.
+    /// </summary>
+    public static IReadOnlyList<string> MissingDetails(LineReminder.JobLine job)
+    {
+        if (!string.Equals(job.Category, "IMPORT", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(job.Category, "EXPORT", StringComparison.OrdinalIgnoreCase)) return [];
+        var gaps = new List<string>(2);
+        if (Formats.Clean(job.Licence).Length == 0) gaps.Add("ทะเบียนรถ");
+        if (Formats.Clean(job.Driver).Length == 0) gaps.Add("ชื่อ-สกุลคนขับ");
+        return gaps;
+    }
+
+    /// <summary>
+    /// Which details ask a job is due right now, or null: the first once the
+    /// day's asking hour has come (<paramref name="earliest"/>, the morning
+    /// reminder's), then one every <paramref name="repeatHours"/> after the
+    /// latest word to the room about the job — up to the day's limit — while
+    /// LICENCE or DRIVER is still empty and the job is open.
+    /// </summary>
+    /// <param name="asked">How many details asks this job has had today.</param>
+    /// <param name="lastAsked">When the room was last told about this job today — a reminder or any ask — or null.</param>
+    public static string? DetailsStage(LineReminder.JobLine job, DateTimeOffset now, int repeatHours,
+        int asked, DateTimeOffset? lastAsked, TimeOnly earliest)
+    {
+        if (repeatHours <= 0 || MissingDetails(job).Count == 0) return null;
+        if (string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(job.Status, JobStatus.Hold, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)) return null;
+        if (TimeOnly.FromDateTime(now.DateTime) < earliest) return null;
+        if (asked > MaxRepeats) return null;
+        var spaced = lastAsked is null || now >= lastAsked.Value + TimeSpan.FromHours(repeatHours);
+        if (!spaced) return null;
+        return asked <= 0 ? Details : $"{Details}#{asked + 1}";
+    }
+
+    /// <summary>
     /// How often a job still unreported after the overdue ask is asked again,
     /// until the register says the truck arrived (asked for 16 Sep 2026:
     /// "ทุกๆ 2 ชั่วโมงจนกว่าจะมีการอัพเดท"). Each repeat is its own stage —
@@ -65,11 +115,10 @@ public static class LineChase
         now >= eta && eta > saidAt && !Arrived(job);
 
     /// <summary>
-    /// Whether the truck has been reported at the site: an arrival stamp on
-    /// the job, or a status at or past the rung "ถึงโรงงาน" resolves to for
-    /// the job's category — DELIVERED on an import or a Domestic run,
-    /// DISPATCHED on an export. A job that has left the ladder — cancelled,
-    /// on hold, finished — is not chased either.
+    /// Whether the arrival is written: ARRIVAL DATE and ARRIVAL TIME both on
+    /// the job. Until then the job is chased whatever its status says — see
+    /// <see cref="LineAuthority.AwaitingArrival"/>. A job that has left the
+    /// ladder — cancelled, on hold, finished — is not chased either.
     /// </summary>
     public static bool Arrived(LineReminder.JobLine job) =>
         !LineAuthority.AwaitingArrival(job.Category, job.Status, job.ArrDate, job.ArrTime);
@@ -82,39 +131,46 @@ public static class LineChase
     }
 
     /// <summary>
-    /// Which stage a job is due at right now, or null: <see cref="Overdue"/>
-    /// once the plan time is <paramref name="minutes"/> behind, a repeat
-    /// every <paramref name="repeatHours"/> after that, and <see cref="Before"/>
-    /// inside <paramref name="beforeMinutes"/> ahead of the plan time when
-    /// that is on. A job with no plan time, or one whose truck has been
-    /// reported, is due nothing.
+    /// Which stage a job is due at right now, or null.
+    ///
+    /// <para>
+    /// <see cref="Overdue"/> once the plan time is <paramref name="minutes"/>
+    /// behind and nothing has been asked yet; then a repeat, "overdue#2",
+    /// "overdue#3"…, each <paramref name="repeatHours"/> after the latest
+    /// word to the room about this job — the morning reminder or the last
+    /// ask, whichever was later (<paramref name="lastAsked"/>), which is how
+    /// the department set it on 17 Sep 2026: "ทุกๆ 2 ชั่วโมง นับจากการแจ้งเตือน
+    /// และติดตามล่าสุด". Never inside the two hours after a reminder, and never
+    /// before the plan time is the margin behind. <see cref="Before"/> inside
+    /// <paramref name="beforeMinutes"/> ahead of the plan time when that is on.
+    /// A job with no plan time, or one whose arrival is written, is due nothing.
+    /// </para>
     /// </summary>
+    /// <param name="asked">How many asks after the plan time this job has had today.</param>
+    /// <param name="lastAsked">When the room was last told about this job today — a reminder or an ask — or null.</param>
     public static string? Stage(LineReminder.JobLine job, DateTimeOffset now, int minutes,
-        int repeatHours = DefaultRepeatHours, int beforeMinutes = DefaultBeforeMinutes)
+        int repeatHours = DefaultRepeatHours, int beforeMinutes = DefaultBeforeMinutes,
+        int asked = 0, DateTimeOffset? lastAsked = null)
     {
         if (minutes <= 0 || Arrived(job)) return null;
         if (PlanAt(job) is not { } plan) return null;
         var margin = TimeSpan.FromMinutes(minutes);
         if (now >= plan + margin)
         {
-            if (repeatHours <= 0) return Overdue;
-            // The overdue ask, then one more every repeatHours after it while
-            // the register still shows no arrival.
-            var repeats = (int)Math.Floor((now - (plan + margin)).TotalHours / repeatHours);
-            if (repeats <= 0) return Overdue;
-            // Named by the ask, not the hours, so a changed interval keeps
-            // counting from where the day's ledger left off.
-            return repeats > MaxRepeats ? null : $"{Overdue}#{repeats + 1}";
+            var spaced = lastAsked is null || now >= lastAsked.Value + TimeSpan.FromHours(Math.Max(repeatHours, 0));
+            if (asked <= 0) return spaced ? Overdue : null;
+            if (repeatHours <= 0 || asked > MaxRepeats) return null;
+            return spaced ? $"{Overdue}#{asked + 1}" : null;
         }
         if (beforeMinutes > 0 && now >= plan - TimeSpan.FromMinutes(beforeMinutes) && now < plan) return Before;
         return null;
     }
 
-    /// <summary>Which ask this is for a job past its plan time: 1 for the overdue ask, 2 for the first repeat…</summary>
+    /// <summary>Which ask this is: 1 for the first overdue or details ask, 2 for the first repeat…</summary>
     public static int AskNumber(string stage) =>
         stage == Before ? 0
-        : stage == Overdue ? 1
-        : int.TryParse(stage.Replace(Overdue + "#", ""), out var ask) && ask > 1 ? ask
+        : stage == Overdue || stage == Details ? 1
+        : int.TryParse(stage.Replace(Overdue + "#", "").Replace(Details + "#", ""), out var ask) && ask > 1 ? ask
         : 1;
 
     /// <summary>One job as the chase names it — the same cells the reminder uses, with the plan time.</summary>
@@ -146,12 +202,25 @@ public static class LineChase
         if (Formats.Clean(job.Licence).Length > 0) parts.Add($"รถ {Formats.Clean(job.Licence)}");
 
         var plan = PlanAt(job);
-        var when = IsEtaStage(stage)
+        // A job the register already shows at the site, or with a date and
+        // no time, is asked for the time — the truck is not in question.
+        var atSite = Formats.Clean(job.ArrDate).Length > 0
+            || LineAuthority.Rank(job.Category, job.Status) >= LineAuthority.Rank(job.Category, LineAuthority.ResolveSite(job.Category, LineParser.SiteArrival));
+        var when = IsDetailsStage(stage)
+            ? $"ยังไม่มี{string.Join("และ", MissingDetails(job))}ในระบบ — ขอ{string.Join("และ", MissingDetails(job))}ครับ"
+              + (stage == Details ? "" : $" (ติดตามครั้งที่ {AskNumber(stage)})")
+            : IsEtaStage(stage)
             ? $"แจ้งไว้ว่าคาดถึง {stage[4..]} — ถึงโรงงานแล้วหรือยังครับ"
+            : atSite && stage != Before
+            ? $"ยังไม่มีเวลาถึงในระบบ — รถถึงหน้างานกี่โมงครับ" + (stage == Overdue ? "" : $" (ติดตามครั้งที่ {AskNumber(stage)})")
             : plan is null ? "" : stage == Before
             ? $"แผน {plan.Value:HH:mm} — อีก {Math.Max(1, (int)Math.Round((plan.Value - now).TotalMinutes))} นาที"
             : $"แผน {plan.Value:HH:mm} — เลยมา {Elapsed(now - plan.Value)} ยังไม่มีรายงานถึง"
               + (stage == Overdue ? "" : $" (ติดตามครั้งที่ {AskNumber(stage)})");
+        // An arrival ask on a job still short of its truck asks for that too,
+        // so one line carries both and the room is not written to twice.
+        if (!IsDetailsStage(stage) && MissingDetails(job) is { Count: > 0 } lacking)
+            when += $" · ขาด: {string.Join(", ", lacking)}";
         return $"{number}) {string.Join(" · ", parts)}\n   {when}";
     }
 
@@ -175,14 +244,19 @@ public static class LineChase
             .ThenBy(one => PlanAt(one.Job) ?? DateTimeOffset.MaxValue)
             .ToList();
 
-        var text = new StringBuilder($"ติดตามสถานะรถ {now:HH:mm} — {supplier}\nรถถึงหน้างานหรือยังครับ");
+        var arrivals = ordered.Any(one => !IsDetailsStage(one.Stage));
+        var details = ordered.Any(one => IsDetailsStage(one.Stage) || MissingDetails(one.Job).Count > 0);
+        var text = new StringBuilder($"ติดตามสถานะรถ {now:HH:mm} — {supplier}");
+        if (arrivals) text.Append("\nรถถึงหน้างานหรือยังครับ");
         var number = 0;
         foreach (var (job, stage) in ordered)
         {
             number++;
             text.Append("\n\n").Append(Line(number, job, stage, now));
         }
-        text.Append("\n\nตอบในกลุ่มนี้: <เลขตู้ หรือ Job No.> ถึงโรงงาน HH:MM — เช่น TXGU8142057 ถึงโรงงาน 12:40\nถ้ายังไม่ถึง: <เลขตู้> คาดถึง HH:MM");
+        text.Append("\n\nตอบในกลุ่มนี้:");
+        if (arrivals) text.Append(" <เลขตู้ หรือ Job No.> ถึงโรงงาน HH:MM — เช่น TXGU8142057 ถึงโรงงาน 12:40\nถ้ายังไม่ถึง: <เลขตู้> คาดถึง HH:MM");
+        if (details) text.Append(arrivals ? "\nทะเบียนรถและคนขับ: " : " ").Append("<เลขตู้ หรือ Job No.> ทะเบียน ชื่อ-สกุลคนขับ เบอร์ — เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678");
         return text.ToString();
     }
 }
