@@ -31,10 +31,11 @@ namespace Scmos.Api.Rules;
 /// </summary>
 public static class LineReply
 {
-    /// <summary>What the message pointed at, for the sentence: the container, the job number, the booking.</summary>
+    /// <summary>What the message pointed at, for the sentence: the container, the job number, the booking, the truck, the seal.</summary>
     public static string Reference(LineParser.Parsed read) =>
         read.Container ?? read.JobNumber ?? (read.References is { Count: > 0 } refs ? refs[0]
-            : read.Plates is { Count: > 0 } plates ? $"รถ {plates[0]}" : "");
+            : read.Plates is { Count: > 0 } plates ? $"รถ {plates[0]}"
+            : read.SealNumber is not null ? $"ซีล {read.SealNumber}" : "");
 
     /// <summary>What the message said, in the words that will be written, for the acknowledgement.</summary>
     public static string Said(LineParser.Parsed read, string resolvedTo)
@@ -62,6 +63,10 @@ public static class LineReply
     {
         if (read.Question) return null;
         var reference = Reference(read);
+        // Nothing that names a job — no job number, booking, container, plate
+        // or seal — nothing said back. The department's rule, 17 Sep 2026: the
+        // room talks about many things, and the bot is not one of its members.
+        if (reference.Length == 0) return null;
         var said = Said(read, resolvedTo);
         return outcome switch
         {
@@ -72,7 +77,9 @@ public static class LineReply
             // somebody else's — see the note above.
             LineAuthority.Outcome.NoSuchJob or LineAuthority.Outcome.NotYourJob =>
                 $"ไม่พบ {reference} ในงานของท่านช่วงนี้ — ช่วยตรวจเลขตู้ / Job No. อีกครั้งครับ",
-            "no-reference" => "ยังอ่านไม่ออกว่าเป็นงานไหน — ช่วยส่งเลขตู้หรือ Job No. มาด้วยครับ เช่น TXGU8142057 ถึงโรงงาน 12:40",
+            // Unreachable now that a message with no reference is never
+            // answered; kept as the outcome's name for a row that stores it.
+            "no-reference" => null,
             // A greeting, a "รับทราบ": not about a job, and not answered.
             Services.LineEventWorker.NotAboutAJob => null,
             "nothing-understood" => $"รับ {reference} แล้ว แต่ไม่พบสถานะ — ส่ง \"ถึงโรงงาน HH:MM\" หรือ \"ลงเสร็จ\" มาด้วยครับ",

@@ -347,18 +347,21 @@ public static class LineParser
         /// </summary>
         public bool HasReference => JobNumber is not null || Container is not null
             || (Plates is not null && Plates.Count > 0)
-            || (References is not null && References.Count > 0);
+            || (References is not null && References.Count > 0)
+            || SealNumber is not null;
 
         /// <summary>
-        /// Whether the message is about a job at all: names one, reports on
-        /// one, or gives a truck's number. A greeting, a "รับทราบ", a sticker's
-        /// caption say none of that, and until 17 Sep 2026 each one was queued
-        /// for review and answered with a request for the container number —
-        /// which is a bot arguing with a room. Such a message is filed and
-        /// left alone.
+        /// Whether the message is about a job at all: names one — job number,
+        /// booking, container, plate, seal — or reports a status. A greeting,
+        /// a "รับทราบ", a room arranging tomorrow's loading ("รอลูกค้าขอ EARLY
+        /// OPENGATE") say none of that, and until 17 Sep 2026 each one was
+        /// queued for review and answered with a request for the container
+        /// number — a bot arguing with a room. Such a message is filed and
+        /// left alone. A delay word, an estimate, a phone number on their own
+        /// are not enough: "รอลูกค้า" in an ordinary sentence read as a
+        /// customer delay and drew a reply, the same day.
         /// </summary>
-        public bool AboutAJob => HasReference || Status is not null || Delayed
-            || Eta is not null || ArrivalTime is not null || Phone is not null;
+        public bool AboutAJob => HasReference || Status is not null;
     }
 
     /// <summary>
@@ -433,6 +436,8 @@ public static class LineParser
         // A phone number is the driver's, not a reference to a job.
         foreach (var match in Phone.Matches(normalised).Cast<Match>())
             taken.Add(match.Value.Replace("-", "").Replace(" ", ""));
+        // A seal number is the box's, read on its own — not a booking.
+        if (FindSeal(normalised) is { } seal) taken.Add(seal);
 
         return [.. Reference.Matches(normalised)
             .Select(one => one.Value.ToUpperInvariant())

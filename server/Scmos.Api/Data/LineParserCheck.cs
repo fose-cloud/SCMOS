@@ -289,8 +289,16 @@ public static class LineParserCheck
             ("a bare clock is not either",
                 !LineParser.Parse("นัด 14:00 นะครับ", Received).AboutAJob, "-"),
             ("but a status with no number is — it is a report that needs its job",
-                LineParser.Parse("ถึงโรงงานแล้วครับ", Received).AboutAJob
-                    && LineParser.Parse("รถติดบางนา", Received).AboutAJob, "-"),
+                LineParser.Parse("ถึงโรงงานแล้วครับ", Received).AboutAJob, "-"),
+            ("a delay word, an estimate or a phone number on their own are not",
+                !LineParser.Parse("รถติดบางนา", Received).AboutAJob
+                    && !LineParser.Parse("คาดถึง 14:00 ค่ะ", Received).AboutAJob
+                    && !LineParser.Parse("โทร 081-2345678", Received).AboutAJob, "-"),
+            // The room arranging tomorrow's loading, 17 Sep 2026: "รอลูกค้า" read as a customer delay and drew a reply.
+            ("nor is the room arranging its day",
+                !LineParser.Parse("รับวันนี้ได้รับเลยค่ะ ส่วนเรื่องคืนตู้รอลูกค้าขอ EARLY OPENGATE อีกทีค่ะ @จัดส่ง DCH", Received).AboutAJob
+                    && !LineParser.Parse("@POMPAM พี่รบกวน งานโหลดวันที่ 18/9/26 ให้หน่อยค่ะ ตรงกันไหมค่ะ", Received).AboutAJob, "-"),
+
             // The fourth real message, 17 Sep 2026.
             ("\"3 ตู้ อยู่โรงงาน\": at the plant is the site, three boxes, the send time as the arrival, and no driver called ตู้",
                 LineParser.Parse("CATALITE 260900760321 3 ตู้ อยู่โรงงาน", Received) is { JobNumber: "260900760321", Status: LineParser.SiteArrival, BoxCount: 3, ArrivalAtSend: true, Driver: null } boxes
@@ -307,10 +315,10 @@ public static class LineParserCheck
                 !LineParser.Parse("TXGU8142057", Received).HasDetails, "-"),
             ("the seal is not the driver's name",
                 LineParser.Parse("LC2606594 70-1234 ซีล 123456", Received) is { Driver: null, SealNumber: "123456" }, "-"),
-            ("and so is a plate, a booking or a driver's number",
+            ("and so is a plate, a booking or a seal",
                 LineParser.Parse("70-1234 ครับ", Received).AboutAJob
                     && LineParser.Parse("LC2606594", Received).AboutAJob
-                    && LineParser.Parse("โทร 081-2345678", Received).AboutAJob, "-"),
+                    && LineParser.Parse("ซีล 123456", Received).AboutAJob, "-"),
         };
         foreach (var (why, ok, got) in reads)
         {
@@ -592,8 +600,14 @@ public static class LineParserCheck
                 LineReply.ForMessage(LineParser.Parse("AKZO NOBEL // LC2606594 ถึงโรงงานที่โมงคะ", Received), "question", "") is null, "-"),
             ("an unbound room is not spoken to",
                 LineReply.ForMessage(arrivalRead, LineAuthority.Outcome.UnknownGroup, "") is null, "-"),
-            ("a message with nothing to find the job by is told what to send",
-                LineReply.ForMessage(LineParser.Parse("ถึงแล้วครับ", Received), "no-reference", "")!.Contains("เลขตู้หรือ Job No.", StringComparison.Ordinal), "-"),
+            // The department's rule, 17 Sep 2026: nothing that names a job, nothing said back.
+            ("a message with nothing to find the job by is not answered, even a status report",
+                LineReply.ForMessage(LineParser.Parse("ถึงแล้วครับ", Received), "no-reference", "") is null
+                && LineReply.ForMessage(LineParser.Parse("รถติดบางนา", Received), "no-reference", "") is null, "-"),
+            ("the room's own arranging is not answered either",
+                LineReply.ForMessage(LineParser.Parse("รับวันนี้ได้รับเลยค่ะ ส่วนเรื่องคืนตู้รอลูกค้าขอ EARLY OPENGATE อีกทีค่ะ @จัดส่ง DCH", Received), "no-reference", "") is null, "-"),
+            ("a seal alone is a reference, and is answered by",
+                LineReply.Reference(LineParser.Parse("ซีล 123456 ลงเสร็จ", Received)) == "ซีล 123456", LineReply.Reference(LineParser.Parse("ซีล 123456 ลงเสร็จ", Received))),
             ("a greeting gets no answer at all",
                 LineReply.ForMessage(LineParser.Parse("สวัสดีครับ", Received), LineEventWorker.NotAboutAJob, "") is null, "-"),
             ("an arrival taken from the send time says so",
