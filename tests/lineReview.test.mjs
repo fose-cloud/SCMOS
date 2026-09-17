@@ -155,6 +155,9 @@ test("every code the parser and the rule can now produce has words on the screen
   assert.notEqual(describe("not-about-a-job").label, "not-about-a-job");
   assert.equal(describe("not-about-a-job").tone, "quiet");
   assert.equal(isActionable("not-about-a-job"), false);
+  // "3 ตู้": one approval, every row — offered, not a question.
+  assert.equal(describe("all-jobs").tone, "ready");
+  assert.equal(isActionable("all-jobs"), true);
 });
 
 test("the one status the parser cannot settle alone is named as such", () => {

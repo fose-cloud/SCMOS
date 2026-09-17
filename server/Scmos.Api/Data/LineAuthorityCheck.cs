@@ -294,6 +294,35 @@ public static class LineAuthorityCheck
             if (!ok) Console.WriteLine($"          want {want} {key ?? ""}, got {got.Result} [{string.Join(", ", got.Keys)}] {got.Detail}");
         }
 
+        /* ---------------------------- a message about every box */
+
+        // "CATALITE 260900760321 3 ตู้ อยู่โรงงาน", 17 Sep 2026: three rows,
+        // one job number, one message for all of them.
+        var box1 = Job("C1", "SHORE", "IN_TRANSIT", customer: "CATALITE", workDate: "17/09/2026", container: "AAAU1111111");
+        var box2 = box1 with { Key = "C2", Container = "BBBU2222222" };
+        var box3 = box1 with { Key = "C3", Container = "CCCU3333333", Status = "DELIVERED" };
+        var three = LineAuthority.Decide(Vendor("SHORE"), LineParser.SiteArrival, [box1, box2, box3],
+            Said("CATALITE 260900760321 3 ตู้ อยู่โรงงาน", container: null, plate: "", day: "2026-09-17") with { BoxCount = 3 });
+        var two = LineAuthority.Decide(Vendor("SHORE"), LineParser.SiteArrival, [box1, box2, box3],
+            Said("CATALITE 260900760321 2 ตู้ อยู่โรงงาน", container: null, plate: "", day: "2026-09-17") with { BoxCount = 2 });
+        var every = new (string Why, bool Ok)[]
+        {
+            ("three boxes and three rows: every row, and the status the category gives",
+                three is { Result: LineAuthority.Outcome.AllJobs, Applies: true, Every: true, To: "DELIVERED" } && three.Keys.SequenceEqual(["C1", "C2", "C3"])),
+            ("two boxes and three rows is still a question", two.Result == LineAuthority.Outcome.ManyJobs && !two.Applies),
+            ("the note carries the keys and gives them back",
+                LineAuthority.KeysIn(LineAuthority.KeysNote(three.Detail, three.Keys)).SequenceEqual(["C1", "C2", "C3"])
+                && LineAuthority.KeysIn(LineAuthority.KeysNote("one", ["C1"])).Count == 0
+                && LineAuthority.KeysIn("งานนี้ปิดแล้ว (COMPLETED)").SequenceEqual(["COMPLETED"])),
+            ("a row already there is skipped at approval, not refused for the rest — Move says so per row",
+                !LineAuthority.Move(box3, LineParser.SiteArrival).Applies && LineAuthority.Move(box1, LineParser.SiteArrival).Applies),
+        };
+        foreach (var (why, ok) in every)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+        }
+
         var mentions = new (string Why, bool Want, bool Got)[]
         {
             ("L'Oréal names L'OREAL (THAILAND) LTD.", true,

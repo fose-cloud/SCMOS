@@ -82,6 +82,15 @@ public static class LineParser
         new(@"(?<![A-Za-z0-9-])(?=[A-Za-z0-9]{6,20}(?![A-Za-z0-9-]))(?=(?:[A-Za-z]*\d){3})[A-Za-z0-9]+", RegexOptions.Compiled);
 
     /// <summary>
+    /// A seal number after the word for one: "ซีล 123456", "seal TH1234567",
+    /// "SEAL NO. 0012345". Four to twelve letters and digits. Only after the
+    /// word — a bare run of digits is a phone, a weight, a time, anything.
+    /// </summary>
+    private static readonly Regex Seal = new(
+        @"(?:ซีล|seal)(?:\s*(?:no\.?|number|เลข|เบอร์|#|:))?\s*[:#]?\s*([A-Za-z]{0,3}\d{4,10}|[A-Za-z0-9]{4,12})(?![A-Za-z0-9])",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
     /// A Thai mobile or landline in running text: 081-2345678, 0812345678,
     /// 081 234 5678, 02-1234567. Written back as the register writes one,
     /// 0XX-XXXXXXX.
@@ -99,6 +108,7 @@ public static class LineParser
         "ครับ", "ค่ะ", "คะ", "นะครับ", "นะคะ", "จ้า", "จ้ะ", "driver", "tel", "tel.", "name", "plate", "phone", "mobile",
         // What is left around an arrival word once it is taken out.
         "แล้ว", "แล้วครับ", "แล้วค่ะ", "จะ", "ยัง", "ยังไม่", "ไม่", "ใกล้", "เกือบ", "กำลัง", "กำลังจะ",
+        "ตู้", "ตู้ที่", "ซีล", "เลขซีล", "seal",
     };
 
     /// <summary>
@@ -211,6 +221,18 @@ public static class LineParser
         // "ถึงแล้ว" — arrived, and nothing about where — is the place the
         // truck was going. Asked for on 17 Sep 2026: ถึงโรงงาน means ถึงแล้ว.
         ("ถึงแล้ว", SiteArrival),
+        // "CATALITE 260900760321 3 ตู้ อยู่โรงงาน" — the fourth real message,
+        // 17 Sep 2026: at the plant is having reached it.
+        ("อยู่ที่โรงงาน", SiteArrival),
+        ("อยู่โรงงาน", SiteArrival),
+        ("อยู่หน้างาน", SiteArrival),
+        ("อยู่ที่คลัง", SiteArrival),
+        ("อยู่คลัง", SiteArrival),
+        ("อยู่ที่ลูกค้า", "DELIVERED"),
+        ("อยู่ลูกค้า", "DELIVERED"),
+        ("at factory", SiteArrival),
+        ("at site", SiteArrival),
+        ("at customer", "DELIVERED"),
         ("arrived site", SiteArrival),
         ("arrived factory", SiteArrival),
         ("arrived plant", SiteArrival),
@@ -284,6 +306,14 @@ public static class LineParser
         /// the person approving sees it beside the message.
         /// </summary>
         string? Driver = null,
+        /// <summary>How many boxes the message is about — "3 ตู้" — or null. See <see cref="FindBoxCount"/>.</summary>
+        int? BoxCount = null,
+        /// <summary>
+        /// The seal number the message gives, or null. An export job's SEAL
+        /// NO. is known only once the box is loaded, and the haulier is who
+        /// knows it (asked for 17 Sep 2026, with the container, for exports).
+        /// </summary>
+        string? SealNumber = null,
         /// <summary>
         /// Whether <see cref="ArrivalTime"/> is the moment the message was sent
         /// rather than a clock the driver wrote. "ถึงโรงงาน" with no time means
@@ -294,8 +324,15 @@ public static class LineParser
         /// </summary>
         bool ArrivalAtSend = false)
     {
-        /// <summary>Whether the message carries the truck's details — a plate, a number, a name — the morning reminder asks for.</summary>
-        public bool HasDetails => (Plates is not null && Plates.Count > 0) || Phone is not null || Driver is not null;
+        /// <summary>
+        /// Whether the message carries details the morning reminder asks for:
+        /// a plate, a number, a name — or, for the job it names by number or
+        /// booking, its box and seal. A container on its own is what the
+        /// message is about, not a detail of it.
+        /// </summary>
+        public bool HasDetails => (Plates is not null && Plates.Count > 0) || Phone is not null || Driver is not null
+            || SealNumber is not null
+            || (Container is not null && (JobNumber is not null || (References is not null && References.Count > 0)));
 
         /// <summary>Whether this may update a job without somebody reading it first.</summary>
         public bool CanAutoProcess => Confidence >= AutoThreshold
@@ -406,6 +443,16 @@ public static class LineParser
             .Take(5)];
     }
 
+    /// <summary>The seal number the message gives, upper case, or null. See <see cref="Seal"/>.</summary>
+    public static string? FindSeal(string normalised)
+    {
+        var match = Seal.Match(normalised);
+        if (!match.Success) return null;
+        var seal = match.Groups[1].Value.ToUpperInvariant();
+        // "ซีล" followed by the container itself is not a seal.
+        return ContainerNumbers.IsShaped(seal) ? null : seal;
+    }
+
     /// <summary>The first phone number in a message, as 0XX-XXXXXXX, or null.</summary>
     public static string? FindPhone(string normalised)
     {
@@ -431,6 +478,7 @@ public static class LineParser
         foreach (var (keyword, _) in StatusWords.OrderByDescending(one => one.Keyword.Length))
             text = Regex.Replace(text, Regex.Escape(keyword), " ", RegexOptions.IgnoreCase);
         text = Phone.Replace(text, " ");
+        text = Seal.Replace(text, " ");
         text = Plate.Replace(text, " ");
         text = Container.Replace(text, " ");
         text = Clock.Replace(text, " ");
@@ -519,8 +567,25 @@ public static class LineParser
         if (string.IsNullOrEmpty(keyword)) return false;
         var word = keyword.ToLowerInvariant();
         if (word.StartsWith("ถึง", StringComparison.Ordinal)) return !word.StartsWith("ถึงท่า", StringComparison.Ordinal);
+        // "อยู่โรงงาน", "at site": there now, which is having arrived.
+        if (word.StartsWith("อยู่", StringComparison.Ordinal) || word.StartsWith("at ", StringComparison.Ordinal)) return true;
         return word.StartsWith("arrived", StringComparison.Ordinal)
             && !word.Contains("pickup", StringComparison.Ordinal) && !word.Contains("port", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// "3 ตู้" — how many boxes the message speaks for. A job number covers
+    /// one row per box; a message naming the number and the count is about
+    /// every one of them (LineAuthority.Decide). "ตู้ที่ 2" names one box and
+    /// is not a count.
+    /// </summary>
+    private static readonly Regex Boxes = new(@"(?<![\d.:])(\d{1,2})\s*ตู้(?!ที่)", RegexOptions.Compiled);
+
+    /// <summary>How many boxes the message says it is about, or null.</summary>
+    public static int? FindBoxCount(string normalised)
+    {
+        var match = Boxes.Match(normalised);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var count) && count > 0 ? count : null;
     }
 
     /// <summary>The minute the message was sent, in Bangkok — the arrival when the driver wrote no clock.</summary>
@@ -681,6 +746,9 @@ public static class LineParser
         var references = FindReferences(text);
         foreach (var reference in references) rules.Add($"ref:{reference}");
 
+        var boxCount = FindBoxCount(text);
+        if (boxCount is not null) rules.Add($"boxes:{boxCount}");
+
         // Nothing to find a job by. Was "no-job-number", which the rows already
         // stored still carry and the screen still names.
         if (jobNumber is null && container is null && plates.Count == 0 && references.Count == 0 && found == 0)
@@ -742,9 +810,12 @@ public static class LineParser
         // the haulier answers with: "LC2606594 70-1234 สมชาย ใจดี 081-2345678".
         var phone = question ? null : FindPhone(text);
         if (phone is not null) rules.Add($"phone:{phone}");
+        var seal = question ? null : FindSeal(text);
+        if (seal is not null) rules.Add($"seal:{seal}");
         var driver = question ? null : FindDriver(text, plates, phone);
         if (driver is not null) rules.Add($"driver:{driver}");
-        var details = plates.Count > 0 || phone is not null || driver is not null;
+        var details = plates.Count > 0 || phone is not null || driver is not null || seal is not null
+            || (container is not null && (jobNumber is not null || references.Count > 0));
 
         var delayed = delayCategory is not null && !question;
         // A message that names a job and gives its truck has said something
@@ -768,6 +839,8 @@ public static class LineParser
             Question: question,
             Phone: phone,
             Driver: driver,
+            BoxCount: boxCount,
+            SealNumber: seal,
             ArrivalAtSend: arrivalAtSend);
     }
 

@@ -40,6 +40,7 @@ public static class LineReply
         if (read.Plates is { Count: > 0 } plates) parts.Add($"ทะเบียน {plates[0]}");
         if (read.Driver is not null) parts.Add($"คนขับ {read.Driver}");
         if (read.Phone is not null) parts.Add($"เบอร์ {read.Phone}");
+        if (read.SealNumber is not null) parts.Add($"ซีล {read.SealNumber}");
         if (read.Eta is { } eta && read.ArrivalTime is null) parts.Add($"คาดถึง {eta:HH:mm}");
         if (read.Delayed && read.DelayCategory is { } why) parts.Add($"ล่าช้า ({why})");
         return string.Join(" · ", parts);

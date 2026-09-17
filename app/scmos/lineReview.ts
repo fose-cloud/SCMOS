@@ -51,6 +51,14 @@ const OUTCOMES: Outcome[] = [
     label: "รายละเอียดรถ — รอการอนุมัติ",
     next: "ตรวจทะเบียน ชื่อคนขับ เบอร์ แล้วกด “อนุมัติ” เพื่อบันทึกลงงาน",
   },
+  // "260900760321 3 ตู้ อยู่โรงงาน" for three rows: one approval writes every
+  // row (17 Sep 2026). The queue stores it as ready-to-apply; the options
+  // answer names it.
+  {
+    code: "all-jobs", tone: "ready",
+    label: "เลขงานนี้ครอบคลุมหลายตู้ — อนุมัติครั้งเดียว อัปเดตทุกรายการ",
+    next: "",
+  },
   {
     code: "many-jobs", tone: "attention",
     label: "อ้างถึงงานได้หลายรายการ",

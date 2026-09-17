@@ -276,6 +276,22 @@ public static class LineParserCheck
             ("but a status with no number is — it is a report that needs its job",
                 LineParser.Parse("ถึงโรงงานแล้วครับ", Received).AboutAJob
                     && LineParser.Parse("รถติดบางนา", Received).AboutAJob, "-"),
+            // The fourth real message, 17 Sep 2026.
+            ("\"3 ตู้ อยู่โรงงาน\": at the plant is the site, three boxes, the send time as the arrival, and no driver called ตู้",
+                LineParser.Parse("CATALITE 260900760321 3 ตู้ อยู่โรงงาน", Received) is { JobNumber: "260900760321", Status: LineParser.SiteArrival, BoxCount: 3, ArrivalAtSend: true, Driver: null } boxes
+                    && boxes.ArrivalTime?.ToString("HH:mm") == "11:00" && boxes.MatchedRules.Contains("boxes:3"),
+                string.Join(", ", LineParser.Parse("CATALITE 260900760321 3 ตู้ อยู่โรงงาน", Received).MatchedRules)),
+            ("\"ตู้ที่ 2\" names a box and is not a count; a time is not one either",
+                LineParser.Parse("260900760321 ตู้ที่ 2 ถึงโรงงาน", Received).BoxCount is null
+                && LineParser.Parse("260900760321 ถึงโรงงาน 10:30 ตู้", Received).BoxCount is null, "-"),
+            ("an export's box and seal, for the job its booking names",
+                LineParser.Parse("LC2606594 ตู้ TXGU8142057 ซีล 123456", Received) is { Container: "TXGU8142057", SealNumber: "123456", HasDetails: true, Status: null, Warnings.Count: 0 }
+                    && LineParser.Parse("LC2606594 TXGU8142057 SEAL NO. TH0012345", Received).SealNumber == "TH0012345",
+                LineParser.Parse("LC2606594 ตู้ TXGU8142057 ซีล 123456", Received).SealNumber ?? "-"),
+            ("a container on its own is the reference, not a detail",
+                !LineParser.Parse("TXGU8142057", Received).HasDetails, "-"),
+            ("the seal is not the driver's name",
+                LineParser.Parse("LC2606594 70-1234 ซีล 123456", Received) is { Driver: null, SealNumber: "123456" }, "-"),
             ("and so is a plate, a booking or a driver's number",
                 LineParser.Parse("70-1234 ครับ", Received).AboutAJob
                     && LineParser.Parse("LC2606594", Received).AboutAJob
@@ -427,6 +443,8 @@ public static class LineParserCheck
             Line("F1", "IMPORT", "READY", "70-1234", "สมชาย ใจดี", "081-2345678"),
             Line("C1", "IMPORT", "CANCELLED"),
             Line("X1", "EXPORT", "COMPLETED"),
+            // An export with its truck but no box and no seal yet (17 Sep 2026).
+            Line("E2", "EXPORT", "READY", "70-1234", "สมชาย ใจดี", "081-2345678") with { Container = "", Seal = "" },
         ]);
         var whole = composed.Count == 1 ? composed[0] : "";
         var reminder = new (string Why, bool Ok)[]
@@ -440,7 +458,14 @@ public static class LineParserCheck
             ("a Domestic run by its own job number and warehouse", whole.Contains("Job D15441000 · คลัง JWD", StringComparison.Ordinal)),
             ("each job says what it is short of", whole.Contains("ขาด: ทะเบียนรถ, ชื่อ-สกุลคนขับ, เบอร์ติดต่อ", StringComparison.Ordinal)
                 && whole.Contains("ขาด: ชื่อ-สกุลคนขับ, เบอร์ติดต่อ", StringComparison.Ordinal)),
-            ("a job with its truck is not asked about", !whole.Contains("F1", StringComparison.Ordinal) && whole.Split("ขาด:").Length == 4),
+            ("a job with its truck is not asked about", !whole.Contains("F1", StringComparison.Ordinal) && whole.Split("ขาด:").Length == 5),
+            // 17 Sep 2026: an export's box and seal are asked for too.
+            ("an export with its truck but no box and no seal is asked for those, and only those",
+                whole.Contains("ขาด: เลขตู้, เลขซีล", StringComparison.Ordinal)
+                && whole.Contains("Booking LC2606594 · Job 260600800773 · ตู้ — · ลูกค้า L'OREAL", StringComparison.Ordinal)),
+            ("an import with a box is not asked for a seal",
+                LineReminder.Missing(Line("I9", "IMPORT", "READY", "70-1234", "สมชาย", "081-2345678") with { Seal = "" }).Count == 0),
+            ("the answer line says how an export sends its box and seal", whole.Contains("ตู้ XXXU1234567 ซีล 123456", StringComparison.Ordinal)),
             ("a cancelled or finished job is not asked about", !whole.Contains("CANCELLED", StringComparison.Ordinal)),
             ("it says how to answer so the answer can be read — leading with the container, since a job number is several boxes",
                 whole.Contains("ตอบในกลุ่มนี้ทีละตู้", StringComparison.Ordinal)

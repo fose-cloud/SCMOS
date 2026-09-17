@@ -46,3 +46,10 @@ test("an estimate is said on the card and marked as not written; a send-time arr
   // A clock the driver wrote wins over an estimate in the same message.
   assert.equal(pendingWrites({ ...base, to: "DELIVERED", arrival: { date: "17/09/2026", time: "12:40" }, eta: "10:00" }), "สถานะ → DELIVERED · เวลาถึง 12:40 17/09/2026");
 });
+
+test("a message about every row of a job number says so on each row's card", () => {
+  const base = { id: 7, receivedAt: "", errorCode: "ready-to-apply", detail: "", kind: "text", text: "", reading: "", hasImage: false, group: "", ready: true, to: "DELIVERED", arrival: { date: "17/09/2026", time: "08:36", atSend: true } };
+  const items = [{ ...base, jobKey: "C1", every: 3 }, { ...base, jobKey: "C2", every: 3 }, { ...base, jobKey: "C3", every: 3 }];
+  assert.deepEqual(Object.keys(pendingByKey(items)), ["C1", "C2", "C3"]);
+  assert.equal(pendingWrites(items[0]), "สถานะ → DELIVERED · เวลาถึง 08:36 17/09/2026 (เวลาที่ส่งข้อความ) · ทั้ง 3 รายการของเลขงานนี้");
+});

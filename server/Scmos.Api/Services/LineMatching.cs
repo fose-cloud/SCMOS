@@ -59,7 +59,8 @@ public static class LineMatching
             named, read.Container, read.Plates ?? [], read.Remark,
             DateOnly.FromDateTime(receivedAt.ToOffset(TimeSpan.FromHours(7)).DateTime),
             PlateOnly: read.JobNumber is null && read.Container is null && (read.References ?? []).Count == 0,
-            Details: read.HasDetails);
+            Details: read.HasDetails,
+            BoxCount: read.BoxCount);
         return LineAuthority.Decide(group, read.Status, candidates, clue);
     }
 

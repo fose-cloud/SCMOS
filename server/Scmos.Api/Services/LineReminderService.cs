@@ -162,7 +162,7 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         try
         {
             using var json = JsonDocument.Parse(data);
-            foreach (var name in new[] { "booking", "destination", "plant", "returnLoc", "emptyReturn", "planTime", "licence", "driver", "contact", "jobNo", "wh", "province", "zip", "arrDate", "arrTime" })
+            foreach (var name in new[] { "booking", "destination", "plant", "returnLoc", "emptyReturn", "planTime", "licence", "driver", "contact", "jobNo", "wh", "province", "zip", "arrDate", "arrTime", "seal" })
             {
                 if (json.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
                     fields[name] = value.GetString() ?? "";
@@ -178,7 +178,7 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
             F("destination"), F("plant"), F("returnLoc").Length > 0 ? F("returnLoc") : F("emptyReturn"),
             F("planTime"), F("licence"), F("driver"), F("contact"),
             JobNo: F("jobNo"), Warehouse: F("wh"), Province: province,
-            Date: workDate, ArrDate: F("arrDate"), ArrTime: F("arrTime")));
+            Date: workDate, ArrDate: F("arrDate"), ArrTime: F("arrTime"), Seal: F("seal")));
     }
 }
 

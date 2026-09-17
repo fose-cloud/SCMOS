@@ -232,11 +232,11 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
 
         // One key when there is one job. For a number that covers several of the
         // speaker's own rows the column cannot hold the choice, so it stays
-        // empty and the keys go in the message a person reads.
-        row.JobKey = decision.Keys.Count == 1 ? decision.Keys[0] : "";
-        row.ErrorMessage = decision.Keys.Count > 1
-            ? $"{decision.Detail} ({string.Join(", ", decision.Keys)})"
-            : decision.Detail;
+        // empty and the keys go in the message a person reads — unless the
+        // message is about every row ("3 ตู้"), when the first key pins it to
+        // a job and the note carries the rest, so each row shows it.
+        row.JobKey = decision.Keys.Count == 1 || decision.Every ? decision.Keys[0] : "";
+        row.ErrorMessage = LineAuthority.KeysNote(decision.Detail, decision.Keys);
 
         if (decision.Result == LineAuthority.Outcome.AlreadyThere)
         {

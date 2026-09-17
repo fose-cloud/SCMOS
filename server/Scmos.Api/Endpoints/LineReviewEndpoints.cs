@@ -135,7 +135,7 @@ public static class LineReviewEndpoints
                 })
                 .ToListAsync(token);
 
-            var keys = rows.Select(one => one.JobKey).Distinct().ToList();
+            var keys = rows.SelectMany(one => LineAuthority.KeysIn(one.ErrorMessage).Append(one.JobKey)).Distinct().ToList();
             var categories = await db.OperationJobs.AsNoTracking()
                 .Where(job => keys.Contains(job.Key))
                 .Select(job => new { job.Key, job.Cat })
@@ -147,13 +147,24 @@ public static class LineReviewEndpoints
 
             return Results.Json(new
             {
-                items = rows.Select(one =>
+                // A message about every row of a job number ("3 ตู้") is one
+                // row here and three items: one per job, so each job's drawer
+                // shows it. Approving any of them writes all.
+                items = rows.SelectMany(one =>
                 {
+                    var keys = LineAuthority.KeysIn(one.ErrorMessage);
+                    var every = one.ErrorCode == "ready-to-apply" && keys.Count > 1 && keys.Contains(one.JobKey);
+                    return every ? keys.Select(key => (Row: one, JobKey: key, Every: keys.Count)) : [(Row: one, JobKey: one.JobKey, Every: 0)];
+                }).Select(item =>
+                {
+                    var one = item.Row;
                     var read = one.MessageType == "image" ? null : LineParser.Parse(one.RawText, one.ReceivedAt);
-                    var category = categories.GetValueOrDefault(one.JobKey, "");
+                    var category = categories.GetValueOrDefault(item.JobKey, "");
                     return new
                     {
-                        one.Id, one.JobKey, one.ReceivedAt, one.ErrorCode,
+                        one.Id, item.JobKey, one.ReceivedAt, one.ErrorCode,
+                        // How many jobs approving writes, when more than this one.
+                        every = item.Every,
                         detail = one.ErrorMessage,
                         kind = one.MessageType,
                         text = one.RawText,
@@ -173,6 +184,7 @@ public static class LineReviewEndpoints
                             read.Plates is { Count: > 0 } ? $"ทะเบียน {read.Plates[0]}" : "",
                             read.Driver is not null ? $"คนขับ {read.Driver}" : "",
                             read.Phone is not null ? $"เบอร์ {read.Phone}" : "",
+                            read.SealNumber is not null ? $"ซีล {read.SealNumber}" : "",
                         }.Where(part => part.Length > 0)),
                         ready = one.ErrorCode == "ready-to-apply",
                     };
@@ -583,6 +595,10 @@ public static class LineReviewEndpoints
         var read = LineParser.Parse(row.RawText, row.ReceivedAt);
         var decision = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
 
+        // "260900760321 3 ตู้ อยู่โรงงาน" for three rows: every row takes it.
+        if (decision.Every)
+            return await ApplyEveryAsync(row, body, user, read, decision, db, jobs, delegations, audit, token);
+
         // The one place an operator's choice is allowed in: when a number
         // covers several of the haulier's own rows, they may say which. It
         // must be one the decision itself offered — never an arbitrary key,
@@ -689,6 +705,91 @@ public static class LineReviewEndpoints
             jobKey = chosen, from = final.From, to = final.To,
             arrival = stamp.Note,
         });
+    }
+
+    /// <summary>
+    /// A message about every row of a job number, written onto each row
+    /// that can take it. Asked for on 17 Sep 2026 with the example
+    /// "CATALITE 260900760321 3 ตู้ อยู่โรงงาน": box 1, 2 and 3 each arrived
+    /// at 08:36, the time the haulier sent it.
+    ///
+    /// A row that cannot take the move — already there, closed, held — is
+    /// skipped and said, not refused for the rest: two boxes written and one
+    /// already delivered is the right outcome. Nothing is written when no
+    /// row can take it. The approver must be allowed every row it writes.
+    /// </summary>
+    private static async Task<IResult> ApplyEveryAsync(LineEvent row, ApplyBody body, AppUser user,
+        LineParser.Parsed read, LineAuthority.LineDecision decision,
+        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
+    {
+        var chosen = (body.JobKey ?? "").Trim();
+        if (chosen.Length > 0 && !decision.Keys.Contains(chosen))
+            return ApiResults.Error("งานที่เลือกไม่อยู่ในรายการที่ข้อความนี้อ้างถึง", StatusCodes.Status400BadRequest);
+
+        var keys = decision.Keys.ToList();
+        var rows = await db.OperationJobs.AsNoTracking()
+            .Where(job => keys.Contains(job.Key))
+            .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data, job.Container })
+            .ToListAsync(token);
+
+        var written = new List<string>();
+        var skipped = new List<string>();
+        var why = body.Reason ?? $"LINE: {row.RawText}";
+        foreach (var key in keys)
+        {
+            var one = rows.FirstOrDefault(job => job.Key == key);
+            if (one is null) { skipped.Add($"{key}: ไม่พบงานนี้แล้ว"); continue; }
+            if (!await MayActOnAsync(user, key, jobs, delegations, token))
+                return ApiResults.Error($"อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่ ({key})", StatusCodes.Status403Forbidden);
+
+            var final = LineAuthority.Move(new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), read.Status);
+            if (!final.Applies) { skipped.Add($"{Name(one.Container, key)}: {(final.Detail.Length > 0 ? final.Detail : final.Result)}"); continue; }
+
+            var stamp = ArrivalWrite(read, one.Data);
+            var fields = new Dictionary<string, string>();
+            if (final.To.Length > 0) fields["status"] = final.To;
+            if (stamp.Date is { } date && stamp.Time is { } time)
+            {
+                fields["arrDate"] = date;
+                fields["arrTime"] = time;
+            }
+            if (fields.Count == 0) { skipped.Add($"{Name(one.Container, key)}: ไม่มีอะไรให้บันทึก"); continue; }
+
+            if (!await jobs.PatchAsync(key, fields, user.Signature, token)) { skipped.Add($"{Name(one.Container, key)}: บันทึกไม่สำเร็จ"); continue; }
+
+            if (final.To.Length > 0)
+                await audit.RecordAsync(user, AuditActions.StatusChange, "job", key,
+                    row.JobNumber, "status", final.From, final.To, why, token, EventSource.Line);
+            if (stamp.Date is not null)
+            {
+                await audit.RecordAsync(user, AuditActions.Update, "job", key,
+                    row.JobNumber, "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.Line);
+                await audit.RecordAsync(user, AuditActions.Update, "job", key,
+                    row.JobNumber, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
+            }
+            written.Add($"{Name(one.Container, key)} → {final.To}{(stamp.Date is not null ? $" ถึง {stamp.Time}" : "")}");
+        }
+
+        if (written.Count == 0)
+            return ApiResults.Error("ไม่มีรายการไหนรับข้อความนี้ได้ — " + string.Join(" · ", skipped), StatusCodes.Status409Conflict);
+
+        row.ProcessingStatus = LineProcessing.Processed;
+        row.JobKey = chosen.Length > 0 ? chosen : keys[0];
+        row.ErrorCode = "";
+        row.ErrorMessage = LineAuthority.KeysNote(
+            $"อัปเดต {written.Count} จาก {keys.Count} รายการ" + (skipped.Count > 0 ? $" — ข้าม: {string.Join(" · ", skipped)}" : ""), keys);
+        row.ProcessedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+
+        return Results.Json(new
+        {
+            message = $"อัปเดต {written.Count} รายการแล้ว: {string.Join(" · ", written)}"
+                + (skipped.Count > 0 ? $" · ข้าม {skipped.Count}: {string.Join(" · ", skipped)}" : ""),
+            jobKey = row.JobKey, from = "", to = decision.To,
+            arrival = read.ArrivalTime is { } at ? $"เวลาถึง {Formats.PlanDate(DateOnly.FromDateTime(at.DateTime))} {at:HH:mm}{(read.ArrivalAtSend ? " (เวลาที่ส่งข้อความ)" : "")}" : "",
+        });
+
+        static string Name(string container, string key) => Formats.Clean(container).Length > 0 ? Formats.Clean(container) : key;
     }
 
     /* ------------------------------------------------------ a photograph */
@@ -854,7 +955,7 @@ public static class LineReviewEndpoints
         try
         {
             using var json = System.Text.Json.JsonDocument.Parse(data);
-            foreach (var name in new[] { "licence", "driver", "contact" })
+            foreach (var name in new[] { "licence", "driver", "contact", "container", "seal" })
             {
                 if (json.RootElement.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String)
                     had[name] = Formats.Clean(value.GetString());
@@ -879,6 +980,12 @@ public static class LineReviewEndpoints
         Offer("licence", "ทะเบียน", read.Plates is { Count: > 0 } ? read.Plates[0] : null);
         Offer("driver", "ชื่อคนขับ", read.Driver);
         Offer("contact", "เบอร์", read.Phone);
+        // The box and the seal, for the job the message names by number or
+        // booking — an export's, once loaded. A container that is itself how
+        // the job was found is already on the job and is offered to nothing.
+        if (read.JobNumber is not null || read.References is { Count: > 0 })
+            Offer("container", "เลขตู้", read.Container);
+        Offer("seal", "เลขซีล", read.SealNumber);
 
         var note = written.Count > 0 ? "จะบันทึก " + string.Join(" · ", written) : "";
         if (notes.Count > 0) note = string.Join(" · ", new[] { note }.Concat(notes).Where(one => one.Length > 0));

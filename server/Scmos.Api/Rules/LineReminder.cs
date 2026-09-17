@@ -66,15 +66,27 @@ public static class LineReminder
         /// <summary>The Domestic grid's own references, for a run that has no booking.</summary>
         string JobNo = "", string Warehouse = "", string Province = "",
         /// <summary>The plan date and the arrival stamp, for the status chase — see <see cref="LineChase"/>.</summary>
-        string Date = "", string ArrDate = "", string ArrTime = "");
+        string Date = "", string ArrDate = "", string ArrTime = "",
+        /// <summary>The SEAL NO. cell — asked for on an export once the box is loaded (17 Sep 2026).</summary>
+        string Seal = "");
 
-    /// <summary>The three cells the message asks for, in the words it asks with.</summary>
+    /// <summary>
+    /// The cells the message asks for, in the words it asks with: the truck's
+    /// three, and on an export the box and the seal as well — an export's
+    /// CONTAINER NO. and SEAL NO. are known only once the empty is picked up
+    /// and the box loaded, and the haulier is who knows them (17 Sep 2026).
+    /// </summary>
     public static IReadOnlyList<string> Missing(JobLine job)
     {
-        var gaps = new List<string>(3);
+        var gaps = new List<string>(5);
         if (Formats.Clean(job.Licence).Length == 0) gaps.Add("ทะเบียนรถ");
         if (Formats.Clean(job.Driver).Length == 0) gaps.Add("ชื่อ-สกุลคนขับ");
         if (Formats.Clean(job.Contact).Length == 0) gaps.Add("เบอร์ติดต่อ");
+        if (string.Equals(job.Category, "EXPORT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Formats.Clean(job.Container).Length == 0) gaps.Add("เลขตู้");
+            if (Formats.Clean(job.Seal).Length == 0) gaps.Add("เลขซีล");
+        }
         return gaps;
     }
 
@@ -142,7 +154,8 @@ public static class LineReminder
         // an answer should lead with; the job number alone would leave the
         // operator choosing between five rows.
         var footer = "ตอบในกลุ่มนี้ทีละตู้: <เลขตู้ หรือ Job No. / Booking> ทะเบียน ชื่อ-สกุลคนขับ เบอร์\n"
-            + "เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678";
+            + "เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678\n"
+            + "งาน Export ที่ยังไม่มีเลขตู้/ซีล: <Booking> ตู้ XXXU1234567 ซีล 123456";
 
         var messages = new List<string>();
         var text = new StringBuilder(heading);

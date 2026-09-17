@@ -33,6 +33,8 @@ export type LinePending = {
   eta?: string;
   /** The truck's details the message carries — "ทะเบียน 70-1234 · คนขับ สมชาย · เบอร์ 081-…" — or empty. */
   details?: string;
+  /** How many jobs approving writes when the message is about every row of a job number ("3 ตู้"); 0 for this one only. */
+  every?: number;
   ready: boolean;
 };
 
@@ -73,6 +75,7 @@ export function pendingWrites(item: LinePending): string {
   if (eta.length > 0 && time.length === 0) parts.push(`คาดถึง ${eta} (ไม่บันทึก)`);
   const details = String(item.details ?? "").trim();
   if (details.length > 0) parts.push(details);
+  if ((item.every ?? 0) > 1) parts.push(`ทั้ง ${item.every} รายการของเลขงานนี้`);
   return parts.join(" · ");
 }
 

@@ -674,6 +674,14 @@ function Detail({
             {options.kind === "image" ? <>บันทึกเลขตู้ <strong>{options.to}</strong></> : <>{options.from} → <strong>{options.to}</strong></>}
           </div>
         )}
+        {options.outcome === "all-jobs" && canApprove && (
+          // "3 ตู้": one approval, every row. The rows below say which of
+          // them can take it; the ones that cannot are skipped and said.
+          <button disabled={busy} onClick={() => onAct("apply", { jobKey: "", reason })}
+            style={css(`${BUTTON};border-color:#16A34A;background:#16A34A;color:#fff;margin-top:8px`)}>
+            อนุมัติทั้ง {options.options.length} รายการ → {options.to}
+          </button>
+        )}
         {options.arrival?.time && (
           <div style={css("font-size:12px;color:#475569;margin-top:2px")}>
             {options.arrival.atSend ? "ไม่มีเวลาในข้อความ — ใช้เวลาที่ส่ง" : "เวลาถึงในข้อความ"}{" "}
@@ -710,7 +718,11 @@ function Detail({
                   <td style={css(`${CELL};white-space:nowrap`)}>{one.status}</td>
                   <td style={css(`${CELL};font-size:11.5px;color:#475569`)}>{one.arrival || "—"}</td>
                   <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
-                    {one.move.ok ? (
+                    {options.outcome === "all-jobs" ? (
+                      <span style={css(`font-size:11.5px;color:${one.move.ok ? "#15803D" : "#B91C1C"}`)}>
+                        {one.move.ok ? `จะอัปเดต → ${one.move.to || options.to}` : `ข้าม — ${one.move.detail || one.move.result}`}
+                      </span>
+                    ) : one.move.ok ? (
                       (one.mayApprove ?? canApprove) ? (
                         <button disabled={busy}
                           onClick={() => onAct("apply", { jobKey: one.key, reason })}

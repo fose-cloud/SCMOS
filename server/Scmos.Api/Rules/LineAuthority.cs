@@ -65,6 +65,13 @@ public static class LineAuthority
         public const string ManyJobs = "many-jobs";
 
         /// <summary>
+        /// A job number covering several rows, and a message that says it is
+        /// about all of them — "260900760321 3 ตู้ อยู่โรงงาน" for three rows.
+        /// Applies to every key. 17 Sep 2026.
+        /// </summary>
+        public const string AllJobs = "all-jobs";
+
+        /// <summary>
         /// A photographed container, and none of the speaker's rows around
         /// that day is waiting for one. Nothing to write it into.
         /// </summary>
@@ -157,7 +164,9 @@ public static class LineAuthority
         /// </summary>
         bool PlateOnly = false,
         /// <summary>Whether the message carries the truck's details, which a job without a status word may still take.</summary>
-        bool Details = false)
+        bool Details = false,
+        /// <summary>How many boxes the message says it is about — "3 ตู้" — or null.</summary>
+        int? BoxCount = null)
     {
         public static readonly Clue None = new("เลขงานนี้", null, [], "", null);
     }
@@ -186,7 +195,30 @@ public static class LineAuthority
         string Detail)
     {
         /// <summary>Whether this decision should change a job at all.</summary>
-        public bool Applies => Result is Outcome.Ok or Outcome.TruckDetails;
+        public bool Applies => Result is Outcome.Ok or Outcome.TruckDetails or Outcome.AllJobs;
+
+        /// <summary>Whether this decision writes every one of its keys, not one chosen among them.</summary>
+        public bool Every => Result == Outcome.AllJobs;
+    }
+
+    /// <summary>
+    /// The row's note for a decision with several keys: the detail, then the
+    /// keys in brackets — "(K1, K2, K3)". <see cref="KeysIn"/> reads them
+    /// back, which is how a message about every row of a job number is shown
+    /// on every one of those rows.
+    /// </summary>
+    public static string KeysNote(string detail, IReadOnlyList<string> keys) =>
+        keys.Count > 1 ? $"{detail} ({string.Join(", ", keys)})" : detail;
+
+    /// <summary>The keys a <see cref="KeysNote"/> carries, or none.</summary>
+    public static IReadOnlyList<string> KeysIn(string? note)
+    {
+        var text = (note ?? "").TrimEnd();
+        if (!text.EndsWith(')')) return [];
+        var open = text.LastIndexOf('(');
+        if (open < 0) return [];
+        return [.. text[(open + 1)..^1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(one => one.Length > 0)];
     }
 
     private static readonly string[] NoKeys = [];
@@ -453,8 +485,17 @@ public static class LineAuthority
 
         var keys = mine.Select(one => one.Key).ToList();
         if (mine.Count > 1)
+        {
+            // "3 ตู้" and three rows: the message is about all of them, and
+            // every row takes the status and the arrival. A count that does
+            // not match the rows is still a question — two of three boxes
+            // arrived is not a message this can write.
+            if (clue.BoxCount is { } boxes && boxes == mine.Count && !string.IsNullOrWhiteSpace(status))
+                return new(Outcome.AllJobs, keys, "", ResolveSite(mine[0].Category, status),
+                    $"{boxes} ตู้ = {mine.Count} รายการของ {group.SupplierName} — อัปเดตทุกรายการ");
             return new(Outcome.ManyJobs, keys, "", status ?? "",
                 $"{clue.Named} มี {mine.Count} รายการของ {group.SupplierName} — ต้องเลือกก่อน");
+        }
 
         // Asked after the job is found, not before: which job it is, and whether
         // the speaker may touch it, are true regardless of what they said about
