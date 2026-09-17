@@ -112,6 +112,9 @@ const HEAD = "padding:7px 9px;background:#F4F7FA;font-size:10.5px;letter-spacing
 
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;background:#fff;font:12.5px inherit;color:#0F2B46";
 
+/** Every button on the header, white and outlined — asked for on 17 Sep 2026; the filled green and navy sat heavy here. */
+const WHITE_BTN = "height:30px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit";
+
 const norm = (value: string) => value.toLowerCase().replace(/[-\s._/()]/g, "");
 
 function asDate(value: unknown): string {
@@ -499,15 +502,15 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
     tools: [],
     actions: [
       ...(canEdit ? [{
-        label: "+ แทรกแถว", disabled: busy, style: "background:#16794C",
+        label: "+ แทรกแถว", disabled: busy, style: WHITE_BTN,
         title: "แถวใหม่ที่ด้านบน — พิมพ์ลงช่องแล้วกด “บันทึกแถว”",
         go: beginDraft,
       }] : []),
       ...(canEdit ? [{
-        label: "นำเข้า Excel ตามแบบฟอร์ม", disabled: busy, style: "background:#0A2240",
+        label: "นำเข้า Excel ตามแบบฟอร์ม", disabled: busy, style: WHITE_BTN,
         go: () => fileInput.current?.click(),
       }] : []),
-      { label: "คัดลอกพร้อมหัวตาราง", disabled: drawn.length === 0, style: "", go: () => void copyWithHeads() },
+      { label: "คัดลอกพร้อมหัวตาราง", disabled: drawn.length === 0, style: WHITE_BTN, go: () => void copyWithHeads() },
     ],
     controls: (
       <>
