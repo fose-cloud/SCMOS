@@ -167,6 +167,46 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         return sent;
     }
 
+    /// <param name="Messages">The summary's text(s) for the day, or empty when the haulier has no open job on it.</param>
+    /// <param name="SentAt">When this day's summary last went to the room, UTC, or null.</param>
+    public record SummaryRoom(string LineGroupId, string GroupName, string Supplier, int Jobs,
+        IReadOnlyList<string> Messages, DateTimeOffset? SentAt, string SentBy);
+
+    /// <summary>Every active vendor room with what the day's summary would say to it, and whether it has gone.</summary>
+    public async Task<IReadOnlyList<SummaryRoom>> PreviewSummaryAsync(DateOnly day, CancellationToken token)
+    {
+        var slot = SummarySlot(day);
+        var sent = await db.AuditEvents.AsNoTracking()
+            .Where(one => one.Entity == Entity && one.Action == Action && one.Field == slot)
+            .OrderByDescending(one => one.At)
+            .Select(one => new { one.EntityId, one.At, one.Who })
+            .ToListAsync(token);
+        var rooms = new List<SummaryRoom>();
+        foreach (var room in await RoomsAsync(day, token))
+        {
+            var open = room.AllJobs.Count(job =>
+                !string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase));
+            var last = sent.FirstOrDefault(one => one.EntityId == room.LineGroupId);
+            rooms.Add(new SummaryRoom(room.LineGroupId, room.GroupName, room.Supplier, open,
+                LineReminder.ComposeSummary(room.Supplier, day, room.AllJobs), last?.At, last?.Who ?? ""));
+        }
+        return rooms;
+    }
+
+    /// <summary>Sends one room its summary for the day, now, under the person's name. The failure in words, or empty.</summary>
+    public async Task<string> SendSummaryAsync(SummaryRoom room, DateOnly day, AppUser by, string source, CancellationToken token)
+    {
+        if (room.Messages.Count == 0) return "ไม่มีงานที่เปิดอยู่ในวันนั้น — ไม่ได้ส่ง";
+        var failure = await notifier.PushAsync(room.LineGroupId, room.Messages, token);
+        if (failure.Length > 0) return failure;
+        await audit.RecordAsync(by, Action, Entity, room.LineGroupId, room.Supplier,
+            SummarySlot(day), "", $"{room.Jobs} งาน · {room.Messages.Count} ข้อความ",
+            source, token, EventSource.Line);
+        log.LogInformation("LINE summary for {Day} sent to {Group} ({Supplier}) by {Who}", Formats.PlanDate(day), room.GroupName, room.Supplier, by.Signature);
+        return "";
+    }
+
     /// <summary>
     /// The scheduler's pass for the day-before summary: every room with jobs
     /// on <paramref name="day"/> (tomorrow, when the scheduler calls) not yet

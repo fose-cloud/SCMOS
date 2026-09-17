@@ -267,6 +267,68 @@ public static class LineReviewEndpoints
             });
         });
 
+        /* ------------------------------------------- the day-before summary */
+
+        // What tomorrow's summary would say to each room, or any day's by
+        // ?date=, and whether it has gone.
+        group.MapGet("/summary", async (string? date, HttpContext context, IUserAccessor users,
+            LineReminderService reminders, ILineNotifier notifier, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var day = date is null ? Day(null).AddDays(1) : Day(date);
+            var rooms = await reminders.PreviewSummaryAsync(day, token);
+            return Results.Json(new
+            {
+                date = Formats.PlanDate(day),
+                summaryAt = reminders.SummaryAtText,
+                canPush = notifier.Configured,
+                pushMessage = notifier.Configured ? "" : notifier.Missing,
+                rooms = rooms.Select(room => new
+                {
+                    room.LineGroupId, room.GroupName, room.Supplier, room.Jobs,
+                    messages = room.Messages,
+                    sentAt = room.SentAt,
+                    sentBy = room.SentBy,
+                }),
+            });
+        });
+
+        // Sends it now, to one room — a person's decision, audited under their
+        // name; the way the department tests a new message before its hour.
+        group.MapPost("/summary", async ([FromBody] ReminderBody body, HttpContext context, IUserAccessor users,
+            LineReminderService reminders, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("ทำได้เฉพาะผู้ที่ดูแลผู้ขนส่ง", StatusCodes.Status403Forbidden);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ManageSuppliers) is { } stop) return stop;
+
+            var day = body.Date is null ? Day(null).AddDays(1) : Day(body.Date);
+            var wanted = (body.LineGroupId ?? "").Trim();
+            var rooms = (await reminders.PreviewSummaryAsync(day, token))
+                .Where(room => wanted.Length == 0 || room.LineGroupId == wanted)
+                .ToList();
+            if (rooms.Count == 0) return ApiResults.Error("ไม่พบกลุ่มที่ผูกกับผู้ขนส่ง", StatusCodes.Status404NotFound);
+
+            var results = new List<object>();
+            var sent = 0;
+            foreach (var room in rooms)
+            {
+                var failure = await reminders.SendSummaryAsync(room, day, user, "ส่งจากหน้าจอ LINE", token);
+                if (failure.Length == 0) sent++;
+                results.Add(new { room.LineGroupId, room.GroupName, room.Supplier, room.Jobs, ok = failure.Length == 0, failure });
+            }
+            return Results.Json(new
+            {
+                message = sent == rooms.Count ? $"ส่งสรุปงานวันที่ {Formats.PlanDate(day)} แล้ว {sent} กลุ่ม"
+                    : sent == 0 ? (results.Count == 1 ? ((dynamic)results[0]).failure : "ส่งไม่สำเร็จ")
+                    : $"ส่งแล้ว {sent} จาก {rooms.Count} กลุ่ม",
+                sent,
+                results,
+            });
+        });
+
         /* --------------------------------------------------- the mapping */
 
         group.MapGet("/groups", async (HttpContext context, IUserAccessor users,

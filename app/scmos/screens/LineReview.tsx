@@ -69,6 +69,12 @@ type ChaseRoom = {
   jobs: { key: string; customer: string; container: string; planTime: string; stage: string }[];
   message: string;
 };
+type SummaryRoom = {
+  lineGroupId: string; groupName: string; supplier: string; jobs: number;
+  messages: string[]; sentAt: string | null; sentBy: string;
+};
+type DaySummary = { date: string; summaryAt: string; canPush: boolean; pushMessage: string; rooms: SummaryRoom[] };
+
 type Reminder = {
   date: string; remindAt: string; summaryAt?: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[];
   /** The status chase: minutes either side of the plan time (0 = off), and what it would ask right now. */
@@ -280,6 +286,7 @@ export function LineReview({
       </div>
 
       <ReminderCard canSend={canMap} onToast={onToast} />
+      <SummaryCard canSend={canMap} onToast={onToast} />
 
       <Groups groups={groups} canMap={canMap} onToast={onToast} prefill={bindGroupId}
         onSaved={() => { setBindGroupId(""); void loadGroups(); void loadEvents(); }} />
@@ -419,6 +426,122 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
         </table>
         </ZoomBox>
       )}
+    </div>
+  );
+}
+
+/**
+ * Tomorrow's jobs, as the 16:00 summary will say them to each room — and a
+ * button to send one room's now, which is how the department tests a new
+ * message before its hour (asked for 17 Sep 2026).
+ */
+function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message: string) => void }) {
+  const [summary, setSummary] = useState<DaySummary | null>(null);
+  const [shown, setShown] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const response = await apiFetch("/api/integrations/line/summary", { headers: { accept: "application/json" } });
+    if (!response.ok) return;
+    const body = await response.json().catch(() => null) as DaySummary | null;
+    if (body) setSummary(body);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const response = await apiFetch("/api/integrations/line/summary", { headers: { accept: "application/json" } });
+      if (!response.ok) return;
+      const body = await response.json().catch(() => null) as DaySummary | null;
+      if (!cancelled && body) setSummary(body);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const send = async (lineGroupId: string) => {
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/integrations/line/summary", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lineGroupId }),
+      });
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      onToast(answer?.message ?? answer?.error ?? `ส่งไม่สำเร็จ (${response.status})`);
+      await load();
+    } catch (error) {
+      onToast("ส่งไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (summary === null) return null;
+  const when = (iso: string | null) => iso ? new Date(iso).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+
+  return (
+    <div style={css(`${CARD};overflow:hidden`)}>
+      <div style={css("display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #E6EBF0;flex-wrap:wrap")}>
+        <span style={css(LABEL)}>สรุปงานวันถัดไป {summary.date}</span>
+        <span style={css("font-size:12px;color:#475569")}>
+          {summary.summaryAt ? `ส่งอัตโนมัติ ${summary.summaryAt} น. ของวันก่อนหน้า` : "ไม่มีกำหนดส่งอัตโนมัติ"}
+          {!summary.canPush && summary.pushMessage && <span style={css("color:#B45309")}> · {summary.pushMessage}</span>}
+        </span>
+      </div>
+      <ZoomBox capped={false} zoomable={false}>
+      <table style={css("width:100%;border-collapse:collapse")}>
+        <thead>
+          <tr>
+            <th style={css(HEAD)}>กลุ่ม LINE</th>
+            <th style={css(HEAD)}>ผู้ขนส่ง</th>
+            <th style={css(HEAD)}>งานวันถัดไป</th>
+            <th style={css(HEAD)}>ส่งล่าสุด</th>
+            <th style={css(HEAD)}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.rooms.map((room) => (
+            <Fragment key={room.lineGroupId}>
+              <tr>
+                <td style={css(`${CELL};white-space:nowrap`)}>{room.groupName}</td>
+                <td style={css(CELL)}>{room.supplier}</td>
+                <td style={css(`${CELL};font-variant-numeric:tabular-nums`)}>
+                  {room.jobs}
+                  {room.jobs > 0 && (
+                    <button onClick={() => setShown(shown === room.lineGroupId ? null : room.lineGroupId)}
+                      style={css("margin-left:8px;border:1px solid #D3DBE3;background:#fff;color:#465A6E;border-radius:3px;padding:1px 8px;font-size:11px;font-family:inherit;cursor:pointer")}>
+                      {shown === room.lineGroupId ? "ซ่อนข้อความ" : "ดูข้อความ"}
+                    </button>
+                  )}
+                </td>
+                <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>
+                  {room.sentAt ? `${when(room.sentAt)} · ${room.sentBy}` : "—"}
+                </td>
+                <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
+                  {canSend && summary.canPush && room.jobs > 0 && (
+                    <button disabled={busy} onClick={() => void send(room.lineGroupId)}
+                      style={css(`${BUTTON};border-color:#0A2240;background:#fff;color:#0A2240`)}>
+                      {room.sentAt ? "ส่งอีกครั้ง" : "ส่งตอนนี้"}
+                    </button>
+                  )}
+                </td>
+              </tr>
+              {shown === room.lineGroupId && (
+                <tr>
+                  <td colSpan={5} style={css("padding:0 12px 12px;border-bottom:1px solid #E6EBF0;background:#F8FAFC")}>
+                    {room.messages.map((text, i) => (
+                      <pre key={i} style={css("margin:8px 0 0;white-space:pre-wrap;font-family:inherit;font-size:12px;color:#334155;background:#fff;border:1px solid #E2E8F0;border-radius:4px;padding:10px 12px")}>{text}</pre>
+                    ))}
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          ))}
+          {summary.rooms.length === 0 && (
+            <tr><td colSpan={5} style={css(`${CELL};color:#94A3B8`)}>ยังไม่มีกลุ่ม LINE ที่ผูกกับผู้ขนส่ง</td></tr>
+          )}
+        </tbody>
+      </table>
+      </ZoomBox>
     </div>
   );
 }
