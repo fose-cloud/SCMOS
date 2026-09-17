@@ -1106,7 +1106,11 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         string? ServiceArea, string? ServiceType,
         bool? DgCapable, bool? ReeferCapable, bool? IsoTankCapable, bool? GpsEquipped,
         string? LegalName = null, string? ContactPerson = null, string? Telephone = null,
-        string? Fax = null, string? Email = null, string? Website = null);
+        string? Fax = null, string? Email = null, string? Website = null,
+        // The rest of procurement's ASL/BSL columns, typed here since 17 Sep
+        // 2026 — the screen showed them and offered no way to fill them in.
+        string? AbsNo = null, string? ListType = null, string? CreditTerm = null,
+        string? ServicesRequired = null, string? MainSpType = null, string? TypeOfService = null);
 
     /// <summary>
     /// Corrects a company's own details.
@@ -1136,13 +1140,43 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         foreach (var (value, maximum, label) in new[] {
             (edit.LegalName, 200, "ชื่อจดทะเบียน"), (edit.ContactPerson, 200, "ผู้ติดต่อ"),
             (edit.Telephone, 200, "โทรศัพท์"), (edit.Fax, 120, "Fax"),
-            (edit.Email, 200, "Email"), (edit.Website, 250, "Website") })
+            (edit.Email, 200, "Email"), (edit.Website, 250, "Website"),
+            (edit.AbsNo, 32, "ABS No"), (edit.CreditTerm, 40, "Credit Term"),
+            (edit.ServicesRequired, 120, "Services Required"), (edit.MainSpType, 60, "Main SP Type"),
+            (edit.TypeOfService, 300, "Type of Service") })
             if (value?.Trim().Length > maximum)
                 return new SupplierResult(false, $"{label} ยาวเกิน {maximum} ตัวอักษร");
         var supplier = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == id, token);
         if (supplier is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
 
         var changed = new List<string>();
+
+        // The ABS number is the join to procurement's list and what the import
+        // matches on first; two rows with one number would be one company
+        // twice. Empty is allowed — most of the register has none.
+        if (edit.AbsNo is not null)
+        {
+            var absNo = edit.AbsNo.Trim();
+            if (absNo != supplier.AbsNo)
+            {
+                if (absNo.Length > 0 && await db.Suppliers.AnyAsync(row => row.Id != id && row.AbsNo == absNo, token))
+                    return new SupplierResult(false, $"ABS No {absNo} เป็นของผู้ขนส่งรายอื่นอยู่แล้ว");
+                changed.Add($"ABS No {(supplier.AbsNo.Length == 0 ? "(ว่าง)" : supplier.AbsNo)} → {(absNo.Length == 0 ? "(ว่าง)" : absNo)}");
+                supplier.AbsNo = absNo;
+            }
+        }
+
+        if (edit.ListType is not null)
+        {
+            var listType = edit.ListType.Trim().ToUpperInvariant();
+            if (listType is not ("" or "ASL" or "BSL"))
+                return new SupplierResult(false, "ASL-BSL ต้องเป็น ASL, BSL หรือว่าง");
+            if (listType != supplier.ListType)
+            {
+                changed.Add($"ASL-BSL {(supplier.ListType.Length == 0 ? "(ว่าง)" : supplier.ListType)} → {(listType.Length == 0 ? "(ว่าง)" : listType)}");
+                supplier.ListType = listType;
+            }
+        }
 
         if (edit.Code is not null)
         {
@@ -1213,6 +1247,10 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         Text("ที่อยู่", edit.Address, () => supplier.Address, value => supplier.Address = value);
         Text("พื้นที่ให้บริการ", edit.ServiceArea, () => supplier.ServiceArea, value => supplier.ServiceArea = value);
         Text("ประเภทบริการ", edit.ServiceType, () => supplier.ServiceType, value => supplier.ServiceType = value);
+        Text("Credit Term", edit.CreditTerm, () => supplier.CreditTerm, value => supplier.CreditTerm = value);
+        Text("Services Required", edit.ServicesRequired, () => supplier.ServicesRequired, value => supplier.ServicesRequired = value);
+        Text("Main SP Type", edit.MainSpType, () => supplier.MainSpType, value => supplier.MainSpType = value);
+        Text("Type of Service", edit.TypeOfService, () => supplier.TypeOfService, value => supplier.TypeOfService = value);
 
         void Flag(string label, bool? value, Func<bool> read, Action<bool> write)
         {

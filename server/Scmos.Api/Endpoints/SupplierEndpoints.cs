@@ -31,7 +31,9 @@ public static class SupplierEndpoints
         bool? DgCapable, bool? ReeferCapable, bool? IsoTankCapable, bool? GpsEquipped,
         string? Reason,
         string? LegalName = null, string? ContactPerson = null, string? Telephone = null,
-        string? Fax = null, string? Email = null, string? Website = null);
+        string? Fax = null, string? Email = null, string? Website = null,
+        string? AbsNo = null, string? ListType = null, string? CreditTerm = null,
+        string? ServicesRequired = null, string? MainSpType = null, string? TypeOfService = null);
 
     public record AliasBody(string? Alias, string? Reason);
     public record EvaluateBody(string? Period, int? Safety, int? Documents, string? Note);
@@ -244,7 +246,8 @@ public static class SupplierEndpoints
                     body.Code, body.Name, body.Status, body.VendorNo, body.TaxId, body.Address,
                     body.ServiceArea, body.ServiceType,
                     body.DgCapable, body.ReeferCapable, body.IsoTankCapable, body.GpsEquipped,
-                    body.LegalName, body.ContactPerson, body.Telephone, body.Fax, body.Email, body.Website),
+                    body.LegalName, body.ContactPerson, body.Telephone, body.Fax, body.Email, body.Website,
+                    body.AbsNo, body.ListType, body.CreditTerm, body.ServicesRequired, body.MainSpType, body.TypeOfService),
                     user.Signature, token),
                 AuditActions.Update, "supplier", id.ToString(), "ข้อมูลบริษัท", "",
                 body.Name ?? body.Code ?? "", body.Reason ?? ""));

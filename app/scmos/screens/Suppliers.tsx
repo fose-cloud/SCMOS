@@ -57,6 +57,9 @@ type Edit = Partial<{
   vendorNo: string; taxId: string; address: string;
   serviceArea: string; serviceType: string;
   dgCapable: boolean; reeferCapable: boolean; isoTankCapable: boolean; gpsEquipped: boolean;
+  /* Procurement's ASL/BSL columns, every one the table shows (17 Sep 2026). */
+  absNo: string; listType: string; creditTerm: string;
+  servicesRequired: string; mainSpType: string; typeOfService: string;
 }>;
 
 const STATUS_TONE: Record<string, string> = {
@@ -1221,15 +1224,39 @@ function Details({ supplier, others, busy, canManage = true, onEdit, onRemove, o
         </span>
       </div>
 
+      {/* The table's columns, in the table's order — asked for on 17 Sep
+          2026, when the form offered eight of the fourteen and nowhere to
+          type the ABS number, the list, the credit term or the three
+          "what kind of company" columns. Then SCMOS's own. */}
+      <div style={css("font-size:11px;color:#7B8CA0;margin-bottom:6px")}>คอลัมน์ตามทะเบียน ASL/BSL — ลำดับเดียวกับตาราง</div>
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px")}>
+        {text("absNo", "ABS No", "เลขในระบบ ABS ของจัดซื้อ")}
+        <label style={css("display:flex;flex-direction:column;gap:3px")}>
+          <span style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>ASL-BSL</span>
+          <select value={String(value("listType") ?? "")} onChange={(e) => set("listType", e.target.value)}
+            style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff;font-family:inherit")}>
+            <option value="">— ไม่อยู่ในรายชื่อ —</option>
+            <option value="ASL">ASL (Approved Supplier List)</option>
+            <option value="BSL">BSL (Blocked Supplier List)</option>
+          </select>
+        </label>
         {text("code", "รหัส", "ไม่ซ้ำกับรายอื่น")}
-        {text("name", "ชื่อบริษัท")}
-        {text("legalName", "ชื่อจดทะเบียน (SUPPLIER_NAME)")}
-        {text("contactPerson", "ผู้ติดต่อ")}
-        {text("telephone", "โทรศัพท์")}
+        {text("legalName", "Supplier_Name (ชื่อจดทะเบียน)")}
+        {text("address", "Address")}
+        {text("contactPerson", "Contact_Person")}
+        {text("telephone", "Telephone")}
         {text("fax", "Fax")}
         {text("email", "Email")}
         {text("website", "Website")}
+        {text("creditTerm", "Credit Term (Days)", "เช่น 30")}
+        {text("servicesRequired", "Services Required", "Customs Clearance, Freight (Air / Sea)")}
+        {text("mainSpType", "Main SP Type", "General / Deposit Container")}
+        {text("typeOfService", "Type of Service", "Transportation Services, Logistic Agent")}
+      </div>
+
+      <div style={css("font-size:11px;color:#7B8CA0;margin:13px 0 6px")}>ข้อมูลของ SCMOS</div>
+      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px")}>
+        {text("name", "ชื่อบริษัท (ชื่อที่ใช้ในตารางงาน)")}
         <label style={css("display:flex;flex-direction:column;gap:3px")}>
           <span style={css("font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>สถานะ</span>
           <select disabled={!canManage} value={String(value("status"))} onChange={(e) => set("status", e.target.value)}
@@ -1241,9 +1268,8 @@ function Details({ supplier, others, busy, canManage = true, onEdit, onRemove, o
         </label>
         {text("vendorNo", "เลขผู้ขาย")}
         {text("taxId", "เลขประจำตัวผู้เสียภาษี")}
-        {text("serviceType", "ประเภทบริการ", "FCL, LCL, ISO TANK")}
+        {text("serviceType", "ประเภทบริการ (ตารางราคา)", "FCL, LCL, ISO TANK")}
         {text("serviceArea", "พื้นที่ให้บริการ")}
-        {text("address", "ที่อยู่")}
       </div>
 
       <div style={css("display:flex;gap:14px;flex-wrap:wrap;margin-top:11px")}>

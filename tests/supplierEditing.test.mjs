@@ -25,3 +25,16 @@ test("main supplier grid has selection, confirms deletion, and retains linked-re
   const serverRemove = service.slice(service.indexOf("public async Task<SupplierResult> RemoveAsync"));
   assert.ok(serverRemove.indexOf("holdings.Total > 0") < serverRemove.indexOf("db.Suppliers.Remove"));
 });
+
+test("the details form offers every ASL/BSL column the table shows, and the API takes them", () => {
+  // Asked for on 17 Sep 2026: the table showed fourteen procurement columns and
+  // the form offered eight of them.
+  for (const field of ["absNo", "listType", "creditTerm", "servicesRequired", "mainSpType", "typeOfService"]) {
+    assert.ok(ui.includes(`text("${field}"`) || ui.includes(`value("${field}")`), `${field} is not on the form`);
+  }
+  assert.match(api, /string\? AbsNo = null, string\? ListType = null, string\? CreditTerm = null/);
+  assert.match(api, /body.AbsNo, body.ListType, body.CreditTerm, body.ServicesRequired, body.MainSpType, body.TypeOfService/);
+  // The ABS number is the join to procurement: one company per number.
+  assert.match(service, /row.Id != id && row.AbsNo == absNo/);
+  assert.match(service, /listType is not \("" or "ASL" or "BSL"\)/);
+});
