@@ -154,6 +154,21 @@ public static class LineParserCheck
             // A driver writing 23:50 at 11:00 is reporting last night's trip.
             ("a time far ahead of the message is yesterday", "260600800773 ถึงลูกค้าแล้ว 23:50", "2026-09-06T23:50:00+07:00"),
         };
+        // An estimate looks the other way: "คาดถึง 14:30" at 11:00 is this afternoon.
+        var forecasts = new (string Why, string Message, string Want)[]
+        {
+            ("an estimate this afternoon is today, not yesterday", "260600800773 รถติด คาดถึง 14:30", "2026-09-07T14:30:00+07:00"),
+            ("an estimate an hour and a half ahead likewise", "EXFU5627436 ประมาณ 12.20 รถถึงโรงงาน", "2026-09-07T12:20:00+07:00"),
+            ("an estimate already gone by more than an hour is tomorrow's", "260600800773 คาดถึง 01:00", "2026-09-08T01:00:00+07:00"),
+        };
+        foreach (var (why, message, want) in forecasts)
+        {
+            var got = LineParser.Parse(message, Received).Eta;
+            var same = got is not null && got.Value.ToString("yyyy-MM-ddTHH:mm:sszzz") == want;
+            if (!same) failed++;
+            Console.WriteLine($"  {(same ? "ok  " : "FAIL")}  {why}");
+            if (!same) Console.WriteLine($"          want {want}  got {got?.ToString("yyyy-MM-ddTHH:mm:sszzz") ?? "-"}");
+        }
         foreach (var (why, message, want) in times)
         {
             var got = LineParser.Parse(message, Received).EventTime;
@@ -533,6 +548,16 @@ public static class LineParserCheck
                     && text.Contains("แผน 13:00 — เลยมา 40 นาที", StringComparison.Ordinal)
                     && text.Contains("TXGU8142057 ถึงโรงงาน 12:40", StringComparison.Ordinal)),
             ("nothing due, no message", LineChase.Compose("SHORE", [], At("13:40")).Length == 0),
+            // "ประมาณ 10.00 รถถึงโรงงาน" at 08:37: at 10:00 the room is asked whether it did.
+            ("an estimate is due its ask at its clock, once the clock has come, and only if it lay ahead of the message",
+                !LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("08:37"), At("09:55"))
+                && LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("08:37"), At("10:00"))
+                && !LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("10:20"), At("10:25"))
+                && !LineChase.EtaDue(Planned("J", "IMPORT", "DELIVERED", "09:00"), At("10:00"), At("08:37"), At("10:05"))),
+            ("the ask says what the driver promised",
+                LineChase.Compose("DGT", [(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), LineChase.EtaStage(At("10:00")))], At("10:00"))
+                    .Contains("แจ้งไว้ว่าคาดถึง 10:00 — ถึงโรงงานแล้วหรือยังครับ", StringComparison.Ordinal)
+                && LineChase.IsEtaStage("eta:10:00") && !LineChase.IsEtaStage("overdue#2")),
         };
         foreach (var (why, ok) in chase)
         {

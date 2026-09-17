@@ -46,6 +46,25 @@ public static class LineChase
     public const int MaxRepeats = 6;
 
     /// <summary>
+    /// The stage for a haulier's own estimate: "ประมาณ 10.00 รถถึงโรงงาน" is
+    /// asked about at 10:00 — did it? — once, whatever the plan-time stages
+    /// are doing (asked for 17 Sep 2026). Named by the clock, so a later
+    /// estimate is a new ask.
+    /// </summary>
+    public static string EtaStage(DateTimeOffset eta) => $"eta:{eta:HH:mm}";
+
+    /// <summary>Whether a stage is an estimate's ask.</summary>
+    public static bool IsEtaStage(string stage) => stage.StartsWith("eta:", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether an estimate is due its ask: the clock has come, the estimate
+    /// was ahead of the message that gave it (one already past when sent is
+    /// nothing to wait for), and the truck is still unreported.
+    /// </summary>
+    public static bool EtaDue(LineReminder.JobLine job, DateTimeOffset eta, DateTimeOffset saidAt, DateTimeOffset now) =>
+        now >= eta && eta > saidAt && !Arrived(job);
+
+    /// <summary>
     /// Whether the truck has been reported at the site: an arrival stamp on
     /// the job, or a status at or past the rung "ถึงโรงงาน" resolves to for
     /// the job's category — DELIVERED on an import or a Domestic run,
@@ -137,7 +156,9 @@ public static class LineChase
         if (Formats.Clean(job.Licence).Length > 0) parts.Add($"รถ {Formats.Clean(job.Licence)}");
 
         var plan = PlanAt(job);
-        var when = plan is null ? "" : stage == Before
+        var when = IsEtaStage(stage)
+            ? $"แจ้งไว้ว่าคาดถึง {stage[4..]} — ถึงโรงงานแล้วหรือยังครับ"
+            : plan is null ? "" : stage == Before
             ? $"แผน {plan.Value:HH:mm} — อีก {Math.Max(1, (int)Math.Round((plan.Value - now).TotalMinutes))} นาที"
             : $"แผน {plan.Value:HH:mm} — เลยมา {Elapsed(now - plan.Value)} ยังไม่มีรายงานถึง"
               + (stage == Overdue ? "" : $" (ติดตามครั้งที่ {AskNumber(stage)})");

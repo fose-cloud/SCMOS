@@ -704,6 +704,28 @@ public static class LineParser
     }
 
     /// <summary>
+    /// A clock reading that is an estimate, resolved against the day the
+    /// message arrived — looking forward, since a truck is not expected in
+    /// the past. The same day unless the time is more than an hour gone,
+    /// when it is tomorrow: "คาดถึง 01:00" at 23:30 is after midnight.
+    /// </summary>
+    public static DateTimeOffset? ResolveForecast(string clock, DateTimeOffset receivedAt)
+    {
+        var match = Clock.Match(clock);
+        if (!match.Success) return null;
+
+        var hour = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        var minute = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+
+        var bangkok = TimeSpan.FromHours(7);
+        var here = receivedAt.ToOffset(bangkok);
+        var candidate = new DateTimeOffset(here.Year, here.Month, here.Day, hour, minute, 0, bangkok);
+
+        if (here - candidate > TimeSpan.FromHours(1)) candidate = candidate.AddDays(1);
+        return candidate;
+    }
+
+    /// <summary>
     /// Whether the time in a message is a forecast rather than something that
     /// happened.
     ///
@@ -778,7 +800,9 @@ public static class LineParser
         // supplier that nobody can win.
         if (delayCategory is not null && delayConfidence < 0.9) warnings.Add("delay-ambiguous");
 
-        var time = ResolveTime(text, receivedAt);
+        // An event is put on the right day looking back; an estimate looking
+        // forward. "คาดถึง 14:30" at 11:00 is this afternoon, not yesterday's.
+        var time = forecast ? ResolveForecast(text, receivedAt) : ResolveTime(text, receivedAt);
         DateTimeOffset? eventTime = null;
         DateTimeOffset? eta = null;
         if (time is not null)

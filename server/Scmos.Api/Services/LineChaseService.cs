@@ -88,15 +88,34 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             .ToListAsync(token);
         var done = asked.Select(one => one.EntityId + "|" + one.Field).ToHashSet(StringComparer.Ordinal);
 
-        // A job the room has already answered about today — a message on it
-        // waiting for a person to approve — is not asked again. The haulier
-        // said; the delay is on this side. Approving or dismissing the
-        // message lets the chase resume if the register still shows nothing.
-        var answered = (await db.LineEvents.AsNoTracking()
-            .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "" && one.ReceivedAt >= since)
-            .Select(one => one.JobKey)
-            .ToListAsync(token))
+        // Today's messages on a job, read again: which jobs have an answer
+        // waiting for a person, and which have an estimate to be asked about.
+        var today = await db.LineEvents.AsNoTracking()
+            .Where(one => one.MessageType == "text" && one.JobKey != "" && one.ReceivedAt >= since
+                && one.ProcessingStatus != LineProcessing.Received && one.ProcessingStatus != LineProcessing.Processing)
+            .Select(one => new { one.JobKey, one.ErrorCode, one.ErrorMessage, one.RawText, one.ReceivedAt })
+            .ToListAsync(token);
+
+        // A job the room has already answered about — a message on it waiting
+        // for a person to approve — is not asked again. The haulier said; the
+        // delay is on this side. Approving or dismissing the message lets the
+        // chase resume if the register still shows nothing. Only a message
+        // with something to approve counts: an estimate alone is filed quiet
+        // and would otherwise hold the chase off for good.
+        var answered = today.Where(one => one.ErrorCode == "ready-to-apply")
+            .SelectMany(one => KeysOf(one.JobKey, one.ErrorMessage))
             .ToHashSet(StringComparer.Ordinal);
+
+        // "ประมาณ 10.00 รถถึงโรงงาน": at 10:00 the room is asked whether it did
+        // (17 Sep 2026). The latest estimate for each job, with when it was
+        // given; a message about every box of a number carries it to each.
+        var etas = new Dictionary<string, (DateTimeOffset Eta, DateTimeOffset SaidAt)>(StringComparer.Ordinal);
+        foreach (var one in today.OrderBy(one => one.ReceivedAt))
+        {
+            var read = LineParser.Parse(one.RawText, one.ReceivedAt);
+            if (read.Question || read.Eta is not { } eta) continue;
+            foreach (var key in KeysOf(one.JobKey, one.ErrorMessage)) etas[key] = (eta, one.ReceivedAt);
+        }
 
         var rooms = new List<Room>();
         foreach (var room in await reminders.RoomsAsync(day, token))
@@ -107,11 +126,30 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
                 .Where(one => one.Stage is not null && !done.Contains(one.Job.Key + "|" + one.Stage))
                 .Select(one => (one.Job, one.Stage!))
                 .ToList();
+
+            // An estimate's ask, at its clock — in place of the plan-time ask
+            // when both fall in the same five minutes, since one line per
+            // job is enough and this one says what the driver promised.
+            foreach (var job in room.AllJobs)
+            {
+                if (!etas.TryGetValue(job.Key, out var said) || !LineChase.EtaDue(job, said.Eta, said.SaidAt, here)) continue;
+                var stage = LineChase.EtaStage(said.Eta);
+                if (done.Contains(job.Key + "|" + stage)) continue;
+                due.RemoveAll(one => one.Job.Key == job.Key);
+                due.Add((job, stage));
+            }
             if (due.Count == 0) continue;
             rooms.Add(new Room(room.LineGroupId, room.GroupName, room.Supplier, due,
                 LineChase.Compose(room.Supplier, due, here)));
         }
         return rooms;
+    }
+
+    /// <summary>The jobs a row is about: its key, or every key of a message about every box of a number.</summary>
+    private static IReadOnlyList<string> KeysOf(string jobKey, string note)
+    {
+        var many = LineAuthority.KeysIn(note);
+        return many.Count > 1 && many.Contains(jobKey) ? many : [jobKey];
     }
 
     /// <summary>Sends every room its due question and writes the ledger. Returns how many jobs were asked.</summary>
@@ -131,7 +169,8 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             {
                 await audit.RecordAsync(by, Action, "job", job.Key, job.JobCode.Length > 0 ? job.JobCode : job.Booking,
                     stage, "", room.GroupName,
-                    stage == LineChase.Before ? $"ติดตามสถานะรถ {LineChase.Elapsed(TimeSpan.FromMinutes(BeforeMinutes))}ก่อนเวลาแผน"
+                    LineChase.IsEtaStage(stage) ? $"ติดตามตามเวลาที่ผู้ขนส่งแจ้งคาดถึง {stage[4..]}"
+                    : stage == LineChase.Before ? $"ติดตามสถานะรถ {LineChase.Elapsed(TimeSpan.FromMinutes(BeforeMinutes))}ก่อนเวลาแผน"
                     : stage == LineChase.Overdue ? $"ติดตามสถานะรถ {LineChase.Elapsed(TimeSpan.FromMinutes(Minutes))}หลังเวลาแผน"
                     : $"ติดตามสถานะรถซ้ำ ครั้งที่ {LineChase.AskNumber(stage)} — ยังไม่มีเวลาถึง",
                     token, EventSource.Line);
