@@ -181,6 +181,13 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             await AnswerAsync(db, row, LineReply.ForMessage(read, row.ErrorCode, ResolvedTo(row, read)), stopping);
     }
 
+    /// <summary>
+    /// The row's reason when a message says nothing about any job — a
+    /// greeting, an acknowledgement, a caption. Filed as ignored, never
+    /// answered; the room is not to be argued with.
+    /// </summary>
+    public const string NotAboutAJob = "not-about-a-job";
+
     /// <summary>The status the message would set, as the matched job's ladder names it, for the acknowledgement.</summary>
     private static string ResolvedTo(LineEvent row, LineParser.Parsed read) =>
         read.Status is null ? "" : row.JobKey.Length > 0 && row.ErrorMessage.Length == 0 ? row.ParsedStatus : read.Status;
@@ -203,13 +210,18 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         // applied here either way.
         if (read.Warnings.Count > 0 || !read.HasReference)
         {
-            // A question — "ถึงโรงงานที่โมงคะ" — is the room talking to itself.
-            // Filed where it can be found, not queued for anybody.
-            row.ProcessingStatus = read.Question ? LineProcessing.Ignored : LineProcessing.NeedReview;
-            row.ErrorCode = read.Warnings.Count > 0 ? read.Warnings[0] : "no-reference";
+            // A question — "ถึงโรงงานที่โมงคะ" — is the room talking to itself,
+            // and so is a message about no job at all — "สวัสดีครับ",
+            // "รับทราบ" (17 Sep 2026). Filed where it can be found, not
+            // queued for anybody, and not answered.
+            var idle = read.Question || !read.AboutAJob;
+            row.ProcessingStatus = idle ? LineProcessing.Ignored : LineProcessing.NeedReview;
+            row.ErrorCode = read.Question ? (read.Warnings.Count > 0 ? read.Warnings[0] : "no-reference")
+                : !read.AboutAJob ? NotAboutAJob
+                : read.Warnings.Count > 0 ? read.Warnings[0] : "no-reference";
             row.ErrorMessage = "";
             await db.SaveChangesAsync(stopping);
-            log.LogInformation("LINE message {Id} needs review: {Reason}", row.Id, row.ErrorCode);
+            log.LogInformation("LINE message {Id} {Filed}: {Reason}", row.Id, idle ? "filed" : "needs review", row.ErrorCode);
             return;
         }
 

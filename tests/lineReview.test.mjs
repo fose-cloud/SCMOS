@@ -151,6 +151,10 @@ test("every code the parser and the rule can now produce has words on the screen
   }
   // The rows stored before the parser read containers keep their word.
   assert.notEqual(describe("no-job-number").label, "no-job-number");
+  // A greeting or a "รับทราบ" is filed quietly, since 17 Sep 2026 — nothing for anybody to do.
+  assert.notEqual(describe("not-about-a-job").label, "not-about-a-job");
+  assert.equal(describe("not-about-a-job").tone, "quiet");
+  assert.equal(isActionable("not-about-a-job"), false);
 });
 
 test("the one status the parser cannot settle alone is named as such", () => {

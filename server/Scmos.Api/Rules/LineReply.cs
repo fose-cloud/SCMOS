@@ -34,7 +34,9 @@ public static class LineReply
     {
         var parts = new List<string>();
         if (resolvedTo.Length > 0) parts.Add(resolvedTo);
-        if (read.ArrivalTime is { } at) parts.Add($"ถึง {at:HH:mm}");
+        // An arrival taken from the send time says so, so a driver who typed
+        // "ถึงโรงงาน" an hour after the fact knows to send the clock.
+        if (read.ArrivalTime is { } at) parts.Add(read.ArrivalAtSend ? $"ถึง {at:HH:mm} (เวลาที่ส่งข้อความ)" : $"ถึง {at:HH:mm}");
         if (read.Plates is { Count: > 0 } plates) parts.Add($"ทะเบียน {plates[0]}");
         if (read.Driver is not null) parts.Add($"คนขับ {read.Driver}");
         if (read.Phone is not null) parts.Add($"เบอร์ {read.Phone}");
@@ -63,6 +65,8 @@ public static class LineReply
             LineAuthority.Outcome.NoSuchJob or LineAuthority.Outcome.NotYourJob =>
                 $"ไม่พบ {reference} ในงานของท่านช่วงนี้ — ช่วยตรวจเลขตู้ / Job No. อีกครั้งครับ",
             "no-reference" => "ยังอ่านไม่ออกว่าเป็นงานไหน — ช่วยส่งเลขตู้หรือ Job No. มาด้วยครับ เช่น TXGU8142057 ถึงโรงงาน 12:40",
+            // A greeting, a "รับทราบ": not about a job, and not answered.
+            Services.LineEventWorker.NotAboutAJob => null,
             "nothing-understood" => $"รับ {reference} แล้ว แต่ไม่พบสถานะ — ส่ง \"ถึงโรงงาน HH:MM\" หรือ \"ลงเสร็จ\" มาด้วยครับ",
             "many-job-numbers" or "many-containers" => "ข้อความมีหลายงานปนกัน — ช่วยส่งทีละตู้ครับ",
             LineAuthority.Outcome.NoStatus => null,

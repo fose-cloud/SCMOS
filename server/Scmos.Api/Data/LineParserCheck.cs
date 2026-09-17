@@ -221,6 +221,53 @@ public static class LineParserCheck
                 LineParser.Parse("260600800773 70-1234 ถึงลูกค้าแล้ว 10.25", Received) is { Driver: null, Plates: ["70-1234"], Status: "DELIVERED" }, "-"),
             ("such a message is understood, and would be matched",
                 LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received) is { Warnings.Count: 0, HasDetails: true }, "-"),
+
+            /* ---- 17 Sep 2026: ถึงโรงงาน means ถึงแล้ว, and a room's small talk is left alone ---- */
+
+            ("\"ถึงแล้ว\" on its own is the site, like ถึงโรงงาน",
+                LineParser.Parse("TXGU8142057 ถึงแล้วครับ", Received).Status == LineParser.SiteArrival,
+                LineParser.Parse("TXGU8142057 ถึงแล้วครับ", Received).Status ?? "-"),
+            ("ถึงโรงงาน with no clock is an arrival at the minute the message was sent, and says so",
+                LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received) is { ArrivalAtSend: true, Status: LineParser.SiteArrival } at
+                    && at.ArrivalTime?.ToString("yyyy-MM-ddTHH:mm:sszzz") == "2026-09-07T11:00:00+07:00"
+                    && at.MatchedRules.Contains("arrival-at-send:11:00"),
+                LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received).ArrivalTime?.ToString("yyyy-MM-ddTHH:mm:sszzz") ?? "-"),
+            ("the send time is taken to the minute, whatever the second and the zone",
+                LineParser.Parse("TXGU8142057 ถึงลูกค้าแล้ว", new DateTimeOffset(2026, 9, 7, 4, 0, 42, TimeSpan.Zero)).ArrivalTime?.ToString("yyyy-MM-ddTHH:mm:sszzz") == "2026-09-07T11:00:00+07:00",
+                LineParser.Parse("TXGU8142057 ถึงลูกค้าแล้ว", new DateTimeOffset(2026, 9, 7, 4, 0, 42, TimeSpan.Zero)).ArrivalTime?.ToString("yyyy-MM-ddTHH:mm:sszzz") ?? "-"),
+            ("a clock the driver wrote still wins over the send time",
+                LineParser.Parse("TXGU8142057 ถึงโรงงาน 12:40", Received) is { ArrivalAtSend: false } clocked && clocked.ArrivalTime?.ToString("HH:mm") == "12:40",
+                LineParser.Parse("TXGU8142057 ถึงโรงงาน 12:40", Received).ArrivalTime?.ToString("HH:mm") ?? "-"),
+            ("after ลงเสร็จ the arrival was earlier and is not the send time",
+                LineParser.Parse("TXGU8142057 ถึงโรงงาน ลงเสร็จ", Received) is { ArrivalTime: null, Status: "DELIVERED" }, "-"),
+            ("nor is the port, nor an estimate",
+                LineParser.Parse("TXGU8142057 ถึงท่าแล้ว", Received).ArrivalTime is null
+                    && LineParser.Parse("TXGU8142057 ถึงโรงงาน ประมาณ 14:00", Received).ArrivalTime is null, "-"),
+            ("a clock elsewhere in the message is a time the driver gave, not one to replace",
+                LineParser.Parse("10:30 TXGU8142057 ถึงโรงงาน", Received) is { ArrivalTime: null, ArrivalAtSend: false }, "-"),
+            ("\"จะถึงโรงงานแล้ว\" is the truck about to arrive, and reports nothing",
+                LineParser.Parse("TXGU8142057 จะถึงโรงงานแล้ว", Received) is { Status: null, ArrivalTime: null },
+                LineParser.Parse("TXGU8142057 จะถึงโรงงานแล้ว", Received).Status ?? "-"),
+            ("\"ยังไม่ถึง\" likewise",
+                LineParser.Parse("TXGU8142057 ยังไม่ถึงโรงงาน รถติด", Received) is { Status: null, Delayed: true }, "-"),
+            ("the truck about to arrive is not the driver's name",
+                LineParser.Parse("TXGU8142057 70-1234 จะถึงโรงงานแล้วครับ", Received).Driver is null,
+                LineParser.Parse("TXGU8142057 70-1234 จะถึงโรงงานแล้วครับ", Received).Driver ?? "-"),
+            ("arrived at the pickup with a clock is not the arrival",
+                LineParser.Parse("260600800773 arrived pickup 08:10", Received).ArrivalTime is null, "-"),
+            ("a greeting is about no job",
+                !LineParser.Parse("สวัสดีครับ", Received).AboutAJob, "-"),
+            ("nor is an acknowledgement",
+                !LineParser.Parse("รับทราบครับ", Received).AboutAJob && !LineParser.Parse("ok", Received).AboutAJob, "-"),
+            ("a bare clock is not either",
+                !LineParser.Parse("นัด 14:00 นะครับ", Received).AboutAJob, "-"),
+            ("but a status with no number is — it is a report that needs its job",
+                LineParser.Parse("ถึงโรงงานแล้วครับ", Received).AboutAJob
+                    && LineParser.Parse("รถติดบางนา", Received).AboutAJob, "-"),
+            ("and so is a plate, a booking or a driver's number",
+                LineParser.Parse("70-1234 ครับ", Received).AboutAJob
+                    && LineParser.Parse("LC2606594", Received).AboutAJob
+                    && LineParser.Parse("โทร 081-2345678", Received).AboutAJob, "-"),
         };
         foreach (var (why, ok, got) in reads)
         {
@@ -458,6 +505,11 @@ public static class LineParserCheck
                 LineReply.ForMessage(arrivalRead, LineAuthority.Outcome.UnknownGroup, "") is null, "-"),
             ("a message with nothing to find the job by is told what to send",
                 LineReply.ForMessage(LineParser.Parse("ถึงแล้วครับ", Received), "no-reference", "")!.Contains("เลขตู้หรือ Job No.", StringComparison.Ordinal), "-"),
+            ("a greeting gets no answer at all",
+                LineReply.ForMessage(LineParser.Parse("สวัสดีครับ", Received), LineEventWorker.NotAboutAJob, "") is null, "-"),
+            ("an arrival taken from the send time says so",
+                LineReply.ForMessage(LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received), "ready-to-apply", "DELIVERED") == "รับทราบ TXGU8142057 — DELIVERED · ถึง 11:00 (เวลาที่ส่งข้อความ) · รอเจ้าหน้าที่ยืนยันครับ",
+                LineReply.ForMessage(LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received), "ready-to-apply", "DELIVERED")),
             ("a photo's number, read and checked, is acknowledged",
                 LineReply.ForPhoto("TEMU5246902", [], "ready-to-apply") == "รับทราบ เลขตู้ TEMU5246902 จากรูป · รอเจ้าหน้าที่ยืนยันครับ",
                 LineReply.ForPhoto("TEMU5246902", [], "ready-to-apply")),

@@ -94,6 +94,14 @@ const OUTCOMES: Outcome[] = [
     label: "เป็นคำถามในกลุ่ม ไม่ใช่รายงานสถานะ",
     next: "",
   },
+  // A greeting, a "รับทราบ", a caption — nothing about any job. Filed and
+  // not answered, since 17 Sep 2026; before that each one was queued and
+  // the bot asked the room for a container number.
+  {
+    code: "not-about-a-job", tone: "quiet",
+    label: "ข้อความทั่วไปในกลุ่ม ไม่เกี่ยวกับงาน",
+    next: "",
+  },
   {
     code: "no-job-number", tone: "attention",
     label: "ไม่มีเลขงานในข้อความ",

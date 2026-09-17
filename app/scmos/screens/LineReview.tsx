@@ -41,7 +41,7 @@ type Event = {
   /** The box and the plates the parser reads out of the text now, and the arrival clock after ถึง. */
   container: string;
   plates: string[];
-  arrival: { date: string; time: string };
+  arrival: { date: string; time: string; atSend?: boolean };
   parsedStatus: string;
   confidence: number;
   processingStatus: string;
@@ -93,7 +93,7 @@ type Options = {
   outcome: string; detail: string; canApply: boolean;
   from: string; to: string; options: Option[]; stored: string;
   reference: { jobNumber: string; container: string; plates: string[] };
-  arrival: { date: string; time: string };
+  arrival: { date: string; time: string; atSend?: boolean };
   /** "image" when approving writes a container number rather than a status. */
   kind?: string;
   imageReading?: string;
@@ -551,7 +551,9 @@ function Row({
             <span style={css("color:#94A3B8;margin-left:6px")}>{confidenceLabel(event.confidence)}</span>
           )}
           {event.arrival?.time && (
-            <div style={css("font-size:11px;color:#475569;margin-top:2px")}>ถึง {event.arrival.time} · {event.arrival.date}</div>
+            <div style={css("font-size:11px;color:#475569;margin-top:2px")}>
+              ถึง {event.arrival.time} · {event.arrival.date}{event.arrival.atSend ? " · เวลาที่ส่งข้อความ" : ""}
+            </div>
           )}
         </td>
         <td style={css(CELL)}>
@@ -674,7 +676,8 @@ function Detail({
         )}
         {options.arrival?.time && (
           <div style={css("font-size:12px;color:#475569;margin-top:2px")}>
-            เวลาถึงในข้อความ <strong>{options.arrival.time}</strong> · {options.arrival.date}
+            {options.arrival.atSend ? "ไม่มีเวลาในข้อความ — ใช้เวลาที่ส่ง" : "เวลาถึงในข้อความ"}{" "}
+            <strong>{options.arrival.time}</strong> · {options.arrival.date}
           </div>
         )}
       </div>

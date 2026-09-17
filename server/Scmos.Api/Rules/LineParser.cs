@@ -97,6 +97,8 @@ public static class LineParser
     {
         "คนขับ", "พขร", "พขร.", "ชื่อ", "ทะเบียน", "รถ", "เบอร์", "โทร", "โทร.", "ติดต่อ", "คุณ", "นาย", "นาง", "นางสาว",
         "ครับ", "ค่ะ", "คะ", "นะครับ", "นะคะ", "จ้า", "จ้ะ", "driver", "tel", "tel.", "name", "plate", "phone", "mobile",
+        // What is left around an arrival word once it is taken out.
+        "แล้ว", "แล้วครับ", "แล้วค่ะ", "จะ", "ยัง", "ยังไม่", "ไม่", "ใกล้", "เกือบ", "กำลัง", "กำลังจะ",
     };
 
     /// <summary>
@@ -115,7 +117,7 @@ public static class LineParser
     /// hours early.
     /// </summary>
     private static readonly Regex ArrivalClock = new(
-        @"(?:ถึง(?!ท่า|ประมาณ)|arrived)[^\d]{0,24}?(?<!\d)([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)",
+        @"(?:ถึง(?!ท่า|ประมาณ)|arrived(?! ?pickup| ?port))[^\d]{0,24}?(?<!\d)([01]?\d|2[0-3])[:.]([0-5]\d)(?!\d)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>
@@ -202,6 +204,9 @@ public static class LineParser
         ("ถึงคลังแล้ว", SiteArrival),
         ("ถึงคลัง", SiteArrival),
         ("ถึงหน้างาน", SiteArrival),
+        // "ถึงแล้ว" — arrived, and nothing about where — is the place the
+        // truck was going. Asked for on 17 Sep 2026: ถึงโรงงาน means ถึงแล้ว.
+        ("ถึงแล้ว", SiteArrival),
         ("arrived site", SiteArrival),
         ("arrived factory", SiteArrival),
         ("arrived plant", SiteArrival),
@@ -211,6 +216,14 @@ public static class LineParser
         ("จัดรถแล้ว", "TRUCK_ASSIGNED"),
         ("truck assigned", "TRUCK_ASSIGNED"),
     ];
+
+    /// <summary>
+    /// What may stand right before "ถึง…" and turn a report into a forecast or
+    /// a denial: "จะถึงโรงงานแล้ว" is the truck about to arrive, "ยังไม่ถึง" is
+    /// the truck not there. Neither says it arrived, and before 17 Sep 2026
+    /// both were read as though it had.
+    /// </summary>
+    private static readonly string[] NotYetWords = ["จะ", "ใกล้", "เกือบ", "ไม่"];
 
     /// <summary>Words that mean the time being given is a forecast, not an event.</summary>
     private static readonly string[] EtaWords =
@@ -266,7 +279,16 @@ public static class LineParser
         /// once everything else is taken out. Offered, never written unasked;
         /// the person approving sees it beside the message.
         /// </summary>
-        string? Driver = null)
+        string? Driver = null,
+        /// <summary>
+        /// Whether <see cref="ArrivalTime"/> is the moment the message was sent
+        /// rather than a clock the driver wrote. "ถึงโรงงาน" with no time means
+        /// the truck is there now — asked for on 17 Sep 2026 — and the send
+        /// time is the best evidence of when "now" was. Said back to the room
+        /// and shown to the reviewer as such, so a driver who typed it late
+        /// can send the clock.
+        /// </summary>
+        bool ArrivalAtSend = false)
     {
         /// <summary>Whether the message carries the truck's details — a plate, a number, a name — the morning reminder asks for.</summary>
         public bool HasDetails => (Plates is not null && Plates.Count > 0) || Phone is not null || Driver is not null;
@@ -285,6 +307,17 @@ public static class LineParser
         public bool HasReference => JobNumber is not null || Container is not null
             || (Plates is not null && Plates.Count > 0)
             || (References is not null && References.Count > 0);
+
+        /// <summary>
+        /// Whether the message is about a job at all: names one, reports on
+        /// one, or gives a truck's number. A greeting, a "รับทราบ", a sticker's
+        /// caption say none of that, and until 17 Sep 2026 each one was queued
+        /// for review and answered with a request for the container number —
+        /// which is a bot arguing with a room. Such a message is filed and
+        /// left alone.
+        /// </summary>
+        public bool AboutAJob => HasReference || Status is not null || Delayed
+            || Eta is not null || ArrivalTime is not null || Phone is not null;
     }
 
     /// <summary>
@@ -389,7 +422,9 @@ public static class LineParser
         if (plates.Count == 0 && phone is null) return null;
 
         var text = normalised;
-        foreach (var (_, keyword) in FindStatuses(text))
+        // Every status word, longest first, whether or not it reported
+        // anything — "จะถึงโรงงานแล้ว" reports no arrival and is no name either.
+        foreach (var (keyword, _) in StatusWords.OrderByDescending(one => one.Keyword.Length))
             text = Regex.Replace(text, Regex.Escape(keyword), " ", RegexOptions.IgnoreCase);
         text = Phone.Replace(text, " ");
         text = Plate.Replace(text, " ");
@@ -450,13 +485,46 @@ public static class LineParser
             {
                 var at = new string(haystack).IndexOf(needle, from, StringComparison.Ordinal);
                 if (at < 0) break;
-                found.Add((status, keyword, at));
+                // "จะถึงโรงงาน" is not "ถึงโรงงาน": the span is consumed so no
+                // shorter arrival word is read out of it, and reports nothing.
+                if (!NotYet(haystack, at, needle)) found.Add((status, keyword, at));
                 // Blanked so a shorter keyword inside this one is not read again.
                 for (var i = at; i < at + needle.Length; i++) haystack[i] = ' ';
                 from = at + needle.Length;
             }
         }
         return [.. found.OrderBy(one => one.At).Select(one => (one.Status, one.Keyword))];
+    }
+
+    /// <summary>Whether an arrival word at <paramref name="at"/> has "จะ", "ใกล้", "เกือบ" or "ไม่" right before it.</summary>
+    private static bool NotYet(char[] haystack, int at, string needle)
+    {
+        if (!needle.StartsWith("ถึง", StringComparison.Ordinal)) return false;
+        var before = new string(haystack, 0, at).TrimEnd();
+        return NotYetWords.Any(word => before.EndsWith(word, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Whether a status keyword is the truck reaching the customer's site —
+    /// "ถึงโรงงาน", "ถึงลูกค้าแล้ว", "arrived site" — and not the port, and not
+    /// a later step such as "ลงเสร็จ", after which the arrival was some time
+    /// ago and is not known.
+    /// </summary>
+    public static bool IsArrivalWord(string? keyword)
+    {
+        if (string.IsNullOrEmpty(keyword)) return false;
+        var word = keyword.ToLowerInvariant();
+        if (word.StartsWith("ถึง", StringComparison.Ordinal)) return !word.StartsWith("ถึงท่า", StringComparison.Ordinal);
+        return word.StartsWith("arrived", StringComparison.Ordinal)
+            && !word.Contains("pickup", StringComparison.Ordinal) && !word.Contains("port", StringComparison.Ordinal);
+    }
+
+    /// <summary>The minute the message was sent, in Bangkok — the arrival when the driver wrote no clock.</summary>
+    public static DateTimeOffset SentAt(DateTimeOffset receivedAt)
+    {
+        var bangkok = TimeSpan.FromHours(7);
+        var here = receivedAt.ToOffset(bangkok);
+        return new DateTimeOffset(here.Year, here.Month, here.Day, here.Hour, here.Minute, 0, bangkok);
     }
 
     /// <summary>
@@ -644,6 +712,18 @@ public static class LineParser
         if (arrival is not null) rules.Add($"arrival:{arrival.Value:HH:mm}");
         if (Clock.Matches(text).Count > 1 && arrival is null) warnings.Add("many-times");
 
+        // "ถึงโรงงาน" and no clock at all: the truck is there as the driver
+        // types. The send time is the arrival, and is marked as such — only
+        // when the arrival is what the message reports; after "ลงเสร็จ" the
+        // arrival was earlier and is not known.
+        var arrivalAtSend = false;
+        if (arrival is null && !forecast && !question && Clock.Matches(text).Count == 0 && IsArrivalWord(statusWord))
+        {
+            arrival = SentAt(receivedAt);
+            arrivalAtSend = true;
+            rules.Add($"arrival-at-send:{arrival.Value:HH:mm}");
+        }
+
         // The truck's details — what the morning reminder asks for and what
         // the haulier answers with: "LC2606594 70-1234 สมชาย ใจดี 081-2345678".
         var phone = question ? null : FindPhone(text);
@@ -673,7 +753,8 @@ public static class LineParser
             References: references,
             Question: question,
             Phone: phone,
-            Driver: driver);
+            Driver: driver,
+            ArrivalAtSend: arrivalAtSend);
     }
 
     /// <summary>

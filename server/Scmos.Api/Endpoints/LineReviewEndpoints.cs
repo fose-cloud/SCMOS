@@ -163,7 +163,7 @@ public static class LineReviewEndpoints
                         // What approving would write: the status as this job's
                         // ladder names it, the arrival clock, or the box.
                         to = one.MessageType == "image" ? one.ImageReading : LineAuthority.ResolveSite(category, one.ParsedStatus),
-                        arrival = read is null ? new { date = "", time = "" } : Arrival(read),
+                        arrival = read is null ? new { date = "", time = "", atSend = false } : Arrival(read),
                         // The truck's details the message carries, for the drawer's line.
                         details = read is null ? "" : string.Join(" · ", new[]
                         {
@@ -852,8 +852,8 @@ public static class LineReviewEndpoints
     /// <summary>The arrival the message reported, as the register writes it, or empty.</summary>
     private static object Arrival(LineParser.Parsed read) =>
         read.ArrivalTime is { } at
-            ? new { date = Formats.PlanDate(DateOnly.FromDateTime(at.DateTime)), time = at.ToString("HH:mm") }
-            : new { date = "", time = "" };
+            ? new { date = Formats.PlanDate(DateOnly.FromDateTime(at.DateTime)), time = at.ToString("HH:mm"), atSend = read.ArrivalAtSend }
+            : new { date = "", time = "", atSend = false };
 
     /// <summary>
     /// What approving would write into a job's ARRIVAL DATE / TIME.
@@ -881,8 +881,9 @@ public static class LineReviewEndpoints
         }
         catch (System.Text.Json.JsonException) { }
 
+        var basis = read.ArrivalAtSend ? " (เวลาที่ส่งข้อความ — ไม่มีเวลาในข้อความ)" : "";
         if (hadDate.Length == 0 && hadTime.Length == 0)
-            return (date, time, hadDate, hadTime, $"จะบันทึกเวลาถึง {date} {time}");
+            return (date, time, hadDate, hadTime, $"จะบันทึกเวลาถึง {date} {time}{basis}");
         if (hadDate == date && hadTime == time)
             return (null, null, hadDate, hadTime, $"เวลาถึง {date} {time} ตรงกับที่บันทึกไว้แล้ว");
         return (null, null, hadDate, hadTime,
