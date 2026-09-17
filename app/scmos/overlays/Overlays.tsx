@@ -290,9 +290,16 @@ export function SettingsModal(p: {
   onJobsMoved: (keys: string[], owner: string, ownerId: string) => void;
   onClose: () => void;
 }) {
+  /*
+   * The modal sits outside the paper, on the navy, and its inks are written
+   * out as the light ones rather than left to the skin's translation: on
+   * 17 Sep 2026 a browser showed the translated headings and labels dark on
+   * the navy while literal colours came through as drawn. What the skin
+   * would have made of them is what is written here.
+   */
   const chip = (active: boolean) =>
     "height:32px;padding:0 14px;border:1px solid " + (active ? "#0A2240" : "#D8E0E8") +
-    ";background:" + (active ? "#0A2240" : "#fff") + ";color:" + (active ? "#fff" : "#475569") +
+    ";background:" + (active ? "#0A2240" : "#fff") + ";color:" + (active ? "#fff" : "#C7D2DE") +
     ";border-radius:4px;font-size:12px;cursor:pointer;font-weight:" + (active ? "600" : "400");
 
   const field = "height:34px;width:100%;border:1px solid #D8E0E8;border-radius:4px;background:#fff;font-size:12.5px;padding:0 10px;outline:none;font-family:inherit";
@@ -322,7 +329,7 @@ export function SettingsModal(p: {
 
         <div style={css("padding:18px 20px;display:flex;flex-direction:column;gap:18px")}>
           <div>
-            <div style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em;margin-bottom:9px")}>รูปโปรไฟล์ · PHOTO</div>
+            <div style={css("font-size:11px;font-weight:700;color:#EAF4FC;letter-spacing:.06em;margin-bottom:9px")}>รูปโปรไฟล์ · PHOTO</div>
             <div style={css("display:flex;align-items:center;gap:16px;flex-wrap:wrap")}>
               {p.profile.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -346,13 +353,13 @@ export function SettingsModal(p: {
                   {!!p.profile.avatar && (
                     <button
                       onClick={() => p.onProfile({ ...p.profile, avatar: "" })}
-                      style={css("height:32px;padding:0 14px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:12px;cursor:pointer")}
+                      style={css("height:32px;padding:0 14px;border:1px solid #F3C3BE;background:#FDF6F5;color:#F4A6A0;border-radius:4px;font-size:12px;cursor:pointer")}
                     >
                       ลบรูป
                     </button>
                   )}
                 </div>
-                <span style={css("font-size:11px;color:#94A3B8")}>
+                <span style={css("font-size:11px;color:#9FB7CF")}>
                   JPG / PNG ไม่เกิน 8 MB · ระบบย่อเป็นสี่เหลี่ยมจัตุรัส 160px ให้อัตโนมัติ
                 </span>
               </div>
@@ -360,11 +367,11 @@ export function SettingsModal(p: {
           </div>
 
           <div>
-            <div style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em;margin-bottom:9px")}>ข้อมูลส่วนตัว · PROFILE</div>
+            <div style={css("font-size:11px;font-weight:700;color:#EAF4FC;letter-spacing:.06em;margin-bottom:9px")}>ข้อมูลส่วนตัว · PROFILE</div>
             <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px")}>
               {edits.map(([label, en, key, value, hint]) => (
                 <label key={key} style={css("display:flex;flex-direction:column;gap:4px")}>
-                  <span style={css("font-size:11.5px;color:#0A2240;font-weight:600")}>{label} <span style={css("color:#94A3B8;font-weight:400")}>· {en}</span></span>
+                  <span style={css("font-size:11.5px;color:#EAF4FC;font-weight:600")}>{label} <span style={css("color:#9FB7CF;font-weight:400")}>· {en}</span></span>
                   <input
                     value={value}
                     maxLength={key === "init" ? 3 : 80}
@@ -394,23 +401,23 @@ export function SettingsModal(p: {
                 ["บทบาท · Role", p.me.role],
               ] as [string, string][]).map(([label, value], i) => (
                 <div key={label} style={css("display:flex;padding:9px 12px;font-size:12px;background:#F8FAFC;" + (i ? "border-top:1px solid #F1F5F9;" : ""))}>
-                  <span style={css("width:190px;flex:none;color:#64748B")}>{label}</span>
-                  <span style={css("color:#0A2240;font-weight:600")}>{value}</span>
-                  <span style={css("margin-left:auto;font-size:10.5px;color:#94A3B8")}>อ่านอย่างเดียว</span>
+                  <span style={css("width:190px;flex:none;color:#B9CFE5")}>{label}</span>
+                  <span style={css("color:#EAF4FC;font-weight:600")}>{value}</span>
+                  <span style={css("margin-left:auto;font-size:10.5px;color:#9FB7CF")}>อ่านอย่างเดียว</span>
                 </div>
               ))}
             </div>
-            <div style={css("font-size:11px;color:#94A3B8;margin-top:6px;line-height:1.5")}>
+            <div style={css("font-size:11px;color:#9FB7CF;margin-top:6px;line-height:1.5")}>
               สี่รายการนี้แก้ที่นี่ไม่ได้ — “ชื่อในระบบงาน” คือกุญแจที่ใช้จับคู่ว่างานไหนเป็นของใคร ({p.me.name} = <code>job.op</code>) ถ้าแก้จะทำให้งานของคุณหลุดทั้งหมด ส่วนชื่อผู้ใช้ รหัสพนักงาน และบทบาท เป็นเรื่องของสิทธิ์ ต้องแก้ที่หน้า Administration
             </div>
           </div>
 
           <div>
-            <div style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em;margin-bottom:9px")}>การตั้งค่า · PREFERENCES</div>
+            <div style={css("font-size:11px;font-weight:700;color:#EAF4FC;letter-spacing:.06em;margin-bottom:9px")}>การตั้งค่า · PREFERENCES</div>
             <div style={css("display:flex;flex-direction:column;gap:14px")}>
               <div>
-                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>หน้าเริ่มต้นหลังเข้าสู่ระบบ</div>
-                <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>Landing screen after sign-in</div>
+                <div style={css("font-size:12px;color:#EAF4FC;font-weight:600")}>หน้าเริ่มต้นหลังเข้าสู่ระบบ</div>
+                <div style={css("font-size:11px;color:#9FB7CF;margin-bottom:7px")}>Landing screen after sign-in</div>
                 <div style={css("display:flex;gap:8px")}>
                   <button onClick={() => p.onChange({ ...p.prefs, landing: "myjob" })} style={css(chip(p.prefs.landing === "myjob"))}>Operation Workspace</button>
                   <button onClick={() => p.onChange({ ...p.prefs, landing: "dashboard" })} style={css(chip(p.prefs.landing === "dashboard"))}>Dashboard</button>
@@ -437,8 +444,8 @@ export function SettingsModal(p: {
                 to today, so nothing has to run overnight for it to end.
               */}
               <div>
-                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>มอบหมายงานเมื่อลา</div>
-                <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
+                <div style={css("font-size:12px;color:#EAF4FC;font-weight:600")}>มอบหมายงานเมื่อลา</div>
+                <div style={css("font-size:11px;color:#9FB7CF;margin-bottom:7px")}>
                   กำหนดล่วงหน้าได้ — สถานะจะเป็น “รอถึงกำหนด” และระบบเปิดสิทธิ์ให้อัตโนมัติ
                   ตั้งแต่วันเริ่ม โดยไม่ต้องออกจากระบบ
                 </div>
@@ -446,8 +453,8 @@ export function SettingsModal(p: {
               </div>
 
               <div>
-                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>รหัสผ่านและความปลอดภัย</div>
-                <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>
+                <div style={css("font-size:12px;color:#EAF4FC;font-weight:600")}>รหัสผ่านและความปลอดภัย</div>
+                <div style={css("font-size:11px;color:#9FB7CF;margin-bottom:7px")}>
                   จัดการโดย Microsoft — SCMOS ไม่เก็บรหัสผ่านของใครเลย
                 </div>
 
@@ -470,7 +477,7 @@ export function SettingsModal(p: {
                     </a>
                     <a href="https://mysignins.microsoft.com/security-info"
                       target="_blank" rel="noreferrer"
-                      style={css("display:inline-flex;align-items:center;height:32px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12px;font-weight:600;text-decoration:none")}>
+                      style={css("display:inline-flex;align-items:center;height:32px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#C7D2DE;border-radius:4px;font-size:12px;font-weight:600;text-decoration:none")}>
                       ตั้งค่าความปลอดภัย
                     </a>
                   </div>
@@ -486,8 +493,8 @@ export function SettingsModal(p: {
               </div>
 
               <div>
-                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>จำนวนแถวต่อหน้า</div>
-                <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>Rows per page · ใช้กับทุกตารางในระบบ</div>
+                <div style={css("font-size:12px;color:#EAF4FC;font-weight:600")}>จำนวนแถวต่อหน้า</div>
+                <div style={css("font-size:11px;color:#9FB7CF;margin-bottom:7px")}>Rows per page · ใช้กับทุกตารางในระบบ</div>
                 <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>
                   {PER_PAGE_OPTIONS.map((n) => (
                     <button key={n} onClick={() => p.onChange({ ...p.prefs, perPage: n })} style={css(chip(p.prefs.perPage === n))}>{n}</button>
@@ -496,8 +503,8 @@ export function SettingsModal(p: {
               </div>
 
               <div>
-                <div style={css("font-size:12px;color:#0A2240;font-weight:600")}>เมนูด้านซ้าย</div>
-                <div style={css("font-size:11px;color:#94A3B8;margin-bottom:7px")}>เปิดแอปแบบย่อเมนูไว้ เพื่อให้ตารางกว้างขึ้น</div>
+                <div style={css("font-size:12px;color:#EAF4FC;font-weight:600")}>เมนูด้านซ้าย</div>
+                <div style={css("font-size:11px;color:#9FB7CF;margin-bottom:7px")}>เปิดแอปแบบย่อเมนูไว้ เพื่อให้ตารางกว้างขึ้น</div>
                 <div style={css("display:flex;gap:8px")}>
                   <button onClick={() => p.onChange({ ...p.prefs, collapsed: false })} style={css(chip(!p.prefs.collapsed))}>แสดงเต็ม</button>
                   <button onClick={() => p.onChange({ ...p.prefs, collapsed: true })} style={css(chip(p.prefs.collapsed))}>ย่อเมนู</button>
@@ -508,11 +515,11 @@ export function SettingsModal(p: {
 
           {p.canReload && (
             <div>
-              <div style={css("font-size:11px;font-weight:700;color:#0A2240;letter-spacing:.06em;margin-bottom:9px")}>ข้อมูล · DATA</div>
+              <div style={css("font-size:11px;font-weight:700;color:#EAF4FC;letter-spacing:.06em;margin-bottom:9px")}>ข้อมูล · DATA</div>
 
               <div style={css("border:1px solid #E9EFF5;border-radius:4px;padding:12px 13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px")}>
-                <span style={css("flex:1;min-width:220px;font-size:11.5px;color:#64748B;line-height:1.5")}>
-                  <b style={css("color:#0A2240")}>ล้างข้อมูลย้อนหลัง</b><br />
+                <span style={css("flex:1;min-width:220px;font-size:11.5px;color:#B9CFE5;line-height:1.5")}>
+                  <b style={css("color:#EAF4FC")}>ล้างข้อมูลย้อนหลัง</b><br />
                   จัดรูปแบบวันที่ · แปลงสถานะภาษาไทยเข้าลำดับงาน · ย้ายข้อความ “รับตู้ …” ออกจากช่องเวลานัดโหลด แล้วบันทึกทุกการแก้ลงประวัติของงาน
                 </span>
                 <button
@@ -524,26 +531,26 @@ export function SettingsModal(p: {
               </div>
 
               <div style={css("border:1px solid #E9EFF5;border-radius:4px;padding:12px 13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px")}>
-                <span style={css("flex:1;min-width:220px;font-size:11.5px;color:#64748B;line-height:1.5")}>
-                  <b style={css("color:#0A2240")}>รายงานงานซ้ำ</b><br />
+                <span style={css("flex:1;min-width:220px;font-size:11.5px;color:#B9CFE5;line-height:1.5")}>
+                  <b style={css("color:#EAF4FC")}>รายงานงานซ้ำ</b><br />
                   หางานที่เป็นเที่ยวเดียวกันแต่ถูกคีย์เข้ามาหลายรอบ · เลือกรวมได้ทีละกลุ่ม
                 </span>
                 <button
                   onClick={p.onDuplicates}
-                  style={css("height:32px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}
+                  style={css("height:32px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#C7D2DE;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}
                 >
                   ดูรายงาน
                 </button>
               </div>
 
               <div style={css("border:1px solid #F3C3BE;background:#FDF6F5;border-radius:4px;padding:12px 13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap")}>
-                <span style={css("flex:1;min-width:220px;font-size:11.5px;color:#64748B;line-height:1.5")}>
-                  <b style={css("color:#B42318")}>โหลดแผนใหม่จากไฟล์ ops.json</b><br />
+                <span style={css("flex:1;min-width:220px;font-size:11.5px;color:#B9CFE5;line-height:1.5")}>
+                  <b style={css("color:#F4A6A0")}>โหลดแผนใหม่จากไฟล์ ops.json</b><br />
                   ลบงานทั้งหมดในฐานข้อมูลแล้วแทนที่ด้วยข้อมูลในไฟล์ · ใช้ตอนได้ไฟล์แผนฉบับสมบูรณ์มาใหม่
                 </span>
                 <button
                   onClick={p.onReloadPlan}
-                  style={css("height:32px;padding:0 14px;border:1px solid #B42318;background:#fff;color:#B42318;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}
+                  style={css("height:32px;padding:0 14px;border:1px solid #B42318;background:#fff;color:#F4A6A0;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}
                 >
                   โหลดแผนใหม่
                 </button>
@@ -553,7 +560,7 @@ export function SettingsModal(p: {
         </div>
 
         <div style={css("padding:13px 20px;border-top:1px solid #E9EFF5;background:#FBFCFD;display:flex;justify-content:space-between;align-items:center;gap:12px")}>
-          <span style={css("font-size:11.5px;color:#64748B")}>บันทึกอัตโนมัติเมื่อเลือก · มีผลทันที</span>
+          <span style={css("font-size:11.5px;color:#B9CFE5")}>บันทึกอัตโนมัติเมื่อเลือก · มีผลทันที</span>
           <button onClick={p.onClose} style={css("height:34px;padding:0 20px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
             เสร็จสิ้น
           </button>
