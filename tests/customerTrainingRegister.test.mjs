@@ -64,9 +64,18 @@ test("manual register saves validate dates and write audit atomically", () => {
 });
 
 test("register editor is permission gated and does not discard rejected input", () => {
-  assert.match(screen, /canEdit && <button[\s\S]*?แทรกแถว/);
-  assert.match(screen, /method: editingId === null \? "POST" : "PUT"/);
+  // Since 17 Sep 2026 the register is a grid edited in place: every workbook
+  // column is a cell, the new row is typed into at the top, and a save the
+  // API refuses stays on the screen with the reason beside it.
+  assert.match(screen, /canEdit \? \[\{[\s\S]*?แทรกแถว/);
+  assert.match(screen, /useGridRange<RegisterRow, Field>/);
+  assert.match(screen, /openEditor: \(row, field, seed\) => setEditing/);
+  assert.match(screen, /method: "PUT"/);
+  assert.match(screen, /method: "POST"/);
   assert.match(screen, /if \(!response.ok\) \{ setSaveError[\s\S]*?return; \}/);
+  assert.match(screen, /if \(problem\) \{\s*setSaveError[\s\S]*?setEditing\(\{ id: row.id, field, value \}\)/);
   assert.match(screen, /บันทึกแถว/);
   assert.match(screen, /คำนวณหลังบันทึก/);
+  // The status column takes no typing and no paste.
+  assert.match(screen, /fieldsOf: \(\) => \[\.\.\.FIELDS, undefined\]/);
 });
