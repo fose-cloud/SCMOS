@@ -173,8 +173,13 @@ public static class LineReviewEndpoints
                         group = names.GetValueOrDefault(one.LineGroupId, ""),
                         // What approving would write: the status as this job's
                         // ladder names it, the arrival clock, or the box.
-                        to = one.MessageType == "image" ? one.ImageReading : LineAuthority.ResolveSite(category, one.ParsedStatus),
-                        arrival = read is null ? new { date = "", time = "", atSend = false } : Arrival(read),
+                        to = one.MessageType == "image" && one.ParsedStatus.Length == 0 ? one.ImageReading : LineAuthority.ResolveSite(category, one.ParsedStatus),
+                        // A photo pinned as the truck at the site: its send time is the arrival.
+                        arrivalPhoto = one.MessageType == "image" && one.ParsedStatus.Length > 0,
+                        arrival = read is not null ? Arrival(read)
+                            : one.ParsedStatus.Length > 0
+                                ? new { date = Formats.PlanDate(DateOnly.FromDateTime(LineParser.SentAt(one.ReceivedAt).DateTime)), time = LineParser.SentAt(one.ReceivedAt).ToString("HH:mm"), atSend = true }
+                                : new { date = "", time = "", atSend = false },
                         // "ประมาณ 10.00 รถถึงโรงงาน": when the truck is expected, for the
                         // owner to see — written nowhere.
                         eta = read?.Eta is { } eta ? eta.ToString("HH:mm") : "",
@@ -801,6 +806,8 @@ public static class LineReviewEndpoints
     private static async Task<IResult> PhotoOptionsAsync(LineEvent row, ScmosDbContext db, AppUser user,
         JobsRepository jobs, DelegationService delegations, CancellationToken token)
     {
+        if (row.ParsedStatus.Length > 0) return await PhotoArrivalOptionsAsync(row, db, user, jobs, delegations, token);
+
         var numbers = await PhotoNumbersAsync(row, db, token);
         var container = numbers.Length == 1 ? numbers[0] : "";
         var now = container.Length > 0
@@ -841,6 +848,57 @@ public static class LineReviewEndpoints
         });
     }
 
+    /// <summary>What approving a photo pinned as an arrival would do, worked out now.</summary>
+    private static async Task<IResult> PhotoArrivalOptionsAsync(LineEvent row, ScmosDbContext db, AppUser user,
+        JobsRepository jobs, DelegationService delegations, CancellationToken token)
+    {
+        var sent = LineParser.SentAt(row.ReceivedAt);
+        var job = await db.OperationJobs.AsNoTracking()
+            .Where(one => one.Key == row.JobKey)
+            .Select(one => new { one.Key, one.Cat, one.Customer, one.Container, one.Status, one.WorkDate, one.Data })
+            .FirstOrDefaultAsync(token);
+        if (job is null)
+            return Results.Json(new
+            {
+                kind = "image", arrivalPhoto = true, outcome = "no-such-job", detail = "ไม่พบงานนี้แล้ว", canApply = false,
+                from = "", to = "", reference = new { jobNumber = "", container = row.ImageReading, plates = Array.Empty<string>() },
+                arrival = new { date = "", time = "", atSend = false }, imageReading = row.ImageReading, imageNote = row.ImageNote,
+                hasImage = row.ImageKey.Length > 0, options = Array.Empty<object>(), stored = row.ErrorCode,
+            });
+
+        var move = LineAuthority.Move(new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status), LineParser.SiteArrival);
+        var stamp = StampWrite(sent, true, job.Data);
+        var can = move.Applies || stamp.Date is not null;
+        return Results.Json(new
+        {
+            kind = "image",
+            // The photo is the truck at the site: approving writes a status
+            // and the arrival, not a container.
+            arrivalPhoto = true,
+            outcome = can ? LineAuthority.Outcome.Ok : move.Result,
+            detail = can ? row.ErrorMessage : (move.Detail.Length > 0 ? move.Detail : move.Result),
+            canApply = can,
+            from = move.From,
+            to = move.Applies ? move.To : "",
+            reference = new { jobNumber = "", container = row.ImageReading, plates = Array.Empty<string>() },
+            arrival = new { date = Formats.PlanDate(DateOnly.FromDateTime(sent.DateTime)), time = sent.ToString("HH:mm"), atSend = true },
+            imageReading = row.ImageReading,
+            imageNote = row.ImageNote,
+            hasImage = row.ImageKey.Length > 0,
+            options = new[]
+            {
+                new
+                {
+                    job.Key, job.Cat, job.Customer, job.Container, job.Status, job.WorkDate,
+                    move = new { move.Result, move.Detail, ok = can, to = move.Applies ? move.To : job.Status },
+                    arrival = stamp.Note,
+                    mayApprove = await MayActOnAsync(user, job.Key, jobs, delegations, token),
+                },
+            },
+            stored = row.ErrorCode,
+        });
+    }
+
     /// <summary>
     /// Whether this person may write what a message says onto this job: they
     /// edit every job, or it is their own — or one they are covering for a
@@ -864,6 +922,12 @@ public static class LineReviewEndpoints
     private static async Task<IResult> ApplyPhotoAsync(LineEvent row, ApplyBody body, AppUser user,
         ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
     {
+        // A photo of a box the job already carries: the truck at the site,
+        // at the time the photo was sent. The worker pinned it to the job and
+        // named the rung; this writes the status and the arrival, into empty
+        // cells, as an "ถึงโรงงาน" with no clock would.
+        if (row.ParsedStatus.Length > 0) return await ApplyPhotoArrivalAsync(row, body, user, db, jobs, delegations, audit, token);
+
         var numbers = await PhotoNumbersAsync(row, db, token);
         if (numbers.Length != 1)
             return ApiResults.Error(numbers.Length == 0 ? "รูปนี้ไม่มีเลขตู้ที่อ่านได้" : "รูปนี้มีหลายตู้ — บันทึกในตารางงานเอง",
@@ -919,6 +983,64 @@ public static class LineReviewEndpoints
         {
             message = $"บันทึกเลขตู้ {container} ลงงาน {chosen} แล้ว",
             jobKey = chosen, from = "", to = container, arrival = "",
+        });
+    }
+
+    private static async Task<IResult> ApplyPhotoArrivalAsync(LineEvent row, ApplyBody body, AppUser user,
+        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
+    {
+        var chosen = row.JobKey;
+        var asked = (body.JobKey ?? "").Trim();
+        if (asked.Length > 0 && asked != chosen)
+            return ApiResults.Error("รูปนี้ผูกกับงานอื่น", StatusCodes.Status400BadRequest);
+        if (!await MayActOnAsync(user, chosen, jobs, delegations, token))
+            return ApiResults.Error("อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
+
+        var one = await db.OperationJobs.AsNoTracking()
+            .Where(job => job.Key == chosen)
+            .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data })
+            .FirstOrDefaultAsync(token);
+        if (one is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
+
+        var final = LineAuthority.Move(new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), LineParser.SiteArrival);
+        var stamp = StampWrite(LineParser.SentAt(row.ReceivedAt), true, one.Data);
+        var fields = new Dictionary<string, string>();
+        if (final.Applies && final.To.Length > 0) fields["status"] = final.To;
+        if (stamp.Date is { } date && stamp.Time is { } time)
+        {
+            fields["arrDate"] = date;
+            fields["arrTime"] = time;
+        }
+        if (fields.Count == 0)
+            return ApiResults.Error(final.Applies ? "ข้อความนี้ไม่มีอะไรให้บันทึก — งานมีข้อมูลเหล่านี้อยู่แล้ว" : (final.Detail.Length > 0 ? final.Detail : final.Result),
+                StatusCodes.Status409Conflict);
+
+        if (!await jobs.PatchAsync(chosen, fields, user.Signature, token))
+            return ApiResults.Error("บันทึกไม่สำเร็จ", StatusCodes.Status409Conflict);
+
+        var why = body.Reason ?? $"LINE: รูปตู้ {row.ImageReading} ({row.ImageNote})";
+        if (fields.ContainsKey("status"))
+            await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
+                row.ImageReading, "status", final.From, final.To, why, token, EventSource.Line);
+        if (stamp.Date is not null)
+        {
+            await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                row.ImageReading, "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.Line);
+            await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                row.ImageReading, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
+        }
+
+        row.ProcessingStatus = LineProcessing.Processed;
+        row.ErrorCode = "";
+        row.ProcessedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+
+        return Results.Json(new
+        {
+            message = (fields.ContainsKey("status") ? $"อัปเดต {chosen} เป็น {final.To} แล้ว" : $"บันทึกลงงาน {chosen} แล้ว")
+                + (stamp.Date is not null ? $" · เวลาถึง {stamp.Date} {stamp.Time} (เวลาที่ส่งรูป)" : ""),
+            jobKey = chosen, from = final.From, to = fields.ContainsKey("status") ? final.To : "",
+            arrival = stamp.Note,
         });
     }
 
@@ -1007,10 +1129,13 @@ public static class LineReviewEndpoints
     /// grid is where a person corrects a stamp.
     /// </summary>
     private static (string? Date, string? Time, string HadDate, string HadTime, string Note) ArrivalWrite(
-        LineParser.Parsed read, string data)
-    {
-        if (read.ArrivalTime is not { } at) return (null, null, "", "", "");
+        LineParser.Parsed read, string data) =>
+        read.ArrivalTime is { } at ? StampWrite(at, read.ArrivalAtSend, data) : (null, null, "", "", "");
 
+    /// <summary>The arrival stamp a moment would write — a clock the driver gave, the send time of a message or a photo.</summary>
+    private static (string? Date, string? Time, string HadDate, string HadTime, string Note) StampWrite(
+        DateTimeOffset at, bool atSend, string data)
+    {
         var date = Formats.PlanDate(DateOnly.FromDateTime(at.DateTime));
         var time = at.ToString("HH:mm");
         var (hadDate, hadTime) = ("", "");
@@ -1024,7 +1149,7 @@ public static class LineReviewEndpoints
         }
         catch (System.Text.Json.JsonException) { }
 
-        var basis = read.ArrivalAtSend ? " (เวลาที่ส่งข้อความ — ไม่มีเวลาในข้อความ)" : "";
+        var basis = atSend ? " (เวลาที่ส่ง — ไม่มีเวลาในข้อความ)" : "";
         if (hadDate.Length == 0 && hadTime.Length == 0)
             return (date, time, hadDate, hadTime, $"จะบันทึกเวลาถึง {date} {time}{basis}");
         if (hadDate == date && hadTime == time)

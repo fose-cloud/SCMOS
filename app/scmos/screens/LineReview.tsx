@@ -96,6 +96,8 @@ type Options = {
   arrival: { date: string; time: string; atSend?: boolean };
   /** "image" when approving writes a container number rather than a status. */
   kind?: string;
+  /** A photo of a box the job already carries — the truck at the site at the send time; approving writes status and arrival, not a container. */
+  arrivalPhoto?: boolean;
   imageReading?: string;
   imageNote?: string;
   hasImage?: boolean;
@@ -546,7 +548,9 @@ function Row({
         </td>
         <td style={css(`${CELL};white-space:nowrap;font-variant-numeric:tabular-nums`)}>{referenceLabel(event) || "—"}</td>
         <td style={css(`${CELL};white-space:nowrap`)}>
-          {event.messageType === "image" ? "เลขตู้จากรูป" : statusLabel(event.parsedStatus) || "—"}
+          {event.messageType === "image"
+            ? (event.parsedStatus ? `${statusLabel(event.parsedStatus)} · จากรูปตู้` : "เลขตู้จากรูป")
+            : statusLabel(event.parsedStatus) || "—"}
           {confidenceLabel(event.confidence) && (
             <span style={css("color:#94A3B8;margin-left:6px")}>{confidenceLabel(event.confidence)}</span>
           )}
@@ -671,7 +675,7 @@ function Detail({
         {options.detail && <div style={css("font-size:12px;color:#475569;margin-top:2px")}>{options.detail}</div>}
         {options.canApply && (
           <div style={css("font-size:12px;color:#475569;margin-top:2px")}>
-            {options.kind === "image" ? <>บันทึกเลขตู้ <strong>{options.to}</strong></> : <>{options.from} → <strong>{options.to}</strong></>}
+            {options.kind === "image" && !options.arrivalPhoto ? <>บันทึกเลขตู้ <strong>{options.to}</strong></> : <>{options.from} → <strong>{options.to}</strong></>}
           </div>
         )}
         {options.outcome === "all-jobs" && canApprove && (
@@ -727,7 +731,7 @@ function Detail({
                         <button disabled={busy}
                           onClick={() => onAct("apply", { jobKey: one.key, reason })}
                           style={css(`${BUTTON};border-color:#16A34A;background:#16A34A;color:#fff`)}>
-                          {options.kind === "image" ? `บันทึกเลขตู้ → ${one.move.to || options.to}`
+                          {options.kind === "image" && !options.arrivalPhoto ? `บันทึกเลขตู้ → ${one.move.to || options.to}`
                             : (one.move.to || options.to) ? `อนุมัติ → ${one.move.to || options.to}` : "อนุมัติ"}
                         </button>
                       ) : (

@@ -429,10 +429,14 @@ public static class LineParserCheck
             && ContainerNumbers.Find("GCXU5134900", "GCXU5134900") == "GCXU5134900";
         if (!completed) failed++;
         Console.WriteLine($"  {(completed ? "ok  " : "FAIL")}  a fragment is completed from a cell or a message that carries the whole number, and from nothing else");
-        var fragmentTold = LineReply.ForPhoto("", ["GCXU513490"], "container-check-digit")!.Contains("ขาดเลขตัวสุดท้าย", StringComparison.Ordinal)
-            && LineReply.ForPhoto("", ["TEMU5246903"], "container-check-digit")!.Contains("ไม่ตรงมาตรฐาน", StringComparison.Ordinal);
-        if (!fragmentTold) failed++;
-        Console.WriteLine($"  {(fragmentTold ? "ok  " : "FAIL")}  a fragment is asked for as the full number; a misread as a check");
+        var waiting = LineAuthority.AwaitingArrival("IMPORT", "IN_TRANSIT", "", "")
+            && !LineAuthority.AwaitingArrival("IMPORT", "IN_TRANSIT", "17/09/2026", "10:23")
+            && !LineAuthority.AwaitingArrival("IMPORT", "DELIVERED", "", "")
+            && LineAuthority.AwaitingArrival("EXPORT", "READY", "", "")
+            && !LineAuthority.AwaitingArrival("EXPORT", "DISPATCHED", "", "")
+            && !LineAuthority.AwaitingArrival("IMPORT", "CANCELLED", "", "");
+        if (!waiting) failed++;
+        Console.WriteLine($"  {(waiting ? "ok  " : "FAIL")}  a job is waiting for its truck until a stamp or the site rung, and a closed one never is");
         foreach (var (why, answer, valid, rejected) in answers)
         {
             var got = LineImageReading.Read(answer);
@@ -595,12 +599,8 @@ public static class LineParserCheck
             ("an arrival taken from the send time says so",
                 LineReply.ForMessage(LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received), "ready-to-apply", "DELIVERED") == "รับทราบ TXGU8142057 — DELIVERED · ถึง 11:00 (เวลาที่ส่งข้อความ) · รอเจ้าหน้าที่ยืนยันครับ",
                 LineReply.ForMessage(LineParser.Parse("TXGU8142057 ถึงโรงงาน", Received), "ready-to-apply", "DELIVERED")),
-            ("a photo's number, read and checked, is acknowledged",
-                LineReply.ForPhoto("TEMU5246902", [], "ready-to-apply") == "รับทราบ เลขตู้ TEMU5246902 จากรูป · รอเจ้าหน้าที่ยืนยันครับ",
-                LineReply.ForPhoto("TEMU5246902", [], "ready-to-apply")),
-            ("a photo's number the digit refused asks for it typed",
-                LineReply.ForPhoto("", ["FFAU6031447"], "container-check-digit")!.Contains("FFAU6031447", StringComparison.Ordinal), "-"),
-            ("a photo of nothing is left alone", LineReply.ForPhoto("", [], LineEventWorker.NoContainerInPhoto) is null, "-"),
+            // A photo is never answered (17 Sep 2026): there is no ForPhoto to check.
+            ("a photo is never answered", typeof(LineReply).GetMethod("ForPhoto") is null, "-"),
         };
         foreach (var (why, ok, got) in replies)
         {

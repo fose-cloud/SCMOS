@@ -71,18 +71,8 @@ public static class LineChase
     /// DISPATCHED on an export. A job that has left the ladder — cancelled,
     /// on hold, finished — is not chased either.
     /// </summary>
-    public static bool Arrived(LineReminder.JobLine job)
-    {
-        if (Formats.Clean(job.ArrDate).Length > 0 && Formats.Clean(job.ArrTime).Length > 0) return true;
-        var status = job.Status;
-        if (string.Equals(status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(status, JobStatus.Hold, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase))
-            return true;
-        var site = LineAuthority.Rank(job.Category, LineAuthority.ResolveSite(job.Category, LineParser.SiteArrival));
-        var now = LineAuthority.Rank(job.Category, status);
-        return now >= 0 && site >= 0 && now >= site;
-    }
+    public static bool Arrived(LineReminder.JobLine job) =>
+        !LineAuthority.AwaitingArrival(job.Category, job.Status, job.ArrDate, job.ArrTime);
 
     /// <summary>The plan moment, Bangkok, or null when the job has no readable date and time.</summary>
     public static DateTimeOffset? PlanAt(LineReminder.JobLine job)

@@ -20,6 +20,8 @@ export type LinePending = {
   detail: string;
   /** "text" or "image". */
   kind: string;
+  /** A photo of a box the job already carries: the truck at the site at the send time. Approving writes status and arrival. */
+  arrivalPhoto?: boolean;
   text: string;
   /** The container read off a photo, when the message is one. */
   reading: string;
@@ -63,12 +65,12 @@ export function pendingCounts(items: readonly LinePending[] | null | undefined):
  */
 export function pendingWrites(item: LinePending): string {
   const to = String(item.to ?? "").trim();
-  if (item.kind === "image") return to.length > 0 ? `เลขตู้ ${to}` : "";
+  if (item.kind === "image" && !item.arrivalPhoto) return to.length > 0 ? `เลขตู้ ${to}` : "";
   const parts: string[] = [];
   if (to.length > 0) parts.push(`สถานะ → ${to}`);
   const time = String(item.arrival?.time ?? "").trim();
   const date = String(item.arrival?.date ?? "").trim();
-  if (time.length > 0) parts.push(`เวลาถึง ${time}${date ? " " + date : ""}${item.arrival?.atSend ? " (เวลาที่ส่งข้อความ)" : ""}`);
+  if (time.length > 0) parts.push(`เวลาถึง ${time}${date ? " " + date : ""}${item.arrival?.atSend ? (item.arrivalPhoto ? " (เวลาที่ส่งรูป)" : " (เวลาที่ส่งข้อความ)") : ""}`);
   // An estimate is said so the owner knows the truck is not there yet; it is
   // not written anywhere — the arrival comes with the next message.
   const eta = String(item.eta ?? "").trim();
@@ -83,5 +85,6 @@ export function pendingWrites(item: LinePending): string {
 export function pendingText(item: LinePending): string {
   if (item.kind !== "image") return String(item.text ?? "");
   const reading = String(item.reading ?? "").trim();
+  if (item.arrivalPhoto && reading.length > 0) return `รูปตู้ ${reading} — รถถึงหน้างาน (ตามเวลาที่ผู้ขนส่งส่งรูป)`;
   return reading.length > 0 ? `รูปตู้ · ${reading}` : "รูป";
 }

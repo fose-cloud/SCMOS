@@ -335,6 +335,24 @@ public static class LineAuthority
     }
 
     /// <summary>
+    /// Whether a job is still waiting for its truck to reach the site: open —
+    /// not finished, cancelled or held — with no ARRIVAL DATE / TIME and a
+    /// status below the rung "ถึงโรงงาน" resolves to for its category. The
+    /// one question the chase, and a haulier's photo of the box, both ask.
+    /// </summary>
+    public static bool AwaitingArrival(string category, string status, string? arrDate, string? arrTime)
+    {
+        if (Formats.Clean(arrDate).Length > 0 && Formats.Clean(arrTime).Length > 0) return false;
+        if (string.Equals(status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, JobStatus.Hold, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var site = Rank(category, ResolveSite(category, LineParser.SiteArrival));
+        var now = Rank(category, status);
+        return !(now >= 0 && site >= 0 && now >= site);
+    }
+
+    /// <summary>
     /// The status a message reported, as the job it turned out to be about
     /// would call it.
     ///

@@ -168,9 +168,9 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
 
         if (row.MessageType == "image")
         {
+            // Nothing is said back about a photo — asked to stop on 17 Sep
+            // 2026, when four photos of one delivery drew five replies.
             await ProcessImageAsync(db, row, stopping);
-            if (row.ProcessingStatus != LineProcessing.Processing)
-                await AnswerAsync(db, row, LineReply.ForPhoto(row.ImageReading, LineImageReading.RejectedIn(row.ImageNote), row.ErrorCode), stopping);
             return;
         }
 
@@ -397,6 +397,25 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
 
         if (decision.Result == LineAuthority.Outcome.AlreadyThere)
         {
+            // A haulier's photo of a box the job already carries — the door,
+            // the seal — is the truck at the site, at the moment the photo
+            // was sent ("เวลาบริษัทขนส่ง", 17 Sep 2026). Offered as the
+            // arrival for the one job still waiting for it; a job already
+            // there, or two jobs on the same box, leaves the photo filed.
+            var waiting = await LineMatching.AwaitingArrivalAsync(db, decision.Keys, stopping);
+            if (waiting.Count == 1)
+            {
+                var sent = LineParser.SentAt(row.ReceivedAt);
+                row.JobKey = waiting[0].Key;
+                row.ParsedStatus = LineAuthority.ResolveSite(waiting[0].Category, LineParser.SiteArrival);
+                row.ProcessingStatus = LineProcessing.NeedReview;
+                row.ErrorCode = "ready-to-apply";
+                row.ErrorMessage = $"รูปตู้ {numbers[0]} จากผู้ขนส่ง = รถถึงหน้างาน {sent:HH:mm} (เวลาที่ส่งรูป)";
+                row.MatchedRules = string.Join(", ", new[] { row.MatchedRules, $"photo-arrival:{sent:HH:mm}" }.Where(one => one.Length > 0));
+                await db.SaveChangesAsync(stopping);
+                log.LogInformation("LINE photo {Id}: {Container} on {Key} — arrival at {Sent}", row.Id, numbers[0], row.JobKey, sent);
+                return;
+            }
             row.ProcessingStatus = LineProcessing.Ignored;
             row.ErrorCode = decision.Result;
             await db.SaveChangesAsync(stopping);

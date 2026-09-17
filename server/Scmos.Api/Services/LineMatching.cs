@@ -114,6 +114,36 @@ public static class LineMatching
         return null;
     }
 
+    /// <summary>
+    /// Of the jobs already carrying a photographed box, the ones still
+    /// waiting for the truck to reach the site — with the category, so the
+    /// arrival can be named as the job's ladder names it.
+    /// </summary>
+    public static async Task<List<(string Key, string Category)>> AwaitingArrivalAsync(
+        ScmosDbContext db, IReadOnlyList<string> keys, CancellationToken token)
+    {
+        if (keys.Count == 0) return [];
+        var wanted = keys.ToList();
+        var rows = await db.OperationJobs.AsNoTracking()
+            .Where(one => wanted.Contains(one.Key))
+            .Select(one => new { one.Key, one.Cat, one.Status, one.Data })
+            .ToListAsync(token);
+        var waiting = new List<(string Key, string Category)>();
+        foreach (var one in rows)
+        {
+            var (arrDate, arrTime) = ("", "");
+            try
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(one.Data);
+                if (json.RootElement.TryGetProperty("arrDate", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String) arrDate = d.GetString() ?? "";
+                if (json.RootElement.TryGetProperty("arrTime", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String) arrTime = t.GetString() ?? "";
+            }
+            catch (System.Text.Json.JsonException) { }
+            if (LineAuthority.AwaitingArrival(one.Cat, one.Status, arrDate, arrTime)) waiting.Add((one.Key, one.Cat));
+        }
+        return waiting;
+    }
+
     /// <summary>The set-aside readings that turn out to be known, as the register writes them, in the order read.</summary>
     public static async Task<List<string>> VouchedAsync(
         ScmosDbContext db, string lineGroupId, IEnumerable<string> rejected, DateTimeOffset around, CancellationToken token)

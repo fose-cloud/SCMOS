@@ -12,6 +12,13 @@ namespace Scmos.Api.Rules;
 /// </para>
 ///
 /// <para>
+/// A photo is never answered: four photos of one delivery drew five replies
+/// on 17 Sep 2026, and the department asked for silence. What a photo says
+/// — a box number, or the truck at the site — waits in the queue like any
+/// message, unspoken.
+/// </para>
+///
+/// <para>
 /// <b>Two things it never says.</b> Whether a number exists but belongs to
 /// another haulier: "not your job" and "no such job" read the same from the
 /// room, because telling a stranger a number is real is telling them
@@ -77,18 +84,4 @@ public static class LineReply
         };
     }
 
-    /// <summary>The line back for a photo the worker just read, or null for silence.</summary>
-    public static string? ForPhoto(string reading, IReadOnlyList<string> rejected, string outcome) => outcome switch
-    {
-        "ready-to-apply" => $"รับทราบ เลขตู้ {reading} จากรูป · รอเจ้าหน้าที่ยืนยันครับ",
-        LineAuthority.Outcome.ManyJobs => $"รับทราบ เลขตู้ {reading} จากรูป — ตรงกับหลายงาน เจ้าหน้าที่จะเลือกงานให้ครับ",
-        LineAuthority.Outcome.AlreadyThere => $"รับทราบ เลขตู้ {reading} — งานมีเลขนี้อยู่แล้วครับ",
-        LineAuthority.Outcome.NoOpenJob => $"อ่านเลขตู้ {reading} จากรูปได้ แต่ไม่พบงานวันนี้ที่รอเลขตู้ — เจ้าหน้าที่จะตรวจสอบครับ",
-        // The reading stopped at the frame around the check digit.
-        "container-check-digit" when rejected.Count > 0 && rejected.All(ContainerNumbers.IsFragment) =>
-            $"อ่านเลขตู้จากรูปได้ {string.Join(", ", rejected)} แต่ขาดเลขตัวสุดท้าย (ตัวเลขในกรอบ) — ช่วยพิมพ์เลขตู้เต็ม 11 ตัวครับ",
-        "container-check-digit" when rejected.Count > 0 =>
-            $"อ่านเลขตู้จากรูปได้ {string.Join(", ", rejected)} แต่เลขไม่ตรงมาตรฐาน — ช่วยพิมพ์เลขตู้มาด้วยครับ",
-        _ => null,
-    };
 }

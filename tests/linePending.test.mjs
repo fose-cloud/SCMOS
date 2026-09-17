@@ -53,3 +53,11 @@ test("a message about every row of a job number says so on each row's card", () 
   assert.deepEqual(Object.keys(pendingByKey(items)), ["C1", "C2", "C3"]);
   assert.equal(pendingWrites(items[0]), "สถานะ → DELIVERED · เวลาถึง 08:36 17/09/2026 (เวลาที่ส่งข้อความ) · ทั้ง 3 รายการของเลขงานนี้");
 });
+
+test("a photo of a box the job already carries is the truck at the site, at the time the photo was sent", () => {
+  const item = { id: 9, jobKey: "K", receivedAt: "", errorCode: "ready-to-apply", detail: "", kind: "image", arrivalPhoto: true, text: "", reading: "BSIU8065659", hasImage: true, group: "", ready: true, to: "DELIVERED", arrival: { date: "17/09/2026", time: "10:23", atSend: true } };
+  assert.equal(pendingText(item), "รูปตู้ BSIU8065659 — รถถึงหน้างาน (ตามเวลาที่ผู้ขนส่งส่งรูป)");
+  assert.equal(pendingWrites(item), "สถานะ → DELIVERED · เวลาถึง 10:23 17/09/2026 (เวลาที่ส่งรูป)");
+  // A photo that gives a job its number still says so.
+  assert.equal(pendingWrites({ ...item, arrivalPhoto: false, to: "BSIU8065659", arrival: { date: "", time: "" } }), "เลขตู้ BSIU8065659");
+});
