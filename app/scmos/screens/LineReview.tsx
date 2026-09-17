@@ -73,7 +73,11 @@ type SummaryRoom = {
   lineGroupId: string; groupName: string; supplier: string; jobs: number;
   messages: string[]; sentAt: string | null; sentBy: string;
 };
-type DaySummary = { date: string; summaryAt: string; canPush: boolean; pushMessage: string; rooms: SummaryRoom[] };
+type DaySummary = {
+  date: string; summaryAt: string; canPush: boolean; pushMessage: string; rooms: SummaryRoom[];
+  /** LINE's monthly push allowance and its use; exhausted means every push is refused until the month turns. */
+  quotaLimit?: number | null; quotaUsed?: number | null; quotaExhausted?: boolean; quotaMessage?: string;
+};
 
 type Reminder = {
   date: string; remindAt: string; summaryAt?: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[];
@@ -439,6 +443,8 @@ function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message
   const [summary, setSummary] = useState<DaySummary | null>(null);
   const [shown, setShown] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** What the last send from this screen said, per room — kept on the row, since a toast is gone in a moment. */
+  const [results, setResults] = useState<Record<string, { ok: boolean; text: string }>>({});
 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/integrations/line/summary", { headers: { accept: "application/json" } });
@@ -459,17 +465,25 @@ function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message
 
   const send = async (lineGroupId: string) => {
     setBusy(true);
+    setResults((was) => ({ ...was, [lineGroupId]: { ok: false, text: "กำลังส่ง…" } }));
     try {
       const response = await apiFetch("/api/integrations/line/summary", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ lineGroupId }),
       });
-      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
-      onToast(answer?.message ?? answer?.error ?? `ส่งไม่สำเร็จ (${response.status})`);
+      const answer = await response.json().catch(() => null) as
+        { message?: string; error?: string; sent?: number; results?: { failure?: string; ok?: boolean }[] } | null;
+      const failure = answer?.results?.[0]?.failure ?? "";
+      const text = answer?.message ?? answer?.error ?? `ส่งไม่สำเร็จ (${response.status})`;
+      const ok = response.ok && (answer?.sent ?? 0) > 0;
+      onToast(text);
+      setResults((was) => ({ ...was, [lineGroupId]: { ok, text: ok ? text : (failure || text) } }));
       await load();
     } catch (error) {
-      onToast("ส่งไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+      const text = "ส่งไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error));
+      onToast(text);
+      setResults((was) => ({ ...was, [lineGroupId]: { ok: false, text } }));
     } finally {
       setBusy(false);
     }
@@ -477,6 +491,9 @@ function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message
 
   if (summary === null) return null;
   const when = (iso: string | null) => iso ? new Date(iso).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  const quota = summary.quotaLimit != null && summary.quotaUsed != null
+    ? `โควตาข้อความเดือนนี้ ${summary.quotaUsed.toLocaleString()} / ${summary.quotaLimit.toLocaleString()}`
+    : summary.quotaUsed != null ? `ส่งไปแล้วเดือนนี้ ${summary.quotaUsed.toLocaleString()} ข้อความ (ไม่จำกัด)` : "";
 
   return (
     <div style={css(`${CARD};overflow:hidden`)}>
@@ -485,6 +502,8 @@ function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message
         <span style={css("font-size:12px;color:#475569")}>
           {summary.summaryAt ? `ส่งอัตโนมัติ ${summary.summaryAt} น. ของวันก่อนหน้า` : "ไม่มีกำหนดส่งอัตโนมัติ"}
           {!summary.canPush && summary.pushMessage && <span style={css("color:#B45309")}> · {summary.pushMessage}</span>}
+          {quota && <span style={css(`color:${summary.quotaExhausted ? "#B42318" : "#475569"};font-weight:${summary.quotaExhausted ? "600" : "400"}`)}> · {quota}{summary.quotaExhausted ? " — เต็มแล้ว ส่งไม่ได้จนกว่าจะขึ้นเดือนใหม่หรืออัปเกรดแพ็กเกจ" : ""}</span>}
+          {summary.quotaMessage && <span style={css("color:#B45309")}> · {summary.quotaMessage}</span>}
         </span>
       </div>
       <ZoomBox capped={false} zoomable={false}>
@@ -513,14 +532,19 @@ function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message
                     </button>
                   )}
                 </td>
-                <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>
+                <td style={css(`${CELL};color:#475569`)}>
                   {room.sentAt ? `${when(room.sentAt)} · ${room.sentBy}` : "—"}
+                  {results[room.lineGroupId] && (
+                    <div style={css(`font-size:11.5px;margin-top:3px;color:${results[room.lineGroupId].ok ? "#15803D" : "#B42318"}`)}>
+                      {results[room.lineGroupId].text}
+                    </div>
+                  )}
                 </td>
                 <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
                   {canSend && summary.canPush && room.jobs > 0 && (
                     <button disabled={busy} onClick={() => void send(room.lineGroupId)}
                       style={css(`${BUTTON};border-color:#0A2240;background:#fff;color:#0A2240`)}>
-                      {room.sentAt ? "ส่งอีกครั้ง" : "ส่งตอนนี้"}
+                      {busy ? "กำลังส่ง…" : room.sentAt ? "ส่งอีกครั้ง" : "ส่งตอนนี้"}
                     </button>
                   )}
                 </td>

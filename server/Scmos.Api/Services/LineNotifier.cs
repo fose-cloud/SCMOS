@@ -31,6 +31,14 @@ public interface ILineNotifier
     Task<string> PushAsync(string lineGroupId, IReadOnlyList<string> texts, CancellationToken token);
 
     /// <summary>
+    /// The month's push allowance and how much of it is used, as LINE
+    /// reports them — or what stopped the asking. A plan with no cap reports
+    /// no limit. The one figure that explains a whole afternoon of pushes
+    /// going nowhere (17 Sep 2026).
+    /// </summary>
+    Task<LineNotifier.Quota> QuotaAsync(CancellationToken token);
+
+    /// <summary>
     /// Answers the message that carried this reply token — LINE's free
     /// channel, good for about a minute after the message. When the token
     /// has expired and a group is given, the text is pushed instead.
@@ -48,6 +56,54 @@ public class LineNotifier(IHttpClientFactory factory, IConfiguration config, ILo
     public const string ClientName = "line";
 
     private const string PushUrl = "https://api.line.me/v2/bot/message/push";
+    private const string QuotaUrl = "https://api.line.me/v2/bot/message/quota";
+    private const string ConsumptionUrl = "https://api.line.me/v2/bot/message/quota/consumption";
+
+    /// <param name="Limit">The month's cap, or null when the plan has none.</param>
+    /// <param name="Used">Messages sent this month, or null when LINE would not say.</param>
+    /// <param name="Problem">Why the figures are missing, in words, or empty.</param>
+    public record Quota(int? Limit, long? Used, string Problem)
+    {
+        /// <summary>Whether the cap is reached — every push from here on is refused until the month turns.</summary>
+        public bool Exhausted => Limit is { } cap && Used is { } used && used >= cap;
+    }
+
+    public async Task<Quota> QuotaAsync(CancellationToken token)
+    {
+        if (!Configured) return new Quota(null, null, Missing);
+        try
+        {
+            var client = factory.CreateClient(ClientName);
+            client.Timeout = TimeSpan.FromSeconds(15);
+            int? limit = null;
+            long? used = null;
+            foreach (var (url, which) in new[] { (QuotaUrl, "quota"), (ConsumptionUrl, "consumption") })
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config[TokenKey]);
+                using var response = await client.SendAsync(request, token);
+                var answer = await response.Content.ReadAsStringAsync(token);
+                if (!response.IsSuccessStatusCode) return new Quota(null, null, $"LINE ตอบ {(int)response.StatusCode} ตอนถามโควตา: {Detail(answer)}");
+                using var json = JsonDocument.Parse(answer);
+                if (which == "quota")
+                {
+                    // {"type":"limited","value":200} or {"type":"none"}
+                    if (json.RootElement.TryGetProperty("type", out var type) && type.GetString() == "limited"
+                        && json.RootElement.TryGetProperty("value", out var value) && value.TryGetInt32(out var cap))
+                        limit = cap;
+                }
+                else if (json.RootElement.TryGetProperty("totalUsage", out var total) && total.TryGetInt64(out var sent))
+                {
+                    used = sent;
+                }
+            }
+            return new Quota(limit, used, "");
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            return new Quota(null, null, $"ถามโควตาไม่ได้: {error.GetType().Name}");
+        }
+    }
     private const string ReplyUrl = "https://api.line.me/v2/bot/message/reply";
 
     public bool Configured => Missing.Length == 0;

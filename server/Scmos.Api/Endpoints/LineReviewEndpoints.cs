@@ -277,12 +277,17 @@ public static class LineReviewEndpoints
             if (users.Current(context) is null) return ApiResults.SignInRequired;
             var day = date is null ? Day(null).AddDays(1) : Day(date);
             var rooms = await reminders.PreviewSummaryAsync(day, token);
+            var quota = await notifier.QuotaAsync(token);
             return Results.Json(new
             {
                 date = Formats.PlanDate(day),
                 summaryAt = reminders.SummaryAtText,
                 canPush = notifier.Configured,
                 pushMessage = notifier.Configured ? "" : notifier.Missing,
+                quotaLimit = quota.Limit,
+                quotaUsed = quota.Used,
+                quotaExhausted = quota.Exhausted,
+                quotaMessage = quota.Problem,
                 rooms = rooms.Select(room => new
                 {
                     room.LineGroupId, room.GroupName, room.Supplier, room.Jobs,

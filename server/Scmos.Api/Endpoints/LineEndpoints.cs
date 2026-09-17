@@ -43,12 +43,19 @@ public static class LineEndpoints
          * switched on and whether a secret is configured — never the secret,
          * and never any part of it.
          */
-        group.MapGet("/status", (IConfiguration config, ILineImageReader photos, LineReminderService reminders, LineChaseService chase, ILineNotifier notifier) =>
+        group.MapGet("/status", async (IConfiguration config, ILineImageReader photos, LineReminderService reminders, LineChaseService chase, ILineNotifier notifier, CancellationToken token) =>
         {
             var enabled = config.GetValue(EnabledKey, false);
             var configured = !string.IsNullOrWhiteSpace(config[SecretKey]);
+            var quota = await notifier.QuotaAsync(token);
             return Results.Json(new
             {
+                // The month's push allowance and its use, from LINE: the one
+                // figure that says why pushes stop going.
+                quotaLimit = quota.Limit,
+                quotaUsed = quota.Used,
+                quotaExhausted = quota.Exhausted,
+                quotaMessage = quota.Problem,
                 enabled,
                 configured,
                 // The morning reminder: the Bangkok hour it goes at, or empty
