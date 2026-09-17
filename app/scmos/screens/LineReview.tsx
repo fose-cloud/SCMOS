@@ -82,7 +82,7 @@ type DaySummary = {
 type Reminder = {
   date: string; remindAt: string; summaryAt?: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[];
   /** The status chase: minutes either side of the plan time (0 = off), and what it would ask right now. */
-  chaseMinutes?: number; chaseEveryHours?: number; chaseBeforeMinutes?: number; chaseDue?: ChaseRoom[];
+  chaseBeforeMinutes?: number; chaseAt?: string; chaseDue?: ChaseRoom[];
 };
 
 type Option = {
@@ -358,8 +358,8 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
           {reminder.remindAt ? `ส่งอัตโนมัติ ${reminder.remindAt} น.` : "ไม่มีกำหนดส่งอัตโนมัติ"}
           {reminder.summaryAt ? ` · สรุปงานวันถัดไป ${reminder.summaryAt} น.` : ""}
           {" · "}
-          {reminder.chaseMinutes
-            ? `ติดตามสถานะรถเมื่อเลยเวลาแผน ${spanLabel(reminder.chaseMinutes)}${reminder.chaseEveryHours ? ` แล้วทุก ${reminder.chaseEveryHours} ชม. นับจากข้อความล่าสุด จนกว่าจะมีวันที่และเวลาถึง · ทะเบียนรถ/คนขับที่ยังว่าง ทุก ${reminder.chaseEveryHours} ชม. เช่นกัน` : ""}${reminder.chaseBeforeMinutes ? ` · และ ${spanLabel(reminder.chaseBeforeMinutes)}ก่อนเวลาแผน` : ""}`
+          {reminder.chaseBeforeMinutes || reminder.chaseAt
+            ? `ติดตามสถานะรถ${reminder.chaseBeforeMinutes ? ` ${spanLabel(reminder.chaseBeforeMinutes)}ก่อนเวลาแผน` : ""}${reminder.chaseAt ? `${reminder.chaseBeforeMinutes ? " และ" : ""}รอบ ${reminder.chaseAt} น. สำหรับงานที่ยังไม่มีเวลาถึง` : ""}`
             : "ไม่ติดตามสถานะรถ"}
           {!!reminder.chaseDue?.length && (
             <span style={css("color:#B45309")}> · ครบกำหนดตอนนี้ {reminder.chaseDue.reduce((n, room) => n + room.jobs.length, 0)} งาน</span>

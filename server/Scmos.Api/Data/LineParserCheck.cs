@@ -425,12 +425,12 @@ public static class LineParserCheck
                 whole.Contains("ตอบในกลุ่มนี้ทีละตู้", StringComparison.Ordinal)
                 && whole.Contains("TXGU8142057 70-1234 สมชาย ใจดี 081-2345678", StringComparison.Ordinal)),
             ("nothing missing, nothing sent", LineReminder.Compose("SHORE", day, [Line("F1", "IMPORT", "READY", "70-1234", "สมชาย", "081-2345678")]).Count == 0),
-            ("the hours are 08:00 and 12:00 unless set", LineReminder.Times(null).Select(at => at.ToString("HH:mm")).SequenceEqual(["08:00", "12:00"])),
+            ("the hour is 09:00 unless set — the trucks' details are asked for once a day (17 Sep 2026)", LineReminder.Times(null).Select(at => at.ToString("HH:mm")).SequenceEqual(["09:00"])),
             ("a setting may name its own hours, in any of the ways people write them",
                 LineReminder.Times("7.30, 13:00").Select(at => at.ToString("HH:mm")).SequenceEqual(["07:30", "13:00"])),
             ("\"off\" is no hours at all", LineReminder.Times("off").Count == 0),
-            ("a blank setting is the default, not off", LineReminder.Times("").Count == 2 && LineReminder.Times("  ").Count == 2),
-            ("a setting that is not a time falls back to the default", LineReminder.Times("noon").Count == 2),
+            ("a blank setting is the default, not off", LineReminder.Times("").Count == 1 && LineReminder.Times("  ").Count == 1),
+            ("a setting that is not a time falls back to the default", LineReminder.Times("noon").Count == 1),
             // 17 Sep 2026: tomorrow's jobs, the afternoon before.
             ("the day-before summary lists every open job of the day, says what is still missing, and how to answer",
                 LineReminder.ComposeSummary("SHORE", new DateOnly(2026, 9, 18), [
@@ -460,60 +460,46 @@ public static class LineParserCheck
 
         /* ------------------------------------------ the status chase */
 
-        Console.WriteLine("A job with no arrival written is chased half an hour after its plan time and every two hours after the last word to the room — once each, never before.");
+        Console.WriteLine("A job with no arrival written is chased half an hour before its plan time, then at the day's rounds — once each.");
         Console.WriteLine();
         LineReminder.JobLine Planned(string key, string cat, string status, string planTime, string arrDate = "", string arrTime = "") =>
             new(key, cat, status, "ALLNEX", "260917600162", "LC2606594", "TXGU8142057", "WH ALLNEX", "YUSEN W/H", "LCB A0",
                 planTime, "70-1234", "สมชาย", "081-2345678", Date: "16/09/2026", ArrDate: arrDate, ArrTime: arrTime);
         DateTimeOffset At(string clock) => new(2026, 9, 16, int.Parse(clock[..2]), int.Parse(clock[3..]), 0, TimeSpan.FromHours(7));
+        var ten = new TimeOnly(10, 0);
+        var two = new TimeOnly(14, 0);
         var chase = new (string Why, bool Ok)[]
         {
-            ("nothing due an hour before the plan time", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:00"), 30) is null),
-            // Settled 17 Sep 2026: the first ask is after the plan time, not before it.
-            ("nothing due inside the half hour ahead either — the ask before the plan time is off",
-                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30) is null
-                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:59"), 30) is null),
-            ("switched on with its own margin, 'before' comes inside that margin and nowhere else",
-                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30, 2, 30) == LineChase.Before
-                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:00"), 30, 2, 30) is null
-                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30, 2, 15) is null),
-            ("nothing between the plan time and the margin after it", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:10"), 30) is null),
-            ("due 'overdue' once the plan time is the margin behind", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:31"), 30) == LineChase.Overdue),
-            ("still 'overdue' — not asked again — an hour and a half later", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:00"), 30) == LineChase.Overdue),
-            // Settled 17 Sep 2026: "ทุกๆ 2 ชั่วโมง นับจากการแจ้งเตือนและติดตามล่าสุด" —
-            // the spacing counts from the last word to the room, not the plan time.
-            ("the first ask waits two hours after the morning reminder, even past the margin",
-                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:31"), 30, 2, 0, 0, At("12:00")) is null
-                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("14:00"), 30, 2, 0, 0, At("12:00")) == LineChase.Overdue),
-            ("asked again two hours after the last ask, and not before",
-                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:29"), 30, 2, 0, 1, At("13:31")) is null
-                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:31"), 30, 2, 0, 1, At("13:31")) == "overdue#2"),
-            ("a late ask pushes the next one out with it: two hours from when it actually went",
-                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:00"), 30, 2, 0, 2, At("16:10")) is null
-                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("18:10"), 30, 2, 0, 2, At("16:10")) == "overdue#3"
-                && LineChase.AskNumber("overdue#3") == 3),
-            ("not through the night: the repeats stop after six", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "03:00"), At("20:00"), 30, 2, 0, 7, At("17:00")) is null),
-            ("repeats switched off leave the one overdue ask",
-                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30, 0) == LineChase.Overdue
-                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("17:45"), 30, 0, 0, 1, At("13:31")) is null),
-            ("an arrival keyed in between ends the repeats", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "15:10"), At("17:45"), 30, 2, 0, 1, At("13:31")) is null),
-            ("a repeat says how long it has been and which ask this is",
-                LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), "overdue#3")], At("17:45")) is { } again
-                    && again.Contains("เลยมา 4 ชม. 45 นาที ยังไม่มีรายงานถึง (ติดตามครั้งที่ 3)", StringComparison.Ordinal)),
-            ("an arrival stamp on the job ends the chase", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00", "16/09/2026", "12:50"), At("13:40"), 30) is null),
+            ("nothing due an hour before the plan time", !LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:00"))),
+            ("due 'before' inside the half hour ahead, and not once the plan time is here",
+                LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"))
+                && !LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:00"))),
+            ("the before-ask switched off asks nothing", !LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 0)),
+            ("the rounds are 10:00 and 14:00 unless set, and 'off' is none",
+                LineChase.Rounds(null).Select(at => at.ToString("HH:mm")).SequenceEqual(["10:00", "14:00"])
+                && LineChase.Rounds("off").Count == 0
+                && LineChase.Rounds("11.00").Select(at => at.ToString("HH:mm")).SequenceEqual(["11:00"])),
+            ("a round asks about a job whose plan time has passed, inside the round's ten minutes",
+                LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "08:30"), At("10:00"), ten)
+                && LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "08:30"), At("10:08"), ten)
+                && !LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "08:30"), At("10:15"), ten)
+                && !LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "08:30"), At("09:55"), ten)),
+            ("a job planned for the afternoon is not asked about at ten, and is at two",
+                !LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("10:02"), ten)
+                && LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("14:02"), two)),
+            ("a job planned on the hour of a round is that round's", LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "10:00"), At("10:03"), ten)),
+            ("an arrival written ends it, whatever the status",
+                !LineChase.RoundDue(Planned("J", "IMPORT", "IN_TRANSIT", "08:30", "16/09/2026", "09:10"), At("10:02"), ten)
+                && !LineChase.RoundDue(Planned("J", "EXPORT", "READY", "08:30", "16/09/2026", "09:10"), At("10:02"), ten)),
             // 17 Sep 2026: the status does not excuse an empty arrival cell — a
             // DELIVERED job with a date and no time is asked for the time.
-            ("an import at DELIVERED with no arrival written is still asked",
-                LineChase.Stage(Planned("J", "IMPORT", "DELIVERED", "13:00"), At("13:40"), 30) == LineChase.Overdue),
-            ("a date with no time is asked for the time, in those words",
-                LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "DELIVERED", "13:00", "16/09/2026", ""), LineChase.Overdue)], At("13:40"))
+            ("an import at DELIVERED with no arrival written is still asked, for the time",
+                LineChase.RoundDue(Planned("J", "IMPORT", "DELIVERED", "08:30", "16/09/2026", ""), At("10:02"), ten)
+                && LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "DELIVERED", "08:30", "16/09/2026", ""), LineChase.RoundStage(ten))], At("10:02"))
                     .Contains("ยังไม่มีเวลาถึงในระบบ — รถถึงหน้างานกี่โมงครับ", StringComparison.Ordinal)),
-            ("both cells written ends it, whatever the status",
-                LineChase.Stage(Planned("J", "EXPORT", "READY", "13:00", "16/09/2026", "13:20"), At("13:40"), 30) is null),
-            ("an export still READY has not", LineChase.Stage(Planned("J", "EXPORT", "READY", "13:00"), At("13:40"), 30) == LineChase.Overdue),
-            ("a cancelled job is left alone", LineChase.Stage(Planned("J", "IMPORT", "CANCELLED", "13:00"), At("13:40"), 30) is null),
-            ("no plan time, nothing to chase", LineChase.Stage(Planned("J", "IMPORT", "READY", ""), At("13:40"), 30) is null),
-            ("the chase switched off chases nothing", LineChase.Stage(Planned("J", "IMPORT", "READY", "13:00"), At("13:40"), 0) is null),
+            ("a cancelled job is left alone", !LineChase.RoundDue(Planned("J", "IMPORT", "CANCELLED", "08:30"), At("10:02"), ten)),
+            ("no plan time, nothing to chase", !LineChase.RoundDue(Planned("J", "IMPORT", "READY", ""), At("10:02"), ten) && !LineChase.BeforeDue(Planned("J", "IMPORT", "READY", ""), At("10:02"))),
+            ("the stages are named once each", LineChase.RoundStage(ten) == "round:10:00" && LineChase.IsRoundStage("round:14:00") && !LineChase.IsRoundStage(LineChase.Before)),
             ("a job is waiting for its arrival until both cells are filled — whatever its status — and a closed one never is",
                 LineAuthority.AwaitingArrival("IMPORT", "IN_TRANSIT", "", "")
                 && LineAuthority.AwaitingArrival("IMPORT", "DELIVERED", "17/09/2026", "")
@@ -521,40 +507,16 @@ public static class LineParserCheck
                 && LineAuthority.AwaitingArrival("EXPORT", "READY", "", "")
                 && !LineAuthority.AwaitingArrival("IMPORT", "CANCELLED", "", "")
                 && !LineAuthority.AwaitingArrival("IMPORT", "COMPLETED", "", "")),
-            ("the message names the job the department's way and says how to answer",
-                LineChase.Compose("SHORE", [(Planned("J", "EXPORT", "READY", "13:00"), LineChase.Overdue)], At("13:40")) is { } text
+            ("the before-ask names the job the department's way and asks whether the truck has left",
+                LineChase.Compose("SHORE", [(Planned("J", "EXPORT", "READY", "13:00"), LineChase.Before)], At("12:35")) is { } text
                     && text.Contains("Booking LC2606594 · Job 260917600162 · ตู้ TXGU8142057 · ลูกค้า ALLNEX · โหลดที่ YUSEN W/H · รถ 70-1234", StringComparison.Ordinal)
-                    && text.Contains("แผน 13:00 — เลยมา 40 นาที", StringComparison.Ordinal)
+                    && text.Contains("แผน 13:00 — อีก 25 นาที รถออกแล้วหรือยังครับ", StringComparison.Ordinal)
                     && text.Contains("TXGU8142057 ถึงโรงงาน 12:40", StringComparison.Ordinal)),
+            ("a round's ask says how long the plan time is gone, and asks for the truck's details on the same line when they are missing",
+                LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "IN_TRANSIT", "08:30") with { Driver = "" }, LineChase.RoundStage(ten))], At("10:02")) is { } round
+                    && round.Contains("แผน 08:30 — เลยมา 1 ชม. 32 นาที ยังไม่มีรายงานถึง · ขาด: ชื่อ-สกุลคนขับ", StringComparison.Ordinal)
+                    && round.Contains("ทะเบียนรถและคนขับ:", StringComparison.Ordinal)),
             ("nothing due, no message", LineChase.Compose("SHORE", [], At("13:40")).Length == 0),
-            // 17 Sep 2026: LICENCE or DRIVER empty is chased on the same spacing, imports and exports.
-            ("a job short of its plate or driver is asked from the morning hour, two hours after the last word, once each",
-                LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "", Driver = "" }, At("07:30"), 2, 0, null, new TimeOnly(8, 0)) is null
-                && LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "" }, At("08:05"), 2, 0, null, new TimeOnly(8, 0)) == LineChase.Details
-                && LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "" }, At("09:30"), 2, 0, At("08:00"), new TimeOnly(8, 0)) is null
-                && LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "" }, At("10:00"), 2, 1, At("08:00"), new TimeOnly(8, 0)) == "details#2"
-                && LineChase.DetailsStage(Planned("J", "EXPORT", "READY", "13:00") with { Driver = "" }, At("10:00"), 2, 0, At("08:00"), new TimeOnly(8, 0)) == LineChase.Details),
-            ("a job with its truck, a closed job and a Domestic run are not asked for details",
-                LineChase.DetailsStage(Planned("J", "IMPORT", "READY", "13:00"), At("10:00"), 2, 0, null, new TimeOnly(8, 0)) is null
-                && LineChase.DetailsStage(Planned("J", "IMPORT", "CANCELLED", "13:00") with { Licence = "" }, At("10:00"), 2, 0, null, new TimeOnly(8, 0)) is null
-                && LineChase.DetailsStage(Planned("J", "DELIVERY", "READY", "13:00") with { Licence = "" }, At("10:00"), 2, 0, null, new TimeOnly(8, 0)) is null),
-            ("the details ask names what is missing, and an arrival ask on such a job carries it too",
-                LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "READY", "13:00") with { Licence = "", Driver = "" }, LineChase.Details)], At("10:00")) is { } ask
-                    && ask.Contains("ยังไม่มีทะเบียนรถและชื่อ-สกุลคนขับในระบบ — ขอทะเบียนรถและชื่อ-สกุลคนขับครับ", StringComparison.Ordinal)
-                    && !ask.Contains("รถถึงหน้างานหรือยังครับ", StringComparison.Ordinal)
-                    && ask.Contains("ทะเบียน ชื่อ-สกุลคนขับ เบอร์", StringComparison.Ordinal)
-                && LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "IN_TRANSIT", "13:00") with { Driver = "" }, LineChase.Overdue)], At("13:40"))
-                    .Contains("ยังไม่มีรายงานถึง · ขาด: ชื่อ-สกุลคนขับ", StringComparison.Ordinal)),
-            // "ประมาณ 10.00 รถถึงโรงงาน" at 08:37: at 10:00 the room is asked whether it did.
-            ("an estimate is due its ask at its clock, once the clock has come, and only if it lay ahead of the message",
-                !LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("08:37"), At("09:55"))
-                && LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("08:37"), At("10:00"))
-                && !LineChase.EtaDue(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), At("10:00"), At("10:20"), At("10:25"))
-                && !LineChase.EtaDue(Planned("J", "IMPORT", "DELIVERED", "09:00", "17/09/2026", "09:50"), At("10:00"), At("08:37"), At("10:05"))),
-            ("the ask says what the driver promised",
-                LineChase.Compose("DGT", [(Planned("J", "IMPORT", "IN_TRANSIT", "09:00"), LineChase.EtaStage(At("10:00")))], At("10:00"))
-                    .Contains("แจ้งไว้ว่าคาดถึง 10:00 — ถึงโรงงานแล้วหรือยังครับ", StringComparison.Ordinal)
-                && LineChase.IsEtaStage("eta:10:00") && !LineChase.IsEtaStage("overdue#2")),
         };
         foreach (var (why, ok) in chase)
         {

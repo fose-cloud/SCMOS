@@ -24,11 +24,13 @@ namespace Scmos.Api.Rules;
 public static class LineReminder
 {
     /// <summary>
-    /// The hours the department chose, Bangkok: the morning ask, and a second
-    /// at noon for what is still missing (asked for 16 Sep 2026). Configuration
-    /// may move them — a comma-separated list, or "off".
+    /// The hour the department chose, Bangkok: one ask for the trucks'
+    /// details at nine — "การติดตามรายชื่อพนักงานขับรถ กำหนดให้เป็นรอบ 09.00 น.
+    /// เท่านั้น", 17 Sep 2026, after a day on which the morning's ask, the
+    /// noon's and a two-hourly chase all counted against LINE's monthly
+    /// allowance. Configuration may move it — a comma-separated list, or "off".
     /// </summary>
-    public const string DefaultTime = "08:00, 12:00";
+    public const string DefaultTime = "09:00";
 
     /// <summary>
     /// The clock times out of a setting: "08:00, 12:00", "8.00 12.00", or

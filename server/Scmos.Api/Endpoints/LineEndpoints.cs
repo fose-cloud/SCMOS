@@ -63,12 +63,10 @@ public static class LineEndpoints
                 remindAt = reminders.RemindAtText,
                 // The day-before summary of tomorrow's jobs: the hour, or empty when off.
                 summaryAt = reminders.SummaryAtText,
-                // The status chase: minutes after the plan time before the
-                // first ask (0 when off), hours between repeats, and minutes
-                // before the plan time when that ask is on.
-                chaseMinutes = chase.Minutes,
-                chaseEveryHours = chase.RepeatHours,
+                // The status chase: minutes before the plan time (0 when off)
+                // and the day's rounds ("10:00, 14:00", empty when off).
                 chaseBeforeMinutes = chase.BeforeMinutes,
+                chaseAt = chase.RoundsText,
                 canPush = notifier.Configured,
                 pushMessage = notifier.Configured ? "" : notifier.Missing,
                 // Whether a driver's photos are read for the box when their text

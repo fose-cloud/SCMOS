@@ -203,9 +203,10 @@ public static class LineReviewEndpoints
                 date = Formats.PlanDate(day),
                 remindAt = reminders.RemindAtText,
                 summaryAt = reminders.SummaryAtText,
-                chaseMinutes = chase.Minutes,
-                chaseEveryHours = chase.RepeatHours,
+                // The status chase: minutes before the plan time (0 when off)
+                // and the day's rounds ("10:00, 14:00", empty when off).
                 chaseBeforeMinutes = chase.BeforeMinutes,
+                chaseAt = chase.RoundsText,
                 chaseDue = due.Select(room => new
                 {
                     room.LineGroupId, room.GroupName, room.Supplier,
