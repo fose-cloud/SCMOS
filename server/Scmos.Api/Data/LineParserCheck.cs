@@ -597,6 +597,76 @@ public static class LineParserCheck
         }
         Console.WriteLine();
 
+        /* ------------------------------------- a photo and its text */
+
+        Console.WriteLine("A driver's photos and the text after them are one report: the photo says which box, the text says when.");
+        Console.WriteLine();
+        var arrivedText = LineParser.Parse("ลอรีอัล รถถึงคลังแล้วนะครับ 13.39 น.", Received);
+        DateTimeOffset Moment(int m) => new(2026, 9, 17, 6, 49 + m, 0, TimeSpan.Zero);
+        var photos = new[] { (Id: 1, At: Moment(-1), User: "U1"), (Id: 2, At: Moment(-1), User: "U1"), (Id: 3, At: Moment(-20), User: "U1"), (Id: 4, At: Moment(-1), User: "U2"), (Id: 5, At: Moment(1), User: "U1") };
+        var picked = LinePhotoPairing.Pick(photos, one => one.At, one => one.User, Moment(0), "U1").Select(one => one.Id).ToList();
+        var textRow = new LineEvent { MessageType = "text", ImageReading = "EOLU7180538" };
+        var paired = LinePhotoPairing.WithPhoto(arrivedText, textRow);
+        var pairing = new (string Why, bool Ok, string Got)[]
+        {
+            ("the text is one a photo completes: a status and a clock, no box, no number",
+                LinePhotoPairing.Wants(arrivedText) && arrivedText.ArrivalTime?.ToString("HH:mm") == "13:39" && arrivedText.Status == LineParser.SiteArrival,
+                arrivedText.Status ?? "-"),
+            ("a text that names its box, or asks a question, or reports nothing, does not want one",
+                !LinePhotoPairing.Wants(LineParser.Parse("EOLU7180538 ถึงคลังแล้ว 13:39", Received))
+                && !LinePhotoPairing.Wants(LineParser.Parse("ถึงคลังหรือยังคะ", Received))
+                && !LinePhotoPairing.Wants(LineParser.Parse("สวัสดีครับ", Received)), "-"),
+            ("the photos taken are the sender's, within the window before the text or a moment after — not last hour's, not another driver's",
+                picked.SequenceEqual([1, 2, 5]), string.Join(",", picked)),
+            ("with no sender known, the room's photos in the window are taken",
+                LinePhotoPairing.Pick(photos, one => one.At, one => one.User, Moment(0), "").Count == 4, "-"),
+            ("paired, the text carries the box, says so, and no longer lacks a reference",
+                paired is { Container: "EOLU7180538", HasReference: true } && paired.MatchedRules.Contains("container-from-photo:EOLU7180538") && !paired.Warnings.Contains("no-reference"),
+                string.Join(", ", paired.Warnings)),
+            ("a text with its own box keeps it", LinePhotoPairing.WithPhoto(LineParser.Parse("TEMU5246902 ถึงคลังแล้ว 13:39", Received), textRow).Container == "TEMU5246902", "-"),
+        };
+        foreach (var (why, ok, got) in pairing)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          got {got}");
+        }
+        Console.WriteLine();
+
+        Console.WriteLine("A container number read off a photo is trusted only when its check digit agrees.");
+        Console.WriteLine();
+        var digits = new (string Why, bool Want, bool Got)[]
+        {
+            ("a real number passes", true, ContainerNumbers.IsValid("TEMU5246902")),
+            ("a digit misread fails", false, ContainerNumbers.IsValid("TEMU5246903")),
+            ("a seal number is not shaped like a box", false, ContainerNumbers.IsValid("SEAL1234567")),
+            ("lower case with a space is normalised first", true, ContainerNumbers.IsValid(ContainerNumbers.Normalise("temu 524690-2"))),
+        };
+        foreach (var (why, want, got) in digits)
+        {
+            var ok = got == want;
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+        }
+        var answers = new (string Why, string Answer, string[] Valid, string[] Rejected)[]
+        {
+            ("a clean reading", "{\"containers\":[\"TEMU5246902\"],\"note\":\"a box door and a seal\"}", ["TEMU5246902"], []),
+            ("a misread is kept aside, not offered", "{\"containers\":[\"TEMU5246903\"],\"note\":\"\"}", [], ["TEMU5246903"]),
+            ("the framed check digit is part of the number, the size code under it is not",
+                "{\"containers\":[\"GCXU 513490 0 45G1\"],\"note\":\"\"}", ["GCXU5134900"], []),
+            ("no box in the photo", "{\"containers\":[],\"note\":\"a seal\"}", [], []),
+            ("an answer that is not JSON reads as nothing, and does not throw", "not json", [], []),
+        };
+        foreach (var (why, answer, valid, rejected) in answers)
+        {
+            var got = LineImageReading.Read(answer);
+            var ok = got.Valid.SequenceEqual(valid) && got.Rejected.SequenceEqual(rejected);
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          valid [{string.Join(",", got.Valid)}] rejected [{string.Join(",", got.Rejected)}] note {got.Note}");
+        }
+        Console.WriteLine();
+
         /* ------------------------------------------ the remark */
 
         Console.WriteLine("What a haulier said that the ladder has no rung for goes into REMARK, dated, after what is there.");

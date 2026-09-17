@@ -135,6 +135,9 @@ builder.Services.AddScoped<SignInAccountService>();
 builder.Services.AddSingleton<IFileStore, BlobFileStore>();
 builder.Services.AddSingleton<IDocumentExtractor, DocumentExtractor>();
 builder.Services.AddHttpClient(LineNotifier.ClientName);
+// A driver's photo, read for its box only when a text of theirs needs it —
+// off unless Line__ReadImages says otherwise, because a read is a model call.
+builder.Services.AddSingleton<ILineImageReader, LineImageReader>();
 // The one outbound message: the morning reminder to each haulier's room.
 builder.Services.AddSingleton<ILineNotifier, LineNotifier>();
 builder.Services.AddScoped<LineReminderService>();

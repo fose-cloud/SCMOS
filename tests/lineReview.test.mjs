@@ -168,9 +168,11 @@ test("the one status the parser cannot settle alone is named as such", () => {
 
 // Photos were read for their container number on 16–17 Sep 2026 and the
 // department took that out; a row from those two days is filed quietly.
-test("a photo row from the two days photos were read is quiet", () => {
-  assert.equal(describe("photo-reading-retired").tone, "quiet");
-  assert.equal(isActionable("photo-reading-retired"), false);
+test("a photo row is quiet — waiting for its text, paired with one, or from the first day's reading", () => {
+  for (const code of ["photo-waiting", "photo-paired", "photo-reading-retired"]) {
+    assert.equal(describe(code).tone, "quiet", code);
+    assert.equal(isActionable(code), false, code);
+  }
 });
 
 // "ติดต่อแถวอยู่ลานดิน": into the job's REMARK, dated, unanswered (17 Sep 2026).

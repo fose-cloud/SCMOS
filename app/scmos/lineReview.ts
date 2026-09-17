@@ -115,11 +115,22 @@ const OUTCOMES: Outcome[] = [
     label: "ไม่มีเลขงานในข้อความ",
     next: "ถามผู้ขนส่งให้ส่งเลขงานมาด้วย",
   },
-  // A photo row from 16–17 Sep 2026, when photos were read for their
-  // container number; the department took that out the same day.
+  // A driver's photo: read only when a text of theirs reports the truck at
+  // the site and names no box (17 Sep 2026). Waiting, or paired with one.
+  {
+    code: "photo-waiting", tone: "quiet",
+    label: "รูป — รอข้อความแจ้งถึงจากคนขับ (อ่านเลขตู้เมื่อมีข้อความตามมา)",
+    next: "",
+  },
+  {
+    code: "photo-paired", tone: "quiet",
+    label: "รูป — อ่านเลขตู้แล้ว จับคู่กับข้อความแจ้งถึง",
+    next: "",
+  },
+  // A photo row from the first day, when every photo was read on arrival.
   {
     code: "photo-reading-retired", tone: "quiet",
-    label: "รูป — การอ่านรูปถูกถอดออกจากระบบแล้ว",
+    label: "รูป — อ่านตอนมาถึง (แบบเดิม) ถูกถอดออกแล้ว",
     next: "",
   },
   {

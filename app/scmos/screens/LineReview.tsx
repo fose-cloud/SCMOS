@@ -50,8 +50,10 @@ type Event = {
   jobKey: string;
   retryCount: number;
   group: string;
-  /** "text"; "image" only on rows from 16–17 Sep 2026, when photos were read — that was taken out. */
+  /** "text" or "image". */
   messageType: string;
+  /** A photo's reading, once a text asked for it; on a text, the box its photos gave it. */
+  imageReading?: string;
 };
 
 /** One haulier's room and what today's reminder would say to it. */
@@ -503,7 +505,7 @@ function Row({
           )}
         </td>
         <td style={css(`${CELL};max-width:280px`)}>
-          {event.messageType === "image" ? <span style={css("color:#94A3B8")}>รูป — การอ่านรูปถูกถอดออกแล้ว</span> : event.rawText}
+          {event.messageType === "image" ? <span style={css("color:#94A3B8")}>รูป{event.imageReading ? ` · ตู้ ${event.imageReading}` : ""}</span> : event.rawText}
         </td>
         <td style={css(`${CELL};white-space:nowrap;font-variant-numeric:tabular-nums`)}>{referenceLabel(event) || "—"}</td>
         <td style={css(`${CELL};white-space:nowrap`)}>

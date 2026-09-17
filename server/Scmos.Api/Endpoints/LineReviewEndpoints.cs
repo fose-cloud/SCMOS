@@ -65,6 +65,7 @@ public static class LineReviewEndpoints
                     one.JobKey,
                     one.RetryCount,
                     one.MessageType,
+                    one.ImageReading,
                 })
                 .ToListAsync(token);
 
@@ -82,7 +83,8 @@ public static class LineReviewEndpoints
                     // stores the number and the status, and since 16 Sep 2026
                     // the box, the plates and the arrival clock are what a
                     // reviewer needs to see. Deterministic and cheap.
-                    var read = LineParser.Parse(one.RawText, one.ReceivedAt);
+                    var read = LinePhotoPairing.WithPhoto(LineParser.Parse(one.RawText, one.ReceivedAt),
+                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading });
                     return new
                     {
                     one.Id, one.ReceivedAt, one.RawText, one.JobNumber, one.ParsedStatus,
@@ -123,7 +125,7 @@ public static class LineReviewEndpoints
                 .Select(one => new
                 {
                     one.Id, one.JobKey, one.LineGroupId, one.MessageType, one.RawText, one.ReceivedAt,
-                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage,
+                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage, one.ImageReading,
                 })
                 .ToListAsync(token);
 
@@ -150,7 +152,8 @@ public static class LineReviewEndpoints
                 }).Select(item =>
                 {
                     var one = item.Row;
-                    var read = LineParser.Parse(one.RawText, one.ReceivedAt);
+                    var read = LinePhotoPairing.WithPhoto(LineParser.Parse(one.RawText, one.ReceivedAt),
+                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading });
                     var category = categories.GetValueOrDefault(item.JobKey, "");
                     return new
                     {
@@ -175,6 +178,8 @@ public static class LineReviewEndpoints
                             read.Driver is not null ? $"คนขับ {read.Driver}" : "",
                             read.Phone is not null ? $"เบอร์ {read.Phone}" : "",
                             read.SealNumber is not null ? $"ซีล {read.SealNumber}" : "",
+                            // The box the driver's photos gave a text that named none.
+                            one.ImageReading.Length > 0 ? $"ตู้ {one.ImageReading} (จากรูป)" : "",
                         }.Where(part => part.Length > 0)),
                         ready = one.ErrorCode == "ready-to-apply",
                     };
@@ -373,7 +378,7 @@ public static class LineReviewEndpoints
              * stored verdict here would let the screen offer a button the
              * approval then refuses.
              */
-            var read = LineParser.Parse(row.RawText, row.ReceivedAt);
+            var read = LinePhotoPairing.WithPhoto(LineParser.Parse(row.RawText, row.ReceivedAt), row);
             var now = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
 
             // Each offered row with its own status, because when a number covers
@@ -563,7 +568,7 @@ public static class LineReviewEndpoints
          * moved it to another haulier — and this endpoint is the one that
          * writes, so it is the one that has to be right.
          */
-        var read = LineParser.Parse(row.RawText, row.ReceivedAt);
+        var read = LinePhotoPairing.WithPhoto(LineParser.Parse(row.RawText, row.ReceivedAt), row);
         var decision = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
 
         // "260900760321 3 ตู้ อยู่โรงงาน" for three rows: every row takes it.

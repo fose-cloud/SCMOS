@@ -38,8 +38,8 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     : BackgroundService
 {
     /// <summary>
-    /// A photo row from 16–17 Sep 2026, when photos were read for their
-    /// container number, still in the queue when that was taken out. Filed.
+    /// A photo row from 16–17 Sep 2026, when every photo was read on arrival,
+    /// still in the queue when that was taken out. Filed.
     /// </summary>
     public const string PhotoReadingRetired = "photo-reading-retired";
 
@@ -166,15 +166,40 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
 
         if (row.MessageType == "image")
         {
-            // The webhook stores no photos any more; a row from before is filed.
+            // A photo is not read here. It waits, unanswered, for a text of the
+            // driver's that reports the truck at the site and names no box —
+            // and a text already waiting for one is sent round again now.
             row.ProcessingStatus = LineProcessing.Ignored;
-            row.ErrorCode = PhotoReadingRetired;
+            row.ErrorCode = LinePhotoPairing.Waiting;
             row.ProcessedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(stopping);
+            await RetryWaitingTextAsync(db, row, stopping);
             return;
         }
 
         var read = LineParser.Parse(row.RawText, row.ReceivedAt);
+        // "รถถึงคลังแล้วนะครับ 13.39 น." after photos of the door: the photos
+        // say which box, the text says when.
+        if (LinePhotoPairing.Wants(read) && row.ImageReading.Length == 0)
+        {
+            using var scope = services.CreateScope();
+            var reader = scope.ServiceProvider.GetRequiredService<ILineImageReader>();
+            if (reader.Configured)
+            {
+                try
+                {
+                    var box = await LinePhotoPairing.BoxForAsync(db, reader, row, log, stopping);
+                    if (box is not null) row.ImageReading = box;
+                }
+                catch (Exception error) when (error is not OperationCanceledException)
+                {
+                    // The model or LINE was down: the text goes on as it is,
+                    // and the photos stay unread for a retry from the queue.
+                    log.LogWarning(error, "LINE text {Id}: its photos could not be read", row.Id);
+                }
+            }
+        }
+        read = LinePhotoPairing.WithPhoto(read, row);
         await ProcessTextAsync(db, row, read, stopping);
         // The room hears back once the row is filed, whatever the filing was.
         if (row.ProcessingStatus != LineProcessing.Processing)
@@ -187,6 +212,31 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     /// answered; the room is not to be argued with.
     /// </summary>
     public const string NotAboutAJob = "not-about-a-job";
+
+    /// <summary>
+    /// A text that arrived before its photos — waiting in the queue with no
+    /// reference — is sent round again once the photos are here, so the
+    /// pairing can read them. Only a text of the same room, within the
+    /// window, that a photo could complete.
+    /// </summary>
+    private async Task RetryWaitingTextAsync(ScmosDbContext db, LineEvent photo, CancellationToken stopping)
+    {
+        var from = photo.ReceivedAt - TimeSpan.FromMinutes(2);
+        var texts = await db.LineEvents
+            .Where(one => one.LineGroupId == photo.LineGroupId && one.MessageType == "text"
+                && one.ProcessingStatus == LineProcessing.NeedReview && one.ErrorCode == "no-reference"
+                && one.ReceivedAt >= from && one.ReceivedAt <= photo.ReceivedAt + LinePhotoPairing.Window)
+            .ToListAsync(stopping);
+        foreach (var text in texts)
+        {
+            if (photo.LineUserId.Length > 0 && text.LineUserId.Length > 0 && photo.LineUserId != text.LineUserId) continue;
+            if (!LinePhotoPairing.Wants(LineParser.Parse(text.RawText, text.ReceivedAt))) continue;
+            text.ProcessingStatus = LineProcessing.Received;
+            text.ErrorCode = "";
+            text.ErrorMessage = "";
+        }
+        if (texts.Count > 0) await db.SaveChangesAsync(stopping);
+    }
 
     /// <summary>
     /// The message onto the REMARK of each job it names, dated, after
