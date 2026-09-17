@@ -188,6 +188,9 @@ public static class LineParser
         ("ออกจากท่า", "PICKED_UP"),
         ("โหลดเสร็จแล้ว", "PICKED_UP"),
         ("โหลดเสร็จ", "PICKED_UP"),
+        // "บรรจุเสร็จแล้ว" — stuffing done — the fifth real message, 17 Sep 2026.
+        ("บรรจุเสร็จแล้ว", "PICKED_UP"),
+        ("บรรจุเสร็จ", "PICKED_UP"),
         ("รับของแล้ว", "PICKED_UP"),
         ("loading completed", "PICKED_UP"),
         ("loaded", "PICKED_UP"),
@@ -413,6 +416,12 @@ public static class LineParser
     /// The container in a message, and how many there were. Null unless
     /// exactly one, for the reason <see cref="FindJobNumber"/> gives.
     /// </summary>
+    /// <summary>Every container in a message, upper case, in order, without repeats.</summary>
+    public static IReadOnlyList<string> FindContainers(string normalised) =>
+        [.. Container.Matches(normalised)
+            .Select(one => (one.Groups[1].Value + one.Groups[2].Value).ToUpperInvariant())
+            .Distinct(StringComparer.Ordinal)];
+
     public static (string? Container, int Found) FindContainer(string normalised)
     {
         var found = Container.Matches(normalised)

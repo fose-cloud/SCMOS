@@ -175,6 +175,12 @@ test("a photo row is quiet — waiting for its text, paired with one, or from th
   }
 });
 
+// A message about several boxes is read as one message per box (17 Sep 2026).
+test("a message read in parts is filed quietly — its parts carry the work", () => {
+  assert.equal(describe("split-into-parts").tone, "quiet");
+  assert.equal(isActionable("split-into-parts"), false);
+});
+
 // "ติดต่อแถวอยู่ลานดิน": into the job's REMARK, dated, unanswered (17 Sep 2026).
 test("a message written into the remark is filed quietly", () => {
   assert.equal(describe("remark-written").tone, "quiet");

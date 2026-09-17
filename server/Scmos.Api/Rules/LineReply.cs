@@ -48,6 +48,45 @@ public static class LineReply
     }
 
     /// <summary>
+    /// One line back for a message read as several — a box per part — so the
+    /// room is not written to once per box. Each part says its reference and
+    /// what will be written; parts that could not be placed say so. Null when
+    /// no part had anything to say.
+    /// </summary>
+    public static string? ForParts(IReadOnlyList<(LineParser.Parsed Read, string Outcome, string ResolvedTo)> parts)
+    {
+        var lines = new List<string>();
+        var pending = false;
+        foreach (var (read, outcome, resolvedTo) in parts)
+        {
+            var reference = Reference(read);
+            if (reference.Length == 0) continue;
+            var said = Said(read, resolvedTo);
+            switch (outcome)
+            {
+                case "ready-to-apply":
+                    lines.Add($"{reference}{(said.Length > 0 ? " — " + said : "")}");
+                    pending = true;
+                    break;
+                case LineAuthority.Outcome.AlreadyThere:
+                    lines.Add($"{reference} — งานอยู่ที่สถานะนี้แล้ว");
+                    break;
+                case LineAuthority.Outcome.NoSuchJob or LineAuthority.Outcome.NotYourJob:
+                    lines.Add($"{reference} — ไม่พบในงานของท่านช่วงนี้");
+                    break;
+                case LineAuthority.Outcome.ManyJobs:
+                    lines.Add($"{reference} — ตรงกับหลายงาน เจ้าหน้าที่จะเลือกให้");
+                    break;
+                default:
+                    lines.Add($"{reference} — เจ้าหน้าที่จะตรวจสอบ");
+                    break;
+            }
+        }
+        if (lines.Count == 0) return null;
+        return $"รับทราบ {lines.Count} รายการ\n" + string.Join("\n", lines) + (pending ? "\nรอเจ้าหน้าที่ยืนยันครับ" : "");
+    }
+
+    /// <summary>
     /// The line back for a text message the worker just filed, or null for
     /// silence. <paramref name="outcome"/> is the row's error code — the
     /// parser's warning or the rule's verdict.

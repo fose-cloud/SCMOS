@@ -138,6 +138,9 @@ builder.Services.AddHttpClient(LineNotifier.ClientName);
 // A driver's photo, read for its box only when a text of theirs needs it —
 // off unless Line__ReadImages says otherwise, because a read is a model call.
 builder.Services.AddSingleton<ILineImageReader, LineImageReader>();
+// A message about several boxes that no rule can cut is laid out by the
+// model, one line per box, for the parser — off by Line__AnalyseWithAi=false.
+builder.Services.AddSingleton<ILineMessageAnalyst, LineMessageAnalyst>();
 // The one outbound message: the morning reminder to each haulier's room.
 builder.Services.AddSingleton<ILineNotifier, LineNotifier>();
 builder.Services.AddScoped<LineReminderService>();

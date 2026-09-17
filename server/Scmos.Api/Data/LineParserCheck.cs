@@ -431,6 +431,21 @@ public static class LineParserCheck
             ("\"off\" is no hours at all", LineReminder.Times("off").Count == 0),
             ("a blank setting is the default, not off", LineReminder.Times("").Count == 2 && LineReminder.Times("  ").Count == 2),
             ("a setting that is not a time falls back to the default", LineReminder.Times("noon").Count == 2),
+            // 17 Sep 2026: tomorrow's jobs, the afternoon before.
+            ("the day-before summary lists every open job of the day, says what is still missing, and how to answer",
+                LineReminder.ComposeSummary("SHORE", new DateOnly(2026, 9, 18), [
+                    Line("I1", "IMPORT", "READY"),
+                    Line("F1", "IMPORT", "READY", "70-1234", "สมชาย ใจดี", "081-2345678"),
+                    Line("C1", "IMPORT", "CANCELLED"),
+                ]) is [var summary]
+                    && summary.StartsWith("สรุปงานวันที่ 18/09/2026 — SHORE · 2 งาน", StringComparison.Ordinal)
+                    && summary.Contains("Job 260600800773 · ตู้ TEMU5246902 · ลูกค้า L'OREAL", StringComparison.Ordinal)
+                    && summary.Contains("ยังขาด: ทะเบียนรถ, ชื่อ-สกุลคนขับ, เบอร์ติดต่อ", StringComparison.Ordinal)
+                    && !summary.Contains("CANCELLED", StringComparison.Ordinal)
+                    && summary.Split("ยังขาด:").Length == 2
+                    && summary.Contains("ถ้างานไหนรับไม่ได้", StringComparison.Ordinal)),
+            ("a day with no open job sends no summary",
+                LineReminder.ComposeSummary("SHORE", new DateOnly(2026, 9, 18), [Line("C1", "IMPORT", "CANCELLED")]).Count == 0),
             ("a long day is split into whole parts under LINE's limit",
                 LineReminder.Compose("SHORE", day, Enumerable.Range(1, 80).Select(i => Line($"I{i}", "IMPORT", "READY")).ToList()) is { Count: > 1 } parts
                     && parts.All(part => part.Length <= 5000)),
@@ -664,6 +679,45 @@ public static class LineParserCheck
             if (!ok) failed++;
             Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
             if (!ok) Console.WriteLine($"          valid [{string.Join(",", got.Valid)}] rejected [{string.Join(",", got.Rejected)}] note {got.Note}");
+        }
+        Console.WriteLine();
+
+        /* ------------------------------------ a message about several boxes */
+
+        Console.WriteLine("A message about several boxes is read as several, one per box, each with its own status and truck.");
+        Console.WriteLine();
+        const string fifth = "SHPP\nBKG.JJJCLCSHY603242\n\nTXGU6125873 >>บรรจุเสร็จแล้วค่ะ\nพขร.75-1724 นัฐพล ศรีจันทร์ 092-783-3892\n\nTWCU8214443 >>บรรจุเสร็จแล้วค่ะ\nพขร.72-2114 รังสรรค์ เรืองรัมย์ 092-572-5262";
+        var cut = LineBlocks.Split(fifth);
+        var first = cut.Count == 2 ? LineParser.Parse(cut[0], Received) : null;
+        var second = cut.Count == 2 ? LineParser.Parse(cut[1], Received) : null;
+        var blocks = new (string Why, bool Ok, string Got)[]
+        {
+            ("the fifth real message cuts into two parts, each with the booking in front", cut.Count == 2 && cut.All(one => one.StartsWith("SHPP BKG.JJJCLCSHY603242 ", StringComparison.Ordinal)),
+                string.Join(" | ", cut)),
+            ("the first part is its box, stuffing done, its plate, its driver and its number",
+                first is { Container: "TXGU6125873", Status: "PICKED_UP", Plates: ["75-1724"], Driver: "นัฐพล ศรีจันทร์", Phone: "092-7833892", Warnings.Count: 0 } && first.References is ["JJJCLCSHY603242"],
+                first is null ? "-" : $"{first.Container} {first.Status} {string.Join("/", first.Plates ?? [])} {first.Driver} {first.Phone} [{string.Join(",", first.Warnings)}]"),
+            ("the second part likewise, its own", second is { Container: "TWCU8214443", Plates: ["72-2114"], Driver: "รังสรรค์ เรืองรัมย์", Phone: "092-5725262" },
+                second is null ? "-" : $"{second.Container} {string.Join("/", second.Plates ?? [])} {second.Driver}"),
+            ("the whole message, unread in parts, is still the question it was", LineParser.Parse(fifth, Received).Warnings.Contains("many-containers"), "-"),
+            ("a message about one box is not cut", LineBlocks.Split("TXGU6125873 บรรจุเสร็จแล้ว พขร.75-1724").Count == 0, "-"),
+            ("two boxes on one line are not cut by the rule — that is the model's to lay out",
+                LineBlocks.Split("TXGU6125873 และ TWCU8214443 บรรจุเสร็จแล้วค่ะ\nพขร.75-1724").Count == 0, "-"),
+            ("the model's layout is taken when each line names one box the message had, and refused when it adds one",
+                LineMessageAnalyst.Read("{\"lines\":[\"TXGU6125873 บรรจุเสร็จแล้วค่ะ พขร.75-1724\",\"TWCU8214443 บรรจุเสร็จแล้วค่ะ พขร.75-1724\"]}", "TXGU6125873 และ TWCU8214443 บรรจุเสร็จแล้วค่ะ พขร.75-1724").Count == 2
+                && LineMessageAnalyst.Read("{\"lines\":[\"TXGU6125873 บรรจุเสร็จแล้ว\",\"MSKU1234567 บรรจุเสร็จแล้ว\"]}", "TXGU6125873 และ TWCU8214443 บรรจุเสร็จแล้วค่ะ").Count == 0
+                && LineMessageAnalyst.Read("not json", "x").Count == 0, "-"),
+            ("the room hears one line for all the parts",
+                LineReply.ForParts([(LineParser.Parse(cut.Count == 2 ? cut[0] : "", Received), "ready-to-apply", "PICKED_UP"), (LineParser.Parse(cut.Count == 2 ? cut[1] : "", Received), "ready-to-apply", "PICKED_UP")]) is { } once
+                    && once.StartsWith("รับทราบ 2 รายการ", StringComparison.Ordinal) && once.Contains("TXGU6125873 — PICKED_UP · ทะเบียน 75-1724", StringComparison.Ordinal)
+                    && once.EndsWith("รอเจ้าหน้าที่ยืนยันครับ", StringComparison.Ordinal),
+                LineReply.ForParts([(LineParser.Parse(cut.Count == 2 ? cut[0] : "", Received), "ready-to-apply", "PICKED_UP")]) ?? "-"),
+        };
+        foreach (var (why, ok, got) in blocks)
+        {
+            if (!ok) failed++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")}  {why}");
+            if (!ok) Console.WriteLine($"          got {got}");
         }
         Console.WriteLine();
 

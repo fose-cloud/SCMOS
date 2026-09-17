@@ -133,6 +133,13 @@ const OUTCOMES: Outcome[] = [
     label: "รูป — อ่านตอนมาถึง (แบบเดิม) ถูกถอดออกแล้ว",
     next: "",
   },
+  // A message about several boxes, read as one message per box (17 Sep 2026);
+  // the parts sit on their own rows, each on its job.
+  {
+    code: "split-into-parts", tone: "quiet",
+    label: "อ่านแยกเป็นหลายรายการ — แต่ละตู้อยู่ในคิวของตัวเอง",
+    next: "",
+  },
   {
     code: "many-containers", tone: "attention",
     label: "ข้อความมีเลขตู้หลายตู้",

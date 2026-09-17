@@ -200,6 +200,21 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             }
         }
         read = LinePhotoPairing.WithPhoto(read, row);
+
+        // A message about several boxes — one booking, two containers, each
+        // with its own status and truck — is read as several messages, one
+        // per box, and answered once (17 Sep 2026). The rule cuts a message
+        // already laid out in lines; the model lays out one that is not.
+        if (read.Warnings.Any(one => one is "many-containers" or "many-job-numbers") && !row.LineMessageId.Contains('#'))
+        {
+            var parts = await PartsOfAsync(row, stopping);
+            if (parts.Count >= 2)
+            {
+                await ProcessPartsAsync(db, row, parts, stopping);
+                return;
+            }
+        }
+
         await ProcessTextAsync(db, row, read, stopping);
         // The room hears back once the row is filed, whatever the filing was.
         if (row.ProcessingStatus != LineProcessing.Processing)
@@ -212,6 +227,80 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     /// answered; the room is not to be argued with.
     /// </summary>
     public const string NotAboutAJob = "not-about-a-job";
+
+    /// <summary>
+    /// The message cut into one part per box: by the rule when the message
+    /// is laid out in lines, by the model when it is not and the model is
+    /// on. Empty when neither could.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> PartsOfAsync(LineEvent row, CancellationToken stopping)
+    {
+        var parts = LineBlocks.Split(row.RawText);
+        if (parts.Count >= 2) return parts;
+        using var scope = services.CreateScope();
+        var analyst = scope.ServiceProvider.GetRequiredService<ILineMessageAnalyst>();
+        if (!analyst.Configured) return [];
+        try
+        {
+            var lines = await analyst.LayOutAsync(row.RawText, stopping);
+            return LineMessageAnalyst.Read(System.Text.Json.JsonSerializer.Serialize(new { lines }), row.RawText);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            log.LogWarning(error, "LINE message {Id}: the model could not lay it out", row.Id);
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Each part as a message of its own, under the parent's message id with
+    /// a part number, processed now and filed on its own job; the parent is
+    /// filed as split and the room hears one line for all of them.
+    /// </summary>
+    private async Task ProcessPartsAsync(ScmosDbContext db, LineEvent row, IReadOnlyList<string> parts, CancellationToken stopping)
+    {
+        var children = new List<LineEvent>();
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var id = $"{row.LineMessageId}#{i + 1}";
+            var child = await db.LineEvents.FirstOrDefaultAsync(one => one.LineMessageId == id, stopping)
+                ?? new LineEvent
+                {
+                    WebhookEventId = row.WebhookEventId,
+                    LineMessageId = id,
+                    LineGroupId = row.LineGroupId,
+                    LineUserId = row.LineUserId,
+                    MessageType = "text",
+                    RawText = parts[i],
+                    RawPayload = System.Text.Json.JsonSerializer.Serialize(new { splitFrom = row.Id, part = i + 1, of = parts.Count }),
+                    ReceivedAt = row.ReceivedAt,
+                    ProcessingStatus = LineProcessing.Processing,
+                };
+            if (child.Id == 0) db.LineEvents.Add(child);
+            children.Add(child);
+        }
+        await db.SaveChangesAsync(stopping);
+
+        var answers = new List<(LineParser.Parsed Read, string Outcome, string ResolvedTo)>();
+        foreach (var child in children)
+        {
+            var read = LineParser.Parse(child.RawText, child.ReceivedAt);
+            await ProcessTextAsync(db, child, read, stopping);
+            answers.Add((read, child.ErrorCode, ResolvedTo(child, read)));
+        }
+
+        row.ProcessingStatus = LineProcessing.Ignored;
+        row.ErrorCode = SplitIntoParts;
+        row.ErrorMessage = $"อ่านแยกเป็น {children.Count} รายการ: {string.Join(", ", children.Select(one => "#" + one.Id))}";
+        row.ProcessedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(stopping);
+        log.LogInformation("LINE message {Id} read as {Count} part(s)", row.Id, children.Count);
+
+        await AnswerAsync(db, row, LineReply.ForParts(answers), stopping);
+    }
+
+    /// <summary>A message about several boxes, read as several: filed under this, its parts on their own rows.</summary>
+    public const string SplitIntoParts = "split-into-parts";
 
     /// <summary>
     /// A text that arrived before its photos — waiting in the queue with no
