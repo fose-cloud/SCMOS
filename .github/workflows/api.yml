@@ -315,7 +315,12 @@ jobs:
 
           curl -s -o /dev/null --max-time 180 "$base/health" || true
 
-          for i in $(seq 1 12); do
+          # The restart drops the SQL connection and the serverless database
+          # takes about two minutes to wake; /health answers 503 until it has.
+          # Twelve tries at ten seconds ran out at the 2:16 mark on 17 Sep 2026
+          # with the build fine and the database still waking, so this waits
+          # up to six minutes.
+          for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$base/health" || true)
 
             if [ "$code" = "200" ]; then
