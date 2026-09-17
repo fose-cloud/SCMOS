@@ -438,7 +438,7 @@ public static class LineParserCheck
 
         /* ------------------------------------------ the status chase */
 
-        Console.WriteLine("A job with no truck reported is chased before its plan time and again after — once each.");
+        Console.WriteLine("A job with no truck reported is chased half an hour after its plan time and every two hours on — once each, never before.");
         Console.WriteLine();
         LineReminder.JobLine Planned(string key, string cat, string status, string planTime, string arrDate = "", string arrTime = "") =>
             new(key, cat, status, "ALLNEX", "260917600162", "LC2606594", "TXGU8142057", "WH ALLNEX", "YUSEN W/H", "LCB A0",
@@ -447,7 +447,14 @@ public static class LineParserCheck
         var chase = new (string Why, bool Ok)[]
         {
             ("nothing due an hour before the plan time", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:00"), 30) is null),
-            ("due 'before' inside the half hour ahead", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30) == LineChase.Before),
+            // Settled 17 Sep 2026: the first ask is after the plan time, not before it.
+            ("nothing due inside the half hour ahead either — the ask before the plan time is off",
+                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30) is null
+                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:59"), 30) is null),
+            ("switched on with its own margin, 'before' comes inside that margin and nowhere else",
+                LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30, 2, 30) == LineChase.Before
+                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:00"), 30, 2, 30) is null
+                && LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 30, 2, 15) is null),
             ("nothing between the plan time and the margin after it", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:10"), 30) is null),
             ("due 'overdue' once the plan time is the margin behind", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:31"), 30) == LineChase.Overdue),
             ("still 'overdue' — not asked again — an hour and a half later", LineChase.Stage(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("15:00"), 30) == LineChase.Overdue),

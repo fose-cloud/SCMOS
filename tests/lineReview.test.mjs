@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  confidenceLabel, describe, isActionable, palette, photoLabel, referenceLabel, statusLabel, summarise, whenLabel,
+  confidenceLabel, describe, isActionable, palette, photoLabel, referenceLabel, spanLabel, statusLabel, summarise, whenLabel,
 } from "../app/scmos/lineReview.ts";
 
 /*
@@ -187,4 +187,11 @@ test("a photo's row says what was read, or what the photo showed", () => {
 test("the answer to the morning reminder reads as ready", () => {
   assert.equal(describe("truck-details").tone, "ready");
   assert.equal(isActionable("truck-details"), true);
+});
+
+test("a chase margin reads as minutes under an hour and hours on the hour", () => {
+  assert.equal(spanLabel(30), "30 นาที");
+  assert.equal(spanLabel(120), "2 ชม.");
+  assert.equal(spanLabel(150), "2 ชม. 30 นาที");
+  assert.equal(spanLabel(undefined), "0 นาที");
 });

@@ -19,8 +19,11 @@ namespace Scmos.Api.Services;
 public class LineChaseService(ScmosDbContext db, LineReminderService reminders, ILineNotifier notifier,
     AuditService audit, IConfiguration config, ILogger<LineChaseService> log)
 {
-    /// <summary>Where the margin lives in configuration; "off" or 0 stops the chase.</summary>
+    /// <summary>Where the margin after the plan time lives in configuration; "off" or 0 stops the chase.</summary>
     public const string MinutesKey = "Line:ChaseMinutes";
+
+    /// <summary>Minutes before the plan time a job is chased; unset, "off" or 0 means never before.</summary>
+    public const string BeforeKey = "Line:ChaseBeforeMinutes";
 
     /// <summary>How often an unreported job is asked again after the overdue ask; 0 stops the repeats.</summary>
     public const string RepeatKey = "Line:ChaseEveryHours";
@@ -29,7 +32,7 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
 
     private static readonly TimeSpan Thailand = TimeSpan.FromHours(7);
 
-    /// <summary>Minutes before and after the plan time a job is chased; 0 when the chase is off.</summary>
+    /// <summary>Minutes after the plan time a job is first chased; 0 when the chase is off.</summary>
     public int Minutes
     {
         get
@@ -38,6 +41,17 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             if (text.Length == 0) return LineChase.DefaultMinutes;
             if (text.Equals("off", StringComparison.OrdinalIgnoreCase)) return 0;
             return int.TryParse(text, out var minutes) && minutes >= 0 ? minutes : LineChase.DefaultMinutes;
+        }
+    }
+
+    /// <summary>Minutes before the plan time a job is chased; 0, the default, when it is not.</summary>
+    public int BeforeMinutes
+    {
+        get
+        {
+            var text = (config[BeforeKey] ?? "").Trim();
+            if (text.Length == 0 || text.Equals("off", StringComparison.OrdinalIgnoreCase)) return LineChase.DefaultBeforeMinutes;
+            return int.TryParse(text, out var minutes) && minutes >= 0 ? minutes : LineChase.DefaultBeforeMinutes;
         }
     }
 
@@ -74,11 +88,22 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             .ToListAsync(token);
         var done = asked.Select(one => one.EntityId + "|" + one.Field).ToHashSet(StringComparer.Ordinal);
 
+        // A job the room has already answered about today — a message on it
+        // waiting for a person to approve — is not asked again. The haulier
+        // said; the delay is on this side. Approving or dismissing the
+        // message lets the chase resume if the register still shows nothing.
+        var answered = (await db.LineEvents.AsNoTracking()
+            .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "" && one.ReceivedAt >= since)
+            .Select(one => one.JobKey)
+            .ToListAsync(token))
+            .ToHashSet(StringComparer.Ordinal);
+
         var rooms = new List<Room>();
         foreach (var room in await reminders.RoomsAsync(day, token))
         {
             var due = room.AllJobs
-                .Select(job => (Job: job, Stage: LineChase.Stage(job, here, minutes, RepeatHours)))
+                .Where(job => !answered.Contains(job.Key))
+                .Select(job => (Job: job, Stage: LineChase.Stage(job, here, minutes, RepeatHours, BeforeMinutes)))
                 .Where(one => one.Stage is not null && !done.Contains(one.Job.Key + "|" + one.Stage))
                 .Select(one => (one.Job, one.Stage!))
                 .ToList();
@@ -106,8 +131,8 @@ public class LineChaseService(ScmosDbContext db, LineReminderService reminders, 
             {
                 await audit.RecordAsync(by, Action, "job", job.Key, job.JobCode.Length > 0 ? job.JobCode : job.Booking,
                     stage, "", room.GroupName,
-                    stage == LineChase.Before ? $"ติดตามสถานะรถ {Minutes} นาทีก่อนเวลาแผน"
-                    : stage == LineChase.Overdue ? $"ติดตามสถานะรถ {Minutes} นาทีหลังเวลาแผน"
+                    stage == LineChase.Before ? $"ติดตามสถานะรถ {LineChase.Elapsed(TimeSpan.FromMinutes(BeforeMinutes))}ก่อนเวลาแผน"
+                    : stage == LineChase.Overdue ? $"ติดตามสถานะรถ {LineChase.Elapsed(TimeSpan.FromMinutes(Minutes))}หลังเวลาแผน"
                     : $"ติดตามสถานะรถซ้ำ ครั้งที่ {LineChase.AskNumber(stage)} — ยังไม่มีเวลาถึง",
                     token, EventSource.Line);
                 asked++;

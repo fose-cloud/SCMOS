@@ -323,6 +323,13 @@ export function photoLabel(event: { imageReading?: string | null; imageNote?: st
   return note.length > 0 ? `รูป · ${note}` : "รูป";
 }
 
+/** "30 นาที", "2 ชม.", "2 ชม. 30 นาที" — a margin in minutes, as the chase sentence says it. */
+export function spanLabel(minutes: number | undefined | null): string {
+  const total = Math.max(0, Math.round(Number(minutes ?? 0)));
+  if (total < 60) return `${total} นาที`;
+  return total % 60 === 0 ? `${total / 60} ชม.` : `${Math.floor(total / 60)} ชม. ${total % 60} นาที`;
+}
+
 /** When the message arrived, in Bangkok, short enough for a table cell. */
 export function whenLabel(iso: string | undefined | null): string {
   const text = String(iso ?? "");

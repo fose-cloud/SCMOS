@@ -5,7 +5,7 @@ import { apiFetch } from "../api";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
 import {
-  confidenceLabel, describe, isActionable, palette, photoLabel, referenceLabel, statusLabel, summarise, whenLabel,
+  confidenceLabel, describe, isActionable, palette, photoLabel, referenceLabel, spanLabel, statusLabel, summarise, whenLabel,
 } from "../lineReview";
 
 /**
@@ -76,7 +76,7 @@ type ChaseRoom = {
 type Reminder = {
   date: string; remindAt: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[];
   /** The status chase: minutes either side of the plan time (0 = off), and what it would ask right now. */
-  chaseMinutes?: number; chaseEveryHours?: number; chaseDue?: ChaseRoom[];
+  chaseMinutes?: number; chaseEveryHours?: number; chaseBeforeMinutes?: number; chaseDue?: ChaseRoom[];
 };
 
 type Option = {
@@ -368,7 +368,7 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
           {reminder.remindAt ? `ส่งอัตโนมัติ ${reminder.remindAt} น.` : "ไม่มีกำหนดส่งอัตโนมัติ"}
           {" · "}
           {reminder.chaseMinutes
-            ? `ติดตามสถานะรถ ${reminder.chaseMinutes} นาทีก่อนและหลังเวลาแผน${reminder.chaseEveryHours ? ` แล้วทุก ${reminder.chaseEveryHours} ชม. จนกว่าจะมีเวลาถึง` : ""}`
+            ? `ติดตามสถานะรถเมื่อเลยเวลาแผน ${spanLabel(reminder.chaseMinutes)}${reminder.chaseEveryHours ? ` แล้วทุก ${reminder.chaseEveryHours} ชม. จนกว่าจะมีเวลาถึง` : ""}${reminder.chaseBeforeMinutes ? ` · และ ${spanLabel(reminder.chaseBeforeMinutes)}ก่อนเวลาแผน` : ""}`
             : "ไม่ติดตามสถานะรถ"}
           {!!reminder.chaseDue?.length && (
             <span style={css("color:#B45309")}> · ครบกำหนดตอนนี้ {reminder.chaseDue.reduce((n, room) => n + room.jobs.length, 0)} งาน</span>

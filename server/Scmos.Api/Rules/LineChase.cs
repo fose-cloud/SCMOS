@@ -7,20 +7,26 @@ namespace Scmos.Api.Rules;
 /// has not been reported at the site as its plan time comes and goes.
 ///
 /// <para>
-/// Asked for on 16 Sep 2026: when a job in today's My Job has no arrival —
-/// no status at or past the site, nothing in ARRIVAL DATE / ARRIVAL TIME —
-/// before the time in DATE and PLAN LOADING TIME, ask the room. Two stages:
-/// a little before the plan time, and again once it has passed by the same
-/// margin. Each stage asks once per job per day; the audit trail is the
-/// ledger. Import and export alike; a Domestic run the same way.
+/// Asked for on 16 Sep 2026 and settled on 17 Sep: when a job in today's My
+/// Job has no arrival — no status at or past the site, nothing in ARRIVAL
+/// DATE / ARRIVAL TIME — half an hour after the time in DATE and PLAN
+/// LOADING TIME, ask the room; then every two hours while the register
+/// still shows nothing. Nothing is asked before the plan time unless a
+/// margin for that is switched on (<c>Line__ChaseBeforeMinutes</c>) — the
+/// department found the ask ahead of time was noise. Each stage asks once
+/// per job per day; the audit trail is the ledger. Import and export alike;
+/// a Domestic run the same way.
 /// </para>
 ///
 /// <para>Pure: the jobs and the clock in, the due list and the text out.</para>
 /// </summary>
 public static class LineChase
 {
-    /// <summary>How long before, and how long after, the plan time a job is chased.</summary>
+    /// <summary>How long after the plan time a job is first chased.</summary>
     public const int DefaultMinutes = 30;
+
+    /// <summary>How long before the plan time a job is chased; off unless configured.</summary>
+    public const int DefaultBeforeMinutes = 0;
 
     /// <summary>The plan time is coming and no truck has been reported.</summary>
     public const string Before = "before";
@@ -67,12 +73,15 @@ public static class LineChase
     }
 
     /// <summary>
-    /// Which stage a job is due at right now, or null: <see cref="Before"/>
-    /// inside the margin ahead of the plan time, <see cref="Overdue"/> once
-    /// the plan time is the margin behind. A job with no plan time, or one
-    /// whose truck has been reported, is due nothing.
+    /// Which stage a job is due at right now, or null: <see cref="Overdue"/>
+    /// once the plan time is <paramref name="minutes"/> behind, a repeat
+    /// every <paramref name="repeatHours"/> after that, and <see cref="Before"/>
+    /// inside <paramref name="beforeMinutes"/> ahead of the plan time when
+    /// that is on. A job with no plan time, or one whose truck has been
+    /// reported, is due nothing.
     /// </summary>
-    public static string? Stage(LineReminder.JobLine job, DateTimeOffset now, int minutes, int repeatHours = DefaultRepeatHours)
+    public static string? Stage(LineReminder.JobLine job, DateTimeOffset now, int minutes,
+        int repeatHours = DefaultRepeatHours, int beforeMinutes = DefaultBeforeMinutes)
     {
         if (minutes <= 0 || Arrived(job)) return null;
         if (PlanAt(job) is not { } plan) return null;
@@ -88,7 +97,7 @@ public static class LineChase
             // counting from where the day's ledger left off.
             return repeats > MaxRepeats ? null : $"{Overdue}#{repeats + 1}";
         }
-        if (now >= plan - margin && now < plan) return Before;
+        if (beforeMinutes > 0 && now >= plan - TimeSpan.FromMinutes(beforeMinutes) && now < plan) return Before;
         return null;
     }
 
@@ -135,8 +144,8 @@ public static class LineChase
         return $"{number}) {string.Join(" · ", parts)}\n   {when}";
     }
 
-    /// <summary>"45 นาที", "2 ชม.", "4 ชม. 5 นาที" — how long past the plan time.</summary>
-    private static string Elapsed(TimeSpan gap)
+    /// <summary>"45 นาที", "2 ชม.", "4 ชม. 5 นาที" — how long past the plan time, or how long a margin is.</summary>
+    public static string Elapsed(TimeSpan gap)
     {
         var minutes = Math.Max(0, (int)Math.Round(gap.TotalMinutes));
         if (minutes < 60) return $"{minutes} นาที";

@@ -194,6 +194,7 @@ public static class LineReviewEndpoints
                 remindAt = reminders.RemindAtText,
                 chaseMinutes = chase.Minutes,
                 chaseEveryHours = chase.RepeatHours,
+                chaseBeforeMinutes = chase.BeforeMinutes,
                 chaseDue = due.Select(room => new
                 {
                     room.LineGroupId, room.GroupName, room.Supplier,

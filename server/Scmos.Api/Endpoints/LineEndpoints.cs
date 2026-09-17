@@ -54,9 +54,12 @@ public static class LineEndpoints
                 // The morning reminder: the Bangkok hour it goes at, or empty
                 // when the schedule is off, and whether a push can be sent at all.
                 remindAt = reminders.RemindAtText,
-                // The status chase: minutes either side of the plan time, 0 when off.
+                // The status chase: minutes after the plan time before the
+                // first ask (0 when off), hours between repeats, and minutes
+                // before the plan time when that ask is on.
                 chaseMinutes = chase.Minutes,
                 chaseEveryHours = chase.RepeatHours,
+                chaseBeforeMinutes = chase.BeforeMinutes,
                 canPush = notifier.Configured,
                 pushMessage = notifier.Configured ? "" : notifier.Missing,
                 // Whether a driver's photo is read for its container number,
