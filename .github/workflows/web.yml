@@ -191,7 +191,9 @@ jobs:
           echo "Expecting $want"
           agent="Mozilla/5.0 (compatible; SCMOS-smoke/1.0)"
           # A restart takes a moment, and the first request wakes the worker.
-          for i in $(seq 1 12); do
+          # Twelve tries gave up at the six-minute mark on 17 Sep 2026 with the
+          # new build serving a minute later, so this waits up to twelve.
+          for i in $(seq 1 24); do
             body=$(curl -s --max-time 20 -H "User-Agent: $agent" "$base/?build=$i" || true)
             case "$body" in
               *"$want"*) echo "The running app serves $want"; exit 0 ;;
