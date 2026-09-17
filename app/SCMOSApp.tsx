@@ -1060,11 +1060,17 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       });
       const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
       setToast(answer?.message ?? answer?.error ?? `ทำรายการไม่สำเร็จ (${response.status})`);
+      // The card goes the moment the API says yes — not when the next poll
+      // happens to notice. Left on screen it read as "nothing happened".
+      // A 409 means somebody (or a second click) already settled it: gone too.
+      if (response.ok || response.status === 409) {
+        setLinePending((was) => was.filter((one) => one.id !== id));
+        touch();
+      }
     } catch (error) {
       setToast("ทำรายการไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
     }
-    void loadLinePending();
-    void syncRef.current();
+    await Promise.all([loadLinePending(), syncRef.current()]);
   };
 
   /** What the dashboard reports on: the register narrowed to the chosen period. */

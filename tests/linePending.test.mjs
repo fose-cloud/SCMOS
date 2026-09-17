@@ -38,3 +38,11 @@ test("a photo reads as what was seen on it", () => {
   assert.equal(pendingText(text({ kind: "image", reading: "TEMU5246902" })), "รูปตู้ · TEMU5246902");
   assert.equal(pendingText(text({ kind: "image", reading: "" })), "รูป");
 });
+
+test("an estimate is said on the card and marked as not written; a send-time arrival says which it is", () => {
+  const base = { id: 1, jobKey: "K", receivedAt: "", errorCode: "ready-to-apply", detail: "", kind: "text", text: "", reading: "", hasImage: false, group: "", ready: true };
+  assert.equal(pendingWrites({ ...base, to: "IN_TRANSIT", arrival: { date: "", time: "" }, eta: "10:00" }), "สถานะ → IN_TRANSIT · คาดถึง 10:00 (ไม่บันทึก)");
+  assert.equal(pendingWrites({ ...base, to: "DELIVERED", arrival: { date: "17/09/2026", time: "11:00", atSend: true } }), "สถานะ → DELIVERED · เวลาถึง 11:00 17/09/2026 (เวลาที่ส่งข้อความ)");
+  // A clock the driver wrote wins over an estimate in the same message.
+  assert.equal(pendingWrites({ ...base, to: "DELIVERED", arrival: { date: "17/09/2026", time: "12:40" }, eta: "10:00" }), "สถานะ → DELIVERED · เวลาถึง 12:40 17/09/2026");
+});

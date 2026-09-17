@@ -164,6 +164,9 @@ public static class LineReviewEndpoints
                         // ladder names it, the arrival clock, or the box.
                         to = one.MessageType == "image" ? one.ImageReading : LineAuthority.ResolveSite(category, one.ParsedStatus),
                         arrival = read is null ? new { date = "", time = "", atSend = false } : Arrival(read),
+                        // "ประมาณ 10.00 รถถึงโรงงาน": when the truck is expected, for the
+                        // owner to see — written nowhere.
+                        eta = read?.Eta is { } eta ? eta.ToString("HH:mm") : "",
                         // The truck's details the message carries, for the drawer's line.
                         details = read is null ? "" : string.Join(" · ", new[]
                         {
@@ -440,8 +443,7 @@ public static class LineReviewEndpoints
 
         group.MapPost("/events/{id:long}/apply", async (long id, [FromBody] ApplyBody body,
             HttpContext context, IUserAccessor users, ScmosDbContext db, JobsRepository jobs,
-            DelegationService delegations, AuditService audit, ILineNotifier notifier, IConfiguration config,
-            ILoggerFactory logs, CancellationToken token) =>
+            DelegationService delegations, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
@@ -461,132 +463,27 @@ public static class LineReviewEndpoints
                 return ApiResults.Error($"ข้อความนี้ถูกจัดการไปแล้ว ({row.ProcessingStatus})",
                     StatusCodes.Status409Conflict);
 
-            if (row.MessageType == "image")
-                return await ApplyPhotoAsync(row, body, user, db, jobs, delegations, audit, notifier, config, logs, token);
-
-            /*
-             * Worked out again, now. Not read off the row.
-             *
-             * The verdict stored on the row was true when the worker looked. In
-             * between, somebody may have delivered the job, cancelled it, or
-             * moved it to another haulier — and this endpoint is the one that
-             * writes, so it is the one that has to be right.
-             */
-            var read = LineParser.Parse(row.RawText, row.ReceivedAt);
-            var decision = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
-
-            // The one place an operator's choice is allowed in: when a number
-            // covers several of the haulier's own rows, they may say which. It
-            // must be one the decision itself offered — never an arbitrary key,
-            // or this endpoint would become a way to set any job to any status.
-            var chosen = (body.JobKey ?? "").Trim();
-            if (chosen.Length > 0)
+            // Claimed before anything is written, so a second click on the
+            // same button — arriving while the first is still writing, which
+            // is what happened on 17 Sep 2026 — finds the row taken and does
+            // not write the job and its audit twice. Released if this request
+            // ends without settling the row.
+            if (!await ClaimAsync(db, row, token))
+                return ApiResults.Error("ข้อความนี้กำลังถูกจัดการอยู่", StatusCodes.Status409Conflict);
+            var settled = false;
+            try
             {
-                if (!decision.Keys.Contains(chosen))
-                    return ApiResults.Error("งานที่เลือกไม่อยู่ในรายการที่ข้อความนี้อ้างถึง",
-                        StatusCodes.Status400BadRequest);
+                var result = await ApplyClaimedAsync(row, body, user, db, jobs, delegations, audit, token);
+                settled = row.ProcessingStatus != LineProcessing.Processing;
+                return result;
             }
-            else if (decision.Applies)
+            finally
             {
-                chosen = decision.Keys[0];
+                // An early return, or a fault part-way: back in the queue. A
+                // row already saved as settled is not touched — the release
+                // is conditional on it still being held.
+                if (!settled) await ReleaseAsync(db, row, CancellationToken.None);
             }
-
-            if (chosen.Length == 0)
-                return ApiResults.Error(
-                    decision.Detail.Length > 0 ? decision.Detail : decision.Result,
-                    StatusCodes.Status409Conflict);
-            if (!await MayActOnAsync(user, chosen, jobs, delegations, token))
-                return ApiResults.Error("อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
-
-            /*
-             * The key is one this haulier may speak for — it came out of the
-             * set the rule filtered. What is still open is whether that one row
-             * can make this move: the set-level answer for several rows said
-             * nothing about any single row's status, and a number covering two
-             * rows can easily have one already delivered and one not.
-             */
-            var one = await db.OperationJobs.AsNoTracking()
-                .Where(job => job.Key == chosen)
-                .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data })
-                .FirstOrDefaultAsync(token);
-            if (one is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
-
-            var candidate = new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status);
-            var final = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
-                ? LineAuthority.Details(candidate)
-                : LineAuthority.Move(candidate, read.Status);
-            if (!final.Applies)
-                return ApiResults.Error(
-                    final.Detail.Length > 0 ? final.Detail : final.Result,
-                    StatusCodes.Status409Conflict);
-
-            // The arrival the driver reported goes in beside the status, into
-            // the cells on-time delivery is measured from — when they are
-            // empty. A stamp somebody already keyed is not overwritten from a
-            // chat room; the answer says so and the operator can change it on
-            // the grid if the driver is right.
-            var stamp = ArrivalWrite(read, one.Data);
-            var fields = new Dictionary<string, string>();
-            if (final.To.Length > 0) fields["status"] = final.To;
-            if (stamp.Date is { } date && stamp.Time is { } time)
-            {
-                fields["arrDate"] = date;
-                fields["arrTime"] = time;
-            }
-            // The truck's details, into the cells that are empty — the answer
-            // to the morning reminder, written onto the job the owner is
-            // looking at.
-            var truck = DetailsWrite(read, one.Data);
-            foreach (var (name, value) in truck.Fields) fields[name] = value;
-            if (fields.Count == 0)
-                return ApiResults.Error("ข้อความนี้ไม่มีอะไรให้บันทึก — งานมีข้อมูลเหล่านี้อยู่แล้ว", StatusCodes.Status409Conflict);
-
-            var wrote = await jobs.PatchAsync(chosen, fields, user.Signature, token);
-            if (!wrote) return ApiResults.Error("บันทึกไม่สำเร็จ", StatusCodes.Status409Conflict);
-
-            // Source LINE, not web. Six months from now "who set this job to
-            // DELIVERED" should answer with the operator who approved it and
-            // the fact that a vendor's message is why.
-            var why = body.Reason ?? $"LINE: {row.RawText}";
-            if (final.To.Length > 0)
-                await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
-                    row.JobNumber, "status", final.From, final.To, why, token, EventSource.Line);
-            if (stamp.Date is not null)
-            {
-                await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                    row.JobNumber, "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.Line);
-                await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                    row.JobNumber, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
-            }
-            foreach (var (name, value) in truck.Fields)
-                await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                    row.JobNumber, name, "", value, why, token, EventSource.Line);
-
-            row.ProcessingStatus = LineProcessing.Processed;
-            row.JobKey = chosen;
-            row.ErrorCode = "";
-            row.ErrorMessage = "";
-            row.ProcessedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(token);
-
-            // The room hears that it was written — the one message a driver
-            // actually waits for. A push: the reply token is long gone.
-            var wroteWhat = string.Join(" · ", new[]
-            {
-                final.To.Length > 0 ? final.To : "",
-                stamp.Date is not null ? $"ถึง {stamp.Time}" : "",
-                truck.Written,
-            }.Where(part => part.Length > 0));
-            await TellRoomAsync(db, row, LineReply.ForApproval(LineReply.Reference(read), wroteWhat), notifier, config, logs, token);
-
-            return Results.Json(new
-            {
-                message = (final.To.Length > 0 ? $"อัปเดต {chosen} เป็น {final.To} แล้ว" : $"บันทึกลงงาน {chosen} แล้ว")
-                    + (stamp.Date is not null ? $" · เวลาถึง {stamp.Date} {stamp.Time}" : "")
-                    + (truck.Fields.Count > 0 ? " · " + truck.Written : ""),
-                jobKey = chosen, from = final.From, to = final.To,
-                arrival = stamp.Note,
-            });
         });
 
         group.MapPost("/events/{id:long}/dismiss", async (long id, [FromBody] ApplyBody body,
@@ -613,6 +510,9 @@ public static class LineReviewEndpoints
                 && (row.JobKey.Length == 0 || !await MayActOnAsync(user, row.JobKey, jobs, delegations, token)))
                 return ApiResults.Error("ปิดได้เฉพาะข้อความของงานตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
 
+            if (!await ClaimAsync(db, row, token))
+                return ApiResults.Error("ข้อความนี้กำลังถูกจัดการอยู่", StatusCodes.Status409Conflict);
+
             // Set aside, never deleted. The message is what a vendor said, and
             // an operator deciding not to act on it is itself a fact worth
             // keeping — see the retention rules on why nothing here is removed.
@@ -620,13 +520,174 @@ public static class LineReviewEndpoints
             row.ErrorCode = "dismissed";
             row.ErrorMessage = (body.Reason ?? "").Trim();
             row.ProcessedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(token);
+            try
+            {
+                await db.SaveChangesAsync(token);
+            }
+            catch
+            {
+                await ReleaseAsync(db, row, CancellationToken.None);
+                throw;
+            }
 
             await audit.RecordAsync(user, AuditActions.Reject, "line-event", id.ToString(),
                 row.JobNumber, "processing_status", LineProcessing.NeedReview, LineProcessing.Ignored,
                 body.Reason ?? "", token, EventSource.Line);
 
             return Results.Json(new { message = "ปิดข้อความนี้แล้ว" });
+        });
+    }
+
+    /// <summary>
+    /// Takes a queued row for one request: NEED_REVIEW to PROCESSING in a
+    /// single statement, so of two requests for the same row only one gets
+    /// it. The tracked entity is brought into step so a later save does not
+    /// put the old value back.
+    /// </summary>
+    private static async Task<bool> ClaimAsync(ScmosDbContext db, LineEvent row, CancellationToken token)
+    {
+        var taken = await db.LineEvents
+            .Where(one => one.Id == row.Id && one.ProcessingStatus == LineProcessing.NeedReview)
+            .ExecuteUpdateAsync(set => set.SetProperty(one => one.ProcessingStatus, LineProcessing.Processing), token);
+        if (taken != 1) return false;
+        row.ProcessingStatus = LineProcessing.Processing;
+        db.Entry(row).Property(one => one.ProcessingStatus).IsModified = false;
+        return true;
+    }
+
+    /// <summary>Puts a claimed row back in the queue: the request ended without settling it.</summary>
+    private static async Task ReleaseAsync(ScmosDbContext db, LineEvent row, CancellationToken token)
+    {
+        await db.LineEvents
+            .Where(one => one.Id == row.Id && one.ProcessingStatus == LineProcessing.Processing)
+            .ExecuteUpdateAsync(set => set.SetProperty(one => one.ProcessingStatus, LineProcessing.NeedReview), token);
+        row.ProcessingStatus = LineProcessing.NeedReview;
+        db.Entry(row).Property(one => one.ProcessingStatus).IsModified = false;
+    }
+
+    /// <summary>The approval proper, on a row this request holds. Every early return leaves the row for the caller to release.</summary>
+    private static async Task<IResult> ApplyClaimedAsync(LineEvent row, ApplyBody body, AppUser user,
+        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
+    {
+        if (row.MessageType == "image")
+            return await ApplyPhotoAsync(row, body, user, db, jobs, delegations, audit, token);
+
+        /*
+         * Worked out again, now. Not read off the row.
+         *
+         * The verdict stored on the row was true when the worker looked. In
+         * between, somebody may have delivered the job, cancelled it, or
+         * moved it to another haulier — and this endpoint is the one that
+         * writes, so it is the one that has to be right.
+         */
+        var read = LineParser.Parse(row.RawText, row.ReceivedAt);
+        var decision = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
+
+        // The one place an operator's choice is allowed in: when a number
+        // covers several of the haulier's own rows, they may say which. It
+        // must be one the decision itself offered — never an arbitrary key,
+        // or this endpoint would become a way to set any job to any status.
+        var chosen = (body.JobKey ?? "").Trim();
+        if (chosen.Length > 0)
+        {
+            if (!decision.Keys.Contains(chosen))
+                return ApiResults.Error("งานที่เลือกไม่อยู่ในรายการที่ข้อความนี้อ้างถึง",
+                    StatusCodes.Status400BadRequest);
+        }
+        else if (decision.Applies)
+        {
+            chosen = decision.Keys[0];
+        }
+
+        if (chosen.Length == 0)
+            return ApiResults.Error(
+                decision.Detail.Length > 0 ? decision.Detail : decision.Result,
+                StatusCodes.Status409Conflict);
+        if (!await MayActOnAsync(user, chosen, jobs, delegations, token))
+            return ApiResults.Error("อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่", StatusCodes.Status403Forbidden);
+
+        /*
+         * The key is one this haulier may speak for — it came out of the
+         * set the rule filtered. What is still open is whether that one row
+         * can make this move: the set-level answer for several rows said
+         * nothing about any single row's status, and a number covering two
+         * rows can easily have one already delivered and one not.
+         */
+        var one = await db.OperationJobs.AsNoTracking()
+            .Where(job => job.Key == chosen)
+            .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data })
+            .FirstOrDefaultAsync(token);
+        if (one is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
+
+        var candidate = new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status);
+        var final = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
+            ? LineAuthority.Details(candidate)
+            : LineAuthority.Move(candidate, read.Status);
+        if (!final.Applies)
+            return ApiResults.Error(
+                final.Detail.Length > 0 ? final.Detail : final.Result,
+                StatusCodes.Status409Conflict);
+
+        // The arrival the driver reported goes in beside the status, into
+        // the cells on-time delivery is measured from — when they are
+        // empty. A stamp somebody already keyed is not overwritten from a
+        // chat room; the answer says so and the operator can change it on
+        // the grid if the driver is right.
+        var stamp = ArrivalWrite(read, one.Data);
+        var fields = new Dictionary<string, string>();
+        if (final.To.Length > 0) fields["status"] = final.To;
+        if (stamp.Date is { } date && stamp.Time is { } time)
+        {
+            fields["arrDate"] = date;
+            fields["arrTime"] = time;
+        }
+        // The truck's details, into the cells that are empty — the answer
+        // to the morning reminder, written onto the job the owner is
+        // looking at.
+        var truck = DetailsWrite(read, one.Data);
+        foreach (var (name, value) in truck.Fields) fields[name] = value;
+        if (fields.Count == 0)
+            return ApiResults.Error("ข้อความนี้ไม่มีอะไรให้บันทึก — งานมีข้อมูลเหล่านี้อยู่แล้ว", StatusCodes.Status409Conflict);
+
+        var wrote = await jobs.PatchAsync(chosen, fields, user.Signature, token);
+        if (!wrote) return ApiResults.Error("บันทึกไม่สำเร็จ", StatusCodes.Status409Conflict);
+
+        // Source LINE, not web. Six months from now "who set this job to
+        // DELIVERED" should answer with the operator who approved it and
+        // the fact that a vendor's message is why.
+        var why = body.Reason ?? $"LINE: {row.RawText}";
+        if (final.To.Length > 0)
+            await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
+                row.JobNumber, "status", final.From, final.To, why, token, EventSource.Line);
+        if (stamp.Date is not null)
+        {
+            await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                row.JobNumber, "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.Line);
+            await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                row.JobNumber, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
+        }
+        foreach (var (name, value) in truck.Fields)
+            await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
+                row.JobNumber, name, "", value, why, token, EventSource.Line);
+
+        row.ProcessingStatus = LineProcessing.Processed;
+        row.JobKey = chosen;
+        row.ErrorCode = "";
+        row.ErrorMessage = "";
+        row.ProcessedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+
+        // Nothing is said back into the room on approval. The room was
+        // told "รับทราบ" when the message was read; an "อัปเดตแล้ว" for
+        // every approval was asked to stop on 17 Sep 2026 — it is the
+        // department's record, not the haulier's.
+        return Results.Json(new
+        {
+            message = (final.To.Length > 0 ? $"อัปเดต {chosen} เป็น {final.To} แล้ว" : $"บันทึกลงงาน {chosen} แล้ว")
+                + (stamp.Date is not null ? $" · เวลาถึง {stamp.Date} {stamp.Time}" : "")
+                + (truck.Fields.Count > 0 ? " · " + truck.Written : ""),
+            jobKey = chosen, from = final.From, to = final.To,
+            arrival = stamp.Note,
         });
     }
 
@@ -700,8 +761,7 @@ public static class LineReviewEndpoints
     /// offered, never an arbitrary key — and files the photo as done.
     /// </summary>
     private static async Task<IResult> ApplyPhotoAsync(LineEvent row, ApplyBody body, AppUser user,
-        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, ILineNotifier notifier,
-        IConfiguration config, ILoggerFactory logs, CancellationToken token)
+        ScmosDbContext db, JobsRepository jobs, DelegationService delegations, AuditService audit, CancellationToken token)
     {
         var numbers = await PhotoNumbersAsync(row, db, token);
         if (numbers.Length != 1)
@@ -753,8 +813,6 @@ public static class LineReviewEndpoints
         row.ImageReading = container;
         row.ProcessedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
-
-        await TellRoomAsync(db, row, LineReply.ForApproval($"เลขตู้ {container}", ""), notifier, config, logs, token);
 
         return Results.Json(new
         {
@@ -825,29 +883,6 @@ public static class LineReviewEndpoints
         var note = written.Count > 0 ? "จะบันทึก " + string.Join(" · ", written) : "";
         if (notes.Count > 0) note = string.Join(" · ", new[] { note }.Concat(notes).Where(one => one.Length > 0));
         return (fields, note, string.Join(" · ", written));
-    }
-
-    /// <summary>
-    /// A line into the room a message came from, after a person acted on it.
-    /// Only a bound room, only while replies are on; a failure is logged and
-    /// never fails the approval that was already written.
-    /// </summary>
-    private static async Task TellRoomAsync(ScmosDbContext db, LineEvent row, string text, ILineNotifier notifier,
-        IConfiguration config, ILoggerFactory logs, CancellationToken token)
-    {
-        if (row.LineGroupId.Length == 0 || !notifier.Configured) return;
-        if (string.Equals((config[LineEventWorker.RepliesKey] ?? "").Trim(), "off", StringComparison.OrdinalIgnoreCase)) return;
-        var bound = await db.LineGroups.AsNoTracking()
-            .AnyAsync(one => one.LineGroupId == row.LineGroupId && one.IsActive && one.GroupType == LineGroupType.Vendor && one.SupplierId > 0, token);
-        if (!bound) return;
-        try
-        {
-            await notifier.PushAsync(row.LineGroupId, [text], token);
-        }
-        catch (Exception error) when (error is not OperationCanceledException)
-        {
-            logs.CreateLogger("Line.Reply").LogWarning(error, "LINE approval reply for {Id} threw", row.Id);
-        }
     }
 
     /// <summary>The arrival the message reported, as the register writes it, or empty.</summary>

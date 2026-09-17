@@ -250,6 +250,18 @@ public static class LineParserCheck
                 LineParser.Parse("TXGU8142057 จะถึงโรงงานแล้ว", Received).Status ?? "-"),
             ("\"ยังไม่ถึง\" likewise",
                 LineParser.Parse("TXGU8142057 ยังไม่ถึงโรงงาน รถติด", Received) is { Status: null, Delayed: true }, "-"),
+            // The third real message, 17 Sep 2026 — approved as DELIVERED while the truck was on the road.
+            ("an arrival named with an estimate is when it will happen: on the road, due at ten, not delivered",
+                LineParser.Parse("EXFU5627436 พขร. เดินทางอยู่ บริเวณเส้น อ. คลองหลวงค่ะ ประมาณ 10.00 รถถึงโรงงานค่ะ", Received)
+                    is { Status: "IN_TRANSIT", ArrivalTime: null, Container: "EXFU5627436" } road
+                    && road.Eta?.ToString("HH:mm") == "10:00" && road.MatchedRules.Contains("arrival-is-estimate"),
+                LineParser.Parse("EXFU5627436 พขร. เดินทางอยู่ บริเวณเส้น อ. คลองหลวงค่ะ ประมาณ 10.00 รถถึงโรงงานค่ะ", Received).Status ?? "-"),
+            ("with no other status word, such a message reports no status at all",
+                LineParser.Parse("EXFU5627436 ประมาณ 10.00 รถถึงโรงงานค่ะ", Received) is { Status: null, ArrivalTime: null, Warnings.Count: 0 } eta
+                    && eta.Eta?.ToString("HH:mm") == "10:00", "-"),
+            ("but an arrival said as done, with a rough clock, is a report",
+                LineParser.Parse("EXFU5627436 ถึงโรงงานแล้ว ประมาณ 10.25", Received).Status == LineParser.SiteArrival,
+                LineParser.Parse("EXFU5627436 ถึงโรงงานแล้ว ประมาณ 10.25", Received).Status ?? "-"),
             ("the truck about to arrive is not the driver's name",
                 LineParser.Parse("TXGU8142057 70-1234 จะถึงโรงงานแล้วครับ", Received).Driver is null,
                 LineParser.Parse("TXGU8142057 70-1234 จะถึงโรงงานแล้วครับ", Received).Driver ?? "-"),
@@ -364,16 +376,32 @@ public static class LineParserCheck
             ("the same box read twice is one box", "{\"containers\":[\"TEMU5246902\",\"temu 5246902\"],\"note\":\"\"}", ["TEMU5246902"], []),
             ("two boxes in one photo are two", "{\"containers\":[\"TEMU5246902\",\"FSCU5037629\"],\"note\":\"\"}", ["TEMU5246902", "FSCU5037629"], []),
             ("no box in the photo", "{\"containers\":[],\"note\":\"a delivery note\"}", [], []),
+            // The door that taught this, 17 Sep 2026: "GCXU 513490 [0]" over "45G1".
+            ("the framed check digit is part of the number", "{\"containers\":[\"GCXU 513490 0\"],\"note\":\"\"}", ["GCXU5134900"], []),
+            ("the size and type code under it is not", "{\"containers\":[\"GCXU 513490 0 45G1\"],\"note\":\"\"}", ["GCXU5134900"], []),
+            ("a reading that stopped at the frame is a fragment, kept aside for the register to complete",
+                "{\"containers\":[\"GCXU513490 45G1\"],\"note\":\"\"}", [], ["GCXU513490"]),
+            ("a fragment on its own likewise", "{\"containers\":[\"GCXU513490\"],\"note\":\"\"}", [], ["GCXU513490"]),
             ("an answer that is not JSON reads as nothing, and does not throw", "not json", [], []),
             ("an empty answer likewise", "", [], []),
         };
-        var noted = LineImageReading.RejectedIn("a 40ft box — เลขที่อ่านได้แต่ check digit ไม่ผ่าน: TEMU7592765, SEAL1234567");
-        var notedRight = noted is ["TEMU7592765"];
+        var noted = LineImageReading.RejectedIn("a 40ft box — เลขที่อ่านได้แต่ check digit ไม่ผ่าน: TEMU7592765, SEAL1234567, GCXU513490");
+        var notedRight = noted is ["TEMU7592765", "GCXU513490"];
         if (!notedRight) failed++;
         Console.WriteLine($"  {(notedRight ? "ok  " : "FAIL")}  a set-aside number is read back off the row's note, and only a number");
         var unnoted = LineImageReading.RejectedIn("a delivery note").Count == 0;
         if (!unnoted) failed++;
         Console.WriteLine($"  {(unnoted ? "ok  " : "FAIL")}  a note with nothing set aside yields nothing");
+        var completed = ContainerNumbers.Find("GCXU 513490-0", "GCXU513490") == "GCXU5134900"
+            && ContainerNumbers.Find("รถ 70-1234 GCXU 513490-0 ถึงโรงงาน 05:00", "GCXU513490") == "GCXU5134900"
+            && ContainerNumbers.Find("TEMU7592765", "GCXU513490") is null
+            && ContainerNumbers.Find("GCXU5134900", "GCXU5134900") == "GCXU5134900";
+        if (!completed) failed++;
+        Console.WriteLine($"  {(completed ? "ok  " : "FAIL")}  a fragment is completed from a cell or a message that carries the whole number, and from nothing else");
+        var fragmentTold = LineReply.ForPhoto("", ["GCXU513490"], "container-check-digit")!.Contains("ขาดเลขตัวสุดท้าย", StringComparison.Ordinal)
+            && LineReply.ForPhoto("", ["TEMU5246903"], "container-check-digit")!.Contains("ไม่ตรงมาตรฐาน", StringComparison.Ordinal);
+        if (!fragmentTold) failed++;
+        Console.WriteLine($"  {(fragmentTold ? "ok  " : "FAIL")}  a fragment is asked for as the full number; a misread as a check");
         foreach (var (why, answer, valid, rejected) in answers)
         {
             var got = LineImageReading.Read(answer);
@@ -523,8 +551,6 @@ public static class LineParserCheck
             ("a photo's number the digit refused asks for it typed",
                 LineReply.ForPhoto("", ["FFAU6031447"], "container-check-digit")!.Contains("FFAU6031447", StringComparison.Ordinal), "-"),
             ("a photo of nothing is left alone", LineReply.ForPhoto("", [], LineEventWorker.NoContainerInPhoto) is null, "-"),
-            ("an approval says what was written", LineReply.ForApproval("TXGU8142057", "DELIVERED · ถึง 12:40") == "✔ อัปเดตแล้ว TXGU8142057 — DELIVERED · ถึง 12:40",
-                LineReply.ForApproval("TXGU8142057", "DELIVERED · ถึง 12:40")),
         };
         foreach (var (why, ok, got) in replies)
         {

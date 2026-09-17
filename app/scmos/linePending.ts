@@ -27,7 +27,10 @@ export type LinePending = {
   group: string;
   /** What approving writes: the status as this job's ladder names it, or the container. */
   to: string;
-  arrival: { date: string; time: string };
+  /** The arrival the message reports; atSend when it is the send time, the message carrying no clock. */
+  arrival: { date: string; time: string; atSend?: boolean };
+  /** When the message says the truck will arrive — "ประมาณ 10.00" — as HH:mm, or empty. Shown, never written. */
+  eta?: string;
   /** The truck's details the message carries — "ทะเบียน 70-1234 · คนขับ สมชาย · เบอร์ 081-…" — or empty. */
   details?: string;
   ready: boolean;
@@ -63,7 +66,11 @@ export function pendingWrites(item: LinePending): string {
   if (to.length > 0) parts.push(`สถานะ → ${to}`);
   const time = String(item.arrival?.time ?? "").trim();
   const date = String(item.arrival?.date ?? "").trim();
-  if (time.length > 0) parts.push(`เวลาถึง ${time}${date ? " " + date : ""}`);
+  if (time.length > 0) parts.push(`เวลาถึง ${time}${date ? " " + date : ""}${item.arrival?.atSend ? " (เวลาที่ส่งข้อความ)" : ""}`);
+  // An estimate is said so the owner knows the truck is not there yet; it is
+  // not written anywhere — the arrival comes with the next message.
+  const eta = String(item.eta ?? "").trim();
+  if (eta.length > 0 && time.length === 0) parts.push(`คาดถึง ${eta} (ไม่บันทึก)`);
   const details = String(item.details ?? "").trim();
   if (details.length > 0) parts.push(details);
   return parts.join(" · ");

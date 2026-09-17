@@ -25,9 +25,36 @@ public static class LineImageReading
         "You are reading a photograph posted by a Thai haulier's driver in a LINE group. " +
         "Report every shipping container number that is legibly painted or printed on a container " +
         "in the photo — the owner code of four letters followed by seven digits, such as MSKU1234567. " +
-        "Read only what is visible; never guess a digit, and if a number is partly hidden or blurred " +
-        "leave it out. If no container number is visible, return an empty list. In the note, say in " +
-        "one short sentence what the photo shows.";
+        "The seventh digit is the check digit and is usually painted in its own small frame after the " +
+        "six-digit serial: GCXU 513490 [0] is GCXU5134900 — always include it. The size and type code " +
+        "painted below or beside the number (four characters such as 45G1, 22G1 or 42R1) is not part of " +
+        "the number; leave it out. Read only what is visible; never guess a digit, and if a number is " +
+        "partly hidden or blurred leave it out. If no container number is visible, return an empty list. " +
+        "In the note, say in one short sentence what the photo shows.";
+
+    /// <summary>The ISO size and type code — 45G1, 22G1, 42R1 — glued onto the end of a reading.</summary>
+    private static readonly System.Text.RegularExpressions.Regex SizeTypeTail =
+        new(@"\d{2}[A-Z]\d$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// A reading as the model gave it, cut to the number. The door of the box
+    /// that taught this (17 Sep 2026) reads "GCXU 513490 [0]" over "45G1": a
+    /// model that runs the two lines together gives GCXU513490045G1, and one
+    /// that stops at the frame gives GCXU513490. The tail comes off when
+    /// what is left is a number or a fragment of one; a run longer than a
+    /// number is cut to its first eleven characters when those are a number.
+    /// </summary>
+    public static string Tidy(string? reading)
+    {
+        var number = ContainerNumbers.Normalise(reading);
+        if (number.Length > 11)
+        {
+            var cut = SizeTypeTail.Replace(number, "");
+            if (ContainerNumbers.IsShaped(cut) || ContainerNumbers.IsFragment(cut)) return cut;
+            if (ContainerNumbers.IsValid(number[..11])) return number[..11];
+        }
+        return number;
+    }
 
     /// <summary>The shape the model must answer in. Strict: nothing else can come back.</summary>
     public const string Schema =
@@ -66,7 +93,9 @@ public static class LineImageReading
         return [.. text[(at + RejectedMark.Length)..]
             .Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries)
             .Select(ContainerNumbers.Normalise)
-            .Where(ContainerNumbers.IsShaped)
+            // A fragment — the number short of its framed check digit — is
+            // kept too, for the register to complete.
+            .Where(one => ContainerNumbers.IsShaped(one) || ContainerNumbers.IsFragment(one))
             .Distinct(StringComparer.Ordinal)];
     }
 
@@ -97,7 +126,7 @@ public static class LineImageReading
             foreach (var one in list.EnumerateArray())
             {
                 if (one.ValueKind != JsonValueKind.String) continue;
-                var number = ContainerNumbers.Normalise(one.GetString());
+                var number = Tidy(one.GetString());
                 if (number.Length == 0) continue;
                 if (ContainerNumbers.IsValid(number))
                 {

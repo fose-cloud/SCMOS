@@ -21,10 +21,19 @@ export function JobDrawer(p: {
   onRaiseIssue: () => void;
   /** Hauliers' LINE messages waiting on this job, newest first. */
   line?: LinePending[];
-  /** Approves or sets aside one of them; absent when this person may not act on the job. */
-  onLineAct?: (id: number, what: "apply" | "dismiss", jobKey: string) => void;
+  /** Approves or sets aside one of them; absent when this person may not act on the job. Resolves when the API has answered. */
+  onLineAct?: (id: number, what: "apply" | "dismiss", jobKey: string) => Promise<void> | void;
 }) {
   const { job: j } = p;
+  // The message whose approval is out with the API. Its buttons are quiet
+  // until the answer comes: two clicks on อนุมัติ on 17 Sep 2026 — the first
+  // gave no visible sign — approved the message twice.
+  const [acting, setActing] = useState<number | null>(null);
+  const act = async (id: number, what: "apply" | "dismiss") => {
+    if (acting !== null) return;
+    setActing(id);
+    try { await p.onLineAct?.(id, what, j.key); } finally { setActing(null); }
+  };
   const rows: [string, string | undefined][] =
     j.cat === "DELIVERY"
       ? [["Warehouse", j.wh], ["Job No.", j.jobNo], ["SID No.", j.sid], ["Pickup Date", j.date],
@@ -86,15 +95,15 @@ export function JobDrawer(p: {
                     ? <span style={css("font-size:11.5px;font-weight:600;color:#B45309")}>{writes}</span>
                     : <span style={css(`font-size:11.5px;color:${one.ready ? "#B45309" : "#B42318"}`)}>{verdict.label}{one.detail ? " — " + one.detail : ""}</span>}
                   {p.onLineAct && (
-                    <div style={css("display:flex;gap:6px;margin-top:2px")}>
+                    <div style={css("display:flex;gap:6px;margin-top:2px;align-items:center")}>
                       {one.ready && (
-                        <button onClick={() => p.onLineAct?.(one.id, "apply", j.key)}
-                          style={css("height:26px;padding:0 12px;border-radius:4px;border:1px solid #16A34A;background:#16A34A;color:#fff;font-size:11.5px;font-family:inherit;cursor:pointer")}>
-                          อนุมัติ
+                        <button onClick={() => void act(one.id, "apply")} disabled={acting !== null}
+                          style={css(`height:26px;padding:0 12px;border-radius:4px;border:1px solid #16A34A;background:#16A34A;color:#fff;font-size:11.5px;font-family:inherit;cursor:${acting !== null ? "default" : "pointer"};opacity:${acting !== null ? ".55" : "1"}`)}>
+                          {acting === one.id ? "กำลังบันทึก…" : "อนุมัติ"}
                         </button>
                       )}
-                      <button onClick={() => p.onLineAct?.(one.id, "dismiss", j.key)}
-                        style={css("height:26px;padding:0 12px;border-radius:4px;border:1px solid #D3DBE3;background:#fff;color:#B91C1C;font-size:11.5px;font-family:inherit;cursor:pointer")}>
+                      <button onClick={() => void act(one.id, "dismiss")} disabled={acting !== null}
+                        style={css(`height:26px;padding:0 12px;border-radius:4px;border:1px solid #D3DBE3;background:#fff;color:#B91C1C;font-size:11.5px;font-family:inherit;cursor:${acting !== null ? "default" : "pointer"};opacity:${acting !== null ? ".55" : "1"}`)}>
                         ปิดข้อความ
                       </button>
                     </div>

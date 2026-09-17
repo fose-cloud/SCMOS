@@ -70,24 +70,35 @@ public static class LineMatching
     public const int VouchWindow = 3;
 
     /// <summary>
-    /// Whether a number the check digit refused is nonetheless one this
-    /// register, or this haulier in this room, already writes.
+    /// The number, as this register or this haulier in this room already
+    /// writes it, that a reading the check digit refused turns out to be —
+    /// or null.
     ///
     /// The register: any job's CONTAINER cell. The room: any text message
     /// within a few days of the photo whose letters and digits carry the
-    /// number — a driver typing "TEMU 7592765" and photographing the same
+    /// reading — a driver typing "TEMU 7592765" and photographing the same
     /// door is two readings of one box, and that is what the check digit was
-    /// standing in for. A number nobody else has ever written stays refused.
+    /// standing in for. A reading short of its framed check digit
+    /// ("GCXU513490", 17 Sep 2026) is completed the same way: the cell or
+    /// the message carries the whole number, and that is what comes back —
+    /// never the fragment. A number nobody else has ever written stays refused.
     /// </summary>
-    public static async Task<bool> IsKnownContainerAsync(
+    public static async Task<string?> KnownContainerAsync(
         ScmosDbContext db, string lineGroupId, string container, DateTimeOffset around, CancellationToken token)
     {
-        if (container.Length == 0) return false;
+        if (container.Length == 0) return null;
 
-        if (await db.OperationJobs.AsNoTracking().AnyAsync(one => one.Container.Contains(container), token))
-            return true;
+        var cells = await db.OperationJobs.AsNoTracking()
+            .Where(one => one.Container.Contains(container))
+            .Select(one => one.Container)
+            .Take(20)
+            .ToListAsync(token);
+        foreach (var cell in cells)
+        {
+            if (ContainerNumbers.Find(cell, container) is { } whole) return whole;
+        }
 
-        if (lineGroupId.Length == 0) return false;
+        if (lineGroupId.Length == 0) return null;
         var from = around.AddDays(-VouchWindow);
         var to = around.AddDays(VouchWindow);
         var texts = await db.LineEvents.AsNoTracking()
@@ -95,17 +106,23 @@ public static class LineMatching
                 && one.ReceivedAt >= from && one.ReceivedAt <= to)
             .Select(one => one.RawText)
             .ToListAsync(token);
-        return texts.Any(text => ContainerNumbers.Normalise(text).Contains(container, StringComparison.Ordinal));
+        foreach (var text in texts)
+        {
+            if (ContainerNumbers.Find(text, container) is { } whole) return whole;
+        }
+        return null;
     }
 
-    /// <summary>The set-aside numbers that turn out to be known, in the order they were read.</summary>
+    /// <summary>The set-aside readings that turn out to be known, as the register writes them, in the order read.</summary>
     public static async Task<List<string>> VouchedAsync(
         ScmosDbContext db, string lineGroupId, IEnumerable<string> rejected, DateTimeOffset around, CancellationToken token)
     {
         var vouched = new List<string>();
         foreach (var number in rejected)
         {
-            if (await IsKnownContainerAsync(db, lineGroupId, number, around, token)) vouched.Add(number);
+            if (await KnownContainerAsync(db, lineGroupId, number, around, token) is { } whole
+                && !vouched.Contains(whole, StringComparer.Ordinal))
+                vouched.Add(whole);
         }
         return vouched;
     }

@@ -83,12 +83,11 @@ public static class LineReply
         LineAuthority.Outcome.ManyJobs => $"รับทราบ เลขตู้ {reading} จากรูป — ตรงกับหลายงาน เจ้าหน้าที่จะเลือกงานให้ครับ",
         LineAuthority.Outcome.AlreadyThere => $"รับทราบ เลขตู้ {reading} — งานมีเลขนี้อยู่แล้วครับ",
         LineAuthority.Outcome.NoOpenJob => $"อ่านเลขตู้ {reading} จากรูปได้ แต่ไม่พบงานวันนี้ที่รอเลขตู้ — เจ้าหน้าที่จะตรวจสอบครับ",
+        // The reading stopped at the frame around the check digit.
+        "container-check-digit" when rejected.Count > 0 && rejected.All(ContainerNumbers.IsFragment) =>
+            $"อ่านเลขตู้จากรูปได้ {string.Join(", ", rejected)} แต่ขาดเลขตัวสุดท้าย (ตัวเลขในกรอบ) — ช่วยพิมพ์เลขตู้เต็ม 11 ตัวครับ",
         "container-check-digit" when rejected.Count > 0 =>
             $"อ่านเลขตู้จากรูปได้ {string.Join(", ", rejected)} แต่เลขไม่ตรงมาตรฐาน — ช่วยพิมพ์เลขตู้มาด้วยครับ",
         _ => null,
     };
-
-    /// <summary>The line back once a person has approved: what was written.</summary>
-    public static string ForApproval(string reference, string written) =>
-        $"✔ อัปเดตแล้ว {reference}{(written.Length > 0 ? " — " + written : "")}";
 }

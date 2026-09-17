@@ -187,6 +187,10 @@ public static class LineParser
         ("กำลังไปลูกค้า", "IN_TRANSIT"),
         ("กำลังไปส่ง", "IN_TRANSIT"),
         ("ระหว่างทาง", "IN_TRANSIT"),
+        // "พขร. เดินทางอยู่ บริเวณเส้น อ. คลองหลวง" — the third real message,
+        // 17 Sep 2026: the driver is on the road.
+        ("กำลังเดินทาง", "IN_TRANSIT"),
+        ("เดินทางอยู่", "IN_TRANSIT"),
         ("กำลังไป", "IN_TRANSIT"),
         ("on the way", "IN_TRANSIT"),
         ("in transit", "IN_TRANSIT"),
@@ -535,9 +539,17 @@ public static class LineParser
     /// is reporting the delivery and mentioning the arrival on the way. Used
     /// to be the longest keyword, which read that message as the arrival.
     /// </summary>
-    public static (string? Status, string? Keyword) FindStatus(string normalised)
+    public static (string? Status, string? Keyword) FindStatus(string normalised, bool forecast = false)
     {
         var all = FindStatuses(normalised);
+        // "ประมาณ 10.00 รถถึงโรงงาน" says when the truck will be there, not
+        // that it is. The third real message, 17 Sep 2026, was read as the
+        // arrival and approved as DELIVERED while the truck was still on the
+        // road. An arrival word in a message with an estimate reports nothing
+        // — unless it says the arrival is done ("ถึงโรงงานแล้ว ประมาณ 10.25"),
+        // which is a report with a rough clock.
+        if (forecast)
+            all = [.. all.Where(one => !IsArrivalWord(one.Keyword) || one.Keyword.EndsWith("แล้ว", StringComparison.Ordinal))];
         if (all.Count == 0) return (null, null);
         var best = all.MaxBy(one => Array.IndexOf(Progress, one.Status));
         return (best.Status, best.Keyword);
@@ -674,8 +686,11 @@ public static class LineParser
         if (jobNumber is null && container is null && plates.Count == 0 && references.Count == 0 && found == 0)
             warnings.Add("no-reference");
 
-        var (status, statusWord) = FindStatus(text);
+        var forecast = IsForecast(text);
+        var (status, statusWord) = FindStatus(text, forecast);
         foreach (var (_, keyword) in FindStatuses(text)) rules.Add($"status:{keyword}");
+        if (forecast && FindStatuses(text).Any(one => IsArrivalWord(one.Keyword)) && !IsArrivalWord(statusWord))
+            rules.Add("arrival-is-estimate");
 
         // A question carries the words of a report and reports nothing.
         // "ถึงโรงงานที่โมงคะ" asks when; it does not say the truck arrived.
@@ -695,7 +710,6 @@ public static class LineParser
         // supplier that nobody can win.
         if (delayCategory is not null && delayConfidence < 0.9) warnings.Add("delay-ambiguous");
 
-        var forecast = IsForecast(text);
         var time = ResolveTime(text, receivedAt);
         DateTimeOffset? eventTime = null;
         DateTimeOffset? eta = null;

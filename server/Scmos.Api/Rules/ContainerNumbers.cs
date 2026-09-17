@@ -65,6 +65,41 @@ public static class ContainerNumbers
         return true;
     }
 
+    /// <summary>
+    /// Whether this is a number short of its check digit: four letters, the
+    /// fourth U, J or Z, then six digits. On a box door the check digit sits
+    /// in its own small frame after the serial — "GCXU 513490 [0]" — and a
+    /// reading that stops at the frame is this shape. Not a number; a
+    /// fragment that the register or a typed message may complete.
+    /// </summary>
+    public static bool IsFragment(string? number)
+    {
+        var text = number ?? "";
+        if (text.Length != 10) return false;
+        for (var i = 0; i < 4; i++) if (!char.IsAsciiLetterUpper(text[i])) return false;
+        if (text[3] is not ('U' or 'J' or 'Z')) return false;
+        for (var i = 4; i < 10; i++) if (!char.IsAsciiDigit(text[i])) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// The full number inside some text that carries <paramref name="fragment"/>
+    /// — a register cell, a typed message — or null. Letters and digits only
+    /// are kept, then every eleven-character window that is shaped like a
+    /// number is tried; "GCXU 513490-0 ถึงโรงงาน 05:00" gives GCXU5134900.
+    /// </summary>
+    public static string? Find(string? text, string fragment)
+    {
+        if (fragment.Length == 0) return null;
+        var flat = Normalise(text);
+        for (var i = 0; i + 11 <= flat.Length; i++)
+        {
+            var window = flat.Substring(i, 11);
+            if (IsShaped(window) && window.Contains(fragment, StringComparison.Ordinal)) return window;
+        }
+        return null;
+    }
+
     /// <summary>The check digit the first ten characters call for, or -1 when they are not a number.</summary>
     public static int CheckDigitOf(string? number)
     {
