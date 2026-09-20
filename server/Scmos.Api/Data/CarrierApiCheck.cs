@@ -206,6 +206,45 @@ public static class CarrierApiCheck
             && LineAuthority.Move(new LineAuthority.JobCandidate("J", "IMPORT", "SHORE", "DELIVERED"), CarrierEvent.StatusOf(CarrierEvent.Dispatched)).Result == LineAuthority.Outcome.Backwards, true);
 
         Console.WriteLine();
+        /* ---- phase 4: webhooks ---- */
+        failed += Say("a public https URL is a webhook", CarrierWebhooks.UrlProblem("https://tms.example.com/scmos/hook"), null);
+        failed += Say("http is not, outside a developer's machine", CarrierWebhooks.UrlProblem("http://tms.example.com/hook") is not null, true);
+        failed += Say("http is allowed where insecure is allowed", CarrierWebhooks.UrlProblem("http://localhost:9999/hook", allowInsecure: true), null);
+        failed += Say("localhost is refused", CarrierWebhooks.UrlProblem("https://localhost/hook") is not null, true);
+        failed += Say("a bare host with no dot is refused", CarrierWebhooks.UrlProblem("https://scmos-api-3936/hook") is not null, true);
+        failed += Say("a private address is refused", CarrierWebhooks.UrlProblem("https://10.0.0.5/hook") is not null && CarrierWebhooks.UrlProblem("https://192.168.1.4/hook") is not null && CarrierWebhooks.UrlProblem("https://172.16.0.9/hook") is not null, true);
+        failed += Say("a private address is refused even where insecure is allowed; the loopback is allowed there", CarrierWebhooks.UrlProblem("http://10.0.0.5/hook", allowInsecure: true) is not null && CarrierWebhooks.UrlProblem("http://127.0.0.1:9999/hook", allowInsecure: true) is null, true);
+        failed += Say("the loopback and the metadata addresses are refused", CarrierWebhooks.UrlProblem("https://127.0.0.1/hook") is not null && CarrierWebhooks.UrlProblem("https://169.254.169.254/latest") is not null, true);
+        failed += Say("credentials in the URL are refused", CarrierWebhooks.UrlProblem("https://user:pw@tms.example.com/hook") is not null, true);
+        failed += Say("a relative URL is refused", CarrierWebhooks.UrlProblem("/hook") is not null, true);
+        failed += Say("an empty URL is refused", CarrierWebhooks.UrlProblem("") is not null, true);
+        failed += Say("events are read case-forgiving and without duplicates", CarrierWebhooks.ReadEvents(["Assignment.Offered", "assignment.offered", "event.decided"])?.SequenceEqual(["assignment.offered", "event.decided"]), true);
+        failed += Say("no events is all three", CarrierWebhooks.ReadEvents([])?.SequenceEqual(CarrierWebhooks.Types), true);
+        failed += Say("an event the API does not send is refused", CarrierWebhooks.ReadEvents(["assignment.paid"]), null);
+        failed += Say("a webhook wants what it subscribed to, and every webhook wants a ping",
+            CarrierWebhooks.Wants("assignment.offered,event.decided", CarrierWebhooks.EventDecided)
+            && !CarrierWebhooks.Wants("assignment.offered", CarrierWebhooks.Cancelled)
+            && CarrierWebhooks.Wants("assignment.offered", CarrierWebhooks.Ping), true);
+        var secret = CarrierWebhooks.NewSecret();
+        failed += Say("a secret carries its prefix and 32 bytes", secret.StartsWith(CarrierWebhooks.SecretPrefix, StringComparison.Ordinal) && secret.Length == CarrierWebhooks.SecretPrefix.Length + 43, true);
+        var signature = CarrierWebhooks.Signature(secret, "1758340800", "{\"id\":1}");
+        failed += Say("a signature is sha256= and 64 hex characters", signature.StartsWith("sha256=", StringComparison.Ordinal) && signature.Length == 7 + 64, true);
+        failed += Say("the same secret, timestamp and body verify", CarrierWebhooks.Verify(secret, "1758340800", "{\"id\":1}", signature), true);
+        failed += Say("another timestamp does not — a captured delivery cannot be replayed as fresh", CarrierWebhooks.Verify(secret, "1758340801", "{\"id\":1}", signature), false);
+        failed += Say("another body does not", CarrierWebhooks.Verify(secret, "1758340800", "{\"id\":2}", signature), false);
+        failed += Say("another secret does not", CarrierWebhooks.Verify(CarrierWebhooks.NewSecret(), "1758340800", "{\"id\":1}", signature), false);
+        failed += Say("a missing signature does not", CarrierWebhooks.Verify(secret, "1758340800", "{\"id\":1}", null), false);
+        failed += Say("the known vector: HMAC-SHA256 of 'ts.body' under 'whsec_test'",
+            CarrierWebhooks.Signature("whsec_test", "1", "{}"), "sha256=" + Convert.ToHexString(System.Security.Cryptography.HMACSHA256.HashData(System.Text.Encoding.UTF8.GetBytes("whsec_test"), System.Text.Encoding.UTF8.GetBytes("1.{}"))).ToLowerInvariant());
+        var t0 = new DateTimeOffset(2026, 9, 20, 3, 0, 0, TimeSpan.Zero);
+        failed += Say("the first retry is a minute on, the second five, the third half an hour",
+            CarrierWebhooks.NextAttempt(1, t0) == t0.AddMinutes(1) && CarrierWebhooks.NextAttempt(2, t0) == t0.AddMinutes(5) && CarrierWebhooks.NextAttempt(3, t0) == t0.AddMinutes(30), true);
+        failed += Say("the fourth two hours, the fifth twelve, and then it is dead",
+            CarrierWebhooks.NextAttempt(4, t0) == t0.AddHours(2) && CarrierWebhooks.NextAttempt(5, t0) == t0.AddHours(12) && CarrierWebhooks.NextAttempt(6, t0) is null, true);
+        failed += Say("six attempts in all", CarrierWebhooks.MaxAttempts, 6);
+        failed += Say("a 2xx is delivered; a 3xx, 4xx or 5xx is not", CarrierWebhooks.IsDelivered(200) && CarrierWebhooks.IsDelivered(204) && !CarrierWebhooks.IsDelivered(302) && !CarrierWebhooks.IsDelivered(404) && !CarrierWebhooks.IsDelivered(500), true);
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0 ? "All Carrier API checks passed." : $"{failed} Carrier API check(s) FAILED.");
         return failed == 0 ? 0 : 1;
     }

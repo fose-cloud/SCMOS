@@ -1,6 +1,6 @@
 # SCMOS Carrier TMS API — V1 contract
 
-Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
+Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · Phase 4 (webhooks) live from v2.7.56 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
 
 The [assessment](SCMOS_CARRIER_TMS_ASSESSMENT.md) says why the API is shaped this way. This page is the contract a carrier's TMS is built against.
 
@@ -163,6 +163,51 @@ Answers (`Idempotency-Key` required, as for every write):
 
 This carrier's events on the job, newest first, each with its `state`: `queued`, `applied` (the owner approved), `remark-written`, or the reason it was refused or set aside (`already-there`, `backwards`, `dismissed`…). Poll this — no faster than once a minute — to learn what became of an event; Phase 4 adds a webhook.
 
+## Webhooks (Phase 4)
+
+Instead of polling, a TMS registers a URL and SCMOS POSTs to it when something happens on the carrier's side of the table. Up to 5 active webhooks per carrier.
+
+### `POST /webhooks` — register (needs `Idempotency-Key`)
+
+```json
+{ "url": "https://tms.example.com/scmos/hook", "events": ["assignment.offered", "assignment.cancelled", "event.decided"] }
+```
+
+`url` must be absolute, **https**, without credentials, on a public host (no localhost, no private or link-local address). `events` may be empty for all three. The answer (201) carries the webhook and, **once only**, its signing `secret` (`whsec_…`).
+
+### `GET /webhooks` · `DELETE /webhooks/{id}` · `POST /webhooks/{id}/test` · `GET /webhooks/{id}/deliveries`
+
+The list (never the secret), retire (disabled, kept; its pending deliveries close out), a test delivery (`202`, a `ping`), and the last 50 deliveries with their state, attempts, last HTTP status and error.
+
+### What SCMOS sends
+
+| Event | When | `data` |
+| --- | --- | --- |
+| `assignment.offered` | the operator asked this carrier for a truck (a request now waits for the answer) | `jobKey`, `requestId`, `quotedPrice`, `requestedAt` — plus `assignment`, the same object `GET /assignments/{id}` gives, as the job stands when the delivery is sent |
+| `assignment.cancelled` | the request was withdrawn — another carrier took the job, the operator cancelled the ask, or closed it as unanswered | `jobKey`, `requestId`, `reason` |
+| `event.decided` | a status event this TMS queued was approved or set aside by the job's owner | `eventId`, `jobKey`, `type`, `at`, `state` (`applied` / `dismissed`), `to`, `decidedAt`, `decidedBy` |
+| `ping` | on request | `message`, `webhookId` |
+
+Each delivery is one `POST` with `Content-Type: application/json`:
+
+```json
+{ "id": 5, "type": "assignment.offered", "at": "2026-09-20T10:35:42Z", "attempt": 1, "correlationId": "…", "data": { … }, "assignment": { … } }
+```
+
+Headers: `X-Scmos-Event` (the type), `X-Scmos-Delivery` (the id), `X-Scmos-Timestamp` (Unix seconds), `X-Scmos-Signature`, `X-Correlation-Id` when there is one, `User-Agent: SCMOS-Webhook/1.0`.
+
+### Verifying a delivery
+
+```
+signature = "sha256=" + hex( HMAC-SHA256( secret, timestamp + "." + rawBody ) )
+```
+
+Compare against `X-Scmos-Signature` in constant time; reject a `X-Scmos-Timestamp` older than a few minutes to refuse replays. Answer any **2xx** within 10 seconds; the body is ignored.
+
+### Retries
+
+A non-2xx answer, a timeout (10 s) or a refused connection is a failure. SCMOS tries again after 1 min, 5 min, 30 min, 2 h and 12 h — six attempts in all — then marks the delivery `dead` in the ledger. Deliveries are made in order of their due time; the same event is never delivered twice to one webhook (a retry carries the same `id` with a higher `attempt`). The Carrier API screen shows the department a webhook that is failing.
+
 ## Refusals
 
 `Content-Type: application/problem+json`
@@ -192,4 +237,4 @@ This carrier's events on the job, newest first, each with its `state`: `queued`,
 
 ## What is not in V1 yet
 
-Webhooks (Phase 4) and auto-apply for named carriers (Phase 5). The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.
+Auto-apply for named carriers (Phase 5). The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.

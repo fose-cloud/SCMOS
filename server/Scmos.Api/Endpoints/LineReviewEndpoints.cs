@@ -540,6 +540,10 @@ public static class LineReviewEndpoints
             {
                 var result = await ApplyClaimedAsync(row, body, user, db, jobs, delegations, audit, token);
                 settled = row.ProcessingStatus != LineProcessing.Processing;
+                // A carrier's TMS hears what became of its event (phase 4).
+                if (row.ProcessingStatus == LineProcessing.Processed && LineReadings.IsTms(row))
+                    await context.RequestServices.GetRequiredService<CarrierWebhookQueue>()
+                        .EventDecidedAsync(row, "applied", row.ParsedStatus, user.Signature, token);
                 return result;
             }
             finally
@@ -597,7 +601,10 @@ public static class LineReviewEndpoints
 
             await audit.RecordAsync(user, AuditActions.Reject, "line-event", id.ToString(),
                 row.JobNumber, "processing_status", LineProcessing.NeedReview, LineProcessing.Ignored,
-                body.Reason ?? "", token, EventSource.Line);
+                body.Reason ?? "", token, LineReadings.SourceOf(row));
+            if (LineReadings.IsTms(row))
+                await context.RequestServices.GetRequiredService<CarrierWebhookQueue>()
+                    .EventDecidedAsync(row, "dismissed", "", user.Signature, token);
 
             return Results.Json(new { message = "ปิดข้อความนี้แล้ว" });
         });

@@ -33,11 +33,17 @@ type Client = {
 };
 type Supplier = { id: number; name: string; code?: string };
 type Issued = { clientId: string; name: string; supplier: string; key: string; message: string };
+/** A URL a carrier's system asked SCMOS to call, and how the last call went. */
+type Webhook = {
+  id: number; supplierId: number; supplier: string; url: string; events: string[]; status: "active" | "disabled";
+  createdAt: string; createdBy: string; lastDeliveryAt: string | null; lastStatusCode: number | null; lastError: string; failedInARow: number;
+};
 /** The department's list, and where a TMS calls — the API's own host, never the web's, whose proxy drops the key. */
-type Listing = { baseUrl: string; requestsPerMinute: number; clients: Client[] };
+type Listing = { baseUrl: string; requestsPerMinute: number; clients: Client[]; webhooks?: Webhook[] };
 
 export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; onToast: (message: string) => void }) {
   const [rows, setRows] = useState<Client[] | null>(null);
+  const [hooks, setHooks] = useState<Webhook[]>([]);
   const [baseUrl, setBaseUrl] = useState("");
   const [status, setStatus] = useState<number | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -54,6 +60,7 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
     if (!response.ok) { setRows([]); return; }
     const body = await response.json().catch(() => null) as Listing | null;
     setRows(Array.isArray(body?.clients) ? body.clients : []);
+    setHooks(Array.isArray(body?.webhooks) ? body.webhooks : []);
     setBaseUrl(body?.baseUrl ?? "");
   }, []);
 
@@ -67,6 +74,7 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
       const body = await response.json().catch(() => null) as Listing | null;
       if (cancelled) return;
       setRows(Array.isArray(body?.clients) ? body.clients : []);
+      setHooks(Array.isArray(body?.webhooks) ? body.webhooks : []);
       setBaseUrl(body?.baseUrl ?? "");
     })();
     return () => { cancelled = true; };
@@ -240,6 +248,44 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
             </tbody>
           </table>
         </ZoomBox>
+
+        {hooks.length > 0 && (
+          <div style={css("border-top:1px solid #E6EBF0")}>
+            <div style={css("padding:8px 12px 4px")}><span style={css(LABEL)}>Webhook ที่ระบบผู้ขนส่งลงทะเบียนไว้ · {hooks.length}</span></div>
+            <ZoomBox capped={false} zoomable={false}>
+            <table style={css("width:100%;border-collapse:collapse;min-width:820px")}>
+              <thead>
+                <tr>
+                  <th style={css(HEAD)}>ผู้ขนส่ง</th>
+                  <th style={css(HEAD)}>URL</th>
+                  <th style={css(HEAD)}>เหตุการณ์</th>
+                  <th style={css(HEAD)}>สถานะ</th>
+                  <th style={css(HEAD)}>ส่งล่าสุด</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hooks.map((hook) => (
+                  <tr key={hook.id}>
+                    <td style={css(CELL)}>{hook.supplier || "—"}</td>
+                    <td style={css(`${CELL};${MONO};font-size:11.5px;word-break:break-all`)}>{hook.url}</td>
+                    <td style={css(`${CELL};font-size:11.5px`)}>{hook.events.join(", ")}</td>
+                    <td style={css(`${CELL};white-space:nowrap`)}>
+                      {hook.status === "active"
+                        ? (hook.failedInARow > 0
+                          ? <span style={css("color:#B45309")}>ส่งไม่ถึง {hook.failedInARow} ครั้งติด</span>
+                          : <span style={css("color:#15803D")}>ใช้งาน</span>)
+                        : <span style={css("color:#94A3B8")}>ยกเลิกแล้ว</span>}
+                    </td>
+                    <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>
+                      {when(hook.lastDeliveryAt)}{hook.lastStatusCode != null ? ` · HTTP ${hook.lastStatusCode}` : ""}{hook.lastError ? ` · ${hook.lastError}` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </ZoomBox>
+          </div>
+        )}
 
         {canManage && (
           <div style={css("display:flex;gap:8px;padding:11px 12px;border-top:1px solid #E6EBF0;flex-wrap:wrap;align-items:center")}>

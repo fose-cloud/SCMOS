@@ -20,7 +20,7 @@ namespace Scmos.Api.Services;
 /// time a permission check lived in the endpoints, two of them were written
 /// without one and a read-only account wrote to the register for a week.
 /// </summary>
-public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<CarrierService> log)
+public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
 {
     /// <param name="Category">IMPORT · EXPORT · DELIVERY — which ladder the status is on.</param>
     /// <param name="Booking">The booking, on an import or export.</param>
@@ -274,6 +274,9 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
         }
 
         await db.SaveChangesAsync(token);
+        // Each carrier whose ask just closed hears so, when its system asked to.
+        foreach (var other in request.Where(r => r.Id != ours.Id))
+            await webhooks.CancelledAsync(jobKey, other.Carrier, other.Id, other.Reason, "", token);
         return new Result(true, $"รับงาน {jobKey} แล้ว · {licence} · {driver}", was, Written: writes, Skipped: skipped, Previous: previous);
     }
 

@@ -65,6 +65,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>A carrier's machine credentials for the Carrier TMS API — see CarrierApiEntities.cs.</summary>
     public DbSet<CarrierApiClient> CarrierApiClients => Set<CarrierApiClient>();
     public DbSet<CarrierApiRequest> CarrierApiRequests => Set<CarrierApiRequest>();
+    public DbSet<CarrierWebhook> CarrierWebhooks => Set<CarrierWebhook>();
+    public DbSet<CarrierWebhookDelivery> CarrierWebhookDeliveries => Set<CarrierWebhookDelivery>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
@@ -110,6 +112,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
         AiOperationsControl.Configure(model);
         CarrierApiClient.Configure(model);
         CarrierApiRequest.Configure(model);
+        CarrierWebhook.Configure(model);
+        CarrierWebhookDelivery.Configure(model);
         model.Entity<OperationJob>(job =>
         {
             job.ToTable("operation_jobs");

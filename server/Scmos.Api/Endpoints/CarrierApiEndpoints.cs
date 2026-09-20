@@ -370,6 +370,107 @@ public static class CarrierApiEndpoints
             return Results.Json(new { items = mine, correlationId = context.TraceIdentifier });
         });
 
+        /* ------------------------------------------------ webhooks (phase 4) */
+
+        // The URLs this supplier's systems asked SCMOS to call.
+        v1.MapGet("/webhooks", async (HttpContext context, ScmosDbContext db, CancellationToken token) =>
+        {
+            var who = PrincipalOf(context);
+            var hooks = await db.CarrierWebhooks.AsNoTracking()
+                .Where(one => one.SupplierId == who.Company.Id)
+                .OrderByDescending(one => one.CreatedAt)
+                .ToListAsync(token);
+            return Results.Json(new { items = hooks.Select(Describe), correlationId = context.TraceIdentifier });
+        });
+
+        // Registering one: the URL, the events; the signing secret comes back
+        // once and is never shown again.
+        v1.MapPost("/webhooks", async ([FromBody] WebhookBody? body, HttpContext context, ScmosDbContext db,
+            IWebHostEnvironment environment, CancellationToken token) =>
+            await IdempotentAsync(context, "POST", body, async () =>
+            {
+                var who = PrincipalOf(context);
+                var problem = CarrierWebhooks.UrlProblem(body?.Url, allowInsecure: environment.IsDevelopment());
+                if (problem is not null) return Problem(context, CarrierApi.Invalid, problem);
+                var events = CarrierWebhooks.ReadEvents(body?.Events);
+                if (events is null) return Problem(context, CarrierApi.Invalid, "events must be among: " + string.Join(", ", CarrierWebhooks.Types), new { types = CarrierWebhooks.Types });
+                var active = await db.CarrierWebhooks.CountAsync(one => one.SupplierId == who.Company.Id && one.Status == CarrierWebhooks.Active, token);
+                if (active >= CarrierWebhooks.MaxPerSupplier)
+                    return Problem(context, CarrierApi.Conflict, $"This carrier already has {CarrierWebhooks.MaxPerSupplier} active webhooks; retire one first", new { reason = "limit" });
+
+                var secret = CarrierWebhooks.NewSecret();
+                var hook = new CarrierWebhook
+                {
+                    SupplierId = who.Company.Id,
+                    ClientRowId = who.ClientRowId,
+                    Url = (body?.Url ?? "").Trim(),
+                    Secret = secret,
+                    Events = CarrierWebhooks.JoinEvents(events),
+                    Status = CarrierWebhooks.Active,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    CreatedBy = $"carrier-api:{who.ClientId}",
+                };
+                db.CarrierWebhooks.Add(hook);
+                await db.SaveChangesAsync(token);
+                return Answer(201, new
+                {
+                    item = Describe(hook),
+                    secret,
+                    signing = new { header = "X-Scmos-Signature", scheme = "sha256=hex(HMAC-SHA256(secret, timestamp + \".\" + body))", timestampHeader = "X-Scmos-Timestamp" },
+                    correlationId = context.TraceIdentifier,
+                });
+            }));
+
+        // Retiring one: disabled, kept, its deliveries closed out.
+        v1.MapDelete("/webhooks/{id:long}", async (long id, HttpContext context, ScmosDbContext db, CancellationToken token) =>
+        {
+            var who = PrincipalOf(context);
+            var hook = await db.CarrierWebhooks.FirstOrDefaultAsync(one => one.Id == id && one.SupplierId == who.Company.Id, token);
+            if (hook is null) return Refuse(context, CarrierApi.NotFound, "No such webhook for this carrier");
+            if (hook.Status != CarrierWebhooks.Disabled)
+            {
+                hook.Status = CarrierWebhooks.Disabled;
+                hook.DisabledAt = DateTimeOffset.UtcNow;
+                hook.DisabledBy = $"carrier-api:{who.ClientId}";
+                await db.SaveChangesAsync(token);
+            }
+            return Results.Json(new { item = Describe(hook), correlationId = context.TraceIdentifier });
+        });
+
+        // A test delivery, so the TMS can see the shape and check its signature.
+        v1.MapPost("/webhooks/{id:long}/test", async (long id, HttpContext context, ScmosDbContext db,
+            CarrierWebhookQueue queue, CancellationToken token) =>
+        {
+            var who = PrincipalOf(context);
+            var hook = await db.CarrierWebhooks.AsNoTracking().FirstOrDefaultAsync(one => one.Id == id && one.SupplierId == who.Company.Id, token);
+            if (hook is null) return Refuse(context, CarrierApi.NotFound, "No such webhook for this carrier");
+            if (hook.Status != CarrierWebhooks.Active) return Refuse(context, CarrierApi.Conflict, "This webhook is disabled");
+            var deliveryId = await queue.PingAsync(hook, context.TraceIdentifier, token);
+            return Results.Json(new { deliveryId, state = "queued", correlationId = context.TraceIdentifier }, statusCode: 202);
+        });
+
+        // What was sent, and what the TMS answered.
+        v1.MapGet("/webhooks/{id:long}/deliveries", async (long id, HttpContext context, ScmosDbContext db, CancellationToken token) =>
+        {
+            var who = PrincipalOf(context);
+            var hook = await db.CarrierWebhooks.AsNoTracking().FirstOrDefaultAsync(one => one.Id == id && one.SupplierId == who.Company.Id, token);
+            if (hook is null) return Refuse(context, CarrierApi.NotFound, "No such webhook for this carrier");
+            var rows = await db.CarrierWebhookDeliveries.AsNoTracking()
+                .Where(one => one.WebhookId == id)
+                .OrderByDescending(one => one.CreatedAt)
+                .Take(50)
+                .ToListAsync(token);
+            return Results.Json(new
+            {
+                items = rows.Select(one => new
+                {
+                    one.Id, type = one.EventType, key = one.EventKey, one.Status, one.Attempts,
+                    one.NextAttemptAt, one.LastStatusCode, one.LastError, one.CreatedAt, one.DeliveredAt, one.CorrelationId,
+                }),
+                correlationId = context.TraceIdentifier,
+            });
+        });
+
         /* ---------------------------------------------- the department's side */
 
         // Keys are issued and retired by whoever manages suppliers — the same
@@ -388,6 +489,11 @@ public static class CarrierApiEndpoints
             var ids = rows.Select(one => one.SupplierId).Distinct().ToList();
             var names = await db.Suppliers.AsNoTracking().Where(one => ids.Contains(one.Id))
                 .ToDictionaryAsync(one => one.Id, one => one.Name, token);
+            // The suppliers' webhooks, so the department can see a system in trouble.
+            var hooks = await db.CarrierWebhooks.AsNoTracking()
+                .Where(one => ids.Contains(one.SupplierId))
+                .OrderByDescending(one => one.CreatedAt)
+                .ToListAsync(token);
             return Results.Json(new
             {
                 baseUrl = BaseUrlOf(context, config),
@@ -397,6 +503,12 @@ public static class CarrierApiEndpoints
                     one.Id, one.ClientId, one.Name, one.SupplierId,
                     supplier = names.GetValueOrDefault(one.SupplierId, ""),
                     one.KeyPrefix, one.Status, one.CreatedAt, one.CreatedBy, one.RevokedAt, one.RevokedBy, one.LastSeenAt,
+                }),
+                webhooks = hooks.Select(one => new
+                {
+                    one.Id, one.SupplierId, supplier = names.GetValueOrDefault(one.SupplierId, ""),
+                    one.Url, events = CarrierWebhooks.SplitEvents(one.Events), one.Status,
+                    one.CreatedAt, one.CreatedBy, one.LastDeliveryAt, one.LastStatusCode, one.LastError, one.FailedInARow,
                 }),
             });
         });
@@ -647,6 +759,14 @@ public static class CarrierApiEndpoints
         return Results.Content(answer.Body, answer.ContentType, statusCode: answer.Status);
     }
 
+    /// <summary>A webhook as the TMS sees it — never its secret.</summary>
+    private static object Describe(CarrierWebhook hook) => new
+    {
+        hook.Id, hook.Url, events = CarrierWebhooks.SplitEvents(hook.Events), hook.Status,
+        secretPrefix = CarrierWebhooks.ShownPrefixOf(hook.Secret),
+        hook.CreatedAt, hook.DisabledAt, hook.LastDeliveryAt, hook.LastStatusCode, hook.LastError, hook.FailedInARow,
+    };
+
     /// <summary>The REMARK cell out of a job's JSON, or empty.</summary>
     private static string RemarkOf(string? data)
     {
@@ -753,4 +873,6 @@ public static class CarrierApiEndpoints
     public record DeclineBody(string? Reason);
     /// <summary>A status the truck reached — one of <see cref="CarrierEvent.Types"/> — when, and a remark; a note is a remark alone.</summary>
     public record EventBody(string? Type, string? At, string? Remark);
+    /// <summary>A URL to call and the events to call it for — empty is all of them.</summary>
+    public record WebhookBody(string? Url, string?[]? Events);
 }

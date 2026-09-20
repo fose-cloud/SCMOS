@@ -86,6 +86,14 @@ builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
 // The Carrier TMS API's door: the key in the header, resolved to one supplier.
 builder.Services.AddScoped<CarrierApiAuth>();
+// What SCMOS tells a carrier's system unasked (phase 4): queued where the
+// fact happens, sent by the dispatcher on its own clock.
+builder.Services.AddScoped<CarrierWebhookQueue>();
+builder.Services.AddHttpClient(CarrierWebhookDispatcher.ClientName, client =>
+{
+    client.Timeout = CarrierWebhooks.Timeout + TimeSpan.FromSeconds(5);
+});
+builder.Services.AddHostedService<CarrierWebhookDispatcher>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();
 builder.Services.AddScoped<JobTransferService>();

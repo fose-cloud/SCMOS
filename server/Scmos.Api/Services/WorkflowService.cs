@@ -42,7 +42,7 @@ public record WorkflowOutcome(bool Ok, string Message, JobWorkflow? State);
 /// this existed — the plan's own status decides the starting position, so the
 /// workflow begins from where the work really got to.
 /// </summary>
-public class WorkflowService(ScmosDbContext db, JobRegisterCache register)
+public class WorkflowService(ScmosDbContext db, JobRegisterCache register, CarrierWebhookQueue webhooks)
 {
     /// <summary>
     /// How many measured runs a carrier needs before their on-time rate is
@@ -242,11 +242,12 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register)
         if (breach is not null) return new WorkflowOutcome(false, breach.Message, state);
 
         var rank = state.Suppliers.Count + 1;
-        db.SupplierRequests.Add(new SupplierRequest
+        var request = new SupplierRequest
         {
             JobKey = jobKey, Rank = rank, Carrier = name, QuotedPrice = quotedPrice,
             Outcome = CarrierAssignment.Pending, RequestedBy = by, RequestedAt = DateTimeOffset.UtcNow,
-        });
+        };
+        db.SupplierRequests.Add(request);
 
         var stage = Enum.Parse<Stage>(state.Stage);
         // Asking a carrier is what moves a job to "capacity requested"; doing it
@@ -258,6 +259,8 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register)
 
         await Record(jobKey, "supplier-request", stage, moveTo, "", note, by, token);
         await db.SaveChangesAsync(token);
+        // The carrier's own system hears of the ask, when it asked to (Carrier TMS API phase 4).
+        await webhooks.OfferedAsync(jobKey, name, request.Id, quotedPrice, request.RequestedAt, "", token);
         return new WorkflowOutcome(true, $"ขอรถจาก {name} แล้ว (ลำดับที่ {rank})", await ReadAsync(jobKey, token));
     }
 
@@ -332,6 +335,10 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register)
             (minutes is not null ? $" · {minutes} นาที" : ""), by, token);
 
         await db.SaveChangesAsync(token);
+        // An ask the operator withdrew, or closed as unanswered, is one the
+        // carrier's system should stop waiting on.
+        if (value is "cancelled" or "no-response")
+            await webhooks.CancelledAsync(jobKey, request.Carrier, request.Id, value == "cancelled" ? request.Reason : "no-response", "", token);
         return new WorkflowOutcome(true, $"บันทึกผลจาก {request.Carrier} แล้ว", await ReadAsync(jobKey, token));
     }
 

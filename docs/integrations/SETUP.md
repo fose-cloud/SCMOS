@@ -234,7 +234,7 @@ them. What is needed is a machine credential.
 
 ## 5. Carrier TMS API
 
-Live since v2.7.52 (20 Sep 2026); writes — accept, decline, the truck's details — since v2.7.53; status events, queued for the job owner's approval like a LINE message, since v2.7.55. A carrier's TMS calls
+Live since v2.7.52 (20 Sep 2026); writes — accept, decline, the truck's details — since v2.7.53; status events, queued for the job owner's approval like a LINE message, since v2.7.55; webhooks (offer, cancellation, event decided — signed, retried) since v2.7.56. A carrier's TMS calls
 `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` with a key the
 department issues on **Integrations → Carrier API** (needs `ManageSuppliers`).
 The contract is [carrier-tms/SCMOS_CARRIER_TMS_API_V1.md](carrier-tms/SCMOS_CARRIER_TMS_API_V1.md);
@@ -253,6 +253,13 @@ answered, not run again.
 | Setting | What it is |
 |---|---|
 | `CarrierApi__BaseUrl` | Optional. The base URL the screen shows beside a new key, when the API is reached under a name other than its own host (a custom domain, API Management). Unset, the screen shows the host the request came in on — the API's own |
+
+Webhooks need no setting: `CarrierWebhookDispatcher` runs with the API and
+posts to the URLs the carriers registered (https, public hosts only). The
+signing secret lives in `carrier_webhooks.secret` — the one secret SCMOS
+holds in plain, because it has to sign with it; it is shown to the carrier
+once at registration and never logged. The delivery ledger is
+`carrier_webhook_deliveries` (migration `20260920102957_CarrierWebhooks`).
 
 ### Checking it worked
 
