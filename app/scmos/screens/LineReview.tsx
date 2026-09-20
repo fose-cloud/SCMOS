@@ -74,7 +74,8 @@ type SummaryRoom = {
   messages: string[]; sentAt: string | null; sentBy: string;
 };
 type DaySummary = {
-  date: string; summaryAt: string; canPush: boolean; pushMessage: string; rooms: SummaryRoom[];
+  /** The day, or the span — "26/09/2026 – 28/09/2026 (เสาร์–จันทร์)" on a Friday. */
+  date: string; days?: string[]; summaryAt: string; canPush: boolean; pushMessage: string; rooms: SummaryRoom[];
   /** LINE's monthly push allowance and its use; exhausted means every push is refused until the month turns. */
   quotaLimit?: number | null; quotaUsed?: number | null; quotaExhausted?: boolean; quotaMessage?: string;
 };
@@ -361,7 +362,7 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
           {reminder.summaryAt ? ` · สรุปงานวันถัดไป ${reminder.summaryAt} น.` : ""}
           {" · "}
           {reminder.chaseBeforeMinutes || reminder.chaseAt
-            ? `ติดตามสถานะรถ${reminder.chaseBeforeMinutes ? ` ${spanLabel(reminder.chaseBeforeMinutes)}ก่อนเวลาแผน` : ""}${reminder.chaseAt ? `${reminder.chaseBeforeMinutes ? " และ" : ""}รอบ ${reminder.chaseAt} น. สำหรับงานที่ยังไม่มีเวลาถึง` : ""}`
+            ? `ติดตามสถานะรถ${reminder.chaseBeforeMinutes ? ` ${spanLabel(reminder.chaseBeforeMinutes)}ก่อนเวลาแผน (เว้นงานที่ลงสถานะออกรถหรือเวลาถึงไว้แล้ว)` : ""}${reminder.chaseAt ? `${reminder.chaseBeforeMinutes ? " และ" : ""}รอบ ${reminder.chaseAt} น. สำหรับงานที่ยังไม่มีเวลาถึง` : ""}`
             : "ไม่ติดตามสถานะรถ"}
           {!!reminder.chaseDue?.length && (
             <span style={css("color:#B45309")}> · ครบกำหนดตอนนี้ {reminder.chaseDue.reduce((n, room) => n + room.jobs.length, 0)} งาน</span>
@@ -501,9 +502,9 @@ function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message
   return (
     <div style={css(`${CARD};overflow:hidden`)}>
       <div style={css("display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #E6EBF0;flex-wrap:wrap")}>
-        <span style={css(LABEL)}>สรุปงานวันถัดไป {summary.date}</span>
+        <span style={css(LABEL)}>{(summary.days?.length ?? 1) > 1 ? "สรุปงาน" : "สรุปงานวันถัดไป"} {summary.date}</span>
         <span style={css("font-size:12px;color:#475569")}>
-          {summary.summaryAt ? `ส่งอัตโนมัติ ${summary.summaryAt} น. ของวันก่อนหน้า` : "ไม่มีกำหนดส่งอัตโนมัติ"}
+          {summary.summaryAt ? `ส่งอัตโนมัติ ${summary.summaryAt} น. ของวันก่อนหน้า · วันศุกร์ส่งเสาร์–อาทิตย์–จันทร์รวมกัน` : "ไม่มีกำหนดส่งอัตโนมัติ"}
           {!summary.canPush && summary.pushMessage && <span style={css("color:#B45309")}> · {summary.pushMessage}</span>}
           {quota && <span style={css(`color:${summary.quotaExhausted ? "#B42318" : "#475569"};font-weight:${summary.quotaExhausted ? "600" : "400"}`)}> · {quota}{summary.quotaExhausted ? " — เต็มแล้ว ส่งไม่ได้จนกว่าจะขึ้นเดือนใหม่หรืออัปเกรดแพ็กเกจ" : ""}</span>}
           {summary.quotaMessage && <span style={css("color:#B45309")}> · {summary.quotaMessage}</span>}
@@ -515,7 +516,7 @@ function SummaryCard({ canSend, onToast }: { canSend: boolean; onToast: (message
           <tr>
             <th style={css(HEAD)}>กลุ่ม LINE</th>
             <th style={css(HEAD)}>ผู้ขนส่ง</th>
-            <th style={css(HEAD)}>งานวันถัดไป</th>
+            <th style={css(HEAD)}>{(summary.days?.length ?? 1) > 1 ? "งานในช่วง" : "งานวันถัดไป"}</th>
             <th style={css(HEAD)}>ส่งล่าสุด</th>
             <th style={css(HEAD)}></th>
           </tr>

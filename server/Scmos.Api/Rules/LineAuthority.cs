@@ -138,9 +138,77 @@ public static class LineAuthority
         string Key, string Category, string Carrier, string Status,
         string Customer = "", string Container = "", string Plate = "", string WorkDate = "",
         /// <summary>The cells a haulier might quote this job by — booking, ABS, D-code… — upper case.</summary>
-        IReadOnlyList<string>? References = null)
+        IReadOnlyList<string>? References = null,
+        /// <summary>
+        /// The other cells a message fills — the arrival stamp, the driver,
+        /// the number, the seal — as the register holds them now. What is
+        /// already there is not pulled from the room again (20 Sep 2026).
+        /// </summary>
+        string ArrDate = "", string ArrTime = "", string Driver = "", string Contact = "", string Seal = "")
     {
         public IReadOnlyList<string> References { get; init; } = References ?? [];
+
+        /// <summary>Whether the register already holds a value in the named cell — see <see cref="Cells"/>.</summary>
+        public bool Holds(string cell) => (cell switch
+        {
+            Cells.Licence => Plate,
+            Cells.Driver => Driver,
+            Cells.Contact => Contact,
+            Cells.Container => Container,
+            Cells.Seal => Seal,
+            Cells.ArrDate => ArrDate,
+            Cells.ArrTime => ArrTime,
+            _ => "",
+        }).Trim().Length > 0;
+    }
+
+    /// <summary>
+    /// The job's cells a LINE message can fill, by the name the register's
+    /// JSON keeps them under. One vocabulary for the decision here and the
+    /// write in the approval, so the two cannot disagree about what "already
+    /// on the job" means.
+    /// </summary>
+    public static class Cells
+    {
+        public const string Licence = "licence";
+        public const string Driver = "driver";
+        public const string Contact = "contact";
+        public const string Container = "container";
+        public const string Seal = "seal";
+        public const string ArrDate = "arrDate";
+        public const string ArrTime = "arrTime";
+
+        /// <summary>The cell's name as a person reads it.</summary>
+        public static string Label(string cell) => cell switch
+        {
+            Licence => "ทะเบียนรถ",
+            Driver => "ชื่อคนขับ",
+            Contact => "เบอร์ติดต่อ",
+            Container => "เลขตู้",
+            Seal => "เลขซีล",
+            ArrDate => "วันที่ถึง",
+            ArrTime => "เวลาถึง",
+            _ => cell,
+        };
+    }
+
+    /// <summary>
+    /// Which cells a message could fill: the plate, the driver, the number,
+    /// the seal — and the box, for a job the message names by number or
+    /// booking rather than by that box. The same test the approval's write
+    /// makes, asked before the message is queued so that one with nothing
+    /// new for the job is filed rather than offered.
+    /// </summary>
+    public static IReadOnlyList<string> FillsOf(LineParser.Parsed read)
+    {
+        var fills = new List<string>(5);
+        if (read.Plates is { Count: > 0 }) fills.Add(Cells.Licence);
+        if (!string.IsNullOrWhiteSpace(read.Driver)) fills.Add(Cells.Driver);
+        if (!string.IsNullOrWhiteSpace(read.Phone)) fills.Add(Cells.Contact);
+        if (!string.IsNullOrWhiteSpace(read.Container) && (read.JobNumber is not null || read.References is { Count: > 0 }))
+            fills.Add(Cells.Container);
+        if (!string.IsNullOrWhiteSpace(read.SealNumber)) fills.Add(Cells.Seal);
+        return fills;
     }
 
     /// <summary>
@@ -171,7 +239,9 @@ public static class LineAuthority
         /// <summary>How many boxes the message says it is about — "3 ตู้" — or null.</summary>
         int? BoxCount = null,
         /// <summary>Whether the message carries an arrival time, which a job already at the site may still be missing.</summary>
-        bool Arrival = false)
+        bool Arrival = false,
+        /// <summary>The cells the message could fill — <see cref="FillsOf"/> — so a job that already holds them all is not offered it.</summary>
+        IReadOnlyList<string>? Fills = null)
     {
         public static readonly Clue None = new("เลขงานนี้", null, [], "", null);
     }
@@ -521,7 +591,7 @@ public static class LineAuthority
         // Asked after the job is found, not before: which job it is, and whether
         // the speaker may touch it, are true regardless of what they said about
         // it.
-        if (string.IsNullOrWhiteSpace(status) && clue.Details) return Details(mine[0]);
+        if (string.IsNullOrWhiteSpace(status) && clue.Details) return Details(mine[0], clue.Fills);
         return Move(mine[0], status, clue.Arrival);
     }
 
@@ -529,14 +599,21 @@ public static class LineAuthority
     /// A message with the truck's details and no status: the plate, the
     /// driver, the number, for a job that is still open. What is written,
     /// and into which empty cells, the approval decides from the message; this
-    /// says only that the job may take them.
+    /// says only that the job may take them — and, since 20 Sep 2026, that a
+    /// job already holding every cell the message could fill takes nothing:
+    /// "หากมีข้อมูลในตารางงานที่ผมกำหนดไว้แล้ว ไม่ต้องดึงข้อมูลจากไลน์มาอีก". Such
+    /// a message is filed as already there, not queued for a person.
     /// </summary>
-    public static LineDecision Details(JobCandidate job)
+    /// <param name="fills">The cells the message could fill — <see cref="FillsOf"/>; null when the caller did not look.</param>
+    public static LineDecision Details(JobCandidate job, IReadOnlyList<string>? fills = null)
     {
         var one_key = new[] { job.Key };
         if (string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)
             || string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
             return new(Outcome.JobClosed, one_key, job.Status, "", $"งานนี้ปิดแล้ว ({job.Status})");
+        if (fills is { Count: > 0 } && fills.All(job.Holds))
+            return new(Outcome.AlreadyThere, one_key, job.Status, "",
+                $"งานมี{string.Join(", ", fills.Select(Cells.Label))}อยู่แล้ว — ไม่ดึงจากไลน์ซ้ำ");
         return new(Outcome.TruckDetails, one_key, job.Status, "", "รายละเอียดรถสำหรับงานนี้ — รอการอนุมัติ");
     }
 
@@ -625,9 +702,16 @@ public static class LineAuthority
                 $"สถานะปัจจุบันของงาน ({job.Status}) ไม่ใช่รหัสมาตรฐาน");
 
         if (to == from)
-            return arrival
-                ? new(Outcome.ArrivalOnly, one_key, job.Status, "", $"งานอยู่ที่ {status} แล้ว — บันทึกเวลาถึงเท่านั้น")
-                : new(Outcome.AlreadyThere, one_key, job.Status, status, $"งานอยู่ที่ {status} อยู่แล้ว");
+        {
+            if (!arrival)
+                return new(Outcome.AlreadyThere, one_key, job.Status, status, $"งานอยู่ที่ {status} อยู่แล้ว");
+            // The time is taken only into empty cells. A stamp the department
+            // keyed stands, and the message is filed, not queued (20 Sep 2026).
+            if (job.Holds(Cells.ArrDate) && job.Holds(Cells.ArrTime))
+                return new(Outcome.AlreadyThere, one_key, job.Status, status,
+                    $"งานอยู่ที่ {status} และมีเวลาถึง {job.ArrDate.Trim()} {job.ArrTime.Trim()} อยู่แล้ว — ไม่ดึงจากไลน์ซ้ำ");
+            return new(Outcome.ArrivalOnly, one_key, job.Status, "", $"งานอยู่ที่ {status} แล้ว — บันทึกเวลาถึงเท่านั้น");
+        }
 
         if (to < from)
             return new(Outcome.Backwards, one_key, job.Status, status,

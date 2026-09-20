@@ -46,6 +46,9 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
     /// <summary>The ledger's key for a day's summary: once per room per day summarised.</summary>
     public static string SummarySlot(DateOnly day) => $"summary:{Formats.PlanDate(day)}";
 
+    /// <summary>The days the summary sent today is about — see <see cref="LineReminder.SummaryDays"/>.</summary>
+    public static IReadOnlyList<DateOnly> SummaryDays(DateOnly today) => LineReminder.SummaryDays(today);
+
     /// <summary>What a manual send is ledgered as, beside the clock-time slots.</summary>
     public const string ManualSlot = "manual";
 
@@ -167,77 +170,111 @@ public class LineReminderService(ScmosDbContext db, ILineNotifier notifier, Audi
         return sent;
     }
 
-    /// <param name="Messages">The summary's text(s) for the day, or empty when the haulier has no open job on it.</param>
-    /// <param name="SentAt">When this day's summary last went to the room, UTC, or null.</param>
+    /// <param name="Days">The days this summary is about — one, or Friday's three — and the haulier's jobs on each.</param>
+    /// <param name="Jobs">How many open jobs across those days.</param>
+    /// <param name="Messages">The summary's text(s), or empty when the haulier has no open job on any of the days.</param>
+    /// <param name="SentAt">When the first of these days' summary last went to the room, UTC, or null.</param>
     public record SummaryRoom(string LineGroupId, string GroupName, string Supplier, int Jobs,
-        IReadOnlyList<string> Messages, DateTimeOffset? SentAt, string SentBy);
+        IReadOnlyList<string> Messages, DateTimeOffset? SentAt, string SentBy,
+        IReadOnlyList<(DateOnly Day, IReadOnlyList<LineReminder.JobLine> Jobs)> Days);
 
     /// <summary>Every active vendor room with what the day's summary would say to it, and whether it has gone.</summary>
-    public async Task<IReadOnlyList<SummaryRoom>> PreviewSummaryAsync(DateOnly day, CancellationToken token)
+    public Task<IReadOnlyList<SummaryRoom>> PreviewSummaryAsync(DateOnly day, CancellationToken token) =>
+        PreviewSummaryAsync([day], token);
+
+    /// <summary>
+    /// Every active vendor room with what the summary over
+    /// <paramref name="days"/> would say to it, and whether it has gone —
+    /// judged on the first day's ledger row, which is the one a send over
+    /// several days writes first.
+    /// </summary>
+    public async Task<IReadOnlyList<SummaryRoom>> PreviewSummaryAsync(IReadOnlyList<DateOnly> days, CancellationToken token)
     {
-        var slot = SummarySlot(day);
+        if (days.Count == 0) return [];
+        var slot = SummarySlot(days[0]);
         var sent = await db.AuditEvents.AsNoTracking()
             .Where(one => one.Entity == Entity && one.Action == Action && one.Field == slot)
             .OrderByDescending(one => one.At)
             .Select(one => new { one.EntityId, one.At, one.Who })
             .ToListAsync(token);
+
+        // The rooms are the same on every day; their jobs differ.
+        var byDay = new List<(DateOnly Day, IReadOnlyList<RoomJobs> Rooms)>();
+        foreach (var day in days) byDay.Add((day, await RoomsAsync(day, token)));
+
         var rooms = new List<SummaryRoom>();
-        foreach (var room in await RoomsAsync(day, token))
+        foreach (var room in byDay[0].Rooms)
         {
-            var open = room.AllJobs.Count(job =>
+            var mine = byDay
+                .Select(one => (one.Day, Jobs: one.Rooms.FirstOrDefault(other => other.LineGroupId == room.LineGroupId)?.AllJobs ?? []))
+                .ToList();
+            var open = mine.Sum(one => one.Jobs.Count(job =>
                 !string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase));
+                && !string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)));
             var last = sent.FirstOrDefault(one => one.EntityId == room.LineGroupId);
             rooms.Add(new SummaryRoom(room.LineGroupId, room.GroupName, room.Supplier, open,
-                LineReminder.ComposeSummary(room.Supplier, day, room.AllJobs), last?.At, last?.Who ?? ""));
+                LineReminder.ComposeSummary(room.Supplier, mine), last?.At, last?.Who ?? "", mine));
         }
         return rooms;
     }
 
-    /// <summary>Sends one room its summary for the day, now, under the person's name. The failure in words, or empty.</summary>
-    public async Task<string> SendSummaryAsync(SummaryRoom room, DateOnly day, AppUser by, string source, CancellationToken token)
+    /// <summary>
+    /// Sends one room its summary, now, under the person's name, and writes
+    /// one ledger row per day it covered. The failure in words, or empty.
+    /// </summary>
+    public async Task<string> SendSummaryAsync(SummaryRoom room, AppUser by, string source, CancellationToken token)
     {
         if (room.Messages.Count == 0) return "ไม่มีงานที่เปิดอยู่ในวันนั้น — ไม่ได้ส่ง";
         var failure = await notifier.PushAsync(room.LineGroupId, room.Messages, token);
         if (failure.Length > 0) return failure;
-        await audit.RecordAsync(by, Action, Entity, room.LineGroupId, room.Supplier,
-            SummarySlot(day), "", $"{room.Jobs} งาน · {room.Messages.Count} ข้อความ",
-            source, token, EventSource.Line);
-        log.LogInformation("LINE summary for {Day} sent to {Group} ({Supplier}) by {Who}", Formats.PlanDate(day), room.GroupName, room.Supplier, by.Signature);
+        var span = LineReminder.SpanLabel(room.Days.Select(one => one.Day).ToList());
+        foreach (var (day, _) in room.Days)
+            await audit.RecordAsync(by, Action, Entity, room.LineGroupId, room.Supplier,
+                SummarySlot(day), "", $"{room.Jobs} งาน · {room.Messages.Count} ข้อความ",
+                source, token, EventSource.Line);
+        log.LogInformation("LINE summary for {Span} sent to {Group} ({Supplier}) by {Who}", span, room.GroupName, room.Supplier, by.Signature);
         return "";
     }
 
     /// <summary>
     /// The scheduler's pass for the day-before summary: every room with jobs
-    /// on <paramref name="day"/> (tomorrow, when the scheduler calls) not yet
-    /// sent that day's summary. Returns how many were sent.
+    /// on <paramref name="days"/> — tomorrow, or Friday's three — not yet
+    /// sent. A room already sent some of the days by hand gets the rest.
+    /// Returns how many rooms were sent.
     /// </summary>
-    public async Task<int> SendSummaryDueAsync(DateOnly day, CancellationToken token)
+    public async Task<int> SendSummaryDueAsync(IReadOnlyList<DateOnly> days, CancellationToken token)
     {
+        if (days.Count == 0) return 0;
         var by = new AppUser("scheduler", "", "SCMOS", "System", "", "system", Recognised: true);
-        var slot = SummarySlot(day);
+        var slots = days.Select(SummarySlot).ToList();
         var already = (await db.AuditEvents.AsNoTracking()
-            .Where(one => one.Entity == Entity && one.Action == Action && one.Field == slot)
-            .Select(one => one.EntityId)
+            .Where(one => one.Entity == Entity && one.Action == Action && slots.Contains(one.Field))
+            .Select(one => new { one.EntityId, one.Field })
             .ToListAsync(token))
-            .ToHashSet(StringComparer.Ordinal);
+            .GroupBy(one => one.EntityId)
+            .ToDictionary(g => g.Key, g => g.Select(one => one.Field).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
 
         var sent = 0;
-        foreach (var room in await RoomsAsync(day, token))
+        foreach (var room in await PreviewSummaryAsync(days, token))
         {
-            if (already.Contains(room.LineGroupId)) continue;
-            var messages = LineReminder.ComposeSummary(room.Supplier, day, room.AllJobs);
+            var done = already.GetValueOrDefault(room.LineGroupId) ?? [];
+            var left = room.Days.Where(one => !done.Contains(SummarySlot(one.Day))).ToList();
+            if (left.Count == 0) continue;
+            var messages = LineReminder.ComposeSummary(room.Supplier, left);
             if (messages.Count == 0) continue;
+            var span = LineReminder.SpanLabel(left.Select(one => one.Day).ToList());
             var failure = await notifier.PushAsync(room.LineGroupId, messages, token);
             if (failure.Length > 0)
             {
-                log.LogWarning("LINE summary for {Day} to {Group} failed: {Why}", Formats.PlanDate(day), room.GroupName, failure);
+                log.LogWarning("LINE summary for {Span} to {Group} failed: {Why}", span, room.GroupName, failure);
                 continue;
             }
-            await audit.RecordAsync(by, Action, Entity, room.LineGroupId, room.Supplier,
-                slot, "", $"{room.AllJobs.Count} งาน · {messages.Count} ข้อความ",
-                $"สรุปงานวันที่ {Formats.PlanDate(day)}", token, EventSource.Line);
-            log.LogInformation("LINE summary for {Day} sent to {Group} ({Supplier}): {Jobs} job(s)", Formats.PlanDate(day), room.GroupName, room.Supplier, room.AllJobs.Count);
+            var jobs = left.Sum(one => one.Jobs.Count);
+            foreach (var (day, _) in left)
+                await audit.RecordAsync(by, Action, Entity, room.LineGroupId, room.Supplier,
+                    SummarySlot(day), "", $"{jobs} งาน · {messages.Count} ข้อความ",
+                    $"สรุปงานวันที่ {span}", token, EventSource.Line);
+            log.LogInformation("LINE summary for {Span} sent to {Group} ({Supplier}): {Jobs} job(s)", span, room.GroupName, room.Supplier, jobs);
             sent++;
         }
         return sent;
@@ -308,13 +345,15 @@ public class LineReminderScheduler(IServiceProvider services, ILogger<LineRemind
                     var sent = await reminders.SendDueAsync(DateOnly.FromDateTime(now.DateTime), slot, stopping);
                     if (sent > 0) log.LogInformation("LINE reminder: {Count} room(s) sent at {At}", sent, slot);
                 }
-                // The afternoon summary of tomorrow's jobs, on its own hour.
+                // The afternoon summary of tomorrow's jobs, on its own hour —
+                // of the weekend's and Monday's on a Friday; the ledger keeps
+                // a weekend pass from repeating what Friday's already said.
                 foreach (var at in reminders.SummaryTimes)
                 {
                     if (now.TimeOfDay < at.ToTimeSpan() || now.TimeOfDay >= at.ToTimeSpan().Add(TimeSpan.FromMinutes(10))) continue;
-                    var tomorrow = DateOnly.FromDateTime(now.DateTime).AddDays(1);
-                    var sent = await reminders.SendSummaryDueAsync(tomorrow, stopping);
-                    if (sent > 0) log.LogInformation("LINE summary for {Day}: {Count} room(s) sent", Formats.PlanDate(tomorrow), sent);
+                    var days = LineReminderService.SummaryDays(DateOnly.FromDateTime(now.DateTime));
+                    var sent = await reminders.SendSummaryDueAsync(days, stopping);
+                    if (sent > 0) log.LogInformation("LINE summary for {Span}: {Count} room(s) sent", LineReminder.SpanLabel(days), sent);
                 }
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested) { return; }

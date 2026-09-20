@@ -61,7 +61,8 @@ public static class LineMatching
             PlateOnly: read.JobNumber is null && read.Container is null && (read.References ?? []).Count == 0,
             Details: read.HasDetails,
             BoxCount: read.BoxCount,
-            Arrival: read.ArrivalTime is not null);
+            Arrival: read.ArrivalTime is not null,
+            Fills: LineAuthority.FillsOf(read));
         return LineAuthority.Decide(group, read.Status, candidates, clue);
     }
 
@@ -179,18 +180,38 @@ public static class LineMatching
         var picked = await rows
             .Select(one => new { one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container, one.WorkDate, one.Data, one.JobCode })
             .ToListAsync(token);
-        return picked.Select(one =>
-        {
-            var fields = FieldsOf(one.Data, ["licence", .. ReferenceFields]);
-            return new LineAuthority.JobCandidate(
-                one.Key, one.Cat, one.Trucker, one.Status, one.Customer, one.Container,
-                fields.GetValueOrDefault("licence", ""), one.WorkDate,
-                References: [.. ReferenceFields.Select(name => fields.GetValueOrDefault(name, ""))
-                    .Append(one.JobCode)
-                    .Select(value => value.Trim().ToUpperInvariant())
-                    .Where(value => value.Length > 0)]);
-        }).ToList();
+        return picked.Select(one => Candidate(one.Key, one.Cat, one.Trucker, one.Status, one.Data,
+            one.Customer, one.Container, one.WorkDate, one.JobCode)).ToList();
     }
+
+    /// <summary>
+    /// One row as the rule sees it: the columns, the plate and the other
+    /// cells a message can fill out of the JSON, and the references a
+    /// haulier might quote it by. The approval builds its candidate here
+    /// too, so "already on the job" is judged on the same cells both times.
+    /// </summary>
+    public static LineAuthority.JobCandidate Candidate(string key, string cat, string trucker, string status, string data,
+        string customer = "", string container = "", string workDate = "", string jobCode = "")
+    {
+        var fields = FieldsOf(data, [.. FillCells, .. ReferenceFields]);
+        return new LineAuthority.JobCandidate(
+            key, cat, trucker, status, customer, container,
+            fields.GetValueOrDefault(LineAuthority.Cells.Licence, ""), workDate,
+            References: [.. ReferenceFields.Select(name => fields.GetValueOrDefault(name, ""))
+                .Append(jobCode)
+                .Select(value => value.Trim().ToUpperInvariant())
+                .Where(value => value.Length > 0)],
+            ArrDate: fields.GetValueOrDefault(LineAuthority.Cells.ArrDate, ""),
+            ArrTime: fields.GetValueOrDefault(LineAuthority.Cells.ArrTime, ""),
+            Driver: fields.GetValueOrDefault(LineAuthority.Cells.Driver, ""),
+            Contact: fields.GetValueOrDefault(LineAuthority.Cells.Contact, ""),
+            Seal: fields.GetValueOrDefault(LineAuthority.Cells.Seal, ""));
+    }
+
+    /// <summary>The JSON cells a message fills, read for the decision.</summary>
+    private static readonly string[] FillCells =
+        [LineAuthority.Cells.Licence, LineAuthority.Cells.Driver, LineAuthority.Cells.Contact,
+         LineAuthority.Cells.Seal, LineAuthority.Cells.ArrDate, LineAuthority.Cells.ArrTime];
 
     /// <summary>
     /// The cells a haulier might quote a job by. The booking and the ABS on

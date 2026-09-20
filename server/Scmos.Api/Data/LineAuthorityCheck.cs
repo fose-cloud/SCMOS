@@ -369,6 +369,24 @@ public static class LineAuthorityCheck
         if (!bareRight) failed++;
         Console.WriteLine($"  {(bareRight ? "ok  " : "FAIL")}  a number and nothing else is still filed, not applied");
 
+        // 20 Sep 2026: a cell the department keyed is not pulled from the room again.
+        var kept = Job("T4", "SHORE", "READY", plate: "70-1234") with { Driver = "สมชาย ใจดี", Contact = "081-2345678" };
+        var saidAgain = new LineAuthority.Clue("เลขงาน 260600800773", null, ["70-1234"], "260600800773 70-1234 สมชาย ใจดี 081-2345678", null,
+            Details: true, Fills: [LineAuthority.Cells.Licence, LineAuthority.Cells.Driver, LineAuthority.Cells.Contact]);
+        var repeat = LineAuthority.Decide(Vendor("SHORE"), "", [kept], saidAgain);
+        var partly = LineAuthority.Decide(Vendor("SHORE"), "", [kept with { Contact = "" }], saidAgain);
+        var repeatRight = repeat.Result == LineAuthority.Outcome.AlreadyThere && !repeat.Applies
+            && repeat.Detail.Contains("ไม่ดึงจากไลน์ซ้ำ", StringComparison.Ordinal)
+            && partly.Result == LineAuthority.Outcome.TruckDetails && partly.Applies;
+        if (!repeatRight) failed++;
+        Console.WriteLine($"  {(repeatRight ? "ok  " : "FAIL")}  details the job already holds are filed as already there; one empty cell still queues it");
+        var stamped = Job("T5", "SHORE", "DELIVERED") with { ArrDate = "16/09/2026", ArrTime = "10:20" };
+        var stampedRight = LineAuthority.Move(stamped, LineParser.SiteArrival, arrival: true).Result == LineAuthority.Outcome.AlreadyThere
+            && LineAuthority.Move(stamped with { ArrTime = "" }, LineParser.SiteArrival, arrival: true).Result == LineAuthority.Outcome.ArrivalOnly
+            && LineAuthority.Move(stamped with { Status = "IN_TRANSIT" }, LineParser.SiteArrival, arrival: true).Result == LineAuthority.Outcome.Ok;
+        if (!stampedRight) failed++;
+        Console.WriteLine($"  {(stampedRight ? "ok  " : "FAIL")}  an arrival the register already holds is not taken again; a missing time still is; a status move still is");
+
         /* ------------------------------------- at the site, by category */
 
         Console.WriteLine();

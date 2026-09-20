@@ -12,7 +12,8 @@ namespace Scmos.Api.Rules;
 /// LINE's monthly push allowance:
 /// </para>
 /// <list type="bullet">
-/// <item><b>Half an hour before the plan time</b>, once: is the truck on its way.</item>
+/// <item><b>Half an hour before the plan time</b>, once: is the truck on its
+/// way — unless the register already says so (<see cref="Reported"/>).</item>
 /// <item><b>At 10:00 and at 14:00</b>, once each: every job whose plan time
 /// has passed and whose ARRIVAL DATE or ARRIVAL TIME is still empty —
 /// "หากยังไม่ได้รับการอัพเดทและข้อมูลในตารางงานยังไม่ได้ลงข้อมูล".</item>
@@ -76,6 +77,23 @@ public static class LineChase
     public static bool Arrived(LineReminder.JobLine job) =>
         !LineAuthority.AwaitingArrival(job.Category, job.Status, job.ArrDate, job.ArrTime);
 
+    /// <summary>
+    /// Whether the register already answers the before-ask — "รถออกแล้วหรือยัง":
+    /// the status at DISPATCHED or beyond, so the truck has left on the
+    /// department's own record, or either arrival cell keyed, so it is
+    /// there. Asked for on 20 Sep 2026: "หากงานไหนมีข้อมูลในตารางตามที่ผม
+    /// กำหนดไว้แล้ว ไม่จำเป็นต้องส่งข้อความติดตามก่อน 30 นาที". A job the
+    /// department has already written up is not asked about ahead of its
+    /// plan time; the rounds still ask for an arrival time that is missing.
+    /// </summary>
+    public static bool Reported(LineReminder.JobLine job)
+    {
+        if (Formats.Clean(job.ArrDate).Length > 0 || Formats.Clean(job.ArrTime).Length > 0) return true;
+        var now = LineAuthority.Rank(job.Category, job.Status);
+        var left = LineAuthority.Rank(job.Category, JobStatus.Dispatched);
+        return now >= 0 && left >= 0 && now >= left;
+    }
+
     /// <summary>The plan moment, Bangkok, or null when the job has no readable date and time.</summary>
     public static DateTimeOffset? PlanAt(LineReminder.JobLine job)
     {
@@ -86,11 +104,12 @@ public static class LineChase
     /// <summary>
     /// Whether the before-ask is due right now: inside
     /// <paramref name="beforeMinutes"/> ahead of the plan time, the arrival
-    /// not yet written. A job with no plan time is due nothing.
+    /// not yet written, and the register not already saying the truck has
+    /// left (<see cref="Reported"/>). A job with no plan time is due nothing.
     /// </summary>
     public static bool BeforeDue(LineReminder.JobLine job, DateTimeOffset now, int beforeMinutes = DefaultBeforeMinutes)
     {
-        if (beforeMinutes <= 0 || Arrived(job)) return false;
+        if (beforeMinutes <= 0 || Arrived(job) || Reported(job)) return false;
         if (PlanAt(job) is not { } plan) return false;
         return now >= plan - TimeSpan.FromMinutes(beforeMinutes) && now < plan;
     }

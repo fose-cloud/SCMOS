@@ -272,18 +272,20 @@ public static class LineReviewEndpoints
 
         /* ------------------------------------------- the day-before summary */
 
-        // What tomorrow's summary would say to each room, or any day's by
-        // ?date=, and whether it has gone.
+        // What the next summary would say to each room — tomorrow's, or on a
+        // Friday the weekend's and Monday's — or any one day's by ?date=,
+        // and whether it has gone.
         group.MapGet("/summary", async (string? date, HttpContext context, IUserAccessor users,
             LineReminderService reminders, ILineNotifier notifier, CancellationToken token) =>
         {
             if (users.Current(context) is null) return ApiResults.SignInRequired;
-            var day = date is null ? Day(null).AddDays(1) : Day(date);
-            var rooms = await reminders.PreviewSummaryAsync(day, token);
+            var days = SummaryDaysFor(date);
+            var rooms = await reminders.PreviewSummaryAsync(days, token);
             var quota = await notifier.QuotaAsync(token);
             return Results.Json(new
             {
-                date = Formats.PlanDate(day),
+                date = LineReminder.SpanLabel(days),
+                days = days.Select(Formats.PlanDate),
                 summaryAt = reminders.SummaryAtText,
                 canPush = notifier.Configured,
                 pushMessage = notifier.Configured ? "" : notifier.Missing,
@@ -312,9 +314,9 @@ public static class LineReviewEndpoints
                 return ApiResults.Error("ทำได้เฉพาะผู้ที่ดูแลผู้ขนส่ง", StatusCodes.Status403Forbidden);
             if (ApiResults.NeedsSecondFactor(users, user, Capability.ManageSuppliers) is { } stop) return stop;
 
-            var day = body.Date is null ? Day(null).AddDays(1) : Day(body.Date);
+            var days = SummaryDaysFor(body.Date);
             var wanted = (body.LineGroupId ?? "").Trim();
-            var rooms = (await reminders.PreviewSummaryAsync(day, token))
+            var rooms = (await reminders.PreviewSummaryAsync(days, token))
                 .Where(room => wanted.Length == 0 || room.LineGroupId == wanted)
                 .ToList();
             if (rooms.Count == 0) return ApiResults.Error("ไม่พบกลุ่มที่ผูกกับผู้ขนส่ง", StatusCodes.Status404NotFound);
@@ -323,13 +325,13 @@ public static class LineReviewEndpoints
             var sent = 0;
             foreach (var room in rooms)
             {
-                var failure = await reminders.SendSummaryAsync(room, day, user, "ส่งจากหน้าจอ LINE", token);
+                var failure = await reminders.SendSummaryAsync(room, user, "ส่งจากหน้าจอ LINE", token);
                 if (failure.Length == 0) sent++;
                 results.Add(new { room.LineGroupId, room.GroupName, room.Supplier, room.Jobs, ok = failure.Length == 0, failure });
             }
             return Results.Json(new
             {
-                message = sent == rooms.Count ? $"ส่งสรุปงานวันที่ {Formats.PlanDate(day)} แล้ว {sent} กลุ่ม"
+                message = sent == rooms.Count ? $"ส่งสรุปงานวันที่ {LineReminder.SpanLabel(days)} แล้ว {sent} กลุ่ม"
                     : sent == 0 ? (results.Count == 1 ? ((dynamic)results[0]).failure : "ส่งไม่สำเร็จ")
                     : $"ส่งแล้ว {sent} จาก {rooms.Count} กลุ่ม",
                 sent,
@@ -476,9 +478,9 @@ public static class LineReviewEndpoints
                     // set-level answer does not say. The carrier is left empty
                     // because Move does not read it — authority was settled when
                     // these keys came out of the decision's own filtered set.
-                    var candidate = new LineAuthority.JobCandidate(job.Key, job.Cat, "", job.Status);
+                    var candidate = LineMatching.Candidate(job.Key, job.Cat, "", job.Status, job.Data, job.Customer, job.Container, job.WorkDate);
                     var move = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
-                        ? LineAuthority.Details(candidate)
+                        ? LineAuthority.Details(candidate, LineAuthority.FillsOf(read))
                         : LineAuthority.Move(candidate, read.Status, read.ArrivalTime is not null);
                     var stamp = ArrivalWrite(read, job.Data);
                     var truck = DetailsWrite(read, job.Data);
@@ -682,9 +684,9 @@ public static class LineReviewEndpoints
             .FirstOrDefaultAsync(token);
         if (one is null) return ApiResults.Error("ไม่พบงานนี้แล้ว", StatusCodes.Status409Conflict);
 
-        var candidate = new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status);
+        var candidate = LineMatching.Candidate(one.Key, one.Cat, one.Trucker, one.Status, one.Data);
         var final = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
-            ? LineAuthority.Details(candidate)
+            ? LineAuthority.Details(candidate, LineAuthority.FillsOf(read))
             : LineAuthority.Move(candidate, read.Status, read.ArrivalTime is not null);
         if (!final.Applies)
             return ApiResults.Error(
@@ -789,7 +791,7 @@ public static class LineReviewEndpoints
             if (!await MayActOnAsync(user, key, jobs, delegations, token))
                 return ApiResults.Error($"อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่ ({key})", StatusCodes.Status403Forbidden);
 
-            var final = LineAuthority.Move(new LineAuthority.JobCandidate(one.Key, one.Cat, one.Trucker, one.Status), read.Status, read.ArrivalTime is not null);
+            var final = LineAuthority.Move(LineMatching.Candidate(one.Key, one.Cat, one.Trucker, one.Status, one.Data), read.Status, read.ArrivalTime is not null);
             if (!final.Applies) { skipped.Add($"{Name(one.Container, key)}: {(final.Detail.Length > 0 ? final.Detail : final.Result)}"); continue; }
 
             var stamp = ArrivalWrite(read, one.Data);
@@ -954,6 +956,13 @@ public static class LineReviewEndpoints
         return (null, null, hadDate, hadTime,
             $"งานมีเวลาถึง {hadDate} {hadTime} อยู่แล้ว — ข้อความแจ้ง {date} {time}; แก้ในตารางงานถ้าต้องการ");
     }
+
+    /// <summary>
+    /// The days a summary is about: the one day named, or — with none — the
+    /// days the next scheduled send covers, which on a Friday are three.
+    /// </summary>
+    private static IReadOnlyList<DateOnly> SummaryDaysFor(string? date) =>
+        date is not null ? [Day(date)] : LineReminder.SummaryDays(Day(null));
 
     /// <summary>The day a reminder is about, read the way the register writes dates; today in Bangkok otherwise.</summary>
     private static DateOnly Day(string? date)

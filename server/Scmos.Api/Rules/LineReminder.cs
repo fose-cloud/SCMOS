@@ -190,6 +190,47 @@ public static class LineReminder
     }
 
     /// <summary>
+    /// The days the summary sent on <paramref name="today"/> is about.
+    /// Tomorrow, on most days. On a Friday the weekend and the Monday in one
+    /// message — "ทุกๆ วันศุกร์ จะต้องส่งสรุปงานของวันเสาร์ วันอาทิตย์ และวันจันทร์
+    /// ในเวลา 16.00 น." (20 Sep 2026). A Saturday and a Sunday still name
+    /// tomorrow, and the ledger is what keeps them quiet: a room Friday's
+    /// message already covered is not sent the same day again, while a room
+    /// Friday had nothing for — or a weekend before this rule — still hears
+    /// about a job that has since appeared.
+    /// </summary>
+    public static IReadOnlyList<DateOnly> SummaryDays(DateOnly today) => today.DayOfWeek switch
+    {
+        DayOfWeek.Friday => [today.AddDays(1), today.AddDays(2), today.AddDays(3)],
+        _ => [today.AddDays(1)],
+    };
+
+    /// <summary>The day of the week as the room reads it: "เสาร์", "จันทร์".</summary>
+    public static string ThaiDay(DayOfWeek day) => day switch
+    {
+        DayOfWeek.Sunday => "อาทิตย์",
+        DayOfWeek.Monday => "จันทร์",
+        DayOfWeek.Tuesday => "อังคาร",
+        DayOfWeek.Wednesday => "พุธ",
+        DayOfWeek.Thursday => "พฤหัสบดี",
+        DayOfWeek.Friday => "ศุกร์",
+        _ => "เสาร์",
+    };
+
+    /// <summary>
+    /// The span a summary is about, for its heading and the screen: one
+    /// day's date, or "26/09/2026 – 28/09/2026 (เสาร์–จันทร์)".
+    /// </summary>
+    public static string SpanLabel(IReadOnlyList<DateOnly> days)
+    {
+        if (days.Count == 0) return "";
+        if (days.Count == 1) return Formats.PlanDate(days[0]);
+        var first = days[0];
+        var last = days[^1];
+        return $"{Formats.PlanDate(first)} – {Formats.PlanDate(last)} ({ThaiDay(first.DayOfWeek)}–{ThaiDay(last.DayOfWeek)})";
+    }
+
+    /// <summary>
     /// The day-before summary: every job of the haulier's planned for
     /// <paramref name="day"/> — not only the ones short of something — sent
     /// the afternoon before, so the room can line up its trucks. Asked for on
@@ -198,44 +239,74 @@ public static class LineReminder
     /// tonight. Cancelled and finished jobs are left out; a day with none
     /// sends nothing. Split like the reminder when it would not fit.
     /// </summary>
-    public static IReadOnlyList<string> ComposeSummary(string supplier, DateOnly day, IReadOnlyList<JobLine> jobs)
+    public static IReadOnlyList<string> ComposeSummary(string supplier, DateOnly day, IReadOnlyList<JobLine> jobs) =>
+        ComposeSummary(supplier, [(day, jobs)]);
+
+    /// <summary>
+    /// The summary over several days in one message — Friday's, for the
+    /// weekend and the Monday. Each day is its own section, headed with the
+    /// day and its count, the jobs numbered straight through so a reply by
+    /// number is not ambiguous; a day with nothing on it says so, since
+    /// "no work on Sunday" is what a haulier plans by. Nothing at all when
+    /// no day has an open job. A single day reads exactly as before.
+    /// </summary>
+    public static IReadOnlyList<string> ComposeSummary(string supplier, IReadOnlyList<(DateOnly Day, IReadOnlyList<JobLine> Jobs)> days)
     {
-        var listed = jobs
+        var perDay = days.Select(one => (one.Day, Jobs: (IReadOnlyList<JobLine>)one.Jobs
             .Where(job => !string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(job.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase))
             .OrderBy(job => CategoryOrder(job.Category))
             .ThenBy(job => Formats.TimeMinutes(job.PlanTime) ?? int.MaxValue)
             .ThenBy(job => job.Customer, StringComparer.Ordinal)
-            .ToList();
-        if (listed.Count == 0) return [];
+            .ToList())).ToList();
+        var total = perDay.Sum(one => one.Jobs.Count);
+        if (total == 0) return [];
 
-        var heading = $"สรุปงานวันที่ {Formats.PlanDate(day)} — {supplier} · {listed.Count} งาน";
+        var span = SpanLabel(perDay.Select(one => one.Day).ToList());
+        var heading = $"สรุปงานวันที่ {span} — {supplier} · {total} งาน";
         var footer = "ถ้างานไหนรับไม่ได้ หรือข้อมูลไม่ตรง แจ้งในกลุ่มนี้ครับ\n"
             + "ทะเบียนรถและคนขับส่งได้เลย: <เลขตู้ หรือ Booking> ทะเบียน ชื่อ-สกุลคนขับ เบอร์ — เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678";
 
         var messages = new List<string>();
         var text = new StringBuilder(heading);
-        var category = "";
         var number = 0;
-        foreach (var job in listed)
+        foreach (var (day, listed) in perDay)
         {
-            number++;
-            var block = new StringBuilder();
-            var thisCategory = job.Category.ToUpperInvariant();
-            if (thisCategory != category)
+            // A day's own heading only when there is more than one day.
+            var dayHead = perDay.Count > 1
+                ? $"\n\n■ {ThaiDay(day.DayOfWeek)} {Formats.PlanDate(day)} · {(listed.Count > 0 ? $"{listed.Count} งาน" : "ไม่มีงาน")}"
+                : "";
+            if (dayHead.Length > 0)
             {
-                block.Append("\n\n").Append(CategoryName(thisCategory));
-                category = thisCategory;
+                if (text.Length + dayHead.Length + footer.Length + 2 > MaxChars)
+                {
+                    messages.Add(text.ToString());
+                    text = new StringBuilder($"สรุปงานวันที่ {span} — {supplier} (ต่อ)");
+                }
+                text.Append(dayHead);
             }
-            block.Append('\n').Append(SummaryLine(number, job));
+            var category = "";
+            foreach (var job in listed)
+            {
+                number++;
+                var block = new StringBuilder();
+                var thisCategory = job.Category.ToUpperInvariant();
+                if (thisCategory != category)
+                {
+                    block.Append("\n\n").Append(CategoryName(thisCategory));
+                    category = thisCategory;
+                }
+                block.Append('\n').Append(SummaryLine(number, job));
 
-            if (text.Length + block.Length + footer.Length + 2 > MaxChars)
-            {
-                messages.Add(text.ToString());
-                text = new StringBuilder($"สรุปงานวันที่ {Formats.PlanDate(day)} — {supplier} (ต่อ)");
-                block.Clear().Append("\n\n").Append(CategoryName(thisCategory)).Append('\n').Append(SummaryLine(number, job));
+                if (text.Length + block.Length + footer.Length + 2 > MaxChars)
+                {
+                    messages.Add(text.ToString());
+                    text = new StringBuilder($"สรุปงานวันที่ {span} — {supplier} (ต่อ)");
+                    if (dayHead.Length > 0) text.Append(dayHead.Replace(" · ", " (ต่อ) · "));
+                    block.Clear().Append("\n\n").Append(CategoryName(thisCategory)).Append('\n').Append(SummaryLine(number, job));
+                }
+                text.Append(block);
             }
-            text.Append(block);
         }
         text.Append("\n\n").Append(footer);
         messages.Add(text.ToString());

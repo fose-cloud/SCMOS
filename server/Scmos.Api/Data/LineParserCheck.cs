@@ -446,6 +446,30 @@ public static class LineParserCheck
                     && summary.Contains("ถ้างานไหนรับไม่ได้", StringComparison.Ordinal)),
             ("a day with no open job sends no summary",
                 LineReminder.ComposeSummary("SHORE", new DateOnly(2026, 9, 18), [Line("C1", "IMPORT", "CANCELLED")]).Count == 0),
+            // 20 Sep 2026: Friday's summary is the weekend's and Monday's, in one.
+            ("Friday's summary covers Saturday, Sunday and Monday; any other day names tomorrow, and the ledger keeps the weekend quiet",
+                LineReminder.SummaryDays(new DateOnly(2026, 9, 25)).SequenceEqual([new DateOnly(2026, 9, 26), new DateOnly(2026, 9, 27), new DateOnly(2026, 9, 28)])
+                && LineReminder.SummaryDays(new DateOnly(2026, 9, 26)).SequenceEqual([new DateOnly(2026, 9, 27)])
+                && LineReminder.SummaryDays(new DateOnly(2026, 9, 27)).SequenceEqual([new DateOnly(2026, 9, 28)])
+                && LineReminder.SummaryDays(new DateOnly(2026, 9, 28)).SequenceEqual([new DateOnly(2026, 9, 29)])),
+            ("the three days go as one message, each day its own section, the jobs numbered straight through, an empty day said",
+                LineReminder.ComposeSummary("SHORE", [
+                    (new DateOnly(2026, 9, 26), [Line("S1", "IMPORT", "READY")]),
+                    (new DateOnly(2026, 9, 27), [Line("C1", "IMPORT", "CANCELLED")]),
+                    (new DateOnly(2026, 9, 28), [Line("M1", "EXPORT", "READY"), Line("M2", "IMPORT", "READY")]),
+                ]) is [var weekend]
+                    && weekend.StartsWith("สรุปงานวันที่ 26/09/2026 – 28/09/2026 (เสาร์–จันทร์) — SHORE · 3 งาน", StringComparison.Ordinal)
+                    && weekend.Contains("■ เสาร์ 26/09/2026 · 1 งาน", StringComparison.Ordinal)
+                    && weekend.Contains("■ อาทิตย์ 27/09/2026 · ไม่มีงาน", StringComparison.Ordinal)
+                    && weekend.Contains("■ จันทร์ 28/09/2026 · 2 งาน", StringComparison.Ordinal)
+                    && weekend.IndexOf("\n1) ", StringComparison.Ordinal) < weekend.IndexOf("\n2) ", StringComparison.Ordinal)
+                    && weekend.Contains("\n3) ", StringComparison.Ordinal)
+                    && weekend.Split("ถ้างานไหนรับไม่ได้").Length == 2),
+            ("three days with nothing open send nothing",
+                LineReminder.ComposeSummary("SHORE", [
+                    (new DateOnly(2026, 9, 26), []),
+                    (new DateOnly(2026, 9, 27), [Line("C1", "IMPORT", "CANCELLED")]),
+                ]).Count == 0),
             ("a long day is split into whole parts under LINE's limit",
                 LineReminder.Compose("SHORE", day, Enumerable.Range(1, 80).Select(i => Line($"I{i}", "IMPORT", "READY")).ToList()) is { Count: > 1 } parts
                     && parts.All(part => part.Length <= 5000)),
@@ -470,11 +494,22 @@ public static class LineParserCheck
         var two = new TimeOnly(14, 0);
         var chase = new (string Why, bool Ok)[]
         {
-            ("nothing due an hour before the plan time", !LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:00"))),
+            ("nothing due an hour before the plan time", !LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("12:00"))),
             ("due 'before' inside the half hour ahead, and not once the plan time is here",
-                LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"))
-                && !LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("13:00"))),
-            ("the before-ask switched off asks nothing", !LineChase.BeforeDue(Planned("J", "IMPORT", "IN_TRANSIT", "13:00"), At("12:35"), 0)),
+                LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("12:35"))
+                && !LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("13:00"))),
+            ("the before-ask switched off asks nothing", !LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("12:35"), 0)),
+            // 20 Sep 2026: a job the department has already written up is not asked ahead of its plan time.
+            ("no before-ask for a job the register already shows dispatched, or with an arrival cell keyed",
+                !LineChase.BeforeDue(Planned("J", "IMPORT", "DISPATCHED", "13:00"), At("12:35"))
+                && !LineChase.BeforeDue(Planned("J", "EXPORT", "IN_TRANSIT", "13:00"), At("12:35"))
+                && !LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00", "16/09/2026", ""), At("12:35"))
+                && LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("12:35"))
+                && LineChase.BeforeDue(Planned("J", "IMPORT", "TRUCK_ASSIGNED", "13:00"), At("12:35"))
+                && LineChase.Reported(Planned("J", "DELIVERY", "DELIVERED", "13:00"))
+                && !LineChase.Reported(Planned("J", "DELIVERY", "PRE_RUN", "13:00"))),
+            ("the rounds still ask a dispatched job for the arrival it has not reported",
+                LineChase.RoundDue(Planned("J", "IMPORT", "DISPATCHED", "08:30"), At("10:02"), ten)),
             ("the rounds are 10:00 and 14:00 unless set, and 'off' is none",
                 LineChase.Rounds(null).Select(at => at.ToString("HH:mm")).SequenceEqual(["10:00", "14:00"])
                 && LineChase.Rounds("off").Count == 0
