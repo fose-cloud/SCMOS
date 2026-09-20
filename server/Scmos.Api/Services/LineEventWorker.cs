@@ -43,8 +43,17 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     /// </summary>
     public const string PhotoReadingRetired = "photo-reading-retired";
 
-    /// <summary>The switch for the bot's replies in the room. On unless "off".</summary>
+    /// <summary>
+    /// The switch for the bot's acknowledgements in the room ("รับทราบ …").
+    /// Off unless "on" — the department cancelled them on 18 Sep 2026 to
+    /// keep the message count down; what a message says still goes onto
+    /// the job exactly as before, it is only not said back.
+    /// </summary>
     public const string RepliesKey = "Line:Replies";
+
+    /// <summary>Whether the room is answered at all.</summary>
+    public static bool RepliesOn(IConfiguration config) =>
+        string.Equals((config[RepliesKey] ?? "").Trim(), "on", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// How often it looks for work.
@@ -491,7 +500,7 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
         if (text is null || row.LineGroupId.Length == 0) return;
         using var scope = services.CreateScope();
         var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
-        if (string.Equals((config[RepliesKey] ?? "").Trim(), "off", StringComparison.OrdinalIgnoreCase)) return;
+        if (!RepliesOn(config)) return;
         var notifier = scope.ServiceProvider.GetRequiredService<ILineNotifier>();
         if (!notifier.Configured) return;
 

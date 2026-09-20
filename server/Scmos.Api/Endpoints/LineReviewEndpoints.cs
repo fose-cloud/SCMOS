@@ -196,6 +196,7 @@ public static class LineReviewEndpoints
             if (users.Current(context) is null) return ApiResults.SignInRequired;
             var day = Day(date);
             var rooms = await reminders.PreviewAsync(day, token);
+            var config = context.RequestServices.GetRequiredService<IConfiguration>();
             // What the chase would ask right now, so the screen can say so.
             var due = date is null ? await chase.DueAsync(DateTimeOffset.UtcNow, token) : [];
             return Results.Json(new
@@ -203,6 +204,7 @@ public static class LineReviewEndpoints
                 date = Formats.PlanDate(day),
                 remindAt = reminders.RemindAtText,
                 summaryAt = reminders.SummaryAtText,
+                replies = LineEventWorker.RepliesOn(config),
                 // The status chase: minutes before the plan time (0 when off)
                 // and the day's rounds ("10:00, 14:00", empty when off).
                 chaseBeforeMinutes = chase.BeforeMinutes,

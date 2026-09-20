@@ -83,6 +83,8 @@ type Reminder = {
   date: string; remindAt: string; summaryAt?: string; canPush: boolean; pushMessage: string; rooms: ReminderRoom[];
   /** The status chase: minutes either side of the plan time (0 = off), and what it would ask right now. */
   chaseBeforeMinutes?: number; chaseAt?: string; chaseDue?: ChaseRoom[];
+  /** Whether the bot acknowledges messages in the room; off since 18 Sep 2026 to keep the count down. */
+  replies?: boolean;
 };
 
 type Option = {
@@ -365,6 +367,7 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
             <span style={css("color:#B45309")}> · ครบกำหนดตอนนี้ {reminder.chaseDue.reduce((n, room) => n + room.jobs.length, 0)} งาน</span>
           )}
           {!reminder.canPush && reminder.pushMessage && <span style={css("color:#B45309")}> · {reminder.pushMessage}</span>}
+          {reminder.replies === false && <span> · ไม่ตอบกลับข้อความในกลุ่ม (ข้อมูลยังเข้าตารางงานตามปกติ)</span>}
         </span>
         {canSend && reminder.canPush && reminder.rooms.some((room) => room.jobs > 0) && (
           <button disabled={busy} onClick={() => void send("")}

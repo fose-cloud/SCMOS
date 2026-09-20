@@ -68,6 +68,8 @@ public static class LineEndpoints
                 chaseBeforeMinutes = chase.BeforeMinutes,
                 chaseAt = chase.RoundsText,
                 canPush = notifier.Configured,
+                // Whether messages are acknowledged in the room; off since 18 Sep 2026.
+                replies = LineEventWorker.RepliesOn(config),
                 pushMessage = notifier.Configured ? "" : notifier.Missing,
                 // Whether a driver's photos are read for the box when their text
                 // reports an arrival and names none — and if not, which setting
