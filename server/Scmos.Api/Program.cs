@@ -366,6 +366,7 @@ app.MapWorkflow();
 app.MapPreRun();
 app.MapMonitoring();
 app.MapSuppliers();
+app.MapAiApprovals();
 app.MapDocuments();
 app.MapAudit();
 app.MapDashboard();

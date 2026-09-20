@@ -1174,8 +1174,12 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Payload).HasColumnType("nvarchar(max)");
             e.Property(x => x.State).HasMaxLength(20).HasDefaultValue("pending");
             e.Property(x => x.RequestedBy).HasMaxLength(120);
+            e.Property(x => x.RequesterId).HasMaxLength(128).HasDefaultValue("");
+            e.Property(x => x.PayloadHash).HasMaxLength(64).HasDefaultValue("");
+            e.Property(x => x.CorrelationId).HasMaxLength(64).HasDefaultValue("");
             e.Property(x => x.DecidedBy).HasMaxLength(120).HasDefaultValue("");
             e.Property(x => x.DecisionNote).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.AppliedBy).HasMaxLength(120).HasDefaultValue("");
             e.Property(x => x.Result).HasMaxLength(1000).HasDefaultValue("");
             e.HasIndex(x => new { x.State, x.RequestedAt }).HasDatabaseName("approval_state_idx");
         });

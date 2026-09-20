@@ -31,6 +31,14 @@ type Approval = {
   id: number; tool: string; agent: string; summary: string; payload: string; state: string;
   requestedBy: string; requestedAt: string;
   decidedBy: string; decidedAt: string | null; decisionNote: string; result: string;
+  /** The fingerprint an approver read; recording "applied" must quote it back (1E). */
+  payloadHash: string;
+  expiresAt: string | null;
+  appliedBy: string; appliedAt: string | null;
+  /** Whether the reader proposed it. */
+  mine: boolean;
+  /** What the API will accept from this reader on this row: approve · reject · cancel · apply. */
+  actions: string[];
 };
 
 const AGENT_TH: Record<string, string> = {
@@ -45,9 +53,11 @@ const PERMISSION_TONE: Record<string, string> = {
 };
 const STATE_TH: Record<string, string> = {
   pending: "รออนุมัติ", approved: "อนุมัติแล้ว", rejected: "ปฏิเสธแล้ว", applied: "นำไปใช้แล้ว",
+  expired: "หมดอายุ", cancelled: "ถอนแล้ว",
 };
 const STATE_TONE: Record<string, string> = {
   pending: "#B45309", approved: "#16794C", rejected: "#B42318", applied: "#0A2240",
+  expired: "#7B8CA0", cancelled: "#7B8CA0",
 };
 
 export function Assistant({ canApprove, onToast, onOpenJob }: {
@@ -138,7 +148,7 @@ export function Assistant({ canApprove, onToast, onOpenJob }: {
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;font-size:12.5px;font-weight:650;color:#0A2240")}>
           คิวรออนุมัติ
-          {!canApprove && <span style={css("font-weight:400;color:#94A3B8;margin-left:8px")}>· ดูได้อย่างเดียว — อนุมัติได้เฉพาะระดับหัวหน้างานขึ้นไป</span>}
+          {!canApprove && <span style={css("font-weight:400;color:#94A3B8;margin-left:8px")}>· เฉพาะข้อเสนอของคุณ — อนุมัติได้เฉพาะระดับหัวหน้างานขึ้นไป</span>}
         </div>
         {approvals.length === 0 ? (
           <div style={css("padding:26px;text-align:center;font-size:12.5px;color:#94A3B8")}>
@@ -160,6 +170,12 @@ export function Assistant({ canApprove, onToast, onOpenJob }: {
                         <div style={css("font-family:ui-monospace,monospace;font-size:11px;color:#7B8CA0;margin-top:3px;word-break:break-all")}>{row.payload}</div>
                       )}
                       {row.decisionNote && <div style={css("font-size:11px;color:#7B8CA0;margin-top:3px")}>หมายเหตุ: {row.decisionNote}</div>}
+                      {row.payloadHash && (
+                        <div style={css("font-family:ui-monospace,monospace;font-size:10.5px;color:#94A3B8;margin-top:3px")} title="ลายนิ้วมือของข้อมูลที่อนุมัติ">
+                          #{row.payloadHash.slice(0, 12)}
+                          {row.expiresAt && (row.state === "pending" || row.state === "approved") ? ` · หมดอายุ ${stamp(row.expiresAt)}` : ""}
+                        </div>
+                      )}
                     </td>
                     <td style={css(CELL + ";font-size:11.5px;color:#5A6B7D")}>{row.requestedBy}</td>
                     <td style={css(CELL + ";font-size:11.5px;color:#7B8CA0;white-space:nowrap")}>{stamp(row.requestedAt)}</td>
@@ -168,20 +184,30 @@ export function Assistant({ canApprove, onToast, onOpenJob }: {
                         {STATE_TH[row.state] ?? row.state}
                       </span>
                       {row.decidedBy && <div style={css("font-size:11px;color:#7B8CA0;margin-top:3px")}>{row.decidedBy}</div>}
+                      {row.appliedBy && <div style={css("font-size:11px;color:#7B8CA0;margin-top:3px")}>ทำแล้วโดย {row.appliedBy}</div>}
                     </td>
                     <td style={css(CELL + ";white-space:nowrap")}>
-                      {canApprove && row.state === "pending" && (
-                        <span style={css("display:flex;gap:5px")}>
+                      {/* Only what the API said it will accept from this reader: an
+                          approver who is not the requester decides; the requester
+                          withdraws; an approver records the change as made. */}
+                      <span style={css("display:flex;gap:5px")}>
+                        {row.actions?.includes("approve") && (
                           <Mini label="อนุมัติ" tone="#16794C" busy={busy}
                             onClick={() => void post(`/approvals/${row.id}`, { approved: true, note: "" })} />
+                        )}
+                        {row.actions?.includes("reject") && (
                           <Mini label="ปฏิเสธ" tone="#B42318" busy={busy}
                             onClick={() => void post(`/approvals/${row.id}`, { approved: false, note: "" })} />
-                        </span>
-                      )}
-                      {canApprove && row.state === "approved" && (
-                        <Mini label="นำไปใช้" tone="#0A2240" busy={busy}
-                          onClick={() => void post(`/approvals/${row.id}/applied`, { result: "นำไปใช้จากหน้าผู้ช่วย" })} />
-                      )}
+                        )}
+                        {row.actions?.includes("cancel") && (
+                          <Mini label="ถอน" tone="#7B8CA0" busy={busy}
+                            onClick={() => void post(`/approvals/${row.id}/cancel`, { note: "" })} />
+                        )}
+                        {row.actions?.includes("apply") && (
+                          <Mini label="บันทึกว่าทำแล้ว" tone="#0A2240" busy={busy}
+                            onClick={() => void post(`/approvals/${row.id}/applied`, { result: "ทำด้วยมือแล้ว — บันทึกจากหน้าผู้ช่วย", hash: row.payloadHash })} />
+                        )}
+                      </span>
                     </td>
                   </tr>
                 ))}

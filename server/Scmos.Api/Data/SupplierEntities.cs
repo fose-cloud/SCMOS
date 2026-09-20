@@ -368,15 +368,31 @@ public class Approval
     /// <summary>The exact call arguments, as JSON.</summary>
     public string Payload { get; set; } = "";
 
-    /// <summary>pending · approved · rejected · applied · expired</summary>
+    /// <summary>pending · approved · rejected · applied · expired · cancelled — see <see cref="Ai.ApprovalPolicy"/>.</summary>
     public string State { get; set; } = "pending";
 
     public string RequestedBy { get; set; } = "";
     public DateTimeOffset RequestedAt { get; set; }
 
+    /// <summary>The requester's account id (1E) — what "their own proposal" is judged by; empty on rows from before.</summary>
+    public string RequesterId { get; set; } = "";
+
+    /// <summary>SHA-256 of <see cref="Payload"/> at creation (1E): what an approver read, and what "applied" must quote.</summary>
+    public string PayloadHash { get; set; } = "";
+
+    /// <summary>The request's correlation id (1E), so the proposal can be tied to the API call and the audit rows around it.</summary>
+    public string CorrelationId { get; set; } = "";
+
+    /// <summary>When a pending or approved row goes stale (1E); null once decided to the end.</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
+
     public string DecidedBy { get; set; } = "";
     public DateTimeOffset? DecidedAt { get; set; }
     public string DecisionNote { get; set; } = "";
+
+    /// <summary>Who recorded the change as done, and when (1E) — a person's act, not an executor's.</summary>
+    public string AppliedBy { get; set; } = "";
+    public DateTimeOffset? AppliedAt { get; set; }
 
     /// <summary>What happened when it was applied, or the error if it failed.</summary>
     public string Result { get; set; } = "";

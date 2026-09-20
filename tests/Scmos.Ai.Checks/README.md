@@ -6,7 +6,9 @@ Default, offline (no SQL or OpenAI credentials):
 dotnet run --project tests/Scmos.Ai.Checks/Scmos.Ai.Checks.csproj -c Release -p:UseAppHost=false
 ```
 
-196 assertions cover provider transport, gateway HTTP, scopes/rules, schemas, event transitions, replay conflicts, pagination authorization, incomplete-run projection, additive migration operations and current snapshot/runtime-model parity. CI runs this default path. It never starts the production API/scheduler or reads appsettings/secret files. SDK requests use an in-memory transport. Localhost tests have synthetic identities and source records. The snapshot comparison constructs SQL Server metadata without opening a connection.
+396 assertions (20 Sep 2026) cover provider transport, gateway HTTP, scopes/rules, schemas, event transitions, replay conflicts, pagination authorization, incomplete-run projection, additive migration operations, current snapshot/runtime-model parity, the Operations reviewed-change pilot and — since Phase 1E — the approval queue's policy (`ApprovalChecks`: who proposes, sees, decides, withdraws, records; expiry; the fingerprint). CI runs this default path. It never starts the production API/scheduler or reads appsettings/secret files. SDK requests use an in-memory transport. Localhost tests have synthetic identities and source records. The snapshot comparison constructs SQL Server metadata without opening a connection.
+
+`--write-local-db` adds the Operations pilot's and the approval queue's SQL-backed checks on a scratch LocalDB database each (created, used, deleted): conditional state changes, scoped listing, concurrent decisions, expiry sweep, and the HTTP guards on a loopback host. 462 assertions in all.
 
 ## Real SQL persistence (explicit opt-in)
 

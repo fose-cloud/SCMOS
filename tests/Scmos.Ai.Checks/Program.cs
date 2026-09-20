@@ -244,6 +244,7 @@ try
 finally { await app.StopAsync(); }
 SharedContractChecks.Run(Check);
 await OperationsChangeChecks.RunAsync(Check, args.Contains("--write-local-db"));
+await ApprovalChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await OperationsChecks.RunAsync(Check);
 await OperationsControlChecks.RunAsync(Check);
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));

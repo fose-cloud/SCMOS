@@ -159,7 +159,7 @@ static class OperationsChangeChecks
             await using var legacyDb = new ScmosDbContext(options);
             var legacy = new AiGateway(legacyDb);
             check(!(await legacy.DecideAsync(failed.Id.Value, true, "bypass", Supervisor, default)).Ok
-                && !(await legacy.MarkAppliedAsync(failed.Id.Value, "fake success", default)).Ok, "write SQL: legacy approval routes cannot bypass typed confirmation");
+                && !(await legacy.MarkAppliedAsync(failed.Id.Value, "fake success", "", Supervisor, default)).Ok, "write SQL: legacy approval routes cannot bypass typed confirmation");
             var users = new TestUsers { User = Operator };
             var builder = WebApplication.CreateBuilder();
             builder.Configuration.Sources.Clear();

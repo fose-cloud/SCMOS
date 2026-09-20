@@ -19,6 +19,10 @@ is connected. The assessment's re-assessment section (20 Sep) recommends 1E, the
 1D, then the Data Agent's first read. LINE (live 16 Sep) is the working reference
 for Phase 4's rule-first / model-second shape.
 
+Update, 20 September 2026 (v2.7.59): **1E is implemented and deployed** — see the
+[Phase 1E record](SCMOS_AI_PHASE_1E.md). The six additive `approvals` columns §4
+proposed were reviewed and applied by that release. 1D is next.
+
 ## 1. What is already present
 
 Gateway/orchestrator/provider abstraction, eight registry descriptors, three connected Operations read tools, strict input validation, per-instance limits, durable AI audit, admin-only Operations switch, read-only Control Tower, existing approval queue, Entra/RBAC, operational/KPI/rate/document services, Graph mail and LINE ingestion/review, Blob, CI/CD and offline checks. Do not rebuild these.

@@ -65,7 +65,7 @@ The Codex master specification was re-issued on 18–20 September with the same 
 
 ### Phase 1 status against the plan (§2 of the implementation plan)
 
-1A done · 1B done (dispatch extraction, clarification, readiness) · 1C done (rule + source descriptors, calendar fix) · **1D not started** (multi-step audit, redacted plan/correlation metadata, context pilot) · **1E not started** (approval listing/creation restriction — security item S1 still open; S2 partly addressed by the pilot's preview/confirm, not for the generic queue) · Phase 2 (Data Agent) not started.
+1A done · 1B done (dispatch extraction, clarification, readiness) · 1C done (rule + source descriptors, calendar fix) · **1D not started** (multi-step audit, redacted plan/correlation metadata, context pilot) · **1E done, v2.7.59** (scoped listing/creation, self-approval and IDOR refused, expiry, fingerprint-bound "applied", second factor — S1 closed, S2 narrowed to "no executor by design"; [record](SCMOS_AI_PHASE_1E.md)) · Phase 2 (Data Agent) not started.
 
 ### KEEP / REUSE / EXTEND / ADD / AVOID CHANGING (Phase 1 onward)
 
