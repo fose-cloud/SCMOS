@@ -39,6 +39,25 @@ public static class CarrierApi
     /// <summary>The header a caller may set to tie SCMOS's answer to its own log; echoed back, and written on every audit row the call makes.</summary>
     public const string CorrelationHeader = "X-Correlation-Id";
 
+    /* ------------------------------------------------ auto-apply (phase 5) */
+
+    /// <summary>
+    /// The department-wide switch for writing a trusted carrier's status
+    /// events straight onto the job, without the owner's approval. Off
+    /// unless "on" — the same shape as <c>Line__Replies</c> — and even on,
+    /// only a key the department marked (<c>carrier_api_clients.auto_apply</c>)
+    /// writes; every other key's events wait for the owner as before. Two
+    /// hands on the switch: the department's on the key, the administrator's
+    /// on the setting.
+    /// </summary>
+    public const string AutoApplyKey = "CarrierApi:AutoApply";
+
+    public static bool AutoApplyOn(string? setting) =>
+        string.Equals((setting ?? "").Trim(), "on", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether this key's events are written straight onto the job: the setting on, and the key marked.</summary>
+    public static bool AutoApplies(string? setting, bool keyMarked) => AutoApplyOn(setting) && keyMarked;
+
     /// <summary>The two groups an assignment is in, from the carrier's side of the table.</summary>
     public const string Offered = "offered";
     public const string Accepted = "accepted";

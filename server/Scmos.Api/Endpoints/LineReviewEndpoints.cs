@@ -939,7 +939,7 @@ public static class LineReviewEndpoints
     /// not replaced by a driver's message — the note says which it was, and the
     /// grid is where a person corrects a stamp.
     /// </summary>
-    private static (string? Date, string? Time, string HadDate, string HadTime, string Note) ArrivalWrite(
+    internal static (string? Date, string? Time, string HadDate, string HadTime, string Note) ArrivalWrite(
         LineParser.Parsed read, string data) =>
         read.ArrivalTime is { } at ? StampWrite(at, read.ArrivalAtSend, data) : (null, null, "", "", "");
 

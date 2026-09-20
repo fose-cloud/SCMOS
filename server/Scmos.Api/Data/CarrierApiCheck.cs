@@ -245,6 +245,13 @@ public static class CarrierApiCheck
         failed += Say("a 2xx is delivered; a 3xx, 4xx or 5xx is not", CarrierWebhooks.IsDelivered(200) && CarrierWebhooks.IsDelivered(204) && !CarrierWebhooks.IsDelivered(302) && !CarrierWebhooks.IsDelivered(404) && !CarrierWebhooks.IsDelivered(500), true);
 
         Console.WriteLine();
+        /* ---- phase 5: auto-apply ---- */
+        failed += Say("the switch is off unless the setting says 'on'", CarrierApi.AutoApplyOn(null) || CarrierApi.AutoApplyOn("") || CarrierApi.AutoApplyOn("true") || CarrierApi.AutoApplyOn("off"), false);
+        failed += Say("'on', however written, is on", CarrierApi.AutoApplyOn(" ON ") && CarrierApi.AutoApplyOn("on"), true);
+        failed += Say("a key writes straight onto the job only with the switch on and the key marked",
+            CarrierApi.AutoApplies("on", true) && !CarrierApi.AutoApplies("on", false) && !CarrierApi.AutoApplies("off", true) && !CarrierApi.AutoApplies(null, true), true);
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0 ? "All Carrier API checks passed." : $"{failed} Carrier API check(s) FAILED.");
         return failed == 0 ? 0 : 1;
     }

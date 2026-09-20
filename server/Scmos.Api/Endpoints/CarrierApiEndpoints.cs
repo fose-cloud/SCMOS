@@ -72,7 +72,7 @@ public static class CarrierApiEndpoints
             .RequireRateLimiting(RateLimitPolicy)
             .AddEndpointFilter(AuthenticateAsync);
 
-        v1.MapGet("/me", (HttpContext context) =>
+        v1.MapGet("/me", (HttpContext context, IConfiguration config) =>
         {
             var who = PrincipalOf(context);
             return Results.Json(new
@@ -80,6 +80,8 @@ public static class CarrierApiEndpoints
                 clientId = who.ClientId,
                 clientName = who.ClientName,
                 supplier = new { id = who.Company.Id, code = who.Company.Code, name = who.Company.Name },
+                // Whether this key's status events are written at once or wait for the owner.
+                autoApply = CarrierApi.AutoApplies(config[CarrierApi.AutoApplyKey], who.AutoApplyMarked),
                 limits = new
                 {
                     requestsPerMinute = CarrierApi.RequestsPerMinute,
@@ -232,7 +234,8 @@ public static class CarrierApiEndpoints
         // approval like a LINE message — never written here — except a note,
         // which goes into REMARK at once, dated, as a haulier's does.
         v1.MapPost("/assignments/{jobKey}/events", async (string jobKey, [FromBody] EventBody? body,
-            HttpContext context, ScmosDbContext db, JobsRepository jobs, AuditService audit, CancellationToken token) =>
+            HttpContext context, ScmosDbContext db, JobsRepository jobs, AuditService audit, IConfiguration config,
+            CarrierWebhookQueue webhooks, CancellationToken token) =>
             await IdempotentAsync(context, "POST", body, async () =>
             {
                 var who = PrincipalOf(context);
@@ -321,9 +324,33 @@ public static class CarrierApiEndpoints
                         new { reason = decision.Result, eventId = row.Id, status = job?.Status ?? "" });
                 }
 
+                if (decision.To.Length > 0) row.ParsedStatus = decision.To;
+
+                /* ---- a trusted carrier's event is written now (phase 5) ---- */
+                if (CarrierApi.AutoApplies(config[CarrierApi.AutoApplyKey], who.AutoApplyMarked))
+                {
+                    var applied = await AutoApplyAsync(row, decision, read, job?.Data ?? "", who, db, jobs, audit, token);
+                    if (applied is { } written)
+                    {
+                        await webhooks.EventDecidedAsync(row, "applied", decision.To, "auto", token);
+                        return Answer(200, new
+                        {
+                            eventId = row.Id,
+                            state = "applied",
+                            jobKey,
+                            from = decision.From,
+                            to = decision.To,
+                            written,
+                            message = "บันทึกเข้าตารางงานแล้ว (auto-apply)",
+                            correlationId = context.TraceIdentifier,
+                        });
+                    }
+                    // Nothing to write — the cells already held it — is answered, not queued.
+                    return Answer(200, new { eventId = row.Id, state = "already-there", jobKey, status = job?.Status ?? "", detail = row.ErrorMessage, correlationId = context.TraceIdentifier });
+                }
+
                 row.ProcessingStatus = LineProcessing.NeedReview;
                 row.ErrorCode = "ready-to-apply";
-                if (decision.To.Length > 0) row.ParsedStatus = decision.To;
                 db.LineEvents.Add(row);
                 await db.SaveChangesAsync(token);
                 return Answer(202, new
@@ -498,11 +525,13 @@ public static class CarrierApiEndpoints
             {
                 baseUrl = BaseUrlOf(context, config),
                 requestsPerMinute = CarrierApi.RequestsPerMinute,
+                autoApplyOn = CarrierApi.AutoApplyOn(config[CarrierApi.AutoApplyKey]),
                 clients = rows.Select(one => new
                 {
                     one.Id, one.ClientId, one.Name, one.SupplierId,
                     supplier = names.GetValueOrDefault(one.SupplierId, ""),
                     one.KeyPrefix, one.Status, one.CreatedAt, one.CreatedBy, one.RevokedAt, one.RevokedBy, one.LastSeenAt,
+                    one.AutoApply,
                 }),
                 webhooks = hooks.Select(one => new
                 {
@@ -552,6 +581,38 @@ public static class CarrierApiEndpoints
                 supplier = supplier.Name,
                 key,
                 message = $"ออกคีย์ {row.ClientId} ให้ {supplier.Name} แล้ว — คีย์แสดงครั้งนี้ครั้งเดียว",
+            });
+        });
+
+        // The department's mark of trust: this key's events go straight onto
+        // the job — while CarrierApi__AutoApply is on. Audited either way.
+        admin.MapPost("/{id:long}/auto-apply", async (long id, [FromBody] AutoApplyBody body, HttpContext context,
+            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ManageSuppliers))
+                return ApiResults.Error("ทำได้เฉพาะผู้ที่ดูแลผู้ขนส่ง", StatusCodes.Status403Forbidden);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ManageSuppliers) is { } stop) return stop;
+
+            var row = await db.CarrierApiClients.FirstOrDefaultAsync(one => one.Id == id, token);
+            if (row is null) return ApiResults.Error("ไม่พบคีย์นี้", StatusCodes.Status404NotFound);
+            if (row.Status != CarrierApiClientStatus.Active)
+                return ApiResults.Error("คีย์นี้ถูกยกเลิกไปแล้ว", StatusCodes.Status409Conflict);
+            if (row.AutoApply == body.Enabled)
+                return Results.Json(new { message = body.Enabled ? "คีย์นี้เขียนเข้าตารางทันทีอยู่แล้ว" : "คีย์นี้รอการอนุมัติอยู่แล้ว", row.AutoApply });
+
+            row.AutoApply = body.Enabled;
+            await db.SaveChangesAsync(token);
+            await audit.RecordAsync(user, AuditActions.Update, "carrier-api-client", row.ClientId, row.Name,
+                "auto_apply", (!body.Enabled).ToString().ToLowerInvariant(), body.Enabled.ToString().ToLowerInvariant(),
+                (body.Reason ?? "").Trim(), token);
+            return Results.Json(new
+            {
+                message = body.Enabled
+                    ? $"คีย์ {row.ClientId} เขียนสถานะเข้าตารางงานทันที (มีผลเมื่อ CarrierApi__AutoApply เปิด)"
+                    : $"คีย์ {row.ClientId} กลับไปรอเจ้าของงานอนุมัติ",
+                row.AutoApply,
             });
         });
 
@@ -767,6 +828,62 @@ public static class CarrierApiEndpoints
         hook.CreatedAt, hook.DisabledAt, hook.LastDeliveryAt, hook.LastStatusCode, hook.LastError, hook.FailedInARow,
     };
 
+    /// <summary>
+    /// A trusted carrier's event written onto the job now — the same write
+    /// the owner's approval makes, under the key's own name: the status the
+    /// ladder allows, the arrival clock into empty cells, an audit row per
+    /// cell with source TMS. Returns what was written, or null when the
+    /// cells already held it. The row is saved as processed either way.
+    /// </summary>
+    private static async Task<Dictionary<string, string>?> AutoApplyAsync(LineEvent row, LineAuthority.LineDecision decision,
+        LineParser.Parsed read, string data, CarrierApiAuth.Principal who, ScmosDbContext db, JobsRepository jobs, AuditService audit,
+        CancellationToken token)
+    {
+        var by = who.AsUser();
+        var stamp = LineReviewEndpoints.ArrivalWrite(read, data);
+        var fields = new Dictionary<string, string>();
+        if (decision.To.Length > 0) fields["status"] = decision.To;
+        if (stamp.Date is { } date && stamp.Time is { } time)
+        {
+            fields["arrDate"] = date;
+            fields["arrTime"] = time;
+        }
+        row.MatchedRules = string.Join(", ", read.MatchedRules.Append("carrier-api:auto-apply"));
+        row.ProcessedAt = DateTimeOffset.UtcNow;
+
+        if (fields.Count == 0)
+        {
+            row.ProcessingStatus = LineProcessing.Ignored;
+            row.ErrorCode = LineAuthority.Outcome.AlreadyThere;
+            row.ErrorMessage = stamp.Note.Length > 0 ? stamp.Note : "งานมีข้อมูลนี้อยู่แล้ว";
+            db.LineEvents.Add(row);
+            await db.SaveChangesAsync(token);
+            return null;
+        }
+
+        var wrote = await jobs.PatchAsync(row.JobKey, fields, by.Signature, token);
+        if (!wrote) throw new InvalidOperationException("The event could not be written onto the job");
+
+        var why = $"TMS auto-apply ({who.ClientId}): {row.RawText}";
+        if (decision.To.Length > 0)
+            await audit.RecordAsync(by, AuditActions.StatusChange, "job", row.JobKey, row.JobNumber,
+                "status", decision.From, decision.To, why, token, EventSource.CarrierApi);
+        if (stamp.Date is not null)
+        {
+            await audit.RecordAsync(by, AuditActions.Update, "job", row.JobKey, row.JobNumber,
+                "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.CarrierApi);
+            await audit.RecordAsync(by, AuditActions.Update, "job", row.JobKey, row.JobNumber,
+                "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.CarrierApi);
+        }
+
+        row.ProcessingStatus = LineProcessing.Processed;
+        row.ErrorCode = "";
+        row.ErrorMessage = "auto-applied";
+        db.LineEvents.Add(row);
+        await db.SaveChangesAsync(token);
+        return fields;
+    }
+
     /// <summary>The REMARK cell out of a job's JSON, or empty.</summary>
     private static string RemarkOf(string? data)
     {
@@ -867,6 +984,7 @@ public static class CarrierApiEndpoints
 
     public record NewClientBody(int SupplierId, string? Name);
     public record RevokeBody(string? Reason);
+    public record AutoApplyBody(bool Enabled, string? Reason);
 
     /// <summary>The truck a carrier sends: on acceptance the first three are required; the box and the seal are an export's.</summary>
     public record TruckBody(string? Licence, string? Driver, string? Contact, string? Container, string? Seal);

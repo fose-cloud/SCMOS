@@ -23,7 +23,8 @@ namespace Scmos.Api.Services;
 public class CarrierApiAuth(ScmosDbContext db, ILogger<CarrierApiAuth> log)
 {
     /// <summary>A key that was found: the credential's public name and the supplier it speaks for.</summary>
-    public record Principal(long ClientRowId, string ClientId, string ClientName, Supplier Company)
+    /// <param name="AutoApplyMarked">Whether the department marked this key for auto-apply; effective only with the setting on — see <see cref="CarrierApi.AutoApplies"/>.</param>
+    public record Principal(long ClientRowId, string ClientId, string ClientName, Supplier Company, bool AutoApplyMarked = false)
     {
         /// <summary>
         /// The credential as the register and the audit trail name it:
@@ -71,6 +72,6 @@ public class CarrierApiAuth(ScmosDbContext db, ILogger<CarrierApiAuth> log)
             try { await db.SaveChangesAsync(token); }
             catch (DbUpdateException) { /* a stamp lost to a race is not worth failing the call */ }
         }
-        return new Principal(row.Id, row.ClientId, row.Name, company);
+        return new Principal(row.Id, row.ClientId, row.Name, company, row.AutoApply);
     }
 }

@@ -44,6 +44,14 @@ public class CarrierApiClient
     /// <summary>The last call that carried this key, kept to the nearest few minutes — see CarrierApiAuth.</summary>
     public DateTimeOffset? LastSeenAt { get; set; }
 
+    /// <summary>
+    /// Whether this key's status events are written onto the job without
+    /// the owner's approval — the department's mark of a carrier whose
+    /// system it trusts (phase 5, 20 Sep 2026). Takes effect only while
+    /// <c>CarrierApi__AutoApply</c> is "on".
+    /// </summary>
+    public bool AutoApply { get; set; }
+
     public static void Configure(ModelBuilder model)
     {
         model.Entity<CarrierApiClient>(entry =>
@@ -62,6 +70,7 @@ public class CarrierApiClient
             entry.Property(e => e.RevokedAt).HasColumnName("revoked_at");
             entry.Property(e => e.RevokedBy).HasColumnName("revoked_by").HasMaxLength(120).HasDefaultValue("");
             entry.Property(e => e.LastSeenAt).HasColumnName("last_seen_at");
+            entry.Property(e => e.AutoApply).HasColumnName("auto_apply").HasDefaultValue(false);
             // A key is looked up by its hash on every call; the hash is unique
             // by construction and the index is what makes the lookup one seek.
             entry.HasIndex(e => e.KeyHash).IsUnique().HasDatabaseName("carrier_api_clients_key_idx");

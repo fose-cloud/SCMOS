@@ -1,6 +1,6 @@
 # SCMOS Carrier TMS API — V1 contract
 
-Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · Phase 4 (webhooks) live from v2.7.56 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
+Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · Phase 4 (webhooks) live from v2.7.56 · Phase 5 (auto-apply for a marked carrier, behind a switch) live from v2.7.57 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
 
 The [assessment](SCMOS_CARRIER_TMS_ASSESSMENT.md) says why the API is shaped this way. This page is the contract a carrier's TMS is built against.
 
@@ -153,6 +153,7 @@ Answers (`Idempotency-Key` required, as for every write):
 | Status | `state` | Meaning |
 | --- | --- | --- |
 | 202 | `queued` | waiting for the owner; `from`, `to` and (for `arrived`) `arrival` say what approving writes |
+| 200 | `applied` | **auto-apply** (Phase 5): the key is marked by the department and `CarrierApi__AutoApply` is on — the status and, for `arrived`, the arrival cells were written at once, audited under the key's name; `written` lists the cells. `GET /me` says `autoApply: true` for such a key |
 | 200 | `already-there` | the job is at that rung already; nothing to approve |
 | 200 | `remark-written` | a `note`, appended to REMARK as `dd/MM/yyyy HH:mm text` |
 | 404 | — | the job is not this carrier's |
@@ -235,6 +236,8 @@ A non-2xx answer, a timeout (10 s) or a refused connection is a failure. SCMOS t
 }
 ```
 
-## What is not in V1 yet
+## Auto-apply (Phase 5)
 
-Auto-apply for named carriers (Phase 5). The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.
+Two hands on the switch. The department marks a key on the Carrier API screen ("เขียนทันที") for a carrier whose system it trusts; an administrator sets `CarrierApi__AutoApply=on` on the API. Only with both does a status event skip the owner's approval — and it is still judged by the same ladder (already-there answered, backwards refused), still written only into empty arrival cells, and audited under `carrier-api:ck_…` with source `TMS` and the reason "TMS auto-apply". A note is unaffected (always immediate, REMARK only); accept, decline and the truck are unaffected (always immediate, as the portal's are). Unmark the key, or switch the setting off, and events queue again from the next call.
+
+The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.

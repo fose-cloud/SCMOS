@@ -30,6 +30,8 @@ type Client = {
   id: number; clientId: string; name: string; supplierId: number; supplier: string;
   keyPrefix: string; status: "active" | "revoked";
   createdAt: string; createdBy: string; revokedAt: string | null; revokedBy: string; lastSeenAt: string | null;
+  /** The department's mark: this key's status events go straight onto the job — while the API's switch is on. */
+  autoApply?: boolean;
 };
 type Supplier = { id: number; name: string; code?: string };
 type Issued = { clientId: string; name: string; supplier: string; key: string; message: string };
@@ -39,11 +41,12 @@ type Webhook = {
   createdAt: string; createdBy: string; lastDeliveryAt: string | null; lastStatusCode: number | null; lastError: string; failedInARow: number;
 };
 /** The department's list, and where a TMS calls — the API's own host, never the web's, whose proxy drops the key. */
-type Listing = { baseUrl: string; requestsPerMinute: number; clients: Client[]; webhooks?: Webhook[] };
+type Listing = { baseUrl: string; requestsPerMinute: number; clients: Client[]; webhooks?: Webhook[]; autoApplyOn?: boolean };
 
 export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; onToast: (message: string) => void }) {
   const [rows, setRows] = useState<Client[] | null>(null);
   const [hooks, setHooks] = useState<Webhook[]>([]);
+  const [autoApplyOn, setAutoApplyOn] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [status, setStatus] = useState<number | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -61,6 +64,7 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
     const body = await response.json().catch(() => null) as Listing | null;
     setRows(Array.isArray(body?.clients) ? body.clients : []);
     setHooks(Array.isArray(body?.webhooks) ? body.webhooks : []);
+    setAutoApplyOn(body?.autoApplyOn === true);
     setBaseUrl(body?.baseUrl ?? "");
   }, []);
 
@@ -75,6 +79,7 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
       if (cancelled) return;
       setRows(Array.isArray(body?.clients) ? body.clients : []);
       setHooks(Array.isArray(body?.webhooks) ? body.webhooks : []);
+      setAutoApplyOn(body?.autoApplyOn === true);
       setBaseUrl(body?.baseUrl ?? "");
     })();
     return () => { cancelled = true; };
@@ -135,6 +140,24 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
     }
   };
 
+  const setAutoApply = async (row: Client, enabled: boolean) => {
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-api/clients/${row.id}/auto-apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled, reason: "" }),
+      });
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      onToast(answer?.message ?? answer?.error ?? `เปลี่ยนไม่สำเร็จ (${response.status})`);
+      if (response.ok) await load();
+    } catch (error) {
+      onToast("เปลี่ยนไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -186,7 +209,9 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
           <span style={css(LABEL)}>คีย์ Carrier API · {rows.length}</span>
           <span style={css("font-size:12px;color:#475569")}>
             <code style={css(`${MONO};font-size:11.5px`)}>{baseUrl || "/api/carrier/v1/"}</code>
-            {" · GET me · assignments · assignments/{jobKey} · 120 ครั้ง/นาที ต่อคีย์"}
+            {" · 120 ครั้ง/นาที ต่อคีย์ · auto-apply "}
+            <span style={css(autoApplyOn ? "color:#15803D" : "color:#94A3B8")}>{autoApplyOn ? "เปิด" : "ปิด"}</span>
+            {" (CarrierApi__AutoApply)"}
             {status !== null && status !== 200 && <span style={css("color:#B45309")}> · โหลดรายการไม่สำเร็จ ({status})</span>}
           </span>
         </div>
@@ -199,6 +224,7 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
                 <th style={css(HEAD)}>Client ID</th>
                 <th style={css(HEAD)}>คีย์</th>
                 <th style={css(HEAD)}>สถานะ</th>
+                <th style={css(HEAD)}>เขียนทันที</th>
                 <th style={css(HEAD)}>ออกเมื่อ</th>
                 <th style={css(HEAD)}>ใช้ล่าสุด</th>
                 <th style={css(HEAD)}></th>
@@ -215,6 +241,17 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
                     {row.status === "active"
                       ? <span style={css("color:#15803D")}>ใช้งาน</span>
                       : <span style={css("color:#B91C1C")}>ยกเลิกแล้ว {when(row.revokedAt)}{row.revokedBy ? ` · ${row.revokedBy}` : ""}</span>}
+                  </td>
+                  <td style={css(`${CELL};white-space:nowrap`)}>
+                    {row.status !== "active" ? "—" : canManage
+                      ? (
+                        <button disabled={busy} onClick={() => void setAutoApply(row, !row.autoApply)}
+                          title={row.autoApply ? "สถานะจาก TMS เขียนเข้าตารางทันที — กดเพื่อกลับไปรอเจ้าของงานอนุมัติ" : "สถานะจาก TMS รอเจ้าของงานอนุมัติ — กดเพื่อให้เขียนทันที"}
+                          style={css(`${BUTTON};border-color:${row.autoApply ? "#16794C" : "#D3DBE3"};background:${row.autoApply ? "#E3F4EB" : "#fff"};color:${row.autoApply ? "#16794C" : "#465A6E"}`)}>
+                          {row.autoApply ? "เขียนทันที" : "รออนุมัติ"}
+                        </button>
+                      )
+                      : (row.autoApply ? "เขียนทันที" : "รออนุมัติ")}
                   </td>
                   <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>{when(row.createdAt)}{row.createdBy ? ` · ${row.createdBy}` : ""}</td>
                   <td style={css(`${CELL};white-space:nowrap;color:#475569`)}>{when(row.lastSeenAt)}</td>
@@ -240,7 +277,7 @@ export function CarrierApiClients({ canManage, onToast }: { canManage: boolean; 
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={css("padding:20px;text-align:center;font-size:12.5px;color:#94A3B8")}>
+                  <td colSpan={9} style={css("padding:20px;text-align:center;font-size:12.5px;color:#94A3B8")}>
                     ยังไม่ได้ออกคีย์ให้ผู้ขนส่งรายใด
                   </td>
                 </tr>
