@@ -456,12 +456,13 @@ public static class LineParserCheck
                 whole.Contains("ตอบในกลุ่มนี้ทีละตู้", StringComparison.Ordinal)
                 && whole.Contains("TXGU8142057 70-1234 สมชาย ใจดี 081-2345678", StringComparison.Ordinal)),
             ("nothing missing, nothing sent", LineReminder.Compose("SHORE", day, [Line("F1", "IMPORT", "READY", "70-1234", "สมชาย", "081-2345678")]).Count == 0),
-            ("the hour is 09:00 unless set — the trucks' details are asked for once a day (17 Sep 2026)", LineReminder.Times(null).Select(at => at.ToString("HH:mm")).SequenceEqual(["09:00"])),
+            // 20 Sep 2026: the room is asked nothing — no reminder unless an hour is set.
+            ("no reminder hour unless one is set (20 Sep 2026)", LineReminder.Times(null).Count == 0),
             ("a setting may name its own hours, in any of the ways people write them",
                 LineReminder.Times("7.30, 13:00").Select(at => at.ToString("HH:mm")).SequenceEqual(["07:30", "13:00"])),
             ("\"off\" is no hours at all", LineReminder.Times("off").Count == 0),
-            ("a blank setting is the default, not off", LineReminder.Times("").Count == 1 && LineReminder.Times("  ").Count == 1),
-            ("a setting that is not a time falls back to the default", LineReminder.Times("noon").Count == 1),
+            ("a blank setting is the default, which is now nothing", LineReminder.Times("").Count == 0 && LineReminder.Times("  ").Count == 0),
+            ("a setting that is not a time falls back to the default, which is now nothing", LineReminder.Times("noon").Count == 0),
             // 17 Sep 2026: tomorrow's jobs, the afternoon before.
             ("the day-before summary lists every open job of the day, says what is still missing, and how to answer",
                 LineReminder.ComposeSummary("SHORE", new DateOnly(2026, 9, 18), [
@@ -530,6 +531,8 @@ public static class LineParserCheck
                 LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("12:35"))
                 && !LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("13:00"))),
             ("the before-ask switched off asks nothing", !LineChase.BeforeDue(Planned("J", "IMPORT", "READY", "13:00"), At("12:35"), 0)),
+            // 20 Sep 2026: nothing is asked into the rooms unless a setting turns it back on.
+            ("the before-ask and the rounds are off unless set", LineChase.DefaultBeforeMinutes == 0 && LineChase.Rounds(null).Count == 0 && LineChase.Rounds("").Count == 0),
             // 20 Sep 2026: a job the department has already written up is not asked ahead of its plan time.
             ("no before-ask for a job the register already shows dispatched, or with an arrival cell keyed",
                 !LineChase.BeforeDue(Planned("J", "IMPORT", "DISPATCHED", "13:00"), At("12:35"))
@@ -541,8 +544,8 @@ public static class LineParserCheck
                 && !LineChase.Reported(Planned("J", "DELIVERY", "PRE_RUN", "13:00"))),
             ("the rounds still ask a dispatched job for the arrival it has not reported",
                 LineChase.RoundDue(Planned("J", "IMPORT", "DISPATCHED", "08:30"), At("10:02"), ten)),
-            ("the rounds are 10:00 and 14:00 unless set, and 'off' is none",
-                LineChase.Rounds(null).Select(at => at.ToString("HH:mm")).SequenceEqual(["10:00", "14:00"])
+            ("a setting names the rounds, and 'off' is none",
+                LineChase.Rounds("10:00, 14:00").Select(at => at.ToString("HH:mm")).SequenceEqual(["10:00", "14:00"])
                 && LineChase.Rounds("off").Count == 0
                 && LineChase.Rounds("11.00").Select(at => at.ToString("HH:mm")).SequenceEqual(["11:00"])),
             ("a round asks about a job whose plan time has passed, inside the round's ten minutes",

@@ -7,9 +7,17 @@ namespace Scmos.Api.Rules;
 /// arrival is not yet written as its plan time comes and goes.
 ///
 /// <para>
-/// Asked for on 16 Sep 2026 and set, for the last time that day, at the end
-/// of the 17th — after a day on which every two-hourly ask counted against
-/// LINE's monthly push allowance:
+/// <b>Off since 20 Sep 2026.</b> The department ended every ask into the
+/// rooms — the chase and the details reminder alike — leaving LINE to read
+/// what the hauliers report and the 16:00 summary as the one message out:
+/// "การติดตามสถานะรถ … กำหนดให้ไม่ต้องส่งตามใน Line กลุ่มขนส่งแล้ว". The rules
+/// stay, checked, for a department that sets <c>Line__ChaseBeforeMinutes</c>
+/// or <c>Line__ChaseAt</c> again; nothing runs until one is set.
+/// </para>
+///
+/// <para>
+/// As it was set on the 17th — after a day on which every two-hourly ask
+/// counted against LINE's monthly push allowance:
 /// </para>
 /// <list type="bullet">
 /// <item><b>Half an hour before the plan time</b>, once: is the truck on its
@@ -29,11 +37,14 @@ namespace Scmos.Api.Rules;
 /// </summary>
 public static class LineChase
 {
-    /// <summary>How long before the plan time a job is chased: half an hour.</summary>
-    public const int DefaultBeforeMinutes = 30;
+    /// <summary>How long before the plan time a job is chased when the ask is on; none unless <c>Line__ChaseBeforeMinutes</c> says (20 Sep 2026).</summary>
+    public const int DefaultBeforeMinutes = 0;
 
-    /// <summary>The rounds a job still without its arrival is chased at, Bangkok.</summary>
-    public const string DefaultRounds = "10:00, 14:00";
+    /// <summary>The rounds a job still without its arrival is chased at when they are on; none unless <c>Line__ChaseAt</c> says (20 Sep 2026).</summary>
+    public const string DefaultRounds = "";
+
+    /// <summary>The half hour the before-ask used while it ran, for a check and for a setting that turns it back on.</summary>
+    public const int BeforeMinutesWhenOn = 30;
 
     /// <summary>The plan time is coming and no truck has been reported.</summary>
     public const string Before = "before";
@@ -107,7 +118,7 @@ public static class LineChase
     /// not yet written, and the register not already saying the truck has
     /// left (<see cref="Reported"/>). A job with no plan time is due nothing.
     /// </summary>
-    public static bool BeforeDue(LineReminder.JobLine job, DateTimeOffset now, int beforeMinutes = DefaultBeforeMinutes)
+    public static bool BeforeDue(LineReminder.JobLine job, DateTimeOffset now, int beforeMinutes = BeforeMinutesWhenOn)
     {
         if (beforeMinutes <= 0 || Arrived(job) || Reported(job)) return false;
         if (PlanAt(job) is not { } plan) return false;

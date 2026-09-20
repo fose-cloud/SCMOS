@@ -24,20 +24,22 @@ namespace Scmos.Api.Rules;
 public static class LineReminder
 {
     /// <summary>
-    /// The hour the department chose, Bangkok: one ask for the trucks'
-    /// details at nine — "การติดตามรายชื่อพนักงานขับรถ กำหนดให้เป็นรอบ 09.00 น.
-    /// เท่านั้น", 17 Sep 2026, after a day on which the morning's ask, the
-    /// noon's and a two-hourly chase all counted against LINE's monthly
-    /// allowance. Configuration may move it — a comma-separated list, or "off".
+    /// The reminder's hour, Bangkok — none. On 20 Sep 2026 the department
+    /// took the room's outbound side down to one message: "สำหรับ Line
+    /// การติดตามสถานะรถ และการติดตามรายชื่อ ทะเบียน และเบอร์โทร กำหนดให้ไม่ต้องส่ง
+    /// … การส่งข้อมูล Line จะใช้อย่างเดียวคือการส่งรูปงานของวันถัดไป". LINE reads
+    /// what the hauliers say into the register; it asks them nothing. The
+    /// reminder ran at 09:00 from the 17th to the 20th; a time in
+    /// <c>Line__RemindAt</c> brings it back, and only that.
     /// </summary>
-    public const string DefaultTime = "09:00";
+    public const string DefaultTime = "";
 
     /// <summary>
     /// The clock times out of a setting: "08:00, 12:00", "8.00 12.00", or
     /// "off" — empty when off, the default when the setting is absent, blank,
-    /// or not a time. Blank is the default and not "off": on 16 Sep 2026 the
-    /// setting was added to the Portal with no value, which switched the
-    /// morning off until this said otherwise.
+    /// or not a time. For the reminder the default is now no hour at all
+    /// (20 Sep 2026), so blank, "off" and absent all mean the same thing;
+    /// the summary keeps its own default of 16:00 in its own reader.
     /// </summary>
     public static IReadOnlyList<TimeOnly> Times(string? setting)
     {

@@ -19,10 +19,10 @@ namespace Scmos.Api.Services;
 public class LineChaseService(ScmosDbContext db, LineReminderService reminders, ILineNotifier notifier,
     AuditService audit, IConfiguration config, ILogger<LineChaseService> log)
 {
-    /// <summary>Minutes before the plan time a job is chased; "off" or 0 stops that ask; blank is half an hour.</summary>
+    /// <summary>Minutes before the plan time a job is chased; nothing unless set (20 Sep 2026); "off" or 0 is nothing too.</summary>
     public const string BeforeKey = "Line:ChaseBeforeMinutes";
 
-    /// <summary>The rounds a job still without its arrival is chased at — "10:00, 14:00" unless set; "off" stops them.</summary>
+    /// <summary>The rounds a job still without its arrival is chased at — none unless set (20 Sep 2026); "off" is none too.</summary>
     public const string RoundsKey = "Line:ChaseAt";
 
     public const string Action = "chase";

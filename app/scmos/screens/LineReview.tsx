@@ -358,7 +358,7 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
       <div style={css("display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #E6EBF0;flex-wrap:wrap")}>
         <span style={css(LABEL)}>แจ้งเตือนงานวันนี้ {reminder.date}</span>
         <span style={css("font-size:12px;color:#475569")}>
-          {reminder.remindAt ? `ส่งอัตโนมัติ ${reminder.remindAt} น.` : "ไม่มีกำหนดส่งอัตโนมัติ"}
+          {reminder.remindAt ? `ส่งอัตโนมัติ ${reminder.remindAt} น.` : "ไม่ส่งแจ้งเตือนเข้ากลุ่ม — อ่านข้อมูลจากกลุ่มเข้าตารางงานอย่างเดียว"}
           {reminder.summaryAt ? ` · สรุปงานวันถัดไป ${reminder.summaryAt} น.` : ""}
           {" · "}
           {reminder.chaseBeforeMinutes || reminder.chaseAt
@@ -370,7 +370,7 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
           {!reminder.canPush && reminder.pushMessage && <span style={css("color:#B45309")}> · {reminder.pushMessage}</span>}
           {reminder.replies === false && <span> · ไม่ตอบกลับข้อความในกลุ่ม (ข้อมูลยังเข้าตารางงานตามปกติ)</span>}
         </span>
-        {canSend && reminder.canPush && reminder.rooms.some((room) => room.jobs > 0) && (
+        {canSend && reminder.canPush && reminder.remindAt !== "" && reminder.rooms.some((room) => room.jobs > 0) && (
           <button disabled={busy} onClick={() => void send("")}
             style={css(`${BUTTON};border-color:#0A2240;background:#0A2240;color:#fff;margin-left:auto`)}>
             ส่งทุกกลุ่มตอนนี้
@@ -411,7 +411,7 @@ function ReminderCard({ canSend, onToast }: { canSend: boolean; onToast: (messag
                     {!!room.sentSlots?.length && <span style={css("color:#94A3B8")}> · {room.sentSlots.join(", ")}</span>}
                   </td>
                   <td style={css(`${CELL};white-space:nowrap;text-align:right`)}>
-                    {canSend && reminder.canPush && room.jobs > 0 && (
+                    {canSend && reminder.canPush && reminder.remindAt !== "" && room.jobs > 0 && (
                       <button disabled={busy} onClick={() => void send(room.lineGroupId)}
                         style={css(`${BUTTON};border-color:#0A2240;background:#fff;color:#0A2240`)}>
                         {room.sentAt ? "ส่งอีกครั้ง" : "ส่งตอนนี้"}
