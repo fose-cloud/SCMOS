@@ -34,7 +34,7 @@ const IDENTITY_HEADERS = [
 ];
 
 /** Passed through because the request needs them; everything else is dropped. */
-const REQUEST_HEADERS = ["content-type", "accept", "accept-language", "range", "x-scmos-ai-control"];
+const REQUEST_HEADERS = ["content-type", "accept", "accept-language", "range", "x-scmos-ai-control", "x-correlation-id"];
 
 /**
  * Passed back because the browser needs them; everything else is dropped.
@@ -53,7 +53,19 @@ const RESPONSE_HEADERS = [
   "content-type", "content-disposition", "content-length",
   "accept-ranges", "content-range",
   "x-content-type-options", "content-security-policy",
+  "x-correlation-id",
 ];
+
+/**
+ * A correlation id for a request that came without one: the API writes it
+ * on the AI audit rows and the approval row the request creates, and sends
+ * it back in the response header, so a screen and an audit row can be tied
+ * to the same call. Letters, digits and dashes only — the API drops any
+ * other shape and uses its own trace id instead.
+ */
+function correlationId(incoming: string | null): string {
+  return incoming && /^[A-Za-z0-9._:-]{1,64}$/.test(incoming) ? incoming : crypto.randomUUID();
+}
 
 /** The demo account from the cookie, when there is one. */
 function devUserCookie(header: string | null): string {
@@ -88,6 +100,7 @@ async function forward(request: Request, path: string[]): Promise<Response> {
     const value = incoming.get(name);
     if (value) outgoing.set(name, value);
   }
+  outgoing.set("x-correlation-id", correlationId(incoming.get("x-correlation-id")));
   if (PROXY_KEY) outgoing.set("x-scmos-proxy-key", PROXY_KEY);
 
   // Local development has no identity provider, so the demo account the user

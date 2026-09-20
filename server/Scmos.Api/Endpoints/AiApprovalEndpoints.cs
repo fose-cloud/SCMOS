@@ -56,7 +56,7 @@ public static class AiApprovalEndpoints
             // pretending to have done something.
             var outcome = await gateway.InvokeAsync(
                 body.Tool ?? "", body.Summary ?? "", body.Payload?.Fields ?? new Dictionary<string, string>(),
-                user, null, token, correlationId: context.TraceIdentifier);
+                user, null, token, correlationId: AiAuditRules.CorrelationOf(context.Request.Headers["X-Correlation-Id"], context.TraceIdentifier));
 
             return outcome.Ok
                 ? Results.Json(new { message = outcome.Message, kind = outcome.Kind, approvalId = outcome.ApprovalId })

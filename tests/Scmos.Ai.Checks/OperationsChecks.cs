@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Options;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -155,6 +156,43 @@ static class OperationsChecks
         var audit = new OperationsTestAudit();
         var runtime = new OperationsAgent(registry, audit, provider, clock);
         var ask = new AiChatRequest("Show today's high-risk shipments.");
+
+        /* ---- 1D: the correlation id on every event, the step named, the context pilot ---- */
+        {
+            var contextClock = new MovableClock(clock.GetUtcNow());
+            var memory = new AiContextService(contextClock);
+            var on = Options.Create(new AiOptions { ContextEnabled = true, ContextMinutes = 10 });
+            var off = Options.Create(new AiOptions { ContextEnabled = false });
+            var piloted = new OperationsAgent(registry, audit, provider, contextClock, context: memory, options: on);
+            var first = await piloted.RunAsync("ctx-1", ask, own, agent, default, "corr-ctx-1");
+            check(first.Code == "ok" && !first.ContextUsed && !provider.LastRequest!.Instructions.Contains("previous question"),
+                "1D: the first question carries no context");
+            check(audit.Entries.Where(e => e.RunId == "ctx-1").All(e => e.CorrelationId == "corr-ctx-1")
+                && audit.Entries.Where(e => e.RunId == "ctx-1").Select(e => e.Step).SequenceEqual([null, 1, 1, 1]),
+                "1D: every audit event of the run carries the request's correlation id and the step");
+            var second = await piloted.RunAsync("ctx-2", new AiChatRequest("และงานล่าช้าล่ะ"), own, agent, default, "corr-ctx-2");
+            check(second.Code == "ok" && second.ContextUsed && provider.LastRequest!.Instructions.Contains("tool query_shipments, view risk_today, limit 50")
+                && !provider.LastRequest.Instructions.Contains("Show today's high-risk shipments."),
+                "1D: a follow-up within the window is given the previous question's facts, never its words");
+            var other = own with { UserId = "someone-else", OperatorId = "OP-B" };
+            var foreign = await piloted.RunAsync("ctx-3", ask, other, agent, default, "corr-ctx-3");
+            check(foreign.Code == "ok" && !foreign.ContextUsed && !provider.LastRequest!.Instructions.Contains("previous question"),
+                "1D: another account never sees this person's context");
+            contextClock.Advance(TimeSpan.FromMinutes(11));
+            var stale = await piloted.RunAsync("ctx-4", ask, own, agent, default, "corr-ctx-4");
+            check(stale.Code == "ok" && !stale.ContextUsed, "1D: context outside the window is forgotten");
+            var unpiloted = new OperationsAgent(registry, audit, provider, contextClock, context: memory, options: off);
+            await unpiloted.RunAsync("ctx-5", ask, own, agent, default);
+            var afterOff = await unpiloted.RunAsync("ctx-6", ask, own, agent, default);
+            check(!afterOff.ContextUsed && !provider.LastRequest!.Instructions.Contains("previous question"),
+                "1D: with the switch off nothing is remembered or used");
+            check(memory.Recall(own, "rate-agent", TimeSpan.FromMinutes(10)) is null, "1D: context is per agent");
+            check(audit.Entries.Where(e => e.RunId == "ctx-5").All(e => e.CorrelationId == ""), "1D: a run with no correlation id writes an empty one, never an invented one");
+            var bad = await piloted.RunAsync("ctx-7", ask, own, agent, default, "not a correlation id");
+            check(bad.Code == "ok" && audit.Entries.Where(e => e.RunId == "ctx-7").All(e => e.CorrelationId == ""), "1D: a malformed correlation id is dropped, not written");
+            audit.Entries.RemoveAll(e => e.RunId.StartsWith("ctx-"));
+            provider.Reset();
+        }
         IAgentExecutor<OperationsExecution> typed = runtime;
         check(typed.AgentId == "operations-agent" && typed.Ready == runtime.Ready
             && typed.Connected == runtime.Connected && await typed.CheckAuditReadyAsync(default),
@@ -278,6 +316,12 @@ static class OperationsChecks
 sealed class OperationsClock(DateTimeOffset now) : TimeProvider
 {
     public override DateTimeOffset GetUtcNow() => now;
+}
+sealed class MovableClock(DateTimeOffset start) : TimeProvider
+{
+    private DateTimeOffset _now = start;
+    public override DateTimeOffset GetUtcNow() => _now;
+    public void Advance(TimeSpan by) => _now += by;
 }
 sealed class OperationsFixtureSource(IReadOnlyList<OperationAnalysisRow> rows) : IOperationsSource
 {

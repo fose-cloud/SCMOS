@@ -80,8 +80,16 @@ test("navigation uses existing screen allowlist, never arbitrary URLs or instruc
 });
 test("Audit keeps incomplete/running events and cursor; rejects malformed scopes", () => {
   assert.equal(parseAuditPage(audit).runs[1].status, "incomplete");
-  for (const patch of [{ runId: "../../admin" }, { scope: null }, { events: [] }, { sourceKeys: [9] }, { events: Array(5).fill(run.events[0]) }])
+  for (const patch of [{ runId: "../../admin" }, { scope: null }, { events: [] }, { sourceKeys: [9] }, { events: Array(19).fill(run.events[0]) },
+    { correlationId: 7 }, { correlationId: "x".repeat(65) }, { steps: 9 }, { steps: -1 }])
     rejects(parseAuditRun, { ...run, ...patch });
+  // A run from before 1D carries neither a correlation id nor steps, and a two-step run carries six events.
+  const older = copy(run); delete older.correlationId; delete older.steps; older.events.forEach(e => { delete e.step; delete e.tool; });
+  assert.equal(parseAuditRun(older), older);
+  const twoSteps = { ...run, steps: 2, events: [run.events[0], ...run.events.slice(1, 3), ...run.events.slice(1, 3).map(e => ({ ...e, step: 2 })), run.events[3]] };
+  assert.equal(parseAuditRun(twoSteps).events.length, 6);
+  assert.equal(parseReply({ ...reply, correlationId: "req-1", contextUsed: true }).contextUsed, true);
+  rejects(parseReply, { ...reply, contextUsed: "yes" });
   rejects(parseAuditPage, { ...audit, nextBeforeId: -5 });
 });
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {

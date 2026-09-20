@@ -84,6 +84,54 @@ static class AuditChecks
         }) Refuses(() => AiAuditRules.From(bad), check, "D: unsafe audit metadata rejected");
         var failed = start with { Event = "run_completed", Status = "provider_busy", At = Now.AddSeconds(1), Usage = new(1, 0) };
         check(AiAuditRules.MayAppend([rows[0]], AiAuditRules.From(failed)), "D: provider failure closes run without tool");
+
+        /* ---- 1D: steps and the correlation id ---- */
+        check(AiAuditRules.SequenceOf("run_started", null) == 1 && AiAuditRules.SequenceOf("tool_started", null) == 2
+            && AiAuditRules.SequenceOf("tool_completed", null) == 3 && AiAuditRules.SequenceOf("run_completed", null) == 4
+            && AiAuditRules.SequenceOf("run_completed", 0) == 4 && AiAuditRules.SequenceOf("run_completed", 1) == 4,
+            "1D: a run of one step or none has the sequences every run before 1D had");
+        check(AiAuditRules.SequenceOf("tool_started", 2) == 4 && AiAuditRules.SequenceOf("tool_completed", 2) == 5
+            && AiAuditRules.SequenceOf("run_completed", 2) == 6 && AiAuditRules.SequenceOf("tool_started", 9) == 0
+            && AiAuditRules.SequenceOf("run_completed", 9) == 0 && AiAuditRules.SequenceOf("other", 1) == 0,
+            "1D: further steps take the next sequences; more than eight are not a run");
+        check(rows.All(r => r.CorrelationId == "") && rows[1].Step == 1 && rows[2].Step == 1 && rows[3].Step is null && rows[0].Step is null,
+            "1D: rows written without a correlation id or a step read as before");
+        var corr = "0HN1234ABCD:00000007";
+        var s1 = start with { CorrelationId = corr, RunId = Guid.NewGuid().ToString("N") };
+        var t1 = Tool(s1) with { Step = 1 };
+        var f1 = Finish(t1);
+        var t2 = f1 with { Event = "tool_started", Status = "running", At = Now.AddSeconds(3), Step = 2, Tool = "query_delays", View = "delays",
+            ToolCallId = Guid.NewGuid().ToString("N"), Total = null, Returned = null, SourceKeys = null };
+        var f2 = t2 with { Event = "tool_completed", Status = "succeeded", At = Now.AddSeconds(4), Total = 3, Returned = 2, SourceKeys = ["job-7", "job-8"] };
+        var e2 = f2 with { Event = "run_completed", At = Now.AddSeconds(5), Step = 2 };
+        var multi = new List<AiAuditLog>();
+        foreach (var e in new[] { s1, t1, f1, t2, f2, e2 })
+        {
+            var row = AiAuditRules.From(e);
+            check(AiAuditRules.MayAppend(multi, row), "1D: legal two-step transition " + e.Event + " step " + (e.Step?.ToString() ?? "-"));
+            multi.Add(row);
+        }
+        check(multi.Select(r => r.Sequence).SequenceEqual([1, 2, 3, 4, 5, 6]) && multi.All(r => r.CorrelationId == corr) && multi[5].Step == 2,
+            "1D: a two-step run is sequenced 1..6 under one correlation id");
+        Refuses(() => AiAuditRules.MayAppend(multi.Take(3).ToList(), AiAuditRules.From(t2 with { Step = 3 })), check, "1D: a step may not be skipped");
+        Refuses(() => AiAuditRules.MayAppend(multi.Take(3).ToList(), AiAuditRules.From(t2 with { Step = 1 })), check, "1D: a step may not repeat its number");
+        Refuses(() => AiAuditRules.MayAppend(multi.Take(4).ToList(), AiAuditRules.From(f2 with { Step = 1 })), check, "1D: a completion belongs to its own step");
+        Refuses(() => AiAuditRules.MayAppend(multi.Take(5).ToList(), AiAuditRules.From(e2 with { Step = 1 })), check, "1D: the completion must count the steps taken");
+        Refuses(() => AiAuditRules.MayAppend(multi.Take(5).ToList(), AiAuditRules.From(e2 with { Step = null })), check, "1D: an uncounted completion cannot close a two-step run");
+        Refuses(() => AiAuditRules.MayAppend(multi.Take(4).ToList(), AiAuditRules.From(e2 with { Step = 1, At = Now.AddSeconds(4) })), check, "1D: a run cannot complete over a started step");
+        Refuses(() => AiAuditRules.MayAppend([multi[0]], AiAuditRules.From(t1 with { CorrelationId = "other" })), check, "1D: the correlation id is immutable within a run");
+        Refuses(() => AiAuditRules.From(s1 with { CorrelationId = "has space" }), check, "1D: a malformed correlation id is refused");
+        Refuses(() => AiAuditRules.From(s1 with { CorrelationId = new string('x', 65) }), check, "1D: an overlong correlation id is refused");
+        Refuses(() => AiAuditRules.From(s1 with { Step = 1 }), check, "1D: run_started names no step");
+        Refuses(() => AiAuditRules.From(s1 with { AgentId = "data-agent" }), check, "1D: an agent that is not connected is not audited");
+        check(AiAuditRules.CorrelationOf(" req-42.a_b:c ", "trace") == "req-42.a_b:c" && AiAuditRules.CorrelationOf("bad value", "0HN:1") == "0HN:1"
+            && AiAuditRules.CorrelationOf("", "") is { Length: 32 } && AiAuditRules.CorrelationOf("<script>", "") is { Length: 32 },
+            "1D: the header when well-formed, else the trace id, else a fresh id");
+        var multiView = AiAuditReader.Project(multi, Now.AddMinutes(5));
+        check(multiView.Status == "succeeded" && multiView.Steps == 2 && multiView.CorrelationId == corr && multiView.Tool == "query_delays"
+            && multiView.SourceKeys.SequenceEqual(["job-7", "job-8"]) && multiView.Events.Length == 6 && multiView.Events[3].Step == 2 && multiView.Events[3].Tool == "query_delays",
+            "1D: the projection reads the last step's evidence, the step count and the correlation id");
+        check(AiAuditReader.Project(multi.Take(4).ToList(), Now.AddMinutes(3)).Status == "incomplete", "1D: a run abandoned mid-step is incomplete");
         var projected = AiAuditReader.Project(rows, Now.AddMinutes(5));
         check(projected.Status == "succeeded" && projected.SourceKeys.Length == 2
             && projected.Usage == new AiUsage(10, 5), "D: durable timeline projects evidence and usage");
@@ -143,8 +191,14 @@ static class AuditChecks
             {
                 migration.ActiveProvider = "Microsoft.EntityFrameworkCore.SqlServer";
                 var commands = setup.GetService<IMigrationsSqlGenerator>().Generate(migration.UpOperations, setup.Model);
-                // Apply ONLY Phase D Up, not old data/seed migrations from other modules.
+                // Apply ONLY Phase D Up, not old data/seed migrations from other modules —
+                // plus the 1D additive columns (correlation_id, step), which the mapped shape now needs.
                 foreach (var command in commands) await setup.Database.ExecuteSqlRawAsync(command.CommandText);
+                var steps = new AiAuditCorrelationSteps { ActiveProvider = "Microsoft.EntityFrameworkCore.SqlServer" };
+                check(steps.UpOperations.All(op => op is AddColumnOperation) && steps.UpOperations.Count == 2
+                    && steps.DownOperations.All(op => op is DropColumnOperation), "1D: the audit migration only adds two columns");
+                foreach (var command in setup.GetService<IMigrationsSqlGenerator>().Generate(steps.UpOperations, setup.Model))
+                    await setup.Database.ExecuteSqlRawAsync(command.CommandText);
                 await setup.Database.ExecuteSqlRawAsync("CREATE TABLE phase_d_sentinel (id int NOT NULL PRIMARY KEY); INSERT INTO phase_d_sentinel VALUES (42);");
             }
             check(await Sink().CheckReadyAsync(default), "D SQL: installed mapped audit shape is ready");

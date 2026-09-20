@@ -25,7 +25,11 @@ public interface IAiProvider
 }
 
 public sealed record AiChatResponse(string RunId, string Code, string Summary, string? AgentId = null,
-    bool Mock = false, AiUsage? Usage = null, OperationsAnswer? Evidence = null);
+    bool Mock = false, AiUsage? Usage = null, OperationsAnswer? Evidence = null,
+    /// <summary>The API request's correlation id (1D) — the same one on every audit event of the run.</summary>
+    string CorrelationId = "",
+    /// <summary>Whether the previous question's facts were given to the model (1D context pilot).</summary>
+    bool ContextUsed = false);
 public sealed record AiChatOutcome(int Status, AiChatResponse Response);
 public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,

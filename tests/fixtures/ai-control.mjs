@@ -48,7 +48,9 @@ export const run = {
   events: ["run_started", "tool_started", "tool_completed", "run_completed"].map(event => ({
     event, status: event.endsWith("started") ? "running" : "succeeded", at: "2026-09-07T03:01:00Z",
     total: event === "tool_completed" ? 2 : null, returned: event === "tool_completed" ? 1 : null,
+    step: event === "run_started" ? null : 1, tool: event === "run_started" ? null : "get_shipments",
   })),
+  correlationId: "fixture-corr-0001", steps: 1,
 };
 export const audit = { runs: [run, { ...run, runId: "b".repeat(32), status: "incomplete", completedAt: null, events: run.events.slice(0, 2) }], nextBeforeId: 3 };
 export const job = {

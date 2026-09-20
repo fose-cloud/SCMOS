@@ -65,14 +65,15 @@ function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string)
       <dt>Agent</dt><dd>{run.agentId || "—"}</dd>
       <dt>Model</dt><dd>{run.model || "—"}</dd>
       <dt>ขอบเขตอ่าน</dt><dd>{run.scope.team ? "งานทั้งทีม" : "งานของผู้รับผิดชอบ: " + (run.scope.operatorId || "ไม่ระบุ")}</dd>
-      <dt>เครื่องมือ</dt><dd>{run.tool || "ยังไม่มีการเรียกเครื่องมือ"}{run.view ? " · " + run.view : ""}</dd>
+      <dt>เครื่องมือ</dt><dd>{run.tool || "ยังไม่มีการเรียกเครื่องมือ"}{run.view ? " · " + run.view : ""}{run.steps ? ` · ${run.steps} ขั้น` : ""}</dd>
+      {run.correlationId && <><dt>Correlation</dt><dd className={s.runId}>{run.correlationId}</dd></>}
       <dt>ผลจากแหล่งข้อมูล</dt><dd>{number(run.returned)} / {number(run.total)} รายการ</dd>
       <dt>สิทธิ์เขียน</dt><dd>ไม่มี · อ่านอย่างเดียว</dd>
       <dt>Tokens</dt><dd>{run.usage ? number(run.usage.inputTokens) + " เข้า / " + number(run.usage.outputTokens) + " ออก" : "N/A"}</dd>
     </dl>
     <ol className={s.timeline}>
       {run.events.map((event, index) => <li key={index}>
-        {eventName(event.event)} · {stateName(event.status)}
+        {eventName(event.event)} · {stateName(event.status)}{event.step && event.event !== "run_completed" ? ` · ขั้น ${event.step}` : ""}
         <small>{stamp(event.at)}</small>
       </li>)}
     </ol>
@@ -347,6 +348,8 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             <Badge tone={reply.mock ? "amber" : "green"}>{reply.mock ? "MOCK · ไม่ได้อ่านงานจริง" : "คำตอบพร้อมหลักฐาน"}</Badge>
             <p className={s.summary}>{reply.summary}</p>
             <div className={s.meta}><span>Run ID: <span className={s.runId}>{reply.runId}</span></span>
+              {reply.correlationId && <span>Correlation: <span className={s.runId}>{reply.correlationId}</span></span>}
+              {reply.contextUsed && <span>อ่านต่อจากคำถามก่อนหน้า</span>}
               {canViewAudit && !reply.mock && <button className={s.link} onClick={() => {
                 setSelectedRun(reply.runId); activityPanel.current?.scrollIntoView({ block: "start" });
               }}>ดู Audit ของคำตอบนี้</button>}</div>

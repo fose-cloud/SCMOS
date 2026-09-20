@@ -25,15 +25,28 @@ export type OperationsAnswer = {
   retrievedAt: string; sourceUpdatedAt: string | null; basis: string; rows: EvidenceRow[];
 };
 export type Usage = { inputTokens: number; outputTokens: number };
-export type AiReply = { runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null };
-export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null };
+export type AiReply = {
+  runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null;
+  /** The API request's correlation id — the same one on every audit event of the run (1D). */
+  correlationId?: string;
+  /** Whether the previous question's facts were given to the model (1D context pilot). */
+  contextUsed?: boolean;
+};
+export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null; step?: number | null; tool?: string | null };
 export type AuditRun = {
   runId: string; userId: string; role: string; agentId: string; model: string;
   scope: { team: boolean; operatorId: string | null }; status: string; startedAt: string; completedAt: string | null;
   toolCallId: string | null; tool: string | null; toolStatus: string | null; view: string | null; limit: number | null;
   risk: string; approvalStatus: string; source: string; sourceKeys: string[];
   total: number | null; returned: number | null; usage: Usage | null; events: AuditEvent[];
+  /** The API request the run belongs to (1D); empty for older runs. */
+  correlationId?: string;
+  /** Tool steps completed (1D); a run may hold up to eight, today's dispatch allows one. */
+  steps?: number;
 };
+
+/** The most events one run may carry: run_started, eight steps of two, run_completed. */
+export const MAX_AUDIT_EVENTS = 18;
 export type AuditPage = { runs: AuditRun[]; nextBeforeId: number | null };
 
 type Obj = Record<string, unknown>;
@@ -84,7 +97,9 @@ function evidence(v: unknown): boolean {
 export function parseReply(v: unknown): AiReply {
   return accept(v, obj(v) && id(v.runId) && v.code === "ok" && text(v.summary) && nullableText(v.agentId)
     && typeof v.mock === "boolean" && usage(v.usage)
-    && (v.mock ? v.evidence === null : evidence(v.evidence)));
+    && (v.mock ? v.evidence === null : evidence(v.evidence))
+    && (v.correlationId === undefined || text(v.correlationId, 64))
+    && (v.contextUsed === undefined || typeof v.contextUsed === "boolean"));
 }
 const auditRun = (v: unknown) => obj(v) && id(v.runId)
   && strings(v, ["userId", "role", "agentId", "model", "status", "startedAt", "risk", "approvalStatus", "source"])
@@ -92,8 +107,11 @@ const auditRun = (v: unknown) => obj(v) && id(v.runId)
   && ["completedAt", "toolCallId", "tool", "toolStatus", "view"].every(k => nullableText(v[k]))
   && ["limit", "total", "returned"].every(k => nullableCount(v[k])) && usage(v.usage)
   && Array.isArray(v.sourceKeys) && v.sourceKeys.length <= 50 && v.sourceKeys.every(k => text(k, 80))
-  && Array.isArray(v.events) && v.events.length >= 1 && v.events.length <= 4
-  && v.events.every(e => obj(e) && strings(e, ["event", "status", "at"]) && nullableCount(e.total) && nullableCount(e.returned));
+  && Array.isArray(v.events) && v.events.length >= 1 && v.events.length <= MAX_AUDIT_EVENTS
+  && v.events.every(e => obj(e) && strings(e, ["event", "status", "at"]) && nullableCount(e.total) && nullableCount(e.returned)
+    && (e.step === undefined || nullableCount(e.step)) && (e.tool === undefined || nullableText(e.tool)))
+  && (v.correlationId === undefined || text(v.correlationId, 64))
+  && (v.steps === undefined || (count(v.steps) && v.steps <= 8));
 export function parseAuditRun(v: unknown): AuditRun { return accept(v, auditRun(v)); }
 export function parseAuditPage(v: unknown): AuditPage {
   return accept(v, obj(v) && Array.isArray(v.runs) && v.runs.length <= 100 && v.runs.every(auditRun)

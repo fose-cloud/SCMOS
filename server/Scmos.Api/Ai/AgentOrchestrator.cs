@@ -53,13 +53,15 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         return Status(user);
     }
 
-    public async Task<AiChatOutcome> RunAsync(AiChatRequest? request, AppUser? user, CancellationToken token)
+    public async Task<AiChatOutcome> RunAsync(AiChatRequest? request, AppUser? user, CancellationToken token, string correlationId = "")
     {
         token.ThrowIfCancellationRequested();
         var runId = Guid.NewGuid().ToString("N");
+        var correlation = AiAuditRules.IsCorrelation(correlationId) ? correlationId : "";
         AgentDefinition? agent = null;
         AiChatOutcome Reply(int status, string code, string summary, bool mock = false, AiUsage? usage = null,
-            OperationsAnswer? evidence = null) => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence));
+            OperationsAnswer? evidence = null, bool contextUsed = false)
+            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed));
 
         if (!AiPermissionPolicy.Authenticated(user)) return Reply(401, "unauthenticated", "Sign in is required.");
         if (!AiPermissionPolicy.InternalUser(user!)) return Reply(403, "forbidden", "AI is not available for this account scope.");
@@ -96,13 +98,13 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
                     return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้เรียก provider หรืออ่านข้อมูลงาน");
                 if (!operations.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
                 // Await cancellation cleanup too; do not detach an audit write from its request scope.
-                var answer = await operations.RunAsync(runId, request!, user!, agent, timeout.Token);
+                var answer = await operations.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
                 var status = answer.Code switch
                 {
                     "ok" => 200, "forbidden" => 403, "clarification_required" => 422,
                     "invalid_tool" => 502, "timeout" => 504, "provider_busy" => 429, _ => 503,
                 };
-                return Reply(status, answer.Code, answer.Summary, usage: answer.Usage, evidence: answer.Evidence);
+                return Reply(status, answer.Code, answer.Summary, usage: answer.Usage, evidence: answer.Evidence, contextUsed: answer.ContextUsed);
             }
             var result = await provider.CompleteAsync(new(Instructions, request!.Message.Trim(), []), timeout.Token)
                 .WaitAsync(timeout.Token);

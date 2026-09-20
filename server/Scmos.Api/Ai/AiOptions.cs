@@ -23,6 +23,11 @@ public sealed class AiOptions
     public bool OperationsWritesEnabled { get; set; }
     public int TimeoutSeconds { get; set; } = 20;
     public int MaxOutputTokens { get; set; } = 800;
+    // 1D context pilot: what the last run did for a person, kept in memory a
+    // few minutes so a follow-up reads against it. Off by default; no table.
+    public bool ContextEnabled { get; set; }
+    public int ContextMinutes { get; set; } = 10;
 
-    public bool Valid => TimeoutSeconds is >= 1 and <= 60 && MaxOutputTokens is >= 64 and <= 2000;
+    public bool Valid => TimeoutSeconds is >= 1 and <= 60 && MaxOutputTokens is >= 64 and <= 2000
+        && ContextMinutes is >= 1 and <= 60;
 }

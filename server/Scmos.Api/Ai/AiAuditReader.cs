@@ -6,12 +6,17 @@ using System.Text.Json;
 
 namespace Scmos.Api.Ai;
 
-public sealed record AiAuditEventView(string Event, string Status, DateTimeOffset At, int? Total, int? Returned);
+public sealed record AiAuditEventView(string Event, string Status, DateTimeOffset At, int? Total, int? Returned,
+    int? Step = null, string? Tool = null);
 public sealed record AiAuditRunView(string RunId, string UserId, string Role, string AgentId, string Model,
     AiReadScope Scope, string Status, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt,
     string? ToolCallId, string? Tool, string? ToolStatus, string? View, int? Limit,
     string Risk, string ApprovalStatus, string Source, string[] SourceKeys,
-    int? Total, int? Returned, AiUsage? Usage, AiAuditEventView[] Events);
+    int? Total, int? Returned, AiUsage? Usage, AiAuditEventView[] Events,
+    /// <summary>The API request the run belongs to (1D); empty for older runs.</summary>
+    string CorrelationId = "",
+    /// <summary>Tool steps completed.</summary>
+    int Steps = 0);
 public sealed record AiAuditPage(AiAuditRunView[] Runs, long? NextBeforeId);
 
 /// <summary>Read-only projections: an unfinished run is never inferred to have succeeded.</summary>
@@ -22,18 +27,20 @@ public sealed class AiAuditReader(SqlAiExecutionAudit audit, TimeProvider clock)
     public static AiAuditRunView Project(IReadOnlyList<AiAuditLog> events, DateTimeOffset now)
     {
         var start = events[0];
-        var end = events.LastOrDefault(e => e.Sequence == 4);
-        var tool = events.LastOrDefault(e => e.Sequence is 2 or 3);
+        var end = events.LastOrDefault(e => e.Event == "run_completed");
+        // The last tool step is the one whose evidence the answer was made of.
+        var tool = events.LastOrDefault(e => e.Event is "tool_started" or "tool_completed");
         var last = events[^1];
         var status = end?.Status ?? (now - start.At > TimeSpan.FromMinutes(2) ? "incomplete" : "running");
         return new(start.RunId, start.UserId, start.Role, start.AgentId, start.Model,
             new(start.TeamScope, start.OperatorId), status, start.At, end?.At,
             tool?.ToolCallId, tool?.Tool, tool?.Status, tool?.View, tool?.Limit,
             start.Risk, start.ApprovalStatus, start.Source,
-            tool is { Sequence: 3, Status: "succeeded" } ? JsonSerializer.Deserialize<string[]>(tool.SourceKeys)! : [],
+            tool is { Event: "tool_completed", Status: "succeeded" } ? JsonSerializer.Deserialize<string[]>(tool.SourceKeys)! : [],
             tool?.Total, tool?.Returned,
             last.InputTokens is { } input && last.OutputTokens is { } output ? new(input, output) : null,
-            events.Select(e => new AiAuditEventView(e.Event, e.Status, e.At, e.Total, e.Returned)).ToArray());
+            events.Select(e => new AiAuditEventView(e.Event, e.Status, e.At, e.Total, e.Returned, e.Step, e.Tool)).ToArray(),
+            start.CorrelationId, AiAuditRules.StepsCompleted(events));
     }
 
     public async Task<AiAuditPage> PageAsync(AppUser user, long? beforeId, int take, CancellationToken token)

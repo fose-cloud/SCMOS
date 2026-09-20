@@ -37,6 +37,8 @@ Use the existing .NET configuration providers; Azure environment names use doubl
 | `AI:WriteToolsEnabled` | `AI__WriteToolsEnabled` | Reserved, false; setting true does not activate writes |
 | `AI:TimeoutSeconds` | `AI__TimeoutSeconds` | 20; allowed 1–60 |
 | `AI:MaxOutputTokens` | `AI__MaxOutputTokens` | 800; allowed 64–2000 |
+| `AI:ContextEnabled` | `AI__ContextEnabled` | false (1D pilot): remember what a person's last run did, in memory on the instance, and tell the model those facts on their next question |
+| `AI:ContextMinutes` | `AI__ContextMinutes` | 10; allowed 1–60 — how long a remembered run counts as "the previous question" |
 
 The existing key was confirmed present in `scmos-api-3936` and the user authorized its reuse. Its value was not copied locally and validity/quota were **not** tested with a live request. No Azure setting was changed.
 

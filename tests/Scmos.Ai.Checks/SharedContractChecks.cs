@@ -58,8 +58,8 @@ static class SharedContractChecks
             return json.RootElement.EnumerateObject().Select(p => p.Name).SequenceEqual(expected);
         }
         check(Fields(new AiChatResponse("run", "ok", "summary"),
-            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence"]),
-            "1A: public chat response envelope unchanged");
+            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence", "correlationId", "contextUsed"]),
+            "1A/1D: public chat response envelope is the 1A one, plus correlationId and contextUsed appended (1D)");
         check(Fields(new AiStatus(false, false, false, false, true, false, false, []),
             ["enabled", "chatEnabled", "providerConfigured", "mock", "configurationValid", "liveToolsReady",
                 "writeToolsReady", "agents", "auditReady", "operationsControl"]),

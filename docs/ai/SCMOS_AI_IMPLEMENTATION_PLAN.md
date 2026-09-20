@@ -23,6 +23,11 @@ Update, 20 September 2026 (v2.7.59): **1E is implemented and deployed** — see 
 [Phase 1E record](SCMOS_AI_PHASE_1E.md). The six additive `approvals` columns §4
 proposed were reviewed and applied by that release. 1D is next.
 
+Update, 20 September 2026 (v2.7.60): **1D is implemented and deployed** — see the
+[Phase 1D record](SCMOS_AI_PHASE_1D.md): multi-step audit topology (dispatch still
+one read), correlation id proxy → API → audit, in-memory context pilot behind
+`AI:ContextEnabled`. **Phase 1 is complete.** Phase 2 (Data Agent) is next.
+
 ## 1. What is already present
 
 Gateway/orchestrator/provider abstraction, eight registry descriptors, three connected Operations read tools, strict input validation, per-instance limits, durable AI audit, admin-only Operations switch, read-only Control Tower, existing approval queue, Entra/RBAC, operational/KPI/rate/document services, Graph mail and LINE ingestion/review, Blob, CI/CD and offline checks. Do not rebuild these.

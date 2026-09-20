@@ -86,12 +86,18 @@ public static class AiChatEndpoints
             AiChatRequest? request;
             try { request = JsonSerializer.Deserialize<AiChatRequest>(buffer.AsSpan(0, count), JsonOptions); }
             catch (JsonException) { return ApiResults.Error("Invalid AI request; only message, agentId and context.page are accepted", 400); }
-            var result = await gateway.ChatAsync(request, user, runtime, token);
+            // The correlation id the request came in with (the web proxy sets one
+            // per request), else the server's own trace id: on every audit event
+            // of the run, and back to the caller in the header and the body (1D).
+            var correlationId = AiAuditRules.CorrelationOf(context.Request.Headers["X-Correlation-Id"], context.TraceIdentifier);
+            context.Response.Headers["X-Correlation-Id"] = correlationId;
+            var result = await gateway.ChatAsync(request, user, runtime, token, correlationId);
             if (result.Status == 429) context.Response.Headers.RetryAfter = "60";
             return Results.Json(new
             {
                 result.Response.RunId, result.Response.Code, result.Response.Summary, result.Response.AgentId,
                 result.Response.Mock, result.Response.Usage, result.Response.Evidence,
+                result.Response.CorrelationId, result.Response.ContextUsed,
                 Error = result.Status >= 400 ? result.Response.Summary : null,
             }, statusCode: result.Status);
         }).WithTags("AI");

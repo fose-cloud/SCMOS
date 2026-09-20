@@ -13,6 +13,7 @@ public interface IAgentExecutor<TResult>
     bool AuditReady { get; }
     bool Ready { get; }
     Task<bool> CheckAuditReadyAsync(CancellationToken token);
+    /// <param name="correlationId">The API request's correlation id (1D), written on every audit event of the run; empty when the caller has none.</param>
     Task<TResult> RunAsync(string runId, AiChatRequest request, AppUser user,
-        AgentDefinition agent, CancellationToken token);
+        AgentDefinition agent, CancellationToken token, string correlationId = "");
 }

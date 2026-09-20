@@ -58,8 +58,9 @@ public class AiGateway(ScmosDbContext db)
 {
     // Additive chat entry; legacy tools/approval/extraction behavior is unchanged.
     public AiStatus Status(AppUser user, AgentOrchestrator orchestrator) => orchestrator.Status(user);
-    public Task<AiChatOutcome> ChatAsync(AiChatRequest? request, AppUser? user, AgentOrchestrator orchestrator, CancellationToken token)
-        => orchestrator.RunAsync(request, user, token);
+    public Task<AiChatOutcome> ChatAsync(AiChatRequest? request, AppUser? user, AgentOrchestrator orchestrator, CancellationToken token,
+        string correlationId = "")
+        => orchestrator.RunAsync(request, user, token, correlationId);
 
     public async Task<IReadOnlyList<ToolView>> ToolsAsync(CancellationToken token)
     {
