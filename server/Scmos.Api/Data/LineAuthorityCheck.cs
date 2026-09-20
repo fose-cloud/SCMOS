@@ -380,6 +380,18 @@ public static class LineAuthorityCheck
             && partly.Result == LineAuthority.Outcome.TruckDetails && partly.Applies;
         if (!repeatRight) failed++;
         Console.WriteLine($"  {(repeatRight ? "ok  " : "FAIL")}  details the job already holds are filed as already there; one empty cell still queues it");
+        // 18 Sep 2026: the reminder's answer names no job; the room's jobs still short of the details are what it can be about.
+        var answer = new LineAuthority.Clue("งานที่ยังขาดข้อมูลรถ (ตอบแจ้งเตือน)", null, ["71-5111"], "พขร.เต๋า ใจเงิน 085-0892487 ทะเบียน 71-5111ชบ. ค่ะ",
+            new DateOnly(2026, 9, 18), Details: true, Fills: [LineAuthority.Cells.Licence, LineAuthority.Cells.Driver, LineAuthority.Cells.Contact]);
+        var oneShort = LineAuthority.Decide(Vendor("SHORE"), "", [Job("A1", "SHORE", "READY", workDate: "18/09/2026")], answer);
+        var twoShort = LineAuthority.Decide(Vendor("SHORE"), "", [Job("A1", "SHORE", "READY", workDate: "18/09/2026"), Job("A2", "SHORE", "READY", workDate: "18/09/2026")], answer);
+        var todayFirst = LineAuthority.Decide(Vendor("SHORE"), "", [Job("A1", "SHORE", "READY", workDate: "18/09/2026"), Job("A3", "SHORE", "READY", workDate: "19/09/2026")], answer);
+        var answerRight = oneShort is { Result: LineAuthority.Outcome.TruckDetails, Applies: true } && oneShort.Keys.SequenceEqual(["A1"])
+            && twoShort is { Result: LineAuthority.Outcome.ManyJobs, Applies: false } && twoShort.Keys.SequenceEqual(["A1", "A2"])
+            && todayFirst is { Result: LineAuthority.Outcome.TruckDetails } && todayFirst.Keys.SequenceEqual(["A1"]);
+        if (!answerRight) failed++;
+        Console.WriteLine($"  {(answerRight ? "ok  " : "FAIL")}  the reminder's answer lands on the one job short of it, waits on a choice between two, and prefers today's over tomorrow's");
+
         var stamped = Job("T5", "SHORE", "DELIVERED") with { ArrDate = "16/09/2026", ArrTime = "10:20" };
         var stampedRight = LineAuthority.Move(stamped, LineParser.SiteArrival, arrival: true).Result == LineAuthority.Outcome.AlreadyThere
             && LineAuthority.Move(stamped with { ArrTime = "" }, LineParser.SiteArrival, arrival: true).Result == LineAuthority.Outcome.ArrivalOnly

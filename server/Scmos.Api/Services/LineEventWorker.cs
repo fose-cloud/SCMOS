@@ -224,6 +224,18 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             }
         }
 
+        // The reminder's answer in a shape the rules could not read — "เต๋า
+        // ใจเงิน 085 089 2487 71 5111 ชบ" — is read by the model when it is
+        // on, and its reading is held to the rules' own shapes before it is
+        // believed. Only a message that looks like it might be a truck's
+        // details, so the room's chat never reaches the model (18 Sep 2026).
+        if (!read.HasReference && !read.DetailsReply && read.Status is null && !read.Question
+            && LineParser.LooksLikeDetails(row.RawText))
+        {
+            var found = await DetailsByModelAsync(row, stopping);
+            if (found is not null) read = LineParser.WithDetails(read, found.Plate, found.Driver, found.Phone);
+        }
+
         await ProcessTextAsync(db, row, read, stopping);
         // The room hears back once the row is filed, whatever the filing was.
         if (row.ProcessingStatus != LineProcessing.Processing)
@@ -236,6 +248,23 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     /// answered; the room is not to be argued with.
     /// </summary>
     public const string NotAboutAJob = "not-about-a-job";
+
+    /// <summary>The truck's details the model reads out of a message, when it is on; null otherwise or on any failure.</summary>
+    private async Task<LineMessageAnalyst.TruckDetails?> DetailsByModelAsync(LineEvent row, CancellationToken stopping)
+    {
+        using var scope = services.CreateScope();
+        var analyst = scope.ServiceProvider.GetRequiredService<ILineMessageAnalyst>();
+        if (!analyst.Configured) return null;
+        try
+        {
+            return await analyst.ReadDetailsAsync(row.RawText, stopping);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            log.LogWarning(error, "LINE message {Id}: the model could not read it for a truck's details", row.Id);
+            return null;
+        }
+    }
 
     /// <summary>
     /// The message cut into one part per box: by the rule when the message
@@ -424,7 +453,7 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             }
         }
 
-        if (read.Warnings.Count > 0 || !read.HasReference)
+        if (read.Warnings.Count > 0 || !(read.HasReference || read.DetailsReply))
         {
             // A question — "ถึงโรงงานที่โมงคะ" — is the room talking to itself,
             // and so is a message about no job at all — "สวัสดีครับ",

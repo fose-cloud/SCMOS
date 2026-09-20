@@ -115,6 +115,9 @@ public static class LinePhotoPairing
     /// </summary>
     public static LineParser.Parsed WithPhoto(LineParser.Parsed read, LineEvent row)
     {
+        // The model's details, when the worker read the text with its help,
+        // come back the same way — see LineParser.WithStoredDetails.
+        read = LineParser.WithStoredDetails(read, row.MatchedRules);
         if (row.MessageType != "text" || row.ImageReading.Length == 0 || read.Container is not null) return read;
         return read with
         {

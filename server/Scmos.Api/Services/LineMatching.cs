@@ -50,15 +50,28 @@ public static class LineMatching
         var may = group.Known
             && group.Active
             && string.Equals(group.GroupType, LineGroupType.Vendor, StringComparison.OrdinalIgnoreCase)
-            && read.HasReference;
+            && (read.HasReference || read.DetailsReply);
         var (candidates, named) = may
             ? await CandidatesAsync(db, read, token)
             : ([], "เลขงานนี้");
 
+        // The reminder's answer — a truck's details naming no job (18 Sep
+        // 2026). The plate is new to the register, which is why it was asked
+        // for, so nothing was found by it; the jobs it can be about are the
+        // room's own, today and tomorrow, still short of what it gives. One
+        // such job and the details land on it (for approval, as ever);
+        // several and the operator chooses between them.
+        var answering = false;
+        if (may && candidates.Count == 0 && read.DetailsReply)
+        {
+            (candidates, named) = await ReminderAnswerCandidatesAsync(db, group, read, receivedAt, token);
+            answering = true;
+        }
+
         var clue = new LineAuthority.Clue(
             named, read.Container, read.Plates ?? [], read.Remark,
             DateOnly.FromDateTime(receivedAt.ToOffset(TimeSpan.FromHours(7)).DateTime),
-            PlateOnly: read.JobNumber is null && read.Container is null && (read.References ?? []).Count == 0,
+            PlateOnly: !answering && read.JobNumber is null && read.Container is null && (read.References ?? []).Count == 0,
             Details: read.HasDetails,
             BoxCount: read.BoxCount,
             Arrival: read.ArrivalTime is not null,
@@ -168,6 +181,30 @@ public static class LineMatching
         }
         if (plates.Count > 0) return (rows, $"ทะเบียน {string.Join(" / ", plates)}");
         return (rows, $"เลขอ้างอิง {string.Join(" / ", references.Take(3))}");
+    }
+
+    /// <summary>
+    /// The jobs a truck's details with no job named can be about: this
+    /// haulier's, on the day of the message and the next (the 09:00 reminder
+    /// asks about today, the 16:00 summary about tomorrow), open, and still
+    /// short of at least one cell the message would fill. What is named for
+    /// the person reads as the reason: "งานที่ยังขาดข้อมูลรถ (ตอบแจ้งเตือน)".
+    /// </summary>
+    public static async Task<(List<LineAuthority.JobCandidate> Rows, string Named)> ReminderAnswerCandidatesAsync(
+        ScmosDbContext db, LineAuthority.SpeakerGroup group, LineParser.Parsed read, DateTimeOffset receivedAt, CancellationToken token)
+    {
+        var today = DateOnly.FromDateTime(receivedAt.ToOffset(TimeSpan.FromHours(7)).DateTime);
+        var days = new[] { Formats.PlanDate(today), Formats.PlanDate(today.AddDays(1)) };
+        var rows = await ToCandidates(db.OperationJobs.AsNoTracking()
+            .Where(one => days.Contains(one.WorkDate)), token);
+        var fills = LineAuthority.FillsOf(read);
+        var mine = rows
+            .Where(one => LineAuthority.SameCarrier(group, one.Carrier))
+            .Where(one => !string.Equals(one.Status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(one.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+            .Where(one => fills.Any(cell => !one.Holds(cell)))
+            .ToList();
+        return (mine, "งานที่ยังขาดข้อมูลรถ (ตอบแจ้งเตือน)");
     }
 
     /// <summary>

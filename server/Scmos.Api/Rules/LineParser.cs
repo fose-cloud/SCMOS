@@ -71,6 +71,27 @@ public static class LineParser
         RegexOptions.Compiled);
 
     /// <summary>
+    /// A plate with the province written after it — "71-5111ชบ.", "70-1234
+    /// กทม" — for taking the whole thing out of the text before the driver's
+    /// name is read, so the province's two letters are not a third name. The
+    /// province is one to three consonants, optionally dotted, not running on
+    /// into a longer word.
+    /// </summary>
+    private static readonly Regex PlateWithProvince = new(
+        Plate.ToString() + @"(?:\s?[ก-ฮ]{1,3}\.?(?![\u0E00-\u0E7F]))?",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// A label written straight onto its value — "ทะเบียน71-5111", "โทร0812345678"
+    /// — as the reminder's answer of 18 Sep 2026 had it. The space goes back
+    /// in so the plate and the phone rules, which will not start inside a
+    /// word, can see the value.
+    /// </summary>
+    private static readonly Regex GluedLabel = new(
+        @"(ทะเบียนรถ|ทะเบียน|เบอร์โทร|เบอร์|โทร\.?|tel\.?)(?=\d)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
     /// A reference as the register writes one: a booking (LC2606594,
     /// MAEU123456789), an ABS number, a D-code, a delivery note — letters and
     /// digits, six to twenty long, at least three of them digits. Not a time
@@ -97,6 +118,27 @@ public static class LineParser
     /// </summary>
     private static readonly Regex Phone =
         new(@"(?<!\d)(0\d{1,2})[-\s]?(\d{3})[-\s]?(\d{4})(?!\d)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The labels a haulier writes before a truck's details — what makes a
+    /// name and a number, with no plate, an answer about a truck rather
+    /// than a line of chat with a phone number in it.
+    /// </summary>
+    private static readonly string[] DetailLabels =
+        ["พขร", "คนขับ", "ชื่อ", "ทะเบียน", "เบอร์", "โทร", "driver", "plate", "tel", "phone", "mobile", "name"];
+
+    /// <summary>
+    /// Whether a message the rules could not read might still be a truck's
+    /// details for the model to try — it carries a label, or as many digits
+    /// as a phone number, and is short. Keeps the model off the room's chat.
+    /// </summary>
+    public static bool LooksLikeDetails(string? text)
+    {
+        var normalised = Normalise(text);
+        if (normalised.Length == 0 || normalised.Length > 200) return false;
+        if (DetailLabels.Any(label => normalised.Contains(label, StringComparison.OrdinalIgnoreCase))) return true;
+        return normalised.Count(char.IsDigit) >= 9;
+    }
 
     /// <summary>
     /// The words a haulier puts around a driver's name and number, which are
@@ -312,6 +354,15 @@ public static class LineParser
         /// <summary>How many boxes the message is about — "3 ตู้" — or null. See <see cref="FindBoxCount"/>.</summary>
         int? BoxCount = null,
         /// <summary>
+        /// Whether this is the shape of an answer to the morning reminder: a
+        /// truck's details and nothing else — no job number, booking, box or
+        /// seal, no status; a plate, or a labelled name with a number. "พขร.
+        /// เต๋า ใจเงิน / 085-089-2487 / ทะเบียน71-5111ชบ. ค่ะ" (18 Sep 2026).
+        /// Such a message names its job by what it answers, not by what it
+        /// says: the room's jobs on the day still short of those details.
+        /// </summary>
+        bool DetailsReply = false,
+        /// <summary>
         /// The seal number the message gives, or null. An export job's SEAL
         /// NO. is known only once the box is loaded, and the haulier is who
         /// knows it (asked for 17 Sep 2026, with the container, for exports).
@@ -393,6 +444,7 @@ public static class LineParser
         // Newlines are separators, not content: a two-line message is one
         // message and the rules read across the break.
         value = Regex.Replace(value, @"\s+", " ");
+        value = GluedLabel.Replace(value, "$1 ");
         return value.Trim();
     }
 
@@ -493,7 +545,7 @@ public static class LineParser
             text = Regex.Replace(text, Regex.Escape(keyword), " ", RegexOptions.IgnoreCase);
         text = Phone.Replace(text, " ");
         text = Seal.Replace(text, " ");
-        text = Plate.Replace(text, " ");
+        text = PlateWithProvince.Replace(text, " ");
         text = Container.Replace(text, " ");
         text = Clock.Replace(text, " ");
         // Anything with a digit or a Latin letter is a reference, a date, a
@@ -513,6 +565,57 @@ public static class LineParser
     {
         var haystack = normalised.ToLowerInvariant();
         return QuestionWords.Any(word => haystack.Contains(word, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A reading with the truck's details the model read out of a message
+    /// the rules could not — each one already held to the rules' own shape
+    /// by <see cref="Services.LineMessageAnalyst.ReadDetails"/>. The reading
+    /// says so in its rules, and is the reminder's answer from here on.
+    /// </summary>
+    public static Parsed WithDetails(Parsed read, string? plate, string? driver, string? phone)
+    {
+        var plates = (read.Plates ?? []).ToList();
+        if (plate is not null && !plates.Contains(plate, StringComparer.Ordinal)) plates.Add(plate);
+        var warnings = read.Warnings.Where(one => one is not ("nothing-understood" or "no-reference")).ToList();
+        // The values go into the rules, which the row stores, so the review
+        // and the approval — which parse the text again — read them back.
+        var rules = read.MatchedRules.Where(one => !one.StartsWith("ai-", StringComparison.Ordinal)).ToList();
+        rules.Add("ai-details");
+        if (plate is not null) rules.Add($"ai-plate:{plate}");
+        if (driver is not null) rules.Add($"ai-driver:{driver}");
+        if (phone is not null) rules.Add($"ai-phone:{phone}");
+        return read with
+        {
+            Plate = plates.Count > 0 ? plates[0] : null,
+            Plates = plates,
+            Driver = driver ?? read.Driver,
+            Phone = phone ?? read.Phone,
+            MatchedRules = rules,
+            Warnings = warnings,
+            DetailsReply = read.Status is null && read.JobNumber is null && read.Container is null
+                && (read.References ?? []).Count == 0 && read.SealNumber is null
+                && (plates.Count > 0 || ((phone ?? read.Phone) is not null && (driver ?? read.Driver) is not null)),
+        };
+    }
+
+    /// <summary>
+    /// The reading with the model's details put back from a stored row's
+    /// rules ("ai-plate:…, ai-driver:…, ai-phone:…"), so a row the worker
+    /// read with the model's help reads the same on the review screen and
+    /// at approval. A row with none is returned as it is.
+    /// </summary>
+    public static Parsed WithStoredDetails(Parsed read, string? matchedRules)
+    {
+        if (string.IsNullOrWhiteSpace(matchedRules) || !matchedRules.Contains("ai-details", StringComparison.Ordinal)) return read;
+        string? plate = null, driver = null, phone = null;
+        foreach (var token in matchedRules.Split(", ", StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (token.StartsWith("ai-plate:", StringComparison.Ordinal)) plate = token["ai-plate:".Length..];
+            else if (token.StartsWith("ai-driver:", StringComparison.Ordinal)) driver = token["ai-driver:".Length..];
+            else if (token.StartsWith("ai-phone:", StringComparison.Ordinal)) phone = token["ai-phone:".Length..];
+        }
+        return plate is null && driver is null && phone is null ? read : WithDetails(read, plate, driver, phone);
     }
 
     /// <summary>Every plate in a message, as written, without duplicates.</summary>
@@ -854,12 +957,22 @@ public static class LineParser
         if (driver is not null) rules.Add($"driver:{driver}");
         var details = plates.Count > 0 || phone is not null || driver is not null || seal is not null
             || (container is not null && (jobNumber is not null || references.Count > 0));
+        // The reminder's answer: a truck and no job named. A plate is enough;
+        // a name and a number are, when a label says that is what they are.
+        var detailsReply = !question && status is null && jobNumber is null && container is null
+            && references.Count == 0 && seal is null
+            && (plates.Count > 0 || (phone is not null && driver is not null
+                && DetailLabels.Any(label => text.Contains(label, StringComparison.OrdinalIgnoreCase))));
+        // Its reference is what it answers; the warning would file it unread.
+        if (detailsReply) warnings.Remove("no-reference");
 
         var delayed = delayCategory is not null && !question;
         // A message that names a job and gives its truck has said something
-        // worth applying, with or without a status.
+        // worth applying, with or without a status — and so has one that
+        // gives its truck in answer to a reminder, naming no job.
         var understood = status is not null || delayed || eta is not null
-            || (details && (jobNumber is not null || container is not null || references.Count > 0));
+            || (details && (jobNumber is not null || container is not null || references.Count > 0))
+            || detailsReply;
         if (question) warnings.Add("question");
         else if (!understood) warnings.Add("nothing-understood");
 
@@ -869,6 +982,7 @@ public static class LineParser
             Remark: text,
             Confidence: Score(jobNumber, status, delayed, eta, warnings, container, plates.Count > 0 || references.Count > 0),
             MatchedRules: rules,
+            DetailsReply: detailsReply,
             Warnings: warnings,
             Container: container,
             Plates: plates,

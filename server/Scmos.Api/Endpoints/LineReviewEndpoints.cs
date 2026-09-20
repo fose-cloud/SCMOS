@@ -66,6 +66,7 @@ public static class LineReviewEndpoints
                     one.RetryCount,
                     one.MessageType,
                     one.ImageReading,
+                    one.MatchedRules,
                 })
                 .ToListAsync(token);
 
@@ -84,7 +85,7 @@ public static class LineReviewEndpoints
                     // the box, the plates and the arrival clock are what a
                     // reviewer needs to see. Deterministic and cheap.
                     var read = LinePhotoPairing.WithPhoto(LineParser.Parse(one.RawText, one.ReceivedAt),
-                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading });
+                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading, MatchedRules = one.MatchedRules });
                     return new
                     {
                     one.Id, one.ReceivedAt, one.RawText, one.JobNumber, one.ParsedStatus,
@@ -125,7 +126,7 @@ public static class LineReviewEndpoints
                 .Select(one => new
                 {
                     one.Id, one.JobKey, one.LineGroupId, one.MessageType, one.RawText, one.ReceivedAt,
-                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage, one.ImageReading,
+                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage, one.ImageReading, one.MatchedRules,
                 })
                 .ToListAsync(token);
 
@@ -153,7 +154,7 @@ public static class LineReviewEndpoints
                 {
                     var one = item.Row;
                     var read = LinePhotoPairing.WithPhoto(LineParser.Parse(one.RawText, one.ReceivedAt),
-                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading });
+                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading, MatchedRules = one.MatchedRules });
                     var category = categories.GetValueOrDefault(item.JobKey, "");
                     return new
                     {

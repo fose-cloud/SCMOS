@@ -232,10 +232,41 @@ public static class LineParserCheck
                 $"{LineParser.Parse("LC2606594 ทะเบียน 70-1234 คนขับ นาย สมชาย ใจดี โทร 0812345678 ครับ", Received).Driver} {LineParser.Parse("LC2606594 ทะเบียน 70-1234 คนขับ นาย สมชาย ใจดี โทร 0812345678 ครับ", Received).Phone}"),
             ("a name with no plate and no number is not a truck",
                 LineParser.Parse("260600800773 สมชาย ใจดี", Received).Driver is null, "-"),
+            ("a labelled name and number with no plate is the reminder's answer; a number in a line of chat is not",
+                LineParser.Parse("พขร.สมชาย ใจดี 081-2345678", Received) is { DetailsReply: true, Warnings.Count: 0 }
+                    && !LineParser.Parse("รับทราบครับ 081-2345678", Received).DetailsReply
+                    && !LineParser.Parse("โทร 081-2345678", Received).DetailsReply
+                    && !LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received).DetailsReply
+                    && !LineParser.Parse("70-1234 ถึงโรงงาน 10:20", Received).DetailsReply,
+                string.Join(",", LineParser.Parse("พขร.สมชาย ใจดี 081-2345678", Received).Warnings)),
+            ("what might be a truck's details is offered to the model; the room's chat is not",
+                LineParser.LooksLikeDetails("เต๋า ใจเงิน 085 089 2487 71 5111 ชบ")
+                    && LineParser.LooksLikeDetails("คนขับ สมชาย")
+                    && !LineParser.LooksLikeDetails("สวัสดีครับ")
+                    && !LineParser.LooksLikeDetails("รอลูกค้าขอ EARLY OPENGATE ครับ"), "-"),
+            ("the model's reading is held to the rules' shapes before it is believed",
+                LineMessageAnalyst.ReadDetails("{\"isTruckDetails\":true,\"driver\":\"เต๋า ใจเงิน\",\"phone\":\"085 089 2487\",\"plate\":\"71 5111 ชบ\"}") is { Driver: "เต๋า ใจเงิน", Phone: "085-0892487", Plate: null }
+                    && LineMessageAnalyst.ReadDetails("{\"isTruckDetails\":true,\"driver\":null,\"phone\":null,\"plate\":\"71-5111ชบ.\"}") is { Plate: "71-5111", Driver: null }
+                    && LineMessageAnalyst.ReadDetails("{\"isTruckDetails\":false,\"driver\":\"x\",\"phone\":null,\"plate\":null}") is null
+                    && LineMessageAnalyst.ReadDetails("{\"isTruckDetails\":true,\"driver\":null,\"phone\":\"abc\",\"plate\":\"1500\"}") is null
+                    && LineMessageAnalyst.ReadDetails("not json") is null, "-"),
+            ("the model's details make the reading the reminder's answer",
+                LineParser.WithDetails(LineParser.Parse("เต๋า ใจเงิน 085 089 2487 71 5111 ชบ", Received), "71-5111", "เต๋า ใจเงิน", "085-0892487")
+                    is { DetailsReply: true, Warnings.Count: 0, Plates: ["71-5111"], Driver: "เต๋า ใจเงิน", Phone: "085-0892487" } and { MatchedRules: var rules } && rules.Contains("ai-details"),
+                string.Join(",", LineParser.WithDetails(LineParser.Parse("เต๋า ใจเงิน 085 089 2487 71 5111 ชบ", Received), "71-5111", "เต๋า ใจเงิน", "085-0892487").Warnings)),
+            ("a row the model helped read reads the same on the screen and at approval, from the rules it stored",
+                LineParser.WithStoredDetails(LineParser.Parse("เต๋า ใจเงิน 085 089 2487 71 5111 ชบ", Received),
+                    string.Join(", ", LineParser.WithDetails(LineParser.Parse("เต๋า ใจเงิน 085 089 2487 71 5111 ชบ", Received), "71-5111", "เต๋า ใจเงิน", "085-0892487").MatchedRules))
+                    is { DetailsReply: true, Plates: ["71-5111"], Driver: "เต๋า ใจเงิน", Phone: "085-0892487" }
+                && LineParser.WithStoredDetails(LineParser.Parse("สวัสดีครับ", Received), "").DetailsReply == false, "-"),
             ("a status report with a plate reads the plate and no name out of the status words",
                 LineParser.Parse("260600800773 70-1234 ถึงลูกค้าแล้ว 10.25", Received) is { Driver: null, Plates: ["70-1234"], Status: "DELIVERED" }, "-"),
             ("such a message is understood, and would be matched",
                 LineParser.Parse("260600800773 70-1234 สมชาย ใจดี 081-2345678", Received) is { Warnings.Count: 0, HasDetails: true }, "-"),
+            // 18 Sep 2026: the answer to the 09:00 reminder, quoting it, naming no job — "พขร." is the driver's title, the plate carries its province.
+            ("the reminder's answer as a haulier wrote it: title, name, number, plate with province, no job named",
+                LineParser.Parse("พขร.เต๋า ใจเงิน\n085-089-2487\nทะเบียน71-5111ชบ. ค่ะ", Received) is { Plates: ["71-5111"], Driver: "เต๋า ใจเงิน", Phone: "085-0892487", JobNumber: null, Container: null, HasDetails: true, DetailsReply: true, Warnings.Count: 0 },
+                $"{string.Join("/", LineParser.Parse("พขร.เต๋า ใจเงิน\n085-089-2487\nทะเบียน71-5111ชบ. ค่ะ", Received).Plates ?? [])} | {LineParser.Parse("พขร.เต๋า ใจเงิน\n085-089-2487\nทะเบียน71-5111ชบ. ค่ะ", Received).Driver} | {LineParser.Parse("พขร.เต๋า ใจเงิน\n085-089-2487\nทะเบียน71-5111ชบ. ค่ะ", Received).Phone}"),
 
             /* ---- 17 Sep 2026: ถึงโรงงาน means ถึงแล้ว, and a room's small talk is left alone ---- */
 
