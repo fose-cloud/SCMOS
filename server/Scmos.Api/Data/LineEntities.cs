@@ -24,6 +24,8 @@ public static class EventSource
 
     public const string Line = "LINE";
     public const string System = "SYSTEM";
+    /// <summary>A carrier's own system, through the Carrier TMS API (20 Sep 2026).</summary>
+    public const string CarrierApi = "TMS";
 
     public static string Read(string? value)
     {

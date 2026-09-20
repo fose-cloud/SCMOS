@@ -76,3 +76,56 @@ public static class CarrierApiClientStatus
     public const string Active = "active";
     public const string Revoked = "revoked";
 }
+
+/// <summary>
+/// One write a carrier's TMS made, by its Idempotency-Key: what the request
+/// was (its hash) and what SCMOS answered, so a retry of the same request
+/// gets the same answer and never a second acceptance. A row with no
+/// answer yet is a request still being processed. Kept for
+/// <see cref="Rules.CarrierApi.IdempotencyDays"/>, then swept by the next
+/// write from that client.
+/// </summary>
+public class CarrierApiRequest
+{
+    public long Id { get; set; }
+
+    /// <summary>The key's row — <c>carrier_api_clients.id</c>. A key is scoped to its client; two clients may use the same key text.</summary>
+    public long ClientRowId { get; set; }
+
+    public string IdempotencyKey { get; set; } = "";
+
+    /// <summary>SHA-256 of method, path and body — <see cref="Rules.CarrierApi.RequestHash"/>.</summary>
+    public string RequestHash { get; set; } = "";
+
+    /// <summary>The HTTP status answered, or 0 while the request is being processed.</summary>
+    public int ResponseStatus { get; set; }
+
+    public string ResponseContentType { get; set; } = "";
+
+    public string ResponseBody { get; set; } = "";
+
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    public static void Configure(ModelBuilder model)
+    {
+        model.Entity<CarrierApiRequest>(entry =>
+        {
+            entry.ToTable("carrier_api_requests");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.ClientRowId).HasColumnName("client_row_id");
+            entry.Property(e => e.IdempotencyKey).HasColumnName("idempotency_key").HasMaxLength(128);
+            entry.Property(e => e.RequestHash).HasColumnName("request_hash").HasMaxLength(64);
+            entry.Property(e => e.ResponseStatus).HasColumnName("response_status");
+            entry.Property(e => e.ResponseContentType).HasColumnName("response_content_type").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.ResponseBody).HasColumnName("response_body").HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.CompletedAt).HasColumnName("completed_at");
+            // One row per key per client, enforced by the database: two
+            // requests racing with one key cannot both be "first".
+            entry.HasIndex(e => new { e.ClientRowId, e.IdempotencyKey }).IsUnique().HasDatabaseName("carrier_api_requests_key_idx");
+            entry.HasIndex(e => e.CreatedAt).HasDatabaseName("carrier_api_requests_created_idx");
+        });
+    }
+}

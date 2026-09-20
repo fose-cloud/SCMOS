@@ -126,6 +126,48 @@ public static class CarrierApiCheck
             names.Any(one => one.Contains("rate") || one.Contains("cost") || one.Contains("sell") || one.Contains("margin") || one.Contains("trucker")), false);
 
         Console.WriteLine();
+        /* ---- phase 2: idempotency ---- */
+        failed += Say("an Idempotency-Key is kept as sent when it is printable ASCII", CarrierApi.IdempotencyKeyOf("  tms-42:accept/J25  "), "tms-42:accept/J25");
+        failed += Say("a missing key is no key", CarrierApi.IdempotencyKeyOf(null), null);
+        failed += Say("a blank key is no key", CarrierApi.IdempotencyKeyOf("   "), null);
+        failed += Say("a key with a space inside is no key", CarrierApi.IdempotencyKeyOf("a b"), null);
+        failed += Say("a key over 128 characters is no key", CarrierApi.IdempotencyKeyOf(new string('k', 129)), null);
+        failed += Say("128 exactly is a key", CarrierApi.IdempotencyKeyOf(new string('k', 128))?.Length, 128);
+        failed += Say("a key with a non-ASCII character is no key", CarrierApi.IdempotencyKeyOf("คีย์"), null);
+        var hashA = CarrierApi.RequestHash("post", "/api/carrier/v1/assignments/J25/accept", "{\"licence\":\"70-1234\"}");
+        failed += Say("the request hash is 64 hex characters", hashA.Length == 64 && hashA.All(char.IsAsciiHexDigitLower), true);
+        failed += Say("the same request hashes the same, whatever the case of the method", CarrierApi.RequestHash("POST", "/api/carrier/v1/assignments/J25/accept", "{\"licence\":\"70-1234\"}"), hashA);
+        failed += Say("a different body is a different request", CarrierApi.RequestHash("POST", "/api/carrier/v1/assignments/J25/accept", "{\"licence\":\"70-1235\"}") == hashA, false);
+        failed += Say("a different path is a different request", CarrierApi.RequestHash("POST", "/api/carrier/v1/assignments/J26/accept", "{\"licence\":\"70-1234\"}") == hashA, false);
+        failed += Say("a reused key with another request is 422", CarrierApi.ProblemOf(CarrierApi.KeyReused).Status, 422);
+        failed += Say("a request still in flight is 409", CarrierApi.ProblemOf(CarrierApi.InProgress).Status, 409);
+
+        Console.WriteLine();
+        /* ---- phase 2: the truck ---- */
+        var (full, fullProblems, fullWarnings) = CarrierApi.ReadTruck(" 71-5111 ชบ. ", "เต๋า ใจเงิน", "085 089 2487", "temu 524690-2", " SL123 ", requireTruck: true);
+        failed += Say("a plate with its province is a plate", fullProblems.Count == 0 && full.Licence == "71-5111 ชบ.", true);
+        failed += Say("the phone is written back as the register writes one", full.Contact, "085-0892487");
+        failed += Say("the container is normalised to four letters and seven digits", full.Container, "TEMU5246902");
+        failed += Say("a genuine container draws no warning", fullWarnings.Count, 0);
+        failed += Say("the seal is trimmed", full.Seal, "SL123");
+        var (_, missing, _) = CarrierApi.ReadTruck("", "", "", null, null, requireTruck: true);
+        failed += Say("an acceptance without plate, driver and number names all three", missing.Count, 3);
+        var (partial, partialProblems, _) = CarrierApi.ReadTruck(null, null, "081-2345678", null, null, requireTruck: false);
+        failed += Say("a truck update may send one cell", partialProblems.Count == 0 && partial.Contact == "081-2345678" && partial.Licence == "", true);
+        failed += Say("an empty update is empty", CarrierApi.ReadTruck(null, null, null, null, null, requireTruck: false).Fields.IsEmpty, true);
+        var (_, badPlate, _) = CarrierApi.ReadTruck("1500", "x", "081-2345678", null, null, requireTruck: true);
+        failed += Say("digits with no dash are not a plate", badPlate.Count == 1 && badPlate[0].StartsWith("licence", StringComparison.Ordinal), true);
+        var (_, badPhone, _) = CarrierApi.ReadTruck("70-1234", "x", "12345", null, null, requireTruck: true);
+        failed += Say("five digits are not a phone number", badPhone.Count == 1 && badPhone[0].StartsWith("contact", StringComparison.Ordinal), true);
+        var (_, badBox, _) = CarrierApi.ReadTruck(null, null, null, "TEMU12", null, requireTruck: false);
+        failed += Say("a container of the wrong shape is refused", badBox.Count == 1 && badBox[0].StartsWith("container", StringComparison.Ordinal), true);
+        var (typo, typoProblems, typoWarnings) = CarrierApi.ReadTruck(null, null, null, "TEMU7592765", null, requireTruck: false);
+        failed += Say("a container whose check digit disagrees is written as sent, with a warning — the register may carry the same number",
+            typoProblems.Count == 0 && typo.Container == "TEMU7592765" && typoWarnings.Count == 1, true);
+        var (_, longSeal, _) = CarrierApi.ReadTruck(null, null, null, null, new string('s', 41), requireTruck: false);
+        failed += Say("a seal over forty characters is refused", longSeal.Count, 1);
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0 ? "All Carrier API checks passed." : $"{failed} Carrier API check(s) FAILED.");
         return failed == 0 ? 0 : 1;
     }

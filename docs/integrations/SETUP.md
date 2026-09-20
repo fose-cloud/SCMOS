@@ -234,7 +234,7 @@ them. What is needed is a machine credential.
 
 ## 5. Carrier TMS API
 
-Live since v2.7.52 (20 Sep 2026), reads only. A carrier's TMS calls
+Live since v2.7.52 (20 Sep 2026); writes — accept, decline, the truck's details — since v2.7.53. A carrier's TMS calls
 `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` with a key the
 department issues on **Integrations → Carrier API** (needs `ManageSuppliers`).
 The contract is [carrier-tms/SCMOS_CARRIER_TMS_API_V1.md](carrier-tms/SCMOS_CARRIER_TMS_API_V1.md);
@@ -243,7 +243,10 @@ why it is shaped that way is the [assessment](carrier-tms/SCMOS_CARRIER_TMS_ASSE
 Nothing has to be set for it to work. The key is stored as a hash in
 `carrier_api_clients` (migration `20260920013104_CarrierApiClients`, applied by
 the release's `--migrate`); the supplier a key speaks for is the row's
-`supplier_id`, never anything in the request.
+`supplier_id`, never anything in the request. Writes are kept by their
+`Idempotency-Key` in `carrier_api_requests` (migration
+`20260920091226_CarrierApiRequests`) for 30 days, so a retried request is
+answered, not run again.
 
 ### App settings on the API
 

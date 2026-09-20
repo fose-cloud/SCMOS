@@ -46,7 +46,34 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
     /// carries the new value answers half the question, and the half it drops
     /// is the one somebody needs when a plate turns out to be wrong.
     /// </param>
-    public record Result(bool Ok, string Message, string Before = "");
+    /// <param name="Code">Why it was refused, for a caller that answers in codes rather than sentences — one of <see cref="ResultCode"/>; empty when Ok.</param>
+    /// <param name="Conflicts">Cells the register already holds with a different value, when the refusal is <see cref="ResultCode.Conflict"/>.</param>
+    /// <param name="Written">The cells the call wrote, by name.</param>
+    /// <param name="Skipped">Cells sent with the value the register already held — nothing to write, nothing wrong.</param>
+    /// <param name="Previous">What each written cell held before, as written — a placeholder such as "-" counts as empty for the write and is still recorded here.</param>
+    public record Result(bool Ok, string Message, string Before = "", string Code = "",
+        IReadOnlyList<Conflict>? Conflicts = null, IReadOnlyDictionary<string, string>? Written = null,
+        IReadOnlyList<string>? Skipped = null, IReadOnlyDictionary<string, string>? Previous = null);
+
+    /// <summary>A cell the register holds with one value while the caller sent another.</summary>
+    public record Conflict(string Field, string Current, string Sent);
+
+    public static class ResultCode
+    {
+        public const string NoCompany = "no-company";
+        public const string Invalid = "invalid";
+        /// <summary>No request waiting for this carrier's answer on that job.</summary>
+        public const string NotOffered = "not-offered";
+        /// <summary>The register does not name this carrier on that job.</summary>
+        public const string NotHeld = "not-held";
+        public const string Closed = "closed";
+        public const string Conflict = "conflict";
+        public const string Failed = "failed";
+    }
+
+    /// <summary>The cells the truck's details live in, in the order the messages name them.</summary>
+    private static readonly (string Name, string Label)[] TruckCells =
+        [("licence", "ทะเบียน"), ("driver", "คนขับ"), ("contact", "เบอร์"), ("container", "เลขตู้"), ("seal", "เลขซีล")];
 
     /// <summary>
     /// The supplier this person speaks for, or null when they speak for nobody.
@@ -166,16 +193,30 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
         string driver, string contact, CancellationToken token)
     {
         var company = await CompanyOfAsync(user, token);
-        if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา");
+        if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", Code: ResultCode.NoCompany);
 
         licence = licence.Trim();
         driver = driver.Trim();
         contact = contact.Trim();
 
-        if (licence.Length == 0) return new Result(false, "ต้องระบุทะเบียนรถ");
-        if (driver.Length == 0) return new Result(false, "ต้องระบุชื่อ-สกุลพนักงานขับรถ");
-        if (contact.Length == 0) return new Result(false, "ต้องระบุเบอร์โทรพนักงานขับรถ");
+        if (licence.Length == 0) return new Result(false, "ต้องระบุทะเบียนรถ", Code: ResultCode.Invalid);
+        if (driver.Length == 0) return new Result(false, "ต้องระบุชื่อ-สกุลพนักงานขับรถ", Code: ResultCode.Invalid);
+        if (contact.Length == 0) return new Result(false, "ต้องระบุเบอร์โทรพนักงานขับรถ", Code: ResultCode.Invalid);
 
+        return await AcceptForAsync(company, jobKey, licence, driver, contact, "", "", user.Signature, token);
+    }
+
+    /// <summary>
+    /// The acceptance for a supplier the caller has settled — the portal
+    /// through <see cref="CompanyOfAsync"/>, the Carrier TMS API through its
+    /// key — with the plate, the driver and the number already checked by
+    /// the caller. The box and the seal (an export's) go only into empty
+    /// cells; one the register holds with another value is a conflict, and
+    /// nothing is written.
+    /// </summary>
+    public async Task<Result> AcceptForAsync(Supplier company, string jobKey, string licence, string driver,
+        string contact, string container, string seal, string by, CancellationToken token)
+    {
         var names = await NamesOfAsync(company, token);
 
         // The request is the authority. Without one addressed to this carrier
@@ -186,10 +227,7 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
             .ToListAsync(token);
         var ours = request.FirstOrDefault(r => names.Contains(r.Carrier.Trim()));
         if (ours is null)
-            return new Result(false, "งานนี้ไม่ได้ถูกส่งมาให้บริษัทนี้ หรือถูกตอบไปแล้ว");
-
-        ours.Outcome = "confirmed";
-        ours.RespondedAt = DateTimeOffset.UtcNow;
+            return new Result(false, "งานนี้ไม่ได้ถูกส่งมาให้บริษัทนี้ หรือถูกตอบไปแล้ว", Code: ResultCode.NotOffered);
 
         // Read before writing. There is no other copy: the register holds
         // current state only, and once these three fields are overwritten the
@@ -199,16 +237,31 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
             ? $"{Value(fields, "trucker")} · {Value(fields, "licence")} · {Value(fields, "driver")} · {Value(fields, "contact")}"
             : "";
 
-        var saved = await jobs.PatchAsync(jobKey, new Dictionary<string, string>
+        var writes = new Dictionary<string, string>
         {
             ["trucker"] = ours.Carrier,
             ["licence"] = licence,
             ["driver"] = driver,
             ["contact"] = contact,
             ["status"] = JobStatus.SupplierConfirmed,
-        }, user.Signature, token);
+        };
+        // The box and the seal are not the acceptance; they are offered to
+        // empty cells, and a cell the department keyed differently stops the
+        // whole call before the request is answered.
+        var conflicts = new List<Conflict>();
+        var skipped = new List<string>();
+        var previous = new Dictionary<string, string>();
+        Offer(writes, conflicts, skipped, previous, fields, "container", container);
+        Offer(writes, conflicts, skipped, previous, fields, "seal", seal);
+        if (conflicts.Count > 0)
+            return new Result(false, Describe(conflicts), Code: ResultCode.Conflict, Conflicts: conflicts);
 
-        if (!saved) return new Result(false, "บันทึกข้อมูลรถไม่สำเร็จ");
+        ours.Outcome = "confirmed";
+        ours.RespondedAt = DateTimeOffset.UtcNow;
+
+        var saved = await jobs.PatchAsync(jobKey, writes, by, token);
+
+        if (!saved) return new Result(false, "บันทึกข้อมูลรถไม่สำเร็จ", Code: ResultCode.Failed);
 
         // Any other carrier still holding an open invitation for this job is no
         // longer being asked. Leaving those pending would have two carriers
@@ -221,21 +274,27 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
         }
 
         await db.SaveChangesAsync(token);
-        return new Result(true, $"รับงาน {jobKey} แล้ว · {licence} · {driver}", was);
+        return new Result(true, $"รับงาน {jobKey} แล้ว · {licence} · {driver}", was, Written: writes, Skipped: skipped, Previous: previous);
     }
 
     public async Task<Result> DeclineAsync(AppUser user, string jobKey, string reason,
         CancellationToken token)
     {
         var company = await CompanyOfAsync(user, token);
-        if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา");
-        if (reason.Trim().Length == 0) return new Result(false, "ต้องระบุเหตุผลที่รับงานไม่ได้");
+        if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", Code: ResultCode.NoCompany);
+        return await DeclineForAsync(company, jobKey, reason, token);
+    }
+
+    /// <summary>The refusal for a supplier the caller has settled — see <see cref="AcceptForAsync"/>.</summary>
+    public async Task<Result> DeclineForAsync(Supplier company, string jobKey, string reason, CancellationToken token)
+    {
+        if (reason.Trim().Length == 0) return new Result(false, "ต้องระบุเหตุผลที่รับงานไม่ได้", Code: ResultCode.Invalid);
 
         var names = await NamesOfAsync(company, token);
         var ours = (await db.SupplierRequests
                 .Where(r => r.JobKey == jobKey && r.Outcome == "pending").ToListAsync(token))
             .FirstOrDefault(r => names.Contains(r.Carrier.Trim()));
-        if (ours is null) return new Result(false, "ไม่พบคำขอที่ยังรอตอบสำหรับบริษัทนี้");
+        if (ours is null) return new Result(false, "ไม่พบคำขอที่ยังรอตอบสำหรับบริษัทนี้", Code: ResultCode.NotOffered);
 
         ours.Outcome = "rejected";
         ours.Reason = reason.Trim();
@@ -247,6 +306,68 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
         // carrier's who just said no.
         return new Result(true, "แจ้งปฏิเสธงานแล้ว");
     }
+
+    /// <summary>
+    /// The truck's details on a job this carrier holds, written into the
+    /// cells that are empty — the rule every outside writer follows (LINE's
+    /// approval writes the same way). A cell already holding what was sent
+    /// is skipped; one holding something else is a conflict, and then
+    /// nothing is written: the register's value stands and the person who
+    /// keyed it changes it on the grid. A closed job takes nothing.
+    /// </summary>
+    public async Task<Result> UpdateTruckForAsync(Supplier company, string jobKey, string licence, string driver,
+        string contact, string container, string seal, string by, CancellationToken token)
+    {
+        var names = await NamesOfAsync(company, token);
+        var before = await jobs.SnapshotAsync([jobKey], token);
+        if (!before.TryGetValue(jobKey, out var fields) || !names.Contains(fields.GetValueOrDefault("trucker", "").Trim()))
+            return new Result(false, "งานนี้ไม่ได้อยู่กับบริษัทนี้", Code: ResultCode.NotHeld);
+        var status = fields.GetValueOrDefault("status", "");
+        if (string.Equals(status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+            return new Result(false, $"งานนี้ปิดแล้ว ({status})", Code: ResultCode.Closed);
+
+        var writes = new Dictionary<string, string>();
+        var conflicts = new List<Conflict>();
+        var skipped = new List<string>();
+        var previous = new Dictionary<string, string>();
+        Offer(writes, conflicts, skipped, previous, fields, "licence", licence);
+        Offer(writes, conflicts, skipped, previous, fields, "driver", driver);
+        Offer(writes, conflicts, skipped, previous, fields, "contact", contact);
+        Offer(writes, conflicts, skipped, previous, fields, "container", container);
+        Offer(writes, conflicts, skipped, previous, fields, "seal", seal);
+        if (conflicts.Count > 0)
+            return new Result(false, Describe(conflicts), Code: ResultCode.Conflict, Conflicts: conflicts, Skipped: skipped);
+        if (writes.Count == 0)
+            return new Result(true, "งานมีข้อมูลเหล่านี้อยู่แล้ว", Written: writes, Skipped: skipped);
+
+        var was = string.Join(" · ", TruckCells.Where(cell => writes.ContainsKey(cell.Name)).Select(cell => Value(fields, cell.Name)));
+        var saved = await jobs.PatchAsync(jobKey, writes, by, token);
+        if (!saved) return new Result(false, "บันทึกข้อมูลรถไม่สำเร็จ", Code: ResultCode.Failed);
+        return new Result(true, "บันทึก " + string.Join(" · ", TruckCells.Where(cell => writes.ContainsKey(cell.Name)).Select(cell => $"{cell.Label} {writes[cell.Name]}")),
+            was, Written: writes, Skipped: skipped, Previous: previous);
+    }
+
+    /// <summary>
+    /// A value offered to one cell: written when the cell is empty, skipped
+    /// when the cell already says so, a conflict when it says otherwise. An
+    /// empty offer is no offer.
+    /// </summary>
+    private static void Offer(Dictionary<string, string> writes, List<Conflict> conflicts, List<string> skipped,
+        Dictionary<string, string> previous, IReadOnlyDictionary<string, string>? fields, string name, string value)
+    {
+        if (value.Length == 0) return;
+        var raw = fields?.GetValueOrDefault(name, "") ?? "";
+        var current = Formats.Clean(raw);
+        if (current.Length == 0) { writes[name] = value; previous[name] = raw; }
+        else if (string.Equals(current, value, StringComparison.OrdinalIgnoreCase)) skipped.Add(name);
+        else conflicts.Add(new Conflict(name, current, value));
+    }
+
+    private static string Describe(IReadOnlyList<Conflict> conflicts) =>
+        "งานมี " + string.Join(" · ", conflicts.Select(one =>
+            $"{(TruckCells.FirstOrDefault(cell => cell.Name == one.Field).Label ?? one.Field)} {one.Current} อยู่แล้ว (ส่งมา {one.Sent})"))
+        + " — แก้ในตารางงานถ้าต้องการ";
 
     private static CarrierJob Describe(System.Text.Json.JsonElement row, string key, SupplierRequest? request) =>
         new(key, Field(row, "jobCode"), Field(row, "customer"), Field(row, "destination"),

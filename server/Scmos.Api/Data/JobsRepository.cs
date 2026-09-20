@@ -152,11 +152,15 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
             // licence, driver and planTime live in the job's JSON rather than in
             // a column, so they are read from there. A row that will not parse
             // simply contributes no old values — the audit says "—", which is
-            // true, rather than failing the save.
+            // true, rather than failing the save. contact and seal joined the
+            // list on 20 Sep 2026: the Carrier TMS API writes them only into
+            // empty cells, and a snapshot without them read every cell as
+            // empty — the portal's "before" for contact had been "(ว่าง)" all
+            // along for the same reason.
             try
             {
                 if (JsonNode.Parse(row.Data) is JsonObject job)
-                    foreach (var name in new[] { "licence", "driver", "planTime", "arrDate", "closingDate" })
+                    foreach (var name in new[] { "licence", "driver", "contact", "seal", "planTime", "arrDate", "closingDate" })
                         fields[name] = job[name]?.ToString() ?? "";
             }
             catch (JsonException) { /* unparseable row: no old values to report */ }

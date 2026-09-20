@@ -1,6 +1,6 @@
 # SCMOS Carrier TMS API — V1 contract
 
-Phase 1 (reads) · live from v2.7.52, 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
+Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
 
 The [assessment](SCMOS_CARRIER_TMS_ASSESSMENT.md) says why the API is shaped this way. This page is the contract a carrier's TMS is built against.
 
@@ -87,9 +87,48 @@ The `id` is the job's register key — the same key the carrier portal's accept/
 | `truck` | `{ licence, driver, contact }` — empty strings until known |
 | `seal` | the seal, on an export once loaded |
 | `arrival` | `{ date, dateText, time }` once the arrival is written, else `null` |
-| `request` | `{ id, quotedPrice, requestedAt, respondedAt }` when a supplier request exists, else `null` |
+| `request` | `{ id, quotedPrice, requestedAt, respondedAt }` on an `offered` row — the request waiting for this carrier's answer; `null` on an `accepted` row |
 
 Dates inside `requestedAt`/`respondedAt` are ISO 8601 with offset (UTC).
+
+## Writes (Phase 2)
+
+Every write needs an **`Idempotency-Key`** header: 1–128 printable ASCII characters, unique per request (a UUID does). A retry with the same key and the same method, path and body is answered from SCMOS's ledger with `Idempotent-Replayed: true` — the acceptance is never run twice. The same key with a different request is `422 idempotency-key-reused`; the same request while the first is still being processed is `409 in-progress`. Answers are kept for 30 days.
+
+Every write is audited under the key's name (`carrier-api:ck_…`, source `TMS`) with the previous value of each cell it changed.
+
+### `POST /assignments/{id}/accept`
+
+```json
+{ "licence": "71-5111 ชบ.", "driver": "เต๋า ใจเงิน", "contact": "085-089-2487", "container": "TEMU5246902", "seal": "SL-9" }
+```
+
+`licence`, `driver`, `contact` are required — the acceptance is the truck, as in the portal. `container` and `seal` (an export's) are optional and go **only into empty cells**; a cell the department keyed with a different value is `409 conflict` with the conflicts named, and nothing is written. Values are held to the register's standard: a Thai plate (province optional), a Thai phone written back as `0XX-XXXXXXX`, a container of four letters and seven digits (a check digit that disagrees is written as sent, with a warning — the register may carry the same number from the booking).
+
+What it does: the request waiting for this carrier is confirmed, every other carrier's open request on the job is cancelled, the job takes `trucker`, `licence`, `driver`, `contact` and status `SUPPLIER_CONFIRMED`.
+
+```json
+{
+  "message": "รับงาน J25 แล้ว · 71-5111 ชบ. · เต๋า ใจเงิน",
+  "jobKey": "J25", "status": "SUPPLIER_CONFIRMED",
+  "written": { "trucker": "SHORE", "licence": "71-5111 ชบ.", "driver": "เต๋า ใจเงิน", "contact": "085-0892487", "status": "SUPPLIER_CONFIRMED", "container": "TEMU5246902", "seal": "SL-9" },
+  "skipped": [], "warnings": [], "correlationId": "…"
+}
+```
+
+Refusals: `404` when the id is not in this carrier's lists; `409` with `group: "accepted"` when the job is already this carrier's (accepted once) or `reason: "not-offered"` when the request is no longer pending; `400` with `problems[]` for fields that cannot be read.
+
+### `POST /assignments/{id}/decline`
+
+`{ "reason": "รถไม่ว่าง" }` — required, at most 400 characters. The request is answered `rejected`; who is asked next stays the operator's decision. Afterwards the job is in neither list, so a second decline is `404`.
+
+### `PUT /assignments/{id}/truck`
+
+Any of `licence`, `driver`, `contact`, `container`, `seal` (at least one), on a job this carrier **holds** (`accepted`). Each goes only into an **empty** cell: a cell already holding the value sent is `skipped`, one holding a different value is a `409 conflict` — and then nothing at all is written; the register's value stands and the person who keyed it changes it on the grid. A `COMPLETED` or `CANCELLED` job takes nothing (`409`, `reason: "closed"`).
+
+```json
+{ "message": "บันทึก เลขซีล S-77", "jobKey": "J26", "written": { "seal": "S-77" }, "skipped": ["contact"], "warnings": [], "correlationId": "…" }
+```
 
 ## Refusals
 
@@ -101,7 +140,9 @@ Dates inside `requestedAt`/`respondedAt` are ISO 8601 with offset (UTC).
 | 404 | `not-found` · `urn:scmos:carrier-api:not-found` | the id is not this carrier's |
 | 400 | `invalid-request` · `urn:scmos:carrier-api:invalid-request` | `status`, `from`, `to`, page values that cannot be read |
 | 429 | `rate-limited` · `urn:scmos:carrier-api:rate-limited` | the minute's allowance is spent; `Retry-After: 60` |
-| 409 | `conflict` | reserved for Phase 2 writes |
+| 409 | `conflict` · `urn:scmos:carrier-api:conflict` | the write does not fit the assignment's state: already accepted, no longer offered, closed, or a cell already holding another value (`conflicts[]`) |
+| 409 | `in-progress` · `urn:scmos:carrier-api:in-progress` | the same Idempotency-Key is still being processed |
+| 422 | `idempotency-key-reused` · `urn:scmos:carrier-api:idempotency-key-reused` | the same Idempotency-Key with a different request |
 | 503 | `unavailable` | SCMOS could not answer; retry after the `Retry-After` if present |
 
 ```json
@@ -116,6 +157,6 @@ Dates inside `requestedAt`/`respondedAt` are ISO 8601 with offset (UTC).
 }
 ```
 
-## What is not in V1
+## What is not in V1 yet
 
-Accept / decline / truck details / status events (Phase 2–3, with `Idempotency-Key` and the owner's approval), webhooks (Phase 4), auto-apply for named carriers (Phase 5). The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.
+Status events — dispatched, arrived, delivered — queued for the job owner's approval like a LINE message (Phase 3), webhooks (Phase 4), auto-apply for named carriers (Phase 5). The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.

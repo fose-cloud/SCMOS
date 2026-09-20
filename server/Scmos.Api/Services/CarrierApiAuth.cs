@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Scmos.Api.Auth;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
 
@@ -22,7 +23,18 @@ namespace Scmos.Api.Services;
 public class CarrierApiAuth(ScmosDbContext db, ILogger<CarrierApiAuth> log)
 {
     /// <summary>A key that was found: the credential's public name and the supplier it speaks for.</summary>
-    public record Principal(long ClientRowId, string ClientId, string ClientName, Supplier Company);
+    public record Principal(long ClientRowId, string ClientId, string ClientName, Supplier Company)
+    {
+        /// <summary>
+        /// The credential as the register and the audit trail name it:
+        /// <c>updated_by</c> and <c>who</c> read "carrier-api:ck_…", the role is
+        /// the carrier's, and the source is its own — so "who set this plate"
+        /// answers with the carrier's system, not with a person or with LINE.
+        /// </summary>
+        public AppUser AsUser() => new(
+            UserId: $"carrier-api:{ClientId}", Email: "", DisplayName: $"{Company.Name} · {ClientName}",
+            Role: Roles.Subcontractor, OperatorId: "", Source: "carrier-api", Recognised: true);
+    }
 
     /// <summary>Where the principal is kept for the rest of the request, once the filter has resolved it.</summary>
     public const string ItemKey = "scmos.carrier-api.principal";
