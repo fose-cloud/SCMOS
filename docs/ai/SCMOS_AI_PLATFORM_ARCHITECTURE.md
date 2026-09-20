@@ -4,6 +4,8 @@ Phase 0 proposal · 14 September 2026 · baseline `a62d35a` (v2.6.4).
 
 Status: **design only, not implemented or enabled**. [Assessment](SCMOS_AI_PLATFORM_ASSESSMENT.md) contains actual-code evidence and limitations. [Implementation plan](SCMOS_AI_IMPLEMENTATION_PLAN.md) defines gates. This document supersedes neither historical release records nor existing business rules.
 
+Update, 20 September 2026 (v2.7.51): of the components in §3, `AiActionLevel`, `AiToolPolicy`, `ToolExecutor`, `QueryPolicyGuard`, `BusinessRuleRegistry` and `SourceScopeRegistry` now exist (Phases 1A–1C); the Operations reviewed-change pilot exists behind a switch that ships off; the IntentRouter, SemanticRegistry glossary, conversation context, multi-step audit and per-domain adapters do not. The LINE integration went live on 16 September and is the reference for the Communication adapter: rules first, the model second, its output validated against the rules' own shapes, every write approved by a person. See the assessment's re-assessment section for the KEEP / REUSE / EXTEND / ADD / AVOID CHANGING list.
+
 ## 1. Architecture decisions
 
 1. Extend the existing .NET modular application, AiGateway and AgentOrchestrator. No new backend, second gateway, duplicate SQL schema, or authentication system.

@@ -12,6 +12,79 @@ Remote `azure-dotnet-migration` was checked on 14 September and matches local HE
 
 `next-env.d.ts` was already dirty when discovery began; Next build also generates this file. It is not part of the proposed feature changes and was not staged or committed. Earlier documents dated 7 September are historical: their statements that Outlook/LINE and runtime audit do not exist are no longer current.
 
+**A re-assessment against v2.7.51 (20 September 2026) follows this preface; the original 14 September sections are kept beneath it as the evidence record and are marked where superseded.**
+
+---
+
+## Re-assessment — 20 September 2026 (v2.7.51)
+
+The Codex master specification was re-issued on 18–20 September with the same Phase 0 instruction. **This section is the Phase 0 deliverable for that re-issue.** It inspects the repository as it stands at v2.7.51 and records what has changed since the 14 September baseline; the sections below it remain the evidence record for what was true then and are marked where superseded. Nothing was implemented, migrated, enabled or deployed for this re-assessment.
+
+### What exists now that did not on 14 September
+
+| Specification component | State at v2.7.51 | Evidence |
+| --- | --- | --- |
+| AI Gateway | present — one entry (`AiGateway`), unchanged | `Services/AiGateway.cs` |
+| Agent Orchestrator | present; routes Operations only in live mode | `Ai/AgentOrchestrator.cs` |
+| Agent / Tool registry | present; eight descriptors, three connected Operations read tools, `AiToolPolicy` metadata (Phase 1A) | `Ai/AgentRegistry.cs`, `Ai/ToolRegistry.cs` |
+| Action levels | present — `AiActionLevel` (Read, Recommend, ApprovalRequired, Restricted), separate from `AiRisk` (1A) | `Ai/AiActionLevel.cs` |
+| Tool Executor / Query Policy Guard | **present (1B)** — the 14 Sep text "no generalized query policy guard was found" is superseded; the guard re-validates role/scope/audit immediately before the read and derives scope from the server identity | `Ai/ToolExecutor.cs`, `Ai/QueryPolicyGuard.cs` |
+| Business Rule Registry | **present (1C)** — four version-1/2 descriptors anchored to code: zero-grace on-time KPI (v2, calendar-aware), >30-minute lateness, workspace DELAY bucket, MonitorRules risk; customer-specific contracts resolve to *unknown*; metadata only, not yet in prompts, tool replies or audit | `Ai/Semantic/BusinessRuleRegistry.cs` |
+| Source scope registry | present (1C) — today / risk_today / delays / search grains, team/owner scope rechecked in the adapter | `Ai/Semantic/SourceScopeRegistry.cs` |
+| Approval engine | existing `approvals` table + **Operations reviewed-change pilot** (`/api/ai/operations-changes`: interpret → preview → propose → confirm), behind a durable admin switch that ships **off**; no model-issued write | `Ai/Operations/OperationsChange*.cs`, `Endpoints/OperationsChangeEndpoints.cs`, `Ai/OperationsControlService.cs` |
+| Audit | `ai_audit_logs` (execution) and `audit_events` (business) unchanged in purpose; the LINE work added ledgers on `audit_events` (actions `notify`, `chase`; fields = slots) | `Ai/SqlAiExecutionAudit.cs`, `Services/AuditService.cs` |
+| Control Tower | present, read-only, per-agent readiness display (1B) | `app/scmos/screens/AiControlTower.tsx` |
+| Communication channel | **LINE is live** (16 Sep): signed webhook, parser, matching, owner approval, four scheduled rounds, Friday summary, replies off, photo pairing, AI layout of multi-box messages and AI reading of details replies through `LineMessageAnalyst` — a *rule-first, model-second* pattern with the model's output validated against the parser's own shapes before it is believed | `Rules/Line*.cs`, `Services/Line*.cs`, [LINE docs](../integrations/line/) |
+| Document / model calls outside the gateway | `DocumentExtractor`, `ReportWriterService`, `LineImageReader`, `LineMessageAnalyst` call `ChatClient` directly — four now, not two; all share `OpenAiOptions`, none share `AiRunLimiter`/`ai_audit_logs` | `Services/*.cs` |
+| Observability | unchanged: no Application Insights connection on production, `ILogger` only; App Service application logging at Error | live app settings (14 Sep), `Program.cs` |
+| Secrets | unchanged: App Service settings, no Key Vault; `OpenAI__ApiKey`, `Line__*` set by the user in the Portal | live app settings |
+
+### Baseline facts that moved
+
+- Release v2.6.4 → **v2.7.51**; 42 migrations (`20260916051250_LineImageReading` latest); 59 `DbSet`s; 578 Node tests; the LINE check suite (`--check-line`) and 343 AI checks (`tests/Scmos.Ai.Checks`).
+- Register: 3,537 rows on the 15 Sep census (the 7,471 of 28 Aug is unexplained — do not quote either as current without a recount).
+- Dates: `Formats.IsDate / DateNumber / PartsOf` are calendar-aware since 15 Sep; the jobs PUT refuses newly keyed impossible dates (`Rules/JobDateInputGuard.cs`). The 14 Sep data-risk note on impossible dates is resolved at the input; legacy rows are untouched by design.
+- The skin: every screen but the Dashboard is white (`<main class="paper">`); any new AI screen inherits it.
+
+### Specification versus repository — where the spec's names map onto existing code
+
+| Spec name | Existing type (reuse, do not create) |
+| --- | --- |
+| IAiGateway / IAiModelProvider | `AiGateway`, `IAiProvider` (+ `OpenAiProvider`, `MockAiProvider`) |
+| Agent Orchestrator / Intent Router / Planner | `AgentOrchestrator` (router = agentId/page/default + deterministic clarification for change prefixes; **no NL multi-agent planner** yet) |
+| Tool Registry / Executor / Policy | `ToolRegistry` + `AiToolPolicy`, `ToolExecutor`, `QueryPolicyGuard` |
+| Permission Guard | `AiPermissionPolicy` over `Rules/Roles.cs` capabilities and `Rules/AiPermissions.cs` |
+| Business Semantic Layer | `SourceScopeRegistry` (+ `docs/ai/SCMOS_DOMAIN_MAP.md`); a concept glossary is **not** in code |
+| Business Rule Registry | `BusinessRuleRegistry` (four descriptors) |
+| Approval Engine | `approvals` table + Operations reviewed-change pilot; general execution/expiry/IDOR hardening (plan 1E) **not done** |
+| Audit Trail | `ai_audit_logs` (one tool per run — multi-step topology still the extension point) |
+| Conversation Context | **absent** (explicit-command resubmission only) |
+| Prompt Security | input limits/validation, server-composed facts, model never sees raw rows; LINE treats every message as data |
+| Data Access Policy | scope from server identity; evidence cap 50 rows; source scan uncapped and cached per instance (5 min) |
+| Feature flags | `AI:*` options, the durable Operations control switch, `Line__*` settings — configuration keys, not a flag framework |
+
+### Phase 1 status against the plan (§2 of the implementation plan)
+
+1A done · 1B done (dispatch extraction, clarification, readiness) · 1C done (rule + source descriptors, calendar fix) · **1D not started** (multi-step audit, redacted plan/correlation metadata, context pilot) · **1E not started** (approval listing/creation restriction — security item S1 still open; S2 partly addressed by the pilot's preview/confirm, not for the generic queue) · Phase 2 (Data Agent) not started.
+
+### KEEP / REUSE / EXTEND / ADD / AVOID CHANGING (Phase 1 onward)
+
+**KEEP** — one gateway; Operations as the regression baseline; read/recommend only; the Operations switch off; `ai_audit_logs` purpose; the LINE rule-first/model-second pattern; SCMOS services as the only data path.
+
+**REUSE** — every type in the mapping table above; `KpiEngine`/`KpiMeasures` (six measures), `CarrierScorecard`, `JobRules`, `MonitorRules`, `Formats`; `LineMessageAnalyst` as the template for any new bounded model task (JSON schema, strict, pure `Read*` validator, checked offline); `DelegationService`/`MayActOn` for who may approve; `NotificationService` for surfacing proposals.
+
+**EXTEND** — `AiAuditRules`/`AiAuditReader` to a multi-step topology before any cross-agent run; `BusinessRuleRegistry` with customer-effective rules only when a source (contract/workbook) exists; `AgentOrchestrator` with an intent router over *connected* tools; `AiPermissionPolicy` with the read scopes the Data Agent needs (KPI, scorecard, rates behind `ViewRates`); `SupplierEndpoints /ai/approvals` listing/creation restriction (S1) **before** the queue carries anything sensitive; the four direct `ChatClient` callers behind shared limits/audit through adapters.
+
+**ADD** — `IntentRouter` (bounded), `SemanticRegistry` (glossary from `SCMOS_DOMAIN_MAP.md`, versioned), Data Agent read adapters over `KpiService`/`CarrierScorecard` with provenance (period, filters, records assessed / not assessable, rule version), a conversation-context service (owner-bound, TTL), correlation-id propagation (web proxy → API → tool → audit), Application Insights **connection** (infrastructure decision, not code), the remaining documents the spec lists (agent catalogue, tool catalogue, business rules, approval model, data-access policy, test plan) — as living files under `docs/ai/`.
+
+**AVOID CHANGING** — `operation_jobs`, `audit_events`, `approvals` shapes without the schema review the plan requires; existing capability grants; the `{error}` API shape; the LINE decision/approval flow (it is now the department's daily instrument); any KPI formula (the OTD rule is zero-grace and customer contracts are unknown — the Data Agent labels, it does not decide); anything that would put a rule in a second place.
+
+### Recommended next slice
+
+Not the Data Agent yet. **1E first** (approval listing/creation scope, S1) because every later agent that recommends anything will land its proposals in that queue; then **1D** (multi-step audit + correlation id), then the Data Agent's first read (monthly volume/OTD for an explicit rule and period, customer/trucker filters) over `KpiService` with the provenance block. Each slice: build, `npm test`, `--check-*`, AI checks, no production toggle.
+
+---
+
 ## Current System Architecture
 
 SCMOS is an existing modular application, not a new agent application to scaffold. The web and API deploy separately. The database is the operational source of truth; AI must reuse the domain services rather than create its own jobs, customers, rates, or reporting facts.
@@ -127,7 +200,7 @@ Evidence: [JobRules](../../server/Scmos.Api/Rules/JobRules.cs), [KpiMeasures](..
 | MonitorRules.Judge | Excludes done/cancelled/unreadable plan dates and recorded arrival; overdue/unassigned/no carrier/no truck; near-term 2 days | Reuse priorities; do not invent risk weights or infer late from missing date |
 | Workspace delay bucket | Held/delayed status and recorded reason semantics | Not identical to measured arrival lateness or delay_records |
 
-There are six MeasureId members despite comments/catalogue text saying eight. IsMeasurable uses DateNumber checks; DateNumber is not strict calendar validation, while MinutesLate uses Moment and can return null. Impossible calendar dates are therefore a required regression test before publishing an AI KPI. No versioned, customer-effective BusinessRuleRegistry was found. Preserve current calculations and explicitly resolve/label their basis before adding customer-specific rules.
+There are six MeasureId members despite comments/catalogue text saying eight. IsMeasurable uses DateNumber checks; DateNumber is not strict calendar validation, while MinutesLate uses Moment and can return null. Impossible calendar dates are therefore a required regression test before publishing an AI KPI. No versioned, customer-effective BusinessRuleRegistry was found. Preserve current calculations and explicitly resolve/label their basis before adding customer-specific rules. *(Superseded 20 Sep: `DateNumber` is calendar-aware since 15 Sep and `BusinessRuleRegistry` carries the four system rules as versioned descriptors; customer-effective rules remain unknown.)*
 
 ## Audit Architecture
 
@@ -147,7 +220,7 @@ Evidence: [AiGateway](../../server/Scmos.Api/Services/AiGateway.cs), [AI directo
 - Max 4,000 message characters / 16 KiB body; evidence max 50 rows; default request timeout 20 seconds; instance-local 20 starts/minute and four in flight. Existing stricter limits should not be raised to the brief's generic 500/5,000-row examples.
 - Admin-only durable Operations switch, revision conflict check, atomic business audit, server emergency stop. WriteToolsReady remains false even if a configuration property is true. Do not alter existing switch state during discovery.
 - DocumentExtractor and ReportWriterService call ChatClient directly outside the new orchestrator/audit path. They reuse provider configuration, but not all common safety/telemetry controls; incorporate through compatibility adapters later, not a breaking replacement now.
-- No AI conversational session/context store, multi-agent planner, generalized query policy guard, or runtime Engineering/SRE connector was found.
+- No AI conversational session/context store, multi-agent planner, generalized query policy guard, or runtime Engineering/SRE connector was found. *(Superseded 20 Sep: `QueryPolicyGuard` and `ToolExecutor` exist since Phase 1B; context store, planner and connectors are still absent.)*
 
 ## Existing Integrations
 

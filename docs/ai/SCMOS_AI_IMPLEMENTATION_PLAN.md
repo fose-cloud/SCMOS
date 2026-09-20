@@ -13,6 +13,12 @@ Following the user's separate confirmation of supervisory approval, a bounded
 locally. It reuses approvals without migration; it is not completion of the general
 multi-agent dispatch/approval roadmap and does not yet enable model-issued writes.
 
+Update, 20 September 2026 (v2.7.51): 1A, 1B and 1C are implemented and deployed
+with the ordinary releases; 1D and 1E are not started; no agent beyond Operations
+is connected. The assessment's re-assessment section (20 Sep) recommends 1E, then
+1D, then the Data Agent's first read. LINE (live 16 Sep) is the working reference
+for Phase 4's rule-first / model-second shape.
+
 ## 1. What is already present
 
 Gateway/orchestrator/provider abstraction, eight registry descriptors, three connected Operations read tools, strict input validation, per-instance limits, durable AI audit, admin-only Operations switch, read-only Control Tower, existing approval queue, Entra/RBAC, operational/KPI/rate/document services, Graph mail and LINE ingestion/review, Blob, CI/CD and offline checks. Do not rebuild these.
