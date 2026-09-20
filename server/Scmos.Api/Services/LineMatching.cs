@@ -80,6 +80,46 @@ public static class LineMatching
     }
 
     /// <summary>
+    /// What a carrier's TMS event would do to the one job it named — Phase
+    /// 3 of the Carrier TMS API (20 Sep 2026). The speaker is the key's
+    /// supplier, standing where a LINE room stands; the candidates are the
+    /// job by its key, nothing looked up by number or box; the rule is the
+    /// same <see cref="LineAuthority.Decide"/>, so a TMS may move a job
+    /// exactly as far as its room may, and no further.
+    /// </summary>
+    public static async Task<LineAuthority.LineDecision> DecideForJobAsync(
+        ScmosDbContext db, int supplierId, string jobKey, LineParser.Parsed read, DateTimeOffset receivedAt,
+        CancellationToken token)
+    {
+        var group = await SpeakerForSupplierAsync(db, supplierId, token);
+        var candidates = group.Known
+            ? await ToCandidates(db.OperationJobs.AsNoTracking().Where(one => one.Key == jobKey), token)
+            : [];
+        var clue = new LineAuthority.Clue(
+            $"งาน {jobKey}", read.Container, read.Plates ?? [], read.Remark,
+            DateOnly.FromDateTime(receivedAt.ToOffset(TimeSpan.FromHours(7)).DateTime),
+            Details: read.HasDetails,
+            Arrival: read.ArrivalTime is not null,
+            Fills: LineAuthority.FillsOf(read));
+        return LineAuthority.Decide(group, read.Status, candidates, clue);
+    }
+
+    /// <summary>A supplier as a speaker — the registered name and its aliases, as a bound vendor room would carry them.</summary>
+    public static async Task<LineAuthority.SpeakerGroup> SpeakerForSupplierAsync(ScmosDbContext db, int supplierId, CancellationToken token)
+    {
+        var name = await db.Suppliers.AsNoTracking()
+            .Where(one => one.Id == supplierId)
+            .Select(one => one.Name)
+            .FirstOrDefaultAsync(token);
+        if (string.IsNullOrWhiteSpace(name)) return new(Known: false, Active: false, "", "");
+        var aliases = await db.SupplierAliases.AsNoTracking()
+            .Where(one => one.SupplierId == supplierId)
+            .Select(one => one.Alias)
+            .ToListAsync(token);
+        return new(Known: true, Active: true, LineGroupType.Vendor, name, aliases);
+    }
+
+    /// <summary>
     /// The room, and the supplier it speaks for.
     ///
     /// A mapping with no supplier behind it counts as unknown rather than as a

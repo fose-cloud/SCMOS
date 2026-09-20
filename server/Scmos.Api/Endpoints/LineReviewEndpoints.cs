@@ -67,6 +67,7 @@ public static class LineReviewEndpoints
                     one.MessageType,
                     one.ImageReading,
                     one.MatchedRules,
+                    one.RawPayload,
                 })
                 .ToListAsync(token);
 
@@ -84,8 +85,8 @@ public static class LineReviewEndpoints
                     // stores the number and the status, and since 16 Sep 2026
                     // the box, the plates and the arrival clock are what a
                     // reviewer needs to see. Deterministic and cheap.
-                    var read = LinePhotoPairing.WithPhoto(LineParser.Parse(one.RawText, one.ReceivedAt),
-                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading, MatchedRules = one.MatchedRules });
+                    var shape = new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading, MatchedRules = one.MatchedRules, RawPayload = one.RawPayload, RawText = one.RawText, ReceivedAt = one.ReceivedAt };
+                    var read = LineReadings.Of(shape);
                     return new
                     {
                     one.Id, one.ReceivedAt, one.RawText, one.JobNumber, one.ParsedStatus,
@@ -101,7 +102,8 @@ public static class LineReviewEndpoints
                     // the first real message in (16 Sep 2026) said "ยังไม่ผูก"
                     // and gave nothing to bind.
                     one.LineGroupId,
-                    group = names.GetValueOrDefault(one.LineGroupId, ""),
+                    // A TMS row has no room; the supplier and the credential stand in its place.
+                    group = LineReadings.EventOf(shape)?.GroupLabel ?? names.GetValueOrDefault(one.LineGroupId, ""),
                     };
                 }),
                 count = rows.Count,
@@ -120,13 +122,14 @@ public static class LineReviewEndpoints
             if (users.Current(context) is null) return ApiResults.SignInRequired;
 
             var rows = await db.LineEvents.AsNoTracking()
-                .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "" && one.MessageType == "text")
+                .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != ""
+                    && (one.MessageType == "text" || one.MessageType == CarrierEvent.MessageType))
                 .OrderByDescending(one => one.ReceivedAt)
                 .Take(300)
                 .Select(one => new
                 {
                     one.Id, one.JobKey, one.LineGroupId, one.MessageType, one.RawText, one.ReceivedAt,
-                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage, one.ImageReading, one.MatchedRules,
+                    one.ParsedStatus, one.ErrorCode, one.ErrorMessage, one.ImageReading, one.MatchedRules, one.RawPayload,
                 })
                 .ToListAsync(token);
 
@@ -153,8 +156,8 @@ public static class LineReviewEndpoints
                 }).Select(item =>
                 {
                     var one = item.Row;
-                    var read = LinePhotoPairing.WithPhoto(LineParser.Parse(one.RawText, one.ReceivedAt),
-                        new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading, MatchedRules = one.MatchedRules });
+                    var shape = new LineEvent { MessageType = one.MessageType, ImageReading = one.ImageReading, MatchedRules = one.MatchedRules, RawPayload = one.RawPayload, RawText = one.RawText, ReceivedAt = one.ReceivedAt };
+                    var read = LineReadings.Of(shape);
                     var category = categories.GetValueOrDefault(item.JobKey, "");
                     return new
                     {
@@ -164,7 +167,7 @@ public static class LineReviewEndpoints
                         detail = one.ErrorMessage,
                         kind = one.MessageType,
                         text = one.RawText,
-                        group = names.GetValueOrDefault(one.LineGroupId, ""),
+                        group = LineReadings.EventOf(shape)?.GroupLabel ?? names.GetValueOrDefault(one.LineGroupId, ""),
                         // What approving would write: the status as this job's
                         // ladder names it, and the arrival clock.
                         to = LineAuthority.ResolveSite(category, one.ParsedStatus),
@@ -452,8 +455,8 @@ public static class LineReviewEndpoints
              * stored verdict here would let the screen offer a button the
              * approval then refuses.
              */
-            var read = LinePhotoPairing.WithPhoto(LineParser.Parse(row.RawText, row.ReceivedAt), row);
-            var now = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
+            var read = LineReadings.Of(row);
+            var now = await LineReadings.DecideAsync(db, row, read, token);
 
             // Each offered row with its own status, because when a number covers
             // several the operator is choosing between them and the status is
@@ -642,8 +645,9 @@ public static class LineReviewEndpoints
          * moved it to another haulier — and this endpoint is the one that
          * writes, so it is the one that has to be right.
          */
-        var read = LinePhotoPairing.WithPhoto(LineParser.Parse(row.RawText, row.ReceivedAt), row);
-        var decision = await LineMatching.DecideAsync(db, row.LineGroupId, read, row.ReceivedAt, token);
+        var read = LineReadings.Of(row);
+        var decision = await LineReadings.DecideAsync(db, row, read, token);
+        var source = LineReadings.SourceOf(row);
 
         // "260900760321 3 ตู้ อยู่โรงงาน" for three rows: every row takes it.
         if (decision.Every)
@@ -721,20 +725,20 @@ public static class LineReviewEndpoints
         // Source LINE, not web. Six months from now "who set this job to
         // DELIVERED" should answer with the operator who approved it and
         // the fact that a vendor's message is why.
-        var why = body.Reason ?? $"LINE: {row.RawText}";
+        var why = body.Reason ?? LineReadings.ReasonOf(row);
         if (final.To.Length > 0)
             await audit.RecordAsync(user, AuditActions.StatusChange, "job", chosen,
-                row.JobNumber, "status", final.From, final.To, why, token, EventSource.Line);
+                row.JobNumber, "status", final.From, final.To, why, token, source);
         if (stamp.Date is not null)
         {
             await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                row.JobNumber, "arrDate", stamp.HadDate, stamp.Date, why, token, EventSource.Line);
+                row.JobNumber, "arrDate", stamp.HadDate, stamp.Date, why, token, source);
             await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                row.JobNumber, "arrTime", stamp.HadTime, stamp.Time!, why, token, EventSource.Line);
+                row.JobNumber, "arrTime", stamp.HadTime, stamp.Time!, why, token, source);
         }
         foreach (var (name, value) in truck.Fields)
             await audit.RecordAsync(user, AuditActions.Update, "job", chosen,
-                row.JobNumber, name, "", value, why, token, EventSource.Line);
+                row.JobNumber, name, "", value, why, token, source);
 
         row.ProcessingStatus = LineProcessing.Processed;
         row.JobKey = chosen;

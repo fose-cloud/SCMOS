@@ -168,6 +168,44 @@ public static class CarrierApiCheck
         failed += Say("a seal over forty characters is refused", longSeal.Count, 1);
 
         Console.WriteLine();
+        /* ---- phase 3: status events ---- */
+        failed += Say("a type is read whatever its case or dashes", CarrierEvent.TryType(" In-Transit ", out var read1) && read1 == CarrierEvent.InTransit, true);
+        failed += Say("a type the API does not know is refused", CarrierEvent.TryType("teleported", out _), false);
+        failed += Say("'arrived' reports the site, for the job's category to settle", CarrierEvent.StatusOf(CarrierEvent.Arrived), LineParser.SiteArrival);
+        failed += Say("'dispatched' is DISPATCHED, 'delivered' is DELIVERED", CarrierEvent.StatusOf(CarrierEvent.Dispatched) == JobStatus.Dispatched && CarrierEvent.StatusOf(CarrierEvent.Delivered) == JobStatus.Delivered, true);
+        failed += Say("a note reports no status", CarrierEvent.StatusOf(CarrierEvent.Note), null);
+        failed += Say("'arrived' resolves to DELIVERED on an import and DISPATCHED on an export, as a LINE message does",
+            LineAuthority.ResolveSite("IMPORT", CarrierEvent.StatusOf(CarrierEvent.Arrived)) == JobStatus.Delivered
+            && LineAuthority.ResolveSite("EXPORT", CarrierEvent.StatusOf(CarrierEvent.Arrived)) == JobStatus.Dispatched, true);
+        var clock = new DateTimeOffset(2026, 9, 20, 3, 20, 0, TimeSpan.Zero);
+        failed += Say("no 'at' is now", CarrierEvent.ReadAt(null, clock).At, clock);
+        failed += Say("an ISO 8601 moment with its offset is read as that moment", CarrierEvent.ReadAt("2026-09-20T10:20:00+07:00", clock).At, clock);
+        failed += Say("a moment in the future is refused", CarrierEvent.ReadAt("2026-09-20T11:00:00+07:00", clock).Problem is not null, true);
+        failed += Say("a moment eight days ago is refused", CarrierEvent.ReadAt("2026-09-12T10:00:00+07:00", clock).Problem is not null, true);
+        failed += Say("a moment that is not a moment is refused", CarrierEvent.ReadAt("this morning", clock).Problem is not null, true);
+        var payload = new CarrierEvent.Payload("ck_abc", "SHORE TMS", 19, "SHORE", "J25", CarrierEvent.Arrived,
+            new DateTimeOffset(2026, 9, 20, 3, 20, 0, TimeSpan.Zero), "หน้าโรงงาน", "corr-1");
+        var back = CarrierEvent.Payload.Read(payload.ToJson());
+        failed += Say("the payload survives the round trip through the row", back, payload);
+        failed += Say("a payload that will not read is null, not an exception", CarrierEvent.Payload.Read("{not json"), null);
+        var reading = payload.AsParsed();
+        failed += Say("an 'arrived' event reads as the site with the arrival clock, in Bangkok", reading.Status == LineParser.SiteArrival && reading.ArrivalTime?.ToString("HH:mm zzz") == "10:20 +07:00", true);
+        failed += Say("a 'dispatched' event carries no arrival clock", (payload with { Type = CarrierEvent.Dispatched }).AsParsed().ArrivalTime, null);
+        failed += Say("a note reads as no status", (payload with { Type = CarrierEvent.Note }).AsParsed().Status, null);
+        failed += Say("the event names its rule", reading.MatchedRules.SequenceEqual(["carrier-api:arrived"]), true);
+        failed += Say("the queue's line says who, what and when, Bangkok", payload.Text(), "TMS SHORE: ถึงโรงงาน 20/09/2026 10:20 · หน้าโรงงาน");
+        failed += Say("the room's place is taken by the supplier and the credential", payload.GroupLabel, "SHORE · SHORE TMS");
+        failed += Say("a queued row reads as queued, an applied one as applied, a refused one by its reason",
+            CarrierEvent.StateOf(LineProcessing.NeedReview, "ready-to-apply") == "queued"
+            && CarrierEvent.StateOf(LineProcessing.Processed, "") == "applied"
+            && CarrierEvent.StateOf(LineProcessing.Processed, LineRemark.Written) == "remark-written"
+            && CarrierEvent.StateOf(LineProcessing.Ignored, "backwards") == "backwards", true);
+        failed += Say("a TMS event judged by the rule: forward on the ladder applies, the same rung is already there, backwards is refused",
+            LineAuthority.Move(new LineAuthority.JobCandidate("J", "IMPORT", "SHORE", "SUPPLIER_CONFIRMED"), CarrierEvent.StatusOf(CarrierEvent.Dispatched)).Applies
+            && LineAuthority.Move(new LineAuthority.JobCandidate("J", "IMPORT", "SHORE", "DISPATCHED"), CarrierEvent.StatusOf(CarrierEvent.Dispatched)).Result == LineAuthority.Outcome.AlreadyThere
+            && LineAuthority.Move(new LineAuthority.JobCandidate("J", "IMPORT", "SHORE", "DELIVERED"), CarrierEvent.StatusOf(CarrierEvent.Dispatched)).Result == LineAuthority.Outcome.Backwards, true);
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0 ? "All Carrier API checks passed." : $"{failed} Carrier API check(s) FAILED.");
         return failed == 0 ? 0 : 1;
     }

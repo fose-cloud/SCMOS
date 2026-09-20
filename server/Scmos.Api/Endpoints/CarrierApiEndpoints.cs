@@ -226,6 +226,150 @@ public static class CarrierApiEndpoints
                 });
             }));
 
+        /* ------------------------------------------ status events (phase 3) */
+
+        // A status the truck reached, or a note. Queued for the job owner's
+        // approval like a LINE message — never written here — except a note,
+        // which goes into REMARK at once, dated, as a haulier's does.
+        v1.MapPost("/assignments/{jobKey}/events", async (string jobKey, [FromBody] EventBody? body,
+            HttpContext context, ScmosDbContext db, JobsRepository jobs, AuditService audit, CancellationToken token) =>
+            await IdempotentAsync(context, "POST", body, async () =>
+            {
+                var who = PrincipalOf(context);
+                if (!CarrierEvent.TryType(body?.Type, out var type))
+                    return Problem(context, CarrierApi.Invalid, "type must be one of: " + string.Join(", ", CarrierEvent.Types), new { types = CarrierEvent.Types });
+                var now = DateTimeOffset.UtcNow;
+                var (at, atProblem) = CarrierEvent.ReadAt(body?.At, now);
+                if (at is null) return Problem(context, CarrierApi.Invalid, atProblem ?? "at could not be read");
+                var remark = Formats.Clean(body?.Remark);
+                if (remark.Length > CarrierEvent.MaxRemark) return Problem(context, CarrierApi.Invalid, $"remark is longer than {CarrierEvent.MaxRemark} characters");
+                if (type == CarrierEvent.Note && remark.Length == 0) return Problem(context, CarrierApi.Invalid, "a note needs a remark");
+
+                var payload = new CarrierEvent.Payload(who.ClientId, who.ClientName, who.Company.Id, who.Company.Name,
+                    jobKey, type, at.Value, remark, context.TraceIdentifier);
+                var read = payload.AsParsed();
+                var decision = await LineMatching.DecideForJobAsync(db, who.Company.Id, jobKey, read, now, token);
+
+                // Not this carrier's job, or no such job: its existence is not confirmed.
+                if (decision.Result is LineAuthority.Outcome.NoSuchJob or LineAuthority.Outcome.NotYourJob
+                    or LineAuthority.Outcome.UnknownGroup or LineAuthority.Outcome.GroupInactive or LineAuthority.Outcome.GroupNotVendor)
+                    return Problem(context, CarrierApi.NotFound, "No assignment with this id is held by this carrier");
+
+                var job = await db.OperationJobs.AsNoTracking()
+                    .Where(one => one.Key == jobKey)
+                    .Select(one => new { one.JobCode, one.Status, one.Data })
+                    .FirstOrDefaultAsync(token);
+                var row = new LineEvent
+                {
+                    WebhookEventId = "",
+                    LineMessageId = CarrierEvent.MessageId(who.ClientRowId),
+                    LineGroupId = "",
+                    LineUserId = $"carrier-api:{who.ClientId}",
+                    MessageType = CarrierEvent.MessageType,
+                    RawText = payload.Text(),
+                    RawPayload = payload.ToJson(),
+                    ReceivedAt = now,
+                    ProcessedAt = now,
+                    JobKey = jobKey,
+                    JobNumber = job?.JobCode ?? "",
+                    ParsedStatus = read.Status ?? "",
+                    Confidence = 1,
+                    MatchedRules = string.Join(", ", read.MatchedRules),
+                    ErrorMessage = decision.Detail,
+                };
+
+                /* ---- a note: into REMARK now, dated, the way a haulier's is ---- */
+                if (type == CarrierEvent.Note)
+                {
+                    var had = RemarkOf(job?.Data);
+                    var note = LineRemark.Note(remark, at.Value);
+                    var next = LineRemark.Append(had, note);
+                    var by = who.AsUser();
+                    if (next != had)
+                    {
+                        if (!await jobs.PatchAsync(jobKey, new Dictionary<string, string> { ["remark"] = next }, by.Signature, token))
+                            return Problem(context, CarrierApi.Unavailable, "The remark could not be written");
+                        await audit.RecordAsync(by, AuditActions.Update, "job", jobKey, row.JobNumber, "remark", had, next,
+                            $"TMS ({who.ClientId}): {remark}", token, EventSource.CarrierApi);
+                    }
+                    row.ProcessingStatus = LineProcessing.Processed;
+                    row.ErrorCode = LineRemark.Written;
+                    row.ErrorMessage = $"บันทึกลง Remark: {note}";
+                    db.LineEvents.Add(row);
+                    await db.SaveChangesAsync(token);
+                    return Answer(200, new { eventId = row.Id, state = "remark-written", jobKey, remark = note, correlationId = context.TraceIdentifier });
+                }
+
+                /* ---- a status: judged now, queued for the owner when it applies ---- */
+                if (decision.Result == LineAuthority.Outcome.AlreadyThere)
+                {
+                    row.ProcessingStatus = LineProcessing.Ignored;
+                    row.ErrorCode = decision.Result;
+                    db.LineEvents.Add(row);
+                    await db.SaveChangesAsync(token);
+                    return Answer(200, new { eventId = row.Id, state = "already-there", jobKey, status = job?.Status ?? "", detail = decision.Detail, correlationId = context.TraceIdentifier });
+                }
+                if (!decision.Applies)
+                {
+                    // Backwards, closed, held, not on this ladder: refused, and
+                    // kept, so the trail shows what the TMS said.
+                    row.ProcessingStatus = LineProcessing.Ignored;
+                    row.ErrorCode = decision.Result;
+                    db.LineEvents.Add(row);
+                    await db.SaveChangesAsync(token);
+                    return Problem(context, CarrierApi.Conflict, decision.Detail.Length > 0 ? decision.Detail : decision.Result,
+                        new { reason = decision.Result, eventId = row.Id, status = job?.Status ?? "" });
+                }
+
+                row.ProcessingStatus = LineProcessing.NeedReview;
+                row.ErrorCode = "ready-to-apply";
+                if (decision.To.Length > 0) row.ParsedStatus = decision.To;
+                db.LineEvents.Add(row);
+                await db.SaveChangesAsync(token);
+                return Answer(202, new
+                {
+                    eventId = row.Id,
+                    state = "queued",
+                    jobKey,
+                    from = decision.From,
+                    to = decision.To,
+                    arrival = read.ArrivalTime is { } arrived ? arrived.ToOffset(TimeSpan.FromHours(7)).ToString("yyyy-MM-dd HH:mm") : null,
+                    message = "รอเจ้าของงานอนุมัติ",
+                    correlationId = context.TraceIdentifier,
+                });
+            }));
+
+        // The events this carrier sent on a job, and what became of each.
+        v1.MapGet("/assignments/{jobKey}/events", async (string jobKey, HttpContext context, CarrierService carriers,
+            ScmosDbContext db, CancellationToken token) =>
+        {
+            var who = PrincipalOf(context);
+            if (await GroupOfAsync(carriers, who, jobKey, token) is null)
+                return Refuse(context, CarrierApi.NotFound, "No assignment with this id is offered to or held by this carrier");
+            var rows = await db.LineEvents.AsNoTracking()
+                .Where(one => one.MessageType == CarrierEvent.MessageType && one.JobKey == jobKey)
+                .OrderByDescending(one => one.ReceivedAt)
+                .Take(100)
+                .ToListAsync(token);
+            var mine = rows
+                .Select(one => (Row: one, Event: CarrierEvent.Payload.Read(one.RawPayload)))
+                .Where(one => one.Event is not null && one.Event.SupplierId == who.Company.Id)
+                .Select(one => new
+                {
+                    eventId = one.Row.Id,
+                    type = one.Event!.Type,
+                    at = one.Event.At,
+                    remark = one.Event.Remark,
+                    receivedAt = one.Row.ReceivedAt,
+                    state = CarrierEvent.StateOf(one.Row.ProcessingStatus, one.Row.ErrorCode),
+                    to = one.Row.ParsedStatus,
+                    detail = one.Row.ErrorMessage,
+                    processedAt = one.Row.ProcessedAt,
+                    clientId = one.Event.ClientId,
+                });
+            return Results.Json(new { items = mine, correlationId = context.TraceIdentifier });
+        });
+
         /* ---------------------------------------------- the department's side */
 
         // Keys are issued and retired by whoever manages suppliers — the same
@@ -503,6 +647,20 @@ public static class CarrierApiEndpoints
         return Results.Content(answer.Body, answer.ContentType, statusCode: answer.Status);
     }
 
+    /// <summary>The REMARK cell out of a job's JSON, or empty.</summary>
+    private static string RemarkOf(string? data)
+    {
+        if (string.IsNullOrWhiteSpace(data)) return "";
+        try
+        {
+            using var json = JsonDocument.Parse(data);
+            return json.RootElement.TryGetProperty("remark", out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString() ?? ""
+                : "";
+        }
+        catch (JsonException) { return ""; }
+    }
+
     /// <summary>A refusal as RFC 9457 Problem Details, with the stable code and the correlation id — never a stack trace.</summary>
     public static IResult Refuse(HttpContext context, string code, string detail)
     {
@@ -593,4 +751,6 @@ public static class CarrierApiEndpoints
     /// <summary>The truck a carrier sends: on acceptance the first three are required; the box and the seal are an export's.</summary>
     public record TruckBody(string? Licence, string? Driver, string? Contact, string? Container, string? Seal);
     public record DeclineBody(string? Reason);
+    /// <summary>A status the truck reached — one of <see cref="CarrierEvent.Types"/> — when, and a remark; a note is a remark alone.</summary>
+    public record EventBody(string? Type, string? At, string? Remark);
 }

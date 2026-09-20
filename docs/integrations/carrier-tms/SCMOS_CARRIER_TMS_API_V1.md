@@ -1,6 +1,6 @@
 # SCMOS Carrier TMS API — V1 contract
 
-Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
+Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
 
 The [assessment](SCMOS_CARRIER_TMS_ASSESSMENT.md) says why the API is shaped this way. This page is the contract a carrier's TMS is built against.
 
@@ -130,6 +130,39 @@ Any of `licence`, `driver`, `contact`, `container`, `seal` (at least one), on a 
 { "message": "บันทึก เลขซีล S-77", "jobKey": "J26", "written": { "seal": "S-77" }, "skipped": ["contact"], "warnings": [], "correlationId": "…" }
 ```
 
+## Status events (Phase 3)
+
+A TMS reports what the truck did; **SCMOS does not write it.** The event is queued exactly as a haulier's LINE message is — judged by the same rule (forward only on the job's own ladder, "arrived" resolved by the job's category, the arrival clock only into empty cells) and **approved by the job's owner** from My Job or the LINE screen. Only a `note` is written at once, into the job's REMARK, dated.
+
+### `POST /assignments/{id}/events`
+
+```json
+{ "type": "arrived", "at": "2026-09-20T10:20:00+07:00", "remark": "หน้าโรงงาน" }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `type` | `dispatched` · `picked_up` · `loading` · `in_transit` · `arrived` · `delivered` · `container_returned` · `note` (case and dashes forgiven) |
+| `at` | when it happened, ISO 8601 with an offset; now when absent; refused more than 10 minutes ahead or 7 days behind |
+| `remark` | up to 400 characters; required for a `note`, carried on the queue's line otherwise |
+
+What each type becomes on the job: `dispatched` → DISPATCHED, `picked_up` → PICKED_UP, `loading` → LOADING, `in_transit` → IN_TRANSIT, `delivered` → DELIVERED, `container_returned` → CONTAINER_RETURNED; `arrived` → the site rung of the job's category (DELIVERED on an import or domestic run, DISPATCHED on an export) **with `at` as the arrival date and time**, written only when those cells are empty.
+
+Answers (`Idempotency-Key` required, as for every write):
+
+| Status | `state` | Meaning |
+| --- | --- | --- |
+| 202 | `queued` | waiting for the owner; `from`, `to` and (for `arrived`) `arrival` say what approving writes |
+| 200 | `already-there` | the job is at that rung already; nothing to approve |
+| 200 | `remark-written` | a `note`, appended to REMARK as `dd/MM/yyyy HH:mm text` |
+| 404 | — | the job is not this carrier's |
+| 409 | — | the ladder refuses it: `reason` is `backwards`, `job-closed`, `job-held` or `not-on-ladder`; the event is kept, marked refused |
+| 400 | — | the type, the clock or the remark cannot be read |
+
+### `GET /assignments/{id}/events`
+
+This carrier's events on the job, newest first, each with its `state`: `queued`, `applied` (the owner approved), `remark-written`, or the reason it was refused or set aside (`already-there`, `backwards`, `dismissed`…). Poll this — no faster than once a minute — to learn what became of an event; Phase 4 adds a webhook.
+
 ## Refusals
 
 `Content-Type: application/problem+json`
@@ -159,4 +192,4 @@ Any of `licence`, `driver`, `contact`, `container`, `seal` (at least one), on a 
 
 ## What is not in V1 yet
 
-Status events — dispatched, arrived, delivered — queued for the job owner's approval like a LINE message (Phase 3), webhooks (Phase 4), auto-apply for named carriers (Phase 5). The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.
+Webhooks (Phase 4) and auto-apply for named carriers (Phase 5). The carrier portal and the LINE room keep working exactly as before; this API is a third door onto the same rows.

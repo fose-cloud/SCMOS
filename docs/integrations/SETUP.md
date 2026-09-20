@@ -234,7 +234,7 @@ them. What is needed is a machine credential.
 
 ## 5. Carrier TMS API
 
-Live since v2.7.52 (20 Sep 2026); writes — accept, decline, the truck's details — since v2.7.53. A carrier's TMS calls
+Live since v2.7.52 (20 Sep 2026); writes — accept, decline, the truck's details — since v2.7.53; status events, queued for the job owner's approval like a LINE message, since v2.7.55. A carrier's TMS calls
 `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` with a key the
 department issues on **Integrations → Carrier API** (needs `ManageSuppliers`).
 The contract is [carrier-tms/SCMOS_CARRIER_TMS_API_V1.md](carrier-tms/SCMOS_CARRIER_TMS_API_V1.md);
