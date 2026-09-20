@@ -66,6 +66,8 @@ export const NAV_ICONS: Partial<Record<Screen, ReactNode>> = {
   abs: P("M6.5 9.5a2.5 2.5 0 0 0 3.5 0l2.5-2.5a2.5 2.5 0 0 0-3.5-3.5L8 4.5M9.5 6.5a2.5 2.5 0 0 0-3.5 0L3.5 9a2.5 2.5 0 0 0 3.5 3.5l1-1"),
   ccs: P("M2.5 4.5h11v7h-11zM2.5 7.5h11M5.5 10h2M10 10h1"),
   outlook: P("M2 3.5h12v9H2zM2 4l6 4.5L14 4"),
+  // A key: the credential a carrier's TMS presents.
+  carrierapi: P("M6.5 9.5 3 13m0 0 1.5 1.5M4.5 11.5 6 13", <circle cx="10" cy="6" r="3.2" />),
   line: P("M2.5 3h11v7h-6l-3 3v-3h-2z", <><circle cx="5.8" cy="6.5" r=".8" fill="currentColor" stroke="none" /><circle cx="8" cy="6.5" r=".8" fill="currentColor" stroke="none" /><circle cx="10.2" cy="6.5" r=".8" fill="currentColor" stroke="none" /></>),
   admin: P("M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2M3.3 3.3l1.6 1.6M11.1 11.1l1.6 1.6M12.7 3.3l-1.6 1.6M4.9 11.1l-1.6 1.6", <circle cx="8" cy="8" r="2.4" />),
 };

@@ -99,6 +99,7 @@ import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, ty
 
 import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
 import { LineReview } from "./scmos/screens/LineReview";
+import { CarrierApiClients } from "./scmos/screens/CarrierApiClients";
 import { pendingByKey, pendingCounts, type LinePending } from "./scmos/linePending";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
@@ -3129,8 +3130,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 rather than an empty frame pretending to be a page. */}
             {/* Two of the four "integrations" screens are real now and draw
                 themselves; the placeholder is what the other two still are. */}
-            {screen !== "line" && screen !== "outlook" && systemById(screen)
+            {screen !== "line" && screen !== "outlook" && screen !== "carrierapi" && systemById(screen)
               && <ExternalSystemScreen system={systemById(screen)!} />}
+            {screen === "carrierapi" && (
+              // Anybody may see which carriers have a key; issuing and
+              // retiring one is the same hand that binds a LINE room.
+              <CarrierApiClients canManage={able("ManageSuppliers")} onToast={setToast} />
+            )}
             {screen === "outlook" && (
               <Outlook canDecide={able("EditAnyJob")} onToast={setToast} />
             )}

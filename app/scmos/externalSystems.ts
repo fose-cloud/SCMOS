@@ -19,7 +19,7 @@
  * should be readable without a browser.
  */
 
-export type SystemId = "abs" | "ccs" | "line" | "outlook";
+export type SystemId = "abs" | "ccs" | "line" | "outlook" | "carrierapi";
 
 export type ExternalSystem = {
   id: SystemId;
@@ -121,6 +121,24 @@ export const EXTERNAL_SYSTEMS: ExternalSystem[] = [
     docs: [
       "docs/integrations/line/SCMOS_LINE_V1_IMPLEMENTATION_PLAN.md",
       "docs/integrations/SETUP.md",
+    ],
+  },
+  {
+    id: "carrierapi",
+    name: "Carrier API",
+    thai: "เชื่อมต่อ TMS ผู้ขนส่ง",
+    purpose: "ให้ระบบ TMS ของผู้ขนส่งอ่านงานที่เสนอและงานที่รับไว้ของตัวเองผ่าน API ด้วยคีย์ที่ SCMOS ออกให้",
+    endpoint: "/api/carrier-api/clients",
+    unknowns: [
+      "ผู้ขนส่งรายไหนมี TMS ที่จะเชื่อม และใครเป็นผู้รับคีย์ฝั่งนั้น",
+      "ระยะที่สอง: การรับงาน/ปฏิเสธ/แจ้งสถานะจาก TMS จะให้เจ้าของงานอนุมัติเหมือน LINE หรือเขียนเข้าตารางเลย",
+      "ระยะที่สี่: webhook แจ้งงานใหม่ไปยัง TMS ต้องมี URL ปลายทางและวิธียืนยันของอีกฝั่ง",
+      "หากผู้ขนส่งมี Entra tenant ของตัวเอง จะรับ client credentials แทนคีย์ SCMOS หรือไม่",
+    ],
+    spec: "ระยะที่หนึ่งใช้งานแล้ว — อ่านอย่างเดียว: /me, /assignments, /assignments/{jobKey}; ทุกคำตอบมี X-Correlation-Id และปฏิเสธเป็น Problem Details",
+    docs: [
+      "docs/integrations/carrier-tms/SCMOS_CARRIER_TMS_API_V1.md",
+      "docs/integrations/carrier-tms/SCMOS_CARRIER_TMS_ASSESSMENT.md",
     ],
   },
 ];

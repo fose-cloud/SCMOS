@@ -6,6 +6,7 @@ using Scmos.Api.Auth;
 using Scmos.Api.Ai;
 using Scmos.Api.Data;
 using Scmos.Api.Endpoints;
+using Scmos.Api.Rules;
 using Scmos.Api.Services;
 
 // Pure import checks must not load production credentials or contact services.
@@ -83,6 +84,8 @@ builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
+// The Carrier TMS API's door: the key in the header, resolved to one supplier.
+builder.Services.AddScoped<CarrierApiAuth>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();
 builder.Services.AddScoped<JobTransferService>();
@@ -183,6 +186,30 @@ builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = Compre
 
 builder.Services.AddHealthChecks().AddDbContextCheck<ScmosDbContext>("database");
 builder.Services.AddProblemDetails();
+
+// The Carrier TMS API is rate-limited per key — a TMS polling every few
+// seconds would keep the serverless database awake and share the one B1
+// worker with the operators — and an address with no key gets a smaller
+// bucket, enough to notice a typo. The bucket comes from the key's hash, so
+// one carrier cannot spend another's allowance. Only the /api/carrier/v1
+// group asks for the policy; every other route is untouched.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(CarrierApiEndpoints.RateLimitPolicy, context =>
+    {
+        var partition = CarrierApi.PartitionOf(context.Request.Headers.Authorization, context.Connection.RemoteIpAddress?.ToString());
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(partition,
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = CarrierApi.AllowanceOf(partition),
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            });
+    });
+    options.OnRejected = async (rejected, token) =>
+        await CarrierApiEndpoints.WriteRateLimitedAsync(rejected.HttpContext, token);
+});
 builder.Services.AddOpenApi();
 
 // The deployed shape puts the web app's proxy in front, same site, so no CORS is
@@ -222,6 +249,7 @@ if (CapabilityCheck.Run(args) is int capabilityExit) return capabilityExit;
 if (SignInCheck.Run(args) is int signInExit) return signInExit;
 if (ReportCheck.Run(args) is int reportExit) return reportExit;
 if (LineParserCheck.Run(args) is int lineExit) return lineExit;
+if (CarrierApiCheck.Run(args) is int carrierApiExit) return carrierApiExit;
 if (EmailExtractionCheck.Run(args) is int emailExit) return emailExit;
 if (GraphAuthCheck.Run(args) is int graphExit) return graphExit;
 if (GraphMessagesCheck.Run(args) is int messagesExit) return messagesExit;
@@ -316,6 +344,7 @@ if (app.Environment.IsDevelopment())
 app.UseResponseCompression();
 app.UseExceptionHandler();
 if (allowedOrigins.Length > 0) app.UseCors();
+app.UseRateLimiter();
 
 app.MapHealthChecks("/health");
 app.MapMe();
@@ -333,6 +362,7 @@ app.MapStaff();
 app.MapCapacity();
 app.MapVehicleTypes();
 app.MapCarrier();
+app.MapCarrierApi();
 app.MapTraining();
 app.MapDelegations();
 app.MapRateInquiries();

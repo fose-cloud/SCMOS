@@ -22,11 +22,18 @@ namespace Scmos.Api.Services;
 /// </summary>
 public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<CarrierService> log)
 {
+    /// <param name="Category">IMPORT · EXPORT · DELIVERY — which ladder the status is on.</param>
+    /// <param name="Booking">The booking, on an import or export.</param>
+    /// <param name="PlanTime">The plan clock, beside <paramref name="Date"/>.</param>
+    /// <param name="ArrDate">The arrival stamp, when the truck has been reported; what on-time delivery reads.</param>
+    /// <param name="Seal">The seal, on an export once loaded.</param>
     public record CarrierJob(
         string Key, string JobCode, string Customer, string Destination, string Type,
         string CyYard, string Weight, string Container, string Date, string PickupPlan,
         string Status, long? RequestId, int? QuotedPrice, DateTimeOffset? RequestedAt,
-        string Licence, string Driver, string Contact);
+        string Licence, string Driver, string Contact,
+        string Category = "", string Booking = "", string PlanTime = "", string Plant = "", string ReturnLoc = "",
+        string ArrDate = "", string ArrTime = "", string Seal = "", DateTimeOffset? RespondedAt = null);
 
     public record Portal(
         int SupplierId, string SupplierName,
@@ -90,7 +97,17 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
     {
         var company = await CompanyOfAsync(user, token);
         if (company is null) return null;
+        return await ReadForAsync(company, token);
+    }
 
+    /// <summary>
+    /// The portal for a supplier the caller has already settled — a person's
+    /// account through <see cref="CompanyOfAsync"/>, a TMS's key through
+    /// <c>CarrierApiAuth</c>. One reading of the register for both doors, so
+    /// what a carrier's TMS is shown is exactly what its person is shown.
+    /// </summary>
+    public async Task<Portal> ReadForAsync(Supplier company, CancellationToken token)
+    {
         var names = await NamesOfAsync(company, token);
 
         // Work offered but not yet answered. The request is the invitation, and
@@ -236,7 +253,11 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
             Field(row, "type"), Field(row, "cyYard"), Field(row, "weight"), Field(row, "container"),
             Field(row, "date"), Field(row, "pickupPlan"), Field(row, "status"),
             request?.Id, request?.QuotedPrice, request?.RequestedAt,
-            Field(row, "licence"), Field(row, "driver"), Field(row, "contact"));
+            Field(row, "licence"), Field(row, "driver"), Field(row, "contact"),
+            Category: Field(row, "cat"), Booking: Field(row, "booking"), PlanTime: Field(row, "planTime"),
+            Plant: Field(row, "plant"), ReturnLoc: Field(row, "returnLoc"),
+            ArrDate: Field(row, "arrDate"), ArrTime: Field(row, "arrTime"), Seal: Field(row, "seal"),
+            RespondedAt: request?.RespondedAt);
 
     private static string Value(IReadOnlyDictionary<string, string> fields, string name) =>
         fields.TryGetValue(name, out var value) && value.Length > 0 ? value : "(ว่าง)";

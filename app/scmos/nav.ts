@@ -5,7 +5,7 @@ export type Screen =
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
-  | "oilrate";
+  | "carrierapi" | "oilrate";
 
 /**
  * The menu, in the order the work happens.
@@ -67,6 +67,9 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["ccs", "CCS", "พิธีการศุลกากร", [[2, 3, 12, 10], [4, 6, 8, 1.5], [4, 9, 5, 1.5]]],
     ["outlook", "Outlook", "ศูนย์รวมอีเมล", [[2, 4, 12, 8], [2, 4, 6, 5], [8, 4, 6, 5]]],
     ["line", "LINE", "อัปเดตงานผ่าน LINE", [[2, 3, 12, 8], [5, 12, 3, 2], [3, 5, 10, 1.5], [3, 8, 7, 1.5]]],
+    // The carrier's TMS, since 20 Sep 2026: the keys the department issues,
+    // one per carrier system, for /api/carrier/v1/.
+    ["carrierapi", "Carrier API", "เชื่อมต่อ TMS ผู้ขนส่ง", [[2, 3, 12, 9], [4, 6, 8, 1.5], [4, 9, 5, 1.5], [10, 9, 2, 1.5]]],
   ],
 
   // What a journey costs and what is billed for it.
@@ -242,6 +245,7 @@ export const META: Record<string, string> = {
   ccs: "CCS",
   outlook: "Outlook",
   line: "LINE",
+  carrierapi: "Carrier API",
   admin: "Administration",
 };
 

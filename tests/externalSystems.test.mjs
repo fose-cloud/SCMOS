@@ -24,8 +24,8 @@ test("every system says where SCMOS will call, and it is always SCMOS's own API"
   }
 });
 
-test("the four systems asked for are all here and none is defined twice", () => {
-  assert.deepEqual(EXTERNAL_SYSTEMS.map((one) => one.id).sort(), ["abs", "ccs", "line", "outlook"]);
+test("the five systems asked for are all here and none is defined twice", () => {
+  assert.deepEqual(EXTERNAL_SYSTEMS.map((one) => one.id).sort(), ["abs", "carrierapi", "ccs", "line", "outlook"]);
   assert.equal(new Set(EXTERNAL_SYSTEMS.map((one) => one.endpoint)).size, EXTERNAL_SYSTEMS.length);
 });
 

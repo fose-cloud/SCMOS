@@ -25,6 +25,8 @@ public static class AuditActions
     public const string BulkReplace = "bulk-replace";
     /// <summary>A record removed for good. The row is the only place it survives.</summary>
     public const string Delete = "delete";
+    /// <summary>A credential retired — a Carrier API key — kept as a row, no longer honoured.</summary>
+    public const string Revoke = "revoke";
 
     /// <summary>
     /// Changes a person must justify.

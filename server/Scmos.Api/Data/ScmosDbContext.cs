@@ -62,6 +62,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<AiAuditLog> AiAuditLogs => Set<AiAuditLog>();
     public DbSet<AiOperationsControl> AiOperationsControls => Set<AiOperationsControl>();
+    /// <summary>A carrier's machine credentials for the Carrier TMS API — see CarrierApiEntities.cs.</summary>
+    public DbSet<CarrierApiClient> CarrierApiClients => Set<CarrierApiClient>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
@@ -105,6 +107,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     {
         AiAuditLog.Configure(model);
         AiOperationsControl.Configure(model);
+        CarrierApiClient.Configure(model);
         model.Entity<OperationJob>(job =>
         {
             job.ToTable("operation_jobs");

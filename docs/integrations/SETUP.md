@@ -232,6 +232,38 @@ them. What is needed is a machine credential.
 
 ---
 
+## 5. Carrier TMS API
+
+Live since v2.7.52 (20 Sep 2026), reads only. A carrier's TMS calls
+`https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` with a key the
+department issues on **Integrations → Carrier API** (needs `ManageSuppliers`).
+The contract is [carrier-tms/SCMOS_CARRIER_TMS_API_V1.md](carrier-tms/SCMOS_CARRIER_TMS_API_V1.md);
+why it is shaped that way is the [assessment](carrier-tms/SCMOS_CARRIER_TMS_ASSESSMENT.md).
+
+Nothing has to be set for it to work. The key is stored as a hash in
+`carrier_api_clients` (migration `20260920013104_CarrierApiClients`, applied by
+the release's `--migrate`); the supplier a key speaks for is the row's
+`supplier_id`, never anything in the request.
+
+### App settings on the API
+
+| Setting | What it is |
+|---|---|
+| `CarrierApi__BaseUrl` | Optional. The base URL the screen shows beside a new key, when the API is reached under a name other than its own host (a custom domain, API Management). Unset, the screen shows the host the request came in on — the API's own |
+
+### Checking it worked
+
+```bash
+curl -i https://scmos-api-3936.azurewebsites.net/api/carrier/v1/me \
+  -H "Authorization: Bearer scmos_ck_…" -H "X-Correlation-Id: check-1"
+```
+
+`200` with the supplier the key was issued for, and `X-Correlation-Id: check-1`
+echoed back. Without the header: `401 application/problem+json`. With one
+carrier's key asking for another carrier's job: `404`.
+
+---
+
 ## Verifying a connection without a screen
 
 Each integration exposes `/status` before it exposes anything else. Once the
