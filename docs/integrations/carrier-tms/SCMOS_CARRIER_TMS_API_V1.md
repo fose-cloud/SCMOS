@@ -174,7 +174,7 @@ Instead of polling, a TMS registers a URL and SCMOS POSTs to it when something h
 { "url": "https://tms.example.com/scmos/hook", "events": ["assignment.offered", "assignment.cancelled", "event.decided"] }
 ```
 
-`url` must be absolute, **https**, without credentials, on a public host (no localhost, no private or link-local address). `events` may be empty for all three. The answer (201) carries the webhook and, **once only**, its signing `secret` (`whsec_…`).
+`url` must be absolute, **https**, without credentials, on a public host (no localhost, no private or link-local address). The host is resolved again at the moment of every delivery, and a name that then resolves to a private address is refused (the delivery fails with `host resolves to a private address`). `events` may be empty for all three. The answer (201) carries the webhook and, **once only**, its signing `secret` (`whsec_…`).
 
 ### `GET /webhooks` · `DELETE /webhooks/{id}` · `POST /webhooks/{id}/test` · `GET /webhooks/{id}/deliveries`
 
@@ -207,7 +207,9 @@ Compare against `X-Scmos-Signature` in constant time; reject a `X-Scmos-Timestam
 
 ### Retries
 
-A non-2xx answer, a timeout (10 s) or a refused connection is a failure. SCMOS tries again after 1 min, 5 min, 30 min, 2 h and 12 h — six attempts in all — then marks the delivery `dead` in the ledger. Deliveries are made in order of their due time; the same event is never delivered twice to one webhook (a retry carries the same `id` with a higher `attempt`). The Carrier API screen shows the department a webhook that is failing.
+A non-2xx answer, a timeout (10 s) or a refused connection is a failure. A redirect is not followed — a 3xx is a failure like any other answer. SCMOS tries again after 1 min, 5 min, 30 min, 2 h and 12 h — six attempts in all — then marks the delivery `dead` in the ledger. Deliveries are made in order of their due time; the same event is never delivered twice to one webhook (a retry carries the same `id` with a higher `attempt`). The Carrier API screen shows the department a webhook that is failing.
+
+A webhook that fails **30 attempts in a row** with none delivered — at least fifteen hours of a receiver that never once answered 2xx — is disabled by SCMOS: its row reads `disabled by SCMOS: 30 deliveries failed in a row`, its pending deliveries close out, and a `test` answers `409 conflict` as for any disabled webhook. Register a new one when the receiver is mended.
 
 ## Refusals
 

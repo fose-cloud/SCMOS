@@ -73,10 +73,12 @@ public static class Notifications
     // seven alerts with them without anybody noticing.
     public static readonly AlertDefinition[] All =
     [
-        // A haulier said something about a job in LINE and a person has to
-        // approve it — from the job's drawer, since 16 Sep 2026.
-        new(AlertKind.LineMessageWaiting, "LINE message waiting", "ข้อความ LINE รอการอนุมัติ",
-            AlertLevel.Warning, "เปิดงานแล้วกดอนุมัติในกล่อง LINE", "myjob"),
+        // A haulier said something about a job — in LINE since 16 Sep 2026,
+        // from its TMS through the Carrier API since 20 Sep — and a person
+        // has to approve it, from the job's drawer. One queue, two doors;
+        // the title says which (see WaitingTitle).
+        new(AlertKind.LineMessageWaiting, "Carrier message waiting", "ข้อความจากผู้ขนส่งรอการอนุมัติ",
+            AlertLevel.Warning, "เปิดงานแล้วกดอนุมัติในกล่องข้อความ", "myjob"),
 
         new(AlertKind.SupplierNotConfirmed, "Supplier not confirmed", "ผู้ขนส่งยังไม่ยืนยัน",
             AlertLevel.Critical, "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ", "myjob"),
@@ -159,6 +161,19 @@ public static class Notifications
     public static AlertDefinition Of(AlertKind kind) => All.First(alert => alert.Kind == kind);
 
     /* ------------------------------------------------------------- tests */
+
+    /// <summary>
+    /// The waiting-message alert's title: how many from LINE, how many from a
+    /// TMS, or both — so the bell never says "LINE" of a row a TMS sent.
+    /// Empty when nothing waits.
+    /// </summary>
+    public static string WaitingTitle(int line, int tms)
+    {
+        if (line <= 0 && tms <= 0) return "";
+        if (tms <= 0) return $"{line} ข้อความ LINE รอการอนุมัติ";
+        if (line <= 0) return $"{tms} สถานะจาก TMS รอการอนุมัติ";
+        return $"{line} ข้อความ LINE · {tms} สถานะจาก TMS รอการอนุมัติ";
+    }
 
     /// <summary>
     /// A job that still has no carrier. The most expensive thing on this list:

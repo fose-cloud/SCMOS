@@ -43,7 +43,7 @@ Implemented 20 September 2026 · released as v2.7.55 (API run 35504032089, web r
 
 **Known risks**
 
-- The bell's alert still reads "ข้อความ LINE รอการอนุมัติ" and counts TMS rows in it; the drawer badge says "LINE n". Both are the same queue; the wording is a follow-up, not a fault.
+- ~~The bell's alert still reads "ข้อความ LINE รอการอนุมัติ" and counts TMS rows in it; the drawer badge says "LINE n". Both are the same queue; the wording is a follow-up, not a fault.~~ Done in v2.7.58: the bell, the row badge and the drawer name the door — LINE, TMS, or both.
 - The LINE chase's "answered" hold read only `text` rows; with the chase off (v2.7.54) it does not matter, and a TMS row on a job is an answer too if it is ever turned back on.
 - A TMS that reports `delivered` on an import without a prior `arrived` gets DELIVERED without an arrival stamp — as a LINE "ลงเสร็จ" does; the arrival cells stay empty for the owner to key. Documented.
 - Events older than 7 days or ahead by more than 10 minutes are refused; a TMS with a wrong clock sees 400 with the reason.

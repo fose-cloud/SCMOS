@@ -50,6 +50,6 @@ Implemented 20 September 2026 · released as v2.7.57 (API run 35507144419, web r
 - The setting is one for the whole API; the department's marks are the fine control. The setting is the kill switch.
 - An auto-applied status is not undone by SCMOS; the grid is where a person corrects it, with the audit trail showing the key that wrote it.
 
-**Remaining tasks** — none in V1. Follow-ups noted across the phases: the bell/badge wording for TMS rows; a resolved-address check for webhooks at send time; auto-disabling a webhook that stays dead; an Entra client-credentials option for carriers with a tenant; a per-event-type auto-apply mark.
+**Remaining tasks** — none in V1. Follow-ups noted across the phases: ~~the bell/badge wording for TMS rows; a resolved-address check for webhooks at send time; auto-disabling a webhook that stays dead~~ (all three done 20 Sep, v2.7.58 — see [after V1](SCMOS_CARRIER_TMS_AFTER_V1.md)); an Entra client-credentials option for carriers with a tenant; a per-event-type auto-apply mark.
 
 **Recommended next step** — production use: issue a key from the screen for the first carrier, have its TMS read `/me` and `/assignments`, register a webhook and check a `ping`'s signature, queue one event and approve it; only then mark the key and switch auto-apply on.

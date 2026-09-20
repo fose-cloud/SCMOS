@@ -1,6 +1,7 @@
 /**
- * What a haulier's LINE message is waiting to do to a job, as the workspace
- * reads it.
+ * What a haulier's message is waiting to do to a job, as the workspace reads
+ * it — from the LINE room, or from the haulier's own system through the
+ * Carrier API (since 20 Sep 2026): one queue, and the row says which door.
  *
  * The review screen works the whole queue; the workspace only needs to know,
  * for the rows on screen, "a message is waiting on this job, and approving it
@@ -18,7 +19,7 @@ export type LinePending = {
   /** The rule's verdict as stored: ready-to-apply, backwards, no-status… */
   errorCode: string;
   detail: string;
-  /** "text" — the feed carries no photos. */
+  /** "text" from the LINE room, "tms" from the haulier's system — the feed carries no photos. */
   kind: string;
   text: string;
   group: string;
@@ -46,11 +47,27 @@ export function pendingByKey(items: readonly LinePending[] | null | undefined): 
   return byKey;
 }
 
-/** How many messages wait on each job — what the grid marks a row with. */
-export function pendingCounts(items: readonly LinePending[] | null | undefined): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const [key, list] of Object.entries(pendingByKey(items))) counts[key] = list.length;
-  return counts;
+/** Which door a message came through: the LINE room, or the haulier's TMS. */
+export function sourceOf(item: Pick<LinePending, "kind">): "LINE" | "TMS" {
+  return item.kind === "tms" ? "TMS" : "LINE";
+}
+
+/** The doors the messages on one job came through, LINE first, each once. */
+export function sourcesOf(items: readonly LinePending[]): ("LINE" | "TMS")[] {
+  const sources = new Set(items.map(sourceOf));
+  return (["LINE", "TMS"] as const).filter((one) => sources.has(one));
+}
+
+/** What the grid marks a row with: how many wait, and the badge naming the door — "LINE 2", "TMS 1", "LINE 1 · TMS 1". */
+export type PendingMark = { count: number; badge: string };
+
+export function pendingMarks(items: readonly LinePending[] | null | undefined): Record<string, PendingMark> {
+  const marks: Record<string, PendingMark> = {};
+  for (const [key, list] of Object.entries(pendingByKey(items))) {
+    const badge = sourcesOf(list).map((source) => `${source} ${list.filter((one) => sourceOf(one) === source).length}`).join(" · ");
+    marks[key] = { count: list.length, badge };
+  }
+  return marks;
 }
 
 /**

@@ -100,7 +100,7 @@ import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, ty
 import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
 import { LineReview } from "./scmos/screens/LineReview";
 import { CarrierApiClients } from "./scmos/screens/CarrierApiClients";
-import { pendingByKey, pendingCounts, type LinePending } from "./scmos/linePending";
+import { pendingByKey, pendingMarks, type LinePending } from "./scmos/linePending";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
@@ -1045,7 +1045,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     || (!!job.opId && actingFor.includes(job.opId));
 
   const linePendingByKey = useMemo(() => pendingByKey(linePending), [linePending]);
-  const linePendingCounts = useMemo(() => pendingCounts(linePending), [linePending]);
+  const linePendingMarks = useMemo(() => pendingMarks(linePending), [linePending]);
 
   /**
    * Approving or setting aside a LINE message from the job drawer. The API
@@ -3033,7 +3033,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   canEdit={(job) => !!ops && canEditJob(job)}
                   canAssign={able("AssignJobs")}
                   covering={covering}
-                  linePending={linePendingCounts}
+                  linePending={linePendingMarks}
                   serverPages={serverPages}
                   fullRegisterLoaded={!!ops}
                   sectionPages={sectionPages}

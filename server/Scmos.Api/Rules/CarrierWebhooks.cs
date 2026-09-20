@@ -63,6 +63,21 @@ public static class CarrierWebhooks
     /// <summary>How many webhooks one supplier may hold — one per system, with room for a test one.</summary>
     public const int MaxPerSupplier = 5;
 
+    /// <summary>
+    /// Failed attempts in a row, with none delivered, after which SCMOS
+    /// stops calling the webhook and disables it: thirty is at least five
+    /// deliveries dead, which needs at least one to have run its whole
+    /// schedule — fifteen hours of a receiver that never once answered
+    /// 2xx. A carrier that has mended its receiver registers again.
+    /// </summary>
+    public const int RetiresAfter = 30;
+
+    /// <summary>Whether a webhook with this many failures in a row is retired on this failure.</summary>
+    public static bool Retires(int failedInARow) => failedInARow >= RetiresAfter;
+
+    /// <summary>What the retired webhook's row says.</summary>
+    public static string RetiredReason(int failedInARow) => $"disabled by SCMOS: {failedInARow} deliveries failed in a row";
+
     /// <summary>The events out of a body — case forgiven, duplicates dropped; empty means all three. Null when one is not an event.</summary>
     public static IReadOnlyList<string>? ReadEvents(IEnumerable<string?>? wanted)
     {
@@ -114,6 +129,25 @@ public static class CarrierWebhooks
         // be pointed at the private network, anywhere.
         if (literal && IsPrivate(address!) && !(allowInsecure && IPAddress.IsLoopback(address!)))
             return "url must not point at a private address";
+        return null;
+    }
+
+    /// <summary>
+    /// Why a delivery must not connect, or null when it may: the host the
+    /// URL names resolved to these addresses at the moment of sending, and
+    /// a name that resolves to a private address — a rebind, a split
+    /// horizon, a mistake — is refused whole; the URL check at
+    /// registration only saw the name. The loopback is allowed only where
+    /// insecure URLs are (a developer's machine).
+    /// </summary>
+    public static string? AddressProblem(IReadOnlyList<IPAddress> addresses, bool allowLoopback = false)
+    {
+        if (addresses.Count == 0) return "host resolves to no address";
+        foreach (var address in addresses)
+        {
+            if (allowLoopback && IPAddress.IsLoopback(address)) continue;
+            if (IsPrivate(address)) return $"host resolves to a private address ({address})";
+        }
         return null;
     }
 

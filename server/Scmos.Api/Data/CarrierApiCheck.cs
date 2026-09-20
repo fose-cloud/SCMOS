@@ -245,6 +245,23 @@ public static class CarrierApiCheck
         failed += Say("a 2xx is delivered; a 3xx, 4xx or 5xx is not", CarrierWebhooks.IsDelivered(200) && CarrierWebhooks.IsDelivered(204) && !CarrierWebhooks.IsDelivered(302) && !CarrierWebhooks.IsDelivered(404) && !CarrierWebhooks.IsDelivered(500), true);
 
         Console.WriteLine();
+        /* ---- after V1: the address at send time, a webhook that stays dead ---- */
+        failed += Say("a host that resolves to a private address is refused at send time, even beside a public one",
+            CarrierWebhooks.AddressProblem([System.Net.IPAddress.Parse("10.1.2.3")]) is not null
+            && CarrierWebhooks.AddressProblem([System.Net.IPAddress.Parse("203.0.113.10"), System.Net.IPAddress.Parse("192.168.0.2")]) is not null
+            && CarrierWebhooks.AddressProblem([System.Net.IPAddress.Parse("203.0.113.10"), System.Net.IPAddress.Parse("2001:db8::1")]) is null, true);
+        failed += Say("a host that resolves to nothing is refused", CarrierWebhooks.AddressProblem([]) is not null, true);
+        failed += Say("the loopback is refused, except where insecure URLs are allowed",
+            CarrierWebhooks.AddressProblem([System.Net.IPAddress.Loopback]) is not null && CarrierWebhooks.AddressProblem([System.Net.IPAddress.Loopback], allowLoopback: true) is null
+            && CarrierWebhooks.AddressProblem([System.Net.IPAddress.Parse("10.0.0.1")], allowLoopback: true) is not null, true);
+        failed += Say("a webhook is retired after thirty failures in a row — at least one delivery's whole schedule — and not before",
+            !CarrierWebhooks.Retires(CarrierWebhooks.MaxAttempts * 4) && CarrierWebhooks.Retires(30) && CarrierWebhooks.Retires(31)
+            && CarrierWebhooks.RetiresAfter >= CarrierWebhooks.MaxAttempts * 5, true);
+        failed += Say("the bell names the source of what waits",
+            Notifications.WaitingTitle(2, 0) == "2 ข้อความ LINE รอการอนุมัติ" && Notifications.WaitingTitle(0, 1) == "1 สถานะจาก TMS รอการอนุมัติ"
+            && Notifications.WaitingTitle(2, 1) == "2 ข้อความ LINE · 1 สถานะจาก TMS รอการอนุมัติ" && Notifications.WaitingTitle(0, 0) == "", true);
+
+        Console.WriteLine();
         /* ---- phase 5: auto-apply ---- */
         failed += Say("the switch is off unless the setting says 'on'", CarrierApi.AutoApplyOn(null) || CarrierApi.AutoApplyOn("") || CarrierApi.AutoApplyOn("true") || CarrierApi.AutoApplyOn("off"), false);
         failed += Say("'on', however written, is on", CarrierApi.AutoApplyOn(" ON ") && CarrierApi.AutoApplyOn("on"), true);

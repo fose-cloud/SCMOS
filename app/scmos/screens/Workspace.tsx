@@ -13,6 +13,7 @@ import { GridMenu } from "../GridMenu";
 import { JobCards } from "../JobCards";
 import { NO_DATE, inChosenPeriod, monthLabel, partsOf } from "../period";
 import type { PanelPrefs } from "../settings";
+import type { PendingMark } from "../linePending";
 import { writeClipboardTable } from "../pasteBlock";
 import { looksLikeDiesel } from "../diesel";
 import type { DieselDay } from "../dieselMonth";
@@ -134,7 +135,7 @@ type Props = {
   /** Whose jobs this person is covering today, from /api/me. */
   covering: { id: string; name: string }[];
   /** How many LINE messages wait on each job, by key — the row says so and opens the drawer. */
-  linePending?: Record<string, number>;
+  linePending?: Record<string, PendingMark>;
   /** Rows per page, from the viewer's settings. */
   per: number;
   /**
@@ -1793,15 +1794,17 @@ export function Workspace(p: Props) {
     // cell on it opens — and a badge saying so on a row somebody is keying for
     // the person on leave reads as the grant not working.
     const covering = !mine && !!j.opId && p.covering.some((one) => one.id === j.opId);
-    // A haulier's LINE message waiting on this job: the badge says LINE and
-    // turns amber, and opening the row is where the owner approves it.
-    const waiting = p.linePending?.[j.key] ?? 0;
+    // A haulier's message waiting on this job — from the LINE room or from
+    // its TMS: the badge names the door and turns amber, and opening the row
+    // is where the owner approves it.
+    const mark = p.linePending?.[j.key];
+    const waiting = mark?.count ?? 0;
     const label = mine ? "MY JOB" : covering ? "COVERING" : "VIEW ONLY";
-    const c = cell(waiting > 0 ? `${label} · LINE ${waiting}` : label,
+    const c = cell(waiting > 0 ? `${label} · ${mark!.badge}` : label,
       { tone: waiting > 0 ? "amber" : mine ? "blue" : covering ? "amber" : "gray" });
     c.td += "cursor:pointer;";
     c.sp += "border:1px solid " + (waiting > 0 || covering ? "#F0C36D" : mine ? "#9CC2E8" : "#D0D8E0") + ";";
-    c.title = waiting > 0 ? `มี ${waiting} ข้อความ LINE รออนุมัติ · เปิดรายละเอียดงาน`
+    c.title = waiting > 0 ? `มี ${waiting} ข้อความรออนุมัติ (${mark!.badge}) · เปิดรายละเอียดงาน`
       : covering ? `งานของ ${j.op} — คุณดูแลแทนอยู่ · เปิดรายละเอียดงาน` : "เปิดรายละเอียดงาน";
     c.go = () => p.onDrawer(j.key);
     return c;

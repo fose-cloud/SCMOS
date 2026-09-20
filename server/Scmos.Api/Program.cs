@@ -92,7 +92,10 @@ builder.Services.AddScoped<CarrierWebhookQueue>();
 builder.Services.AddHttpClient(CarrierWebhookDispatcher.ClientName, client =>
 {
     client.Timeout = CarrierWebhooks.Timeout + TimeSpan.FromSeconds(5);
-});
+})
+    // The address is judged at the moment of connecting, not only at
+    // registration; a developer's machine may call its own loopback.
+    .ConfigurePrimaryHttpMessageHandler(() => CarrierWebhookDispatcher.Handler(allowLoopback: builder.Environment.IsDevelopment()));
 builder.Services.AddHostedService<CarrierWebhookDispatcher>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();

@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +19,14 @@ namespace Scmos.Api.Services;
 /// left dead in the ledger. An "assignment.offered" is filled out with
 /// the assignment as the TMS would read it, at the moment of sending, so
 /// a retry an hour later carries the job as it is then.
+///
+/// <para>
+/// The connection itself is made by <see cref="ConnectAsync"/>: the host
+/// is resolved at that moment and a private address is refused, whatever
+/// the URL looked like at registration; a redirect is not followed. A
+/// webhook that fails <see cref="CarrierWebhooks.RetiresAfter"/> times in
+/// a row is disabled by SCMOS and its row says so.
+/// </para>
 /// </summary>
 public class CarrierWebhookDispatcher(IServiceProvider services, IHttpClientFactory clients, ILogger<CarrierWebhookDispatcher> log) : BackgroundService
 {
@@ -103,10 +113,65 @@ public class CarrierWebhookDispatcher(IServiceProvider services, IHttpClientFact
                 else delivery.Status = CarrierWebhooks.Dead;
                 log.LogWarning("Carrier webhook {Hook}: delivery {Delivery} ({Type}) failed, attempt {Attempt}: {Status} {Error}",
                     hook.Id, delivery.Id, delivery.EventType, delivery.Attempts, status?.ToString() ?? "-", error);
+                if (CarrierWebhooks.Retires(hook.FailedInARow))
+                {
+                    // Nothing has got through for at least fifteen hours: the
+                    // receiver is gone. What is still queued to it is closed out
+                    // on the next pass; the carrier registers again when mended.
+                    hook.Status = CarrierWebhooks.Disabled;
+                    hook.DisabledAt = DateTimeOffset.UtcNow;
+                    hook.DisabledBy = "scmos";
+                    hook.LastError = CarrierWebhooks.RetiredReason(hook.FailedInARow);
+                    log.LogWarning("Carrier webhook {Hook} ({Url}) disabled: {Count} deliveries failed in a row", hook.Id, hook.Url, hook.FailedInARow);
+                }
             }
         }
         await db.SaveChangesAsync(token);
         return attempted;
+    }
+
+    /// <summary>
+    /// The handler behind the webhook client: no redirects (a 3xx is a
+    /// failure like any other answer, so a receiver cannot send SCMOS on
+    /// to an address the rules would refuse), no cookies, and every
+    /// connection through <see cref="ConnectAsync"/>.
+    /// </summary>
+    public static SocketsHttpHandler Handler(bool allowLoopback) => new()
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectCallback = (context, token) => ConnectAsync(context.DnsEndPoint, allowLoopback, token),
+    };
+
+    /// <summary>
+    /// Resolves the host here and now and refuses to connect when any of
+    /// its addresses is private (<see cref="CarrierWebhooks.AddressProblem"/>);
+    /// the refusal surfaces as the delivery's error, and is retried on the
+    /// schedule like a refused connection, since a name can change.
+    /// </summary>
+    public static async ValueTask<Stream> ConnectAsync(DnsEndPoint endpoint, bool allowLoopback, CancellationToken token)
+    {
+        IPAddress[] addresses;
+        if (IPAddress.TryParse(endpoint.Host, out var literal)) addresses = [literal];
+        else
+        {
+            try { addresses = await Dns.GetHostAddressesAsync(endpoint.Host, token); }
+            catch (SocketException error) { throw new HttpRequestException($"host could not be resolved: {error.SocketErrorCode}"); }
+        }
+        if (CarrierWebhooks.AddressProblem(addresses, allowLoopback) is { } problem) throw new HttpRequestException(problem);
+
+        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(addresses, endpoint.Port, token);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
     }
 
     /// <summary>

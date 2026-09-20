@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { pendingByKey, pendingCounts, pendingText, pendingWrites } from "../app/scmos/linePending.ts";
+import { pendingByKey, pendingMarks, pendingText, pendingWrites, sourceOf, sourcesOf } from "../app/scmos/linePending.ts";
 
 /*
- * What a haulier's LINE message is waiting to do to a job, as the workspace
- * reads it — the mark on the row and the line in the drawer the job's owner
- * approves from.
+ * What a haulier's message is waiting to do to a job, as the workspace reads
+ * it — the mark on the row and the line in the drawer the job's owner
+ * approves from. From the LINE room or from the haulier's TMS: one queue, and
+ * the mark names the door.
  */
 
 const text = (over = {}) => ({
@@ -19,8 +20,20 @@ test("messages fold by job, and a message pinned to nothing is left out", () => 
   const byKey = pendingByKey([text(), text({ id: 2 }), text({ id: 3, jobKey: "J2" }), text({ id: 4, jobKey: "" })]);
   assert.deepEqual(Object.keys(byKey).sort(), ["J1", "J2"]);
   assert.equal(byKey.J1.length, 2);
-  assert.deepEqual(pendingCounts([text(), text({ id: 2 }), text({ id: 3, jobKey: "J2" })]), { J1: 2, J2: 1 });
-  assert.deepEqual(pendingCounts(null), {});
+  assert.deepEqual(pendingMarks([text(), text({ id: 2 }), text({ id: 3, jobKey: "J2" })]), { J1: { count: 2, badge: "LINE 2" }, J2: { count: 1, badge: "LINE 1" } });
+  assert.deepEqual(pendingMarks(null), {});
+});
+
+test("the mark names the door a message came through — LINE, the haulier's TMS, or both", () => {
+  const tms = (over = {}) => text({ kind: "tms", group: "Shore Trans Asia Co., Ltd. · SHORE TMS", text: "container_returned · 20/09/2026 18:38", ...over });
+  assert.equal(sourceOf(text()), "LINE");
+  assert.equal(sourceOf(tms()), "TMS");
+  assert.deepEqual(sourcesOf([tms(), text()]), ["LINE", "TMS"]);
+  assert.deepEqual(sourcesOf([tms()]), ["TMS"]);
+  assert.deepEqual(pendingMarks([tms()]), { J1: { count: 1, badge: "TMS 1" } });
+  assert.deepEqual(pendingMarks([text(), tms({ id: 2 }), text({ id: 3 })]), { J1: { count: 3, badge: "LINE 2 · TMS 1" } });
+  // A kind the feed has never sent reads as LINE, the door that was there first.
+  assert.equal(sourceOf(text({ kind: "" })), "LINE");
 });
 
 test("what approving writes is said in one line", () => {

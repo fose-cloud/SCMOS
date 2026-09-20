@@ -4,7 +4,7 @@ import { useState, type ChangeEvent, type DragEvent } from "react";
 import { badge, css, opTone } from "../theme";
 import { isCancelled, MOVED_BY, wasMoved, type Job, type Masters } from "../ops";
 import { describe } from "../lineReview";
-import { pendingText, pendingWrites, type LinePending } from "../linePending";
+import { pendingText, pendingWrites, sourceOf, sourcesOf, type LinePending } from "../linePending";
 
 /* ---------------------------------------------------------- job drawer */
 
@@ -19,7 +19,7 @@ export function JobDrawer(p: {
   onDelete: () => void;
   /** Opens the issue log with this job already attached. */
   onRaiseIssue: () => void;
-  /** Hauliers' LINE messages waiting on this job, newest first. */
+  /** Hauliers' messages waiting on this job — from LINE or a TMS — newest first. */
   line?: LinePending[];
   /** Approves or sets aside one of them; absent when this person may not act on the job. Resolves when the API has answered. */
   onLineAct?: (id: number, what: "apply" | "dismiss", jobKey: string) => Promise<void> | void;
@@ -76,12 +76,13 @@ export function JobDrawer(p: {
 
       <div style={css("flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:16px")}>
         {!!p.line?.length && (
-          // What a haulier said about this job in LINE, waiting for the
-          // owner's word. Since 16 Sep 2026 that word is given here, on the
-          // job, and not only on the review screen — "ให้เจ้าของงานกด Approve เอง".
+          // What a haulier said about this job — in LINE, or from its TMS
+          // through the Carrier API — waiting for the owner's word. Since
+          // 16 Sep 2026 that word is given here, on the job, and not only on
+          // the review screen — "ให้เจ้าของงานกด Approve เอง".
           <div style={css("border:1px solid #F0C36D;background:#FFFBEB;border-radius:5px;padding:11px 13px;display:flex;flex-direction:column;gap:9px")}>
             <div style={css("display:flex;align-items:center;gap:8px")}>
-              <span style={css(badge("LINE", "amber"))}>LINE</span>
+              {sourcesOf(p.line).map((source) => <span key={source} style={css(badge(source, "amber"))}>{source}</span>)}
               <span style={css("font-size:11px;color:#64748B")}>{p.line.length} ข้อความรออนุมัติ</span>
             </div>
             {p.line.map((one) => {
@@ -90,7 +91,7 @@ export function JobDrawer(p: {
               return (
                 <div key={one.id} style={css("display:flex;flex-direction:column;gap:4px;padding-top:7px;border-top:1px solid #F5E3C7")}>
                   <span style={css("font-size:11.5px;color:#0A2240")}>{pendingText(one)}</span>
-                  <span style={css("font-size:10.5px;color:#94A3B8")}>{one.group}{one.receivedAt ? " · " + new Date(one.receivedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                  <span style={css("font-size:10.5px;color:#94A3B8")}>{sourceOf(one)} · {one.group}{one.receivedAt ? " · " + new Date(one.receivedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</span>
                   {one.ready && writes
                     ? <span style={css("font-size:11.5px;font-weight:600;color:#B45309")}>{writes}</span>
                     : <span style={css(`font-size:11.5px;color:${one.ready ? "#B45309" : "#B42318"}`)}>{verdict.label}{one.detail ? " — " + one.detail : ""}</span>}
