@@ -152,6 +152,14 @@ static class AuditChecks
             "D: rollback cannot drop audit evidence");
         var offline = new SqlAiExecutionAudit(new DbContextOptionsBuilder<ScmosDbContext>().Options);
         check(!offline.Ready && !await offline.CheckReadyAsync(default), "D: absent provider/schema never reports audit ready");
+        // 21 Sep 2026: a write's budget is half the run's, five to thirty seconds — the flat five
+        // could not commit a run's first event on the working-hours database.
+        check(SqlAiExecutionAudit.WriteSeconds(null) == 5 && SqlAiExecutionAudit.WriteSeconds(new AiOptions()) == 10
+            && SqlAiExecutionAudit.WriteSeconds(new AiOptions { TimeoutSeconds = 60 }) == 30
+            && SqlAiExecutionAudit.WriteSeconds(new AiOptions { TimeoutSeconds = 1 }) == 5
+            && SqlAiExecutionAudit.WriteSeconds(new AiOptions { TimeoutSeconds = 6 }) == 5
+            && SqlAiExecutionAudit.WriteSeconds(new AiOptions { TimeoutSeconds = 12 }) == 6,
+            "D: an audit write waits half the run's budget, never under five seconds nor over thirty");
         // Metadata comparison only: no connection is opened and no migrations are applied.
         await using (var model = new ScmosDbContext(new DbContextOptionsBuilder<ScmosDbContext>()
             .UseSqlServer("Server=127.0.0.1,1;Database=offline-model-check;User Id=unused;Password=unused;Encrypt=True").Options))
