@@ -121,7 +121,9 @@ function accept<T>(v: unknown, valid: boolean): T {
 }
 export function parseStatus(v: unknown): AiStatus {
   return accept(v, obj(v) && bools(v, ["enabled", "chatEnabled", "providerConfigured", "mock", "configurationValid", "liveToolsReady", "writeToolsReady", "auditReady"])
-    && Array.isArray(v.agents) && v.agents.length <= 8 && v.agents.every(a =>
+    // Administrators can see all ten registered agents. Keep a bounded response,
+    // but do not reject the entire status (including the Operations switch).
+    && Array.isArray(v.agents) && v.agents.length <= 16 && v.agents.every(a =>
       obj(a) && strings(a, ["id", "name"]) && bools(a, ["enabled", "connected"]))
     && (v.operationsControl == null || obj(v.operationsControl)
       && bools(v.operationsControl, ["available", "enabled", "canManage", "canEnable", "emergencyDisabled"])

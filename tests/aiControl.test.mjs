@@ -35,6 +35,16 @@ test("Control Tower accepts current dashboard/AI/audit contracts", () => {
   for (const [parser, fixture] of [[parseStatus, status], [parseToday, today], [parseBrief, brief], [parseReply, reply], [parseAuditRun, run], [parseAuditPage, audit]])
     assert.equal(parser(fixture), fixture);
 });
+test("Administrator status accepts all ten agents without hiding AI controls", () => {
+  const agentIds = ["operations-agent", "vendor-agent", "rate-agent", "data-agent", "incident-agent",
+    "document-agent", "compliance-agent", "management-agent", "communication-agent", "engineering-agent"];
+  const full = { ...status, agents: agentIds.map(id => ({ id, name: id, enabled: true, connected: true })),
+    operationsControl: { available: true, enabled: true, revision: 1, canManage: true,
+      canEnable: true, emergencyDisabled: false, blockReason: "" } };
+  assert.equal(parseStatus(full), full);
+  assert.equal(engineeringAvailability(parseStatus(full)).ready, true);
+  rejects(parseStatus, { ...full, agents: Array.from({ length: 17 }, (_, n) => ({ ...full.agents[0], id: `agent-${n}` })) });
+});
 test("missing metrics are N/A while real zero stays zero", () => {
   assert.equal(number(null), "N/A"); assert.equal(number(undefined), "N/A"); assert.equal(number(0), "0");
   assert.equal(parseToday(today).attention[0].value, null);
