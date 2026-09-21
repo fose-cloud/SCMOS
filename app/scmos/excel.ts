@@ -1001,6 +1001,40 @@ export function exportProblems(rows: {
 }
 
 /**
+ * The Operational Issues log, as shown — narrowed by the status, severity and
+ * search — for the team that kept this log in Excel before it was a screen.
+ *
+ * Asked for on 21 Sep 2026: the header's "Export Excel" on this screen was the
+ * generic fallback, which raised a toast and exported nothing.
+ */
+export function exportIssues(rows: {
+  code: string; foundOn: string; foundAt: string; source: string; reporter: string; jobRef: string;
+  jobCustomer: string; jobTrucker: string; jobDate: string; detail: string; category: string; scorecardColumn: string;
+  severity: string; impact: string; channel: string; owner: string; dueOn: string; status: string; rootCause: string;
+  driver: string; licence: string; containerNo: string; accidentGrade: string; slaHours: number; overdue: boolean;
+}[], scopeLabel: string): string {
+  const headers = ["รหัส", "วันที่พบ", "เวลา", "แหล่ง", "ผู้แจ้ง", "งานที่เกี่ยวข้อง", "ลูกค้า", "ผู้ขนส่ง", "วันที่งาน",
+    "รายละเอียด", "หมวด", "หัวข้อการประเมิน (KPI)", "ความรุนแรง", "ผลกระทบ", "ช่องทาง", "ผู้รับผิดชอบ", "กำหนดเสร็จ",
+    "สถานะ", "สาเหตุ", "คนขับ", "ทะเบียน", "เลขตู้", "ระดับอุบัติเหตุ", "เวลาเป้าหมาย (ชม.)", "เกินเวลาเป้าหมาย"];
+  const out = rows.map((row) => ({
+    [headers[0]]: row.code, [headers[1]]: row.foundOn, [headers[2]]: row.foundAt, [headers[3]]: row.source, [headers[4]]: row.reporter,
+    [headers[5]]: row.jobRef, [headers[6]]: row.jobCustomer, [headers[7]]: row.jobTrucker, [headers[8]]: row.jobDate,
+    [headers[9]]: row.detail, [headers[10]]: row.category, [headers[11]]: row.scorecardColumn, [headers[12]]: row.severity,
+    [headers[13]]: row.impact, [headers[14]]: row.channel, [headers[15]]: row.owner, [headers[16]]: row.dueOn,
+    [headers[17]]: row.status, [headers[18]]: row.rootCause, [headers[19]]: row.driver, [headers[20]]: row.licence,
+    [headers[21]]: row.containerNo, [headers[22]]: row.accidentGrade, [headers[23]]: row.slaHours,
+    [headers[24]]: row.overdue ? "ใช่" : "",
+  }));
+  const book = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(out, { header: headers });
+  sheet["!cols"] = autoWidth(out, headers);
+  XLSX.utils.book_append_sheet(book, sheet, "Issues");
+  const filename = `SCMOS_Operational_Issues_${scopeLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(book, filename);
+  return filename;
+}
+
+/**
  * The Domestic check list, for sending back to a haulier with the invoice.
  *
  * One row per trip as the screen shows it: what ran, what the card says it

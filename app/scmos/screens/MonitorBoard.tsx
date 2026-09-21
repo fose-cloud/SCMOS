@@ -531,7 +531,10 @@ function Card({ title, note, tools, children }: {
             away is one nobody remembers is set. */}
         {tools}
       </div>
-      <ZoomBox>{children}</ZoomBox>
+      {/* No zoom slider, at the department's word on 21 Sep 2026 — the same
+          answer as KPI, the Supplier Register, Operational Issues and Audit.
+          The box still scrolls sideways and stays capped to the fold. */}
+      <ZoomBox zoomable={false}>{children}</ZoomBox>
     </div>
   );
 }

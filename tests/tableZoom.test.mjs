@@ -70,13 +70,23 @@ test("the screens the department asked the zoom off stay without it", () => {
   for (const [path, pattern] of [
     ["app/scmos/screens/Kpi.tsx", /<ZoomBox zoomable=\{false\}/],
     ["app/scmos/screens/Suppliers.tsx", /<ZoomBox zoomable=\{false\}/],
-    ["app/scmos/screens/OperationalIssues.tsx", /<ZoomBox zoomable=\{false\}>/],
+    // Uncapped since 21 Sep 2026: fifty rows a page, the page scrolls.
+    ["app/scmos/screens/OperationalIssues.tsx", /<ZoomBox capped=\{false\} zoomable=\{false\}>/],
+    // The Shipment Monitor's cards, on 21 Sep 2026.
+    ["app/scmos/screens/MonitorBoard.tsx", /<ZoomBox zoomable=\{false\}>\{children\}<\/ZoomBox>/],
     // LINE on 16 Sep 2026 — both its tables.
     ["app/scmos/screens/LineReview.tsx", /<ZoomBox zoomable=\{false\}>[\s\S]*<ZoomBox capped=\{false\} zoomable=\{false\}>/],
   ]) {
     assert.match(readFileSync(path, "utf8"), pattern, path);
   }
-  assert.doesNotMatch(readFileSync("app/scmos/screens/OperationalIssues.tsx", "utf8"), /<ZoomBox>/);
+  assert.doesNotMatch(readFileSync("app/scmos/screens/OperationalIssues.tsx", "utf8"), /<ZoomBox>|<ZoomBox zoomable=\{false\}>/);
+  assert.doesNotMatch(readFileSync("app/scmos/screens/MonitorBoard.tsx", "utf8"), /<ZoomBox>/);
+  // Operational Issues exports what it shows, fifty rows a page; the header's fallback button — a toast and no file — is gone from it.
+  const issues = readFileSync("app/scmos/screens/OperationalIssues.tsx", "utf8");
+  assert.match(issues, /const ROWS_PER_PAGE = 50;/);
+  assert.match(issues, /exportIssues\(rows, /);
+  assert.match(issues, /paged\.slice\.map\(\(issue\)/);
+  assert.match(readFileSync("app/SCMOSApp.tsx", "utf8"), /screen === "audit" \|\| screen === "issues"\) return \[\];/);
   assert.doesNotMatch(readFileSync("app/scmos/screens/LineReview.tsx", "utf8"), /<ZoomBox>|<ZoomBox capped=\{false\}>/);
   // The queue shows the room's own id when it is unbound, and offers to bind it from the row.
   const line = readFileSync("app/scmos/screens/LineReview.tsx", "utf8");

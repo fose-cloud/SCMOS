@@ -1671,7 +1671,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     // Screens with no real export yet get no button. The generic fallback below
     // offers an "Export Excel" that only raises a toast, and a button that
     // claims to export and does not is worse than no button.
-    if (screen === "kpi" || screen === "monitoring" || screen === "prerun" || screen === "audit") return [];
+    if (screen === "kpi" || screen === "monitoring" || screen === "prerun" || screen === "audit" || screen === "issues") return [];
     if (NOT_BUILT[screen] || OWN_SCREEN[screen] || systemById(screen)) return [];
     if (screen === "booking") {
       const waiting = (ops?.jobs ?? []).filter((j) => !/complet|delivered|gate-in/i.test(j.status) && !j.licence.trim());

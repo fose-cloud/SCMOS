@@ -6,12 +6,23 @@ import {
   importIssues, loadIssueForm, loadIssues, loadIssueSummary, raiseIssue, updateIssue,
 } from "../issues";
 import { parseIssueWorkbook } from "../issuesExcel";
+import { exportIssues } from "../excel";
 import type { Job } from "../ops";
 import { css } from "../theme";
 import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
+import { Pager } from "../BoardBits";
+import { paginate } from "../util";
 import { apiFetch } from "../api";
 import { useCarriers } from "../carriers";
+
+/**
+ * Fifty rows a page, at the department's word on 21 Sep 2026: the log's rows
+ * are tall — a detail runs to a paragraph — and a box held to the fold showed
+ * one at a time. The box is no longer held; the page scrolls, and the pager
+ * keeps a month of issues from becoming one endless scroll.
+ */
+const ROWS_PER_PAGE = 50;
 
 /**
  * What went wrong today, and which job it went wrong on.
@@ -113,6 +124,8 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
   const [status, setStatus] = useState("OUTSTANDING");
   const [severity, setSeverity] = useState("ALL");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [per, setPer] = useState(ROWS_PER_PAGE);
 
   /**
    * Arriving from the carrier scorecard with a haulier to look at.
@@ -199,6 +212,22 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
       issue.category, issue.jobCustomer, issue.jobTrucker,
     ].some((field) => (field ?? "").toLowerCase().includes(wanted)));
   }, [issues, query]);
+  // A new filter or search starts at the first page; the pager's own page is kept within what is left.
+  const filterStatus = (value: string) => { setStatus(value); setPage(1); };
+  const filterSeverity = (value: string) => { setSeverity(value); setPage(1); };
+  const filterQuery = (value: string) => { setQuery(value); setPage(1); };
+  const paged = paginate(rows, page, per);
+
+  /** The rows as shown — filtered and searched, every page — to the workbook the team keeps. */
+  function exportShown() {
+    if (rows.length === 0) { onToast("ไม่มีรายการให้ส่งออกในมุมมองนี้"); return; }
+    try {
+      const name = exportIssues(rows, status === "ALL" ? "all" : status.toLowerCase());
+      onToast(`ส่งออก ${rows.length} รายการแล้ว · ${name}`);
+    } catch (error) {
+      onToast("ส่งออกไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
 
   /**
    * Says which column of the carrier scorecard this issue counts under.
@@ -301,19 +330,19 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
       )}
 
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:13px 16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap")}>
-        <Picker label="สถานะ" value={status} onChange={setStatus} options={[
+        <Picker label="สถานะ" value={status} onChange={filterStatus} options={[
           ["OUTSTANDING", "ที่ยังค้าง"],
           ["ALL", "ทั้งหมด"],
           ...(form?.statuses ?? []).map((s) => [s, s] as [string, string]),
         ]} />
-        <Picker label="ความรุนแรง" value={severity} onChange={setSeverity} options={[
+        <Picker label="ความรุนแรง" value={severity} onChange={filterSeverity} options={[
           ["ALL", "ทุกระดับ"],
           ...(form?.severities ?? []).map((s) => [s, s] as [string, string]),
         ]} />
 
         <label style={css("display:flex;flex-direction:column;gap:3px;min-width:220px;flex:1")}>
           <span style={LABEL}>ค้นหา</span>
-          <input value={query} onChange={(e) => setQuery(e.target.value)}
+          <input value={query} onChange={(e) => filterQuery(e.target.value)}
             placeholder="รหัส · เลขงาน · ลูกค้า · ผู้รับผิดชอบ · รายละเอียด"
             style={css("height:30px;border:1px solid #D3DBE3;border-radius:4px;padding:0 10px;font-size:12.5px;font-family:inherit")} />
         </label>
@@ -322,6 +351,9 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
           onChange={(e) => { void readFile(e.target.files); e.target.value = ""; }} />
         <button onClick={() => file.current?.click()} disabled={busy} style={BTN_SECONDARY}>
           นำเข้าจาก Excel
+        </button>
+        <button onClick={exportShown} disabled={rows.length === 0} style={BTN_SECONDARY}>
+          ส่งออก Excel
         </button>
         <button onClick={() => setAdding((v) => !v)} style={BTN_PRIMARY}>
           {adding ? "ปิดฟอร์ม" : "+ แจ้งปัญหา"}
@@ -347,8 +379,10 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
         ) : (
           // No zoom slider, at the department's word on 15 Sep 2026 — the same
           // answer as KPI and the Supplier Register. The box still scrolls
-          // sideways and stays capped to the fold; it is the control that went.
-          <ZoomBox zoomable={false}>
+          // sideways. Not held to the fold since 21 Sep 2026: with a paragraph
+          // in every row the fold showed one row at a time; the pager below
+          // bounds the page instead.
+          <ZoomBox capped={false} zoomable={false}>
             {/* One input for the whole table. A file input per row would be a
                 hundred of them on a busy month, all kept alive by the browser. */}
             <input
@@ -373,7 +407,7 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
                 </tr>
               </thead>
               <tbody>
-                {rows.map((issue) => (
+                {paged.slice.map((issue) => (
                   <tr key={issue.id} className="row-hover">
                     {/* The code opens the row in the form above, every field
                         of it. No extra column: the code is the row's name and
@@ -494,6 +528,10 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
               </tbody>
             </table>
           </ZoomBox>
+        )}
+        {rows.length > 0 && (
+          <Pager total={paged.total} page={paged.p} pageCount={paged.pageCount} per={per}
+            onPage={setPage} onPer={(n) => { setPer(n); setPage(1); }} />
         )}
       </div>
     </div>
