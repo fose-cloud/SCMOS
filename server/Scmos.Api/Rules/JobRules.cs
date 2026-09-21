@@ -262,12 +262,14 @@ public static partial class JobRules
         return late is not null && late > minutes;
     }
 
-    public static bool IsOnTime(JobRecord job)
-    {
-        if (!IsMeasurable(job)) return false;
-        var planned = Formats.DateNumber(job.Date);
-        var arrived = Formats.DateNumber(job.ArrDate);
-        if (arrived < planned) return true;
-        return arrived == planned && Formats.TimeMinutes(job.ArrTime) <= Formats.TimeMinutes(job.PlanTime);
-    }
+    /// <summary>
+    /// Whether the shipment arrived on time: at or before its plan, or within
+    /// the grace its customer's own agreement allows — zero for everyone
+    /// unless <see cref="CustomerTerms"/> says otherwise (Lotus, thirty
+    /// minutes, since 21 Sep 2026). False when it cannot be measured, which
+    /// is not the same as on time. One subtraction, <see cref="MinutesLate"/>,
+    /// serves this, the thirty-minute problem threshold and the scorecard.
+    /// </summary>
+    public static bool IsOnTime(JobRecord job) =>
+        MinutesLate(job) is { } late && late <= CustomerTerms.GraceMinutes(job.Customer);
 }

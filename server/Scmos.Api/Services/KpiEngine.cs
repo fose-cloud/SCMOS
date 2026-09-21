@@ -315,11 +315,15 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     {
         var measurable = jobs.Where(job => JobRules.IsMeasurable(job.Record)).ToList();
         var met = measurable.Count(job => JobRules.IsOnTime(job.Record));
+        // A customer's own term, named on the figure when a job of theirs is in the base.
+        var terms = measurable.Select(job => CustomerTerms.Of(job.Record.Customer)).OfType<CustomerTerms.Term>().DistinctBy(term => term.Customer)
+            .Select(term => $"{term.Customer} นับตรงเวลาภายใน {term.GraceMinutes} นาที").ToList();
 
         return Rate(MeasureId.OnTimeDelivery, met, measurable.Count,
             measurable.Count == 0
                 ? "ไม่มีงานที่มีทั้งเวลาแผนและเวลาถึงที่อ่านได้"
                 : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง"
+                  + (terms.Count > 0 ? " · " + string.Join(" · ", terms) : "")
                   + " · ดูรายเจ้าได้ที่คอลัม On Time Delivery ในคะแนนตามสัญญา");
     }
 

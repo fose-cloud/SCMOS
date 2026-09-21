@@ -43,9 +43,14 @@ static class DataChecks
             && answer.Undated == 1 && answer.FormatErrors == 2 && answer.Returned == 2 && answer.CarriersTotal == 3 && answer.Truncated
             && answer.Carriers[0].Carrier == "SANGJA" && answer.PeriodLabel == "09/2026" && answer.Period == "2026-09",
             "2: the figure is the service's, the carriers cut to the limit and said so");
-        check(answer.Rule.Id == "arrival.on_time" && answer.Rule.Version == "2" && answer.Rule.Source.Contains("JobRules.IsOnTime")
-            && answer.CustomerContract == "unknown" && answer.SourceUpdatedAt == Now.AddHours(-1) && answer.Source == "operation_jobs",
+        check(answer.Rule.Id == "arrival.on_time" && answer.Rule.Version == "3" && answer.Rule.Source.Contains("JobRules.IsOnTime")
+            && answer.CustomerContract == "unknown" && answer.SourceUpdatedAt == Now.AddHours(-1) && answer.Source == "operation_jobs"
+            && answer.Basis.Contains("LOTUS นับตรงเวลาภายใน 30 นาที"),
             "2: the rule, its version, its source, the unknown contract and the register's last change are on the answer");
+        // A customer with a registered term (21 Sep 2026) is named as such on the answer; the figure is still the service's.
+        var lotus = await service.ReadAsync("query_kpi", Args("2026-09", "Lotus Asia", null, 2), team, default);
+        check(lotus.CustomerContract == "LOTUS: on time within 30 minutes of plan (since 21/09/2026)" && lotus.Filters.Customer == "Lotus Asia",
+            "2: a customer's registered term is on the answer when the question names them");
         var restricted = new AiToolContext("run", Restricted.UserId, new(false, "OP-D9"), Now);
         await service.ReadAsync("query_kpi", Args("2026", null, null, 50), restricted, default);
         check(source.LastFilter == new KpiFilter("", "", "OP-D9"), "2: a restricted account reads only its own jobs' figure");
@@ -108,7 +113,8 @@ static class DataChecks
         check(result.Code == "ok" && result.Evidence!.Total == 10 && result.Evidence.OnTimePercent == 67 && result.Evidence.Filters.Customer == "L'OREAL",
             "2: a KPI question executes the read and returns the figure with its provenance");
         check(result.Summary.Contains("งวด 09/2026") && result.Summary.Contains("ตรงเวลา 4 จาก 6") && result.Summary.Contains("67%")
-            && result.Summary.Contains("arrival.on_time v2") && result.Summary.Contains("สัญญาลูกค้า: ไม่ทราบ"),
+            && result.Summary.Contains("arrival.on_time v3") && result.Summary.Contains("สัญญาลูกค้า: ไม่ทราบ")
+            && DataAgent.Summarise(lotus).Contains("เงื่อนไขลูกค้า: LOTUS: on time within 30 minutes"),
             "2: the summary states the base the percentage was measured over, the rule and that the contract is unknown");
         check(audit.Entries.Where(e => e.RunId == "data-run-1").Select(e => e.Event).SequenceEqual(["run_started", "tool_started", "tool_completed", "run_completed"])
             && audit.Entries.Where(e => e.RunId == "data-run-1").All(e => e.AgentId == "data-agent" && e.CorrelationId == "corr-data-1")

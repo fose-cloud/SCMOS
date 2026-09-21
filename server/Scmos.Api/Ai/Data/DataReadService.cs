@@ -112,10 +112,12 @@ public sealed class DataReadService(IKpiReports? kpi, TimeProvider clock)
             report.Undated, report.FormatErrors, report.ActionRequired,
             report.ByCategory, carriers, report.Carriers.Count, carriers.Count, report.Carriers.Count > carriers.Count,
             new(rule.Id, rule.Version, rule.SourceMember, rule.Meaning, rule.MissingData),
-            // No verified customer contract is registered; the department's rule is what was applied, and the answer says so.
-            "unknown",
+            // The customer's registered term when the question named one that has one; otherwise the
+            // department's rule is what was applied, and the answer says so.
+            CustomerTerms.Of(customer) is { } term ? $"{term.Customer}: on time within {term.GraceMinutes} minutes of plan (since {term.Since})" : "unknown",
             context.AsOf ?? clock.GetUtcNow(), report.SourceUpdatedAt,
-            "SCMOS KpiService over JobRules.IsMeasurable / IsOnTime (zero grace); figures calculated from scoped records, not model-generated; a customer's contract rule is unknown");
+            "SCMOS KpiService over JobRules.IsMeasurable / IsOnTime (zero grace unless the customer has a registered term — "
+            + CustomerTerms.Describe() + "); figures calculated from scoped records, not model-generated");
     }
 
     private static string PeriodText(Period period) =>

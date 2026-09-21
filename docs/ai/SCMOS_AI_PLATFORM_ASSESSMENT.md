@@ -77,7 +77,7 @@ The Codex master specification was re-issued on 18–20 September with the same 
 
 **ADD** — `IntentRouter` (bounded), `SemanticRegistry` (glossary from `SCMOS_DOMAIN_MAP.md`, versioned), Data Agent read adapters over `KpiService`/`CarrierScorecard` with provenance (period, filters, records assessed / not assessable, rule version), a conversation-context service (owner-bound, TTL), correlation-id propagation (web proxy → API → tool → audit), Application Insights **connection** (infrastructure decision, not code), the remaining documents the spec lists (agent catalogue, tool catalogue, business rules, approval model, data-access policy, test plan) — as living files under `docs/ai/`.
 
-**AVOID CHANGING** — `operation_jobs`, `audit_events`, `approvals` shapes without the schema review the plan requires; existing capability grants; the `{error}` API shape; the LINE decision/approval flow (it is now the department's daily instrument); any KPI formula (the OTD rule is zero-grace and customer contracts are unknown — the Data Agent labels, it does not decide); anything that would put a rule in a second place.
+**AVOID CHANGING** — `operation_jobs`, `audit_events`, `approvals` shapes without the schema review the plan requires; existing capability grants; the `{error}` API shape; the LINE decision/approval flow (it is now the department's daily instrument); any KPI formula (the OTD rule is zero-grace unless a customer's term is registered in `Rules/CustomerTerms.cs` — Lotus, 30 minutes, since 21 Sep 2026 — and the Data Agent labels, it does not decide); anything that would put a rule in a second place.
 
 ### Recommended next slice
 

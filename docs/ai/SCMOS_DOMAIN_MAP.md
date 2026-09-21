@@ -73,6 +73,7 @@ Candidate tools are **proposals**, not statements that the current AI can execut
 - Risk: MEDIUM/HIGH confidentiality; dashboards may permit aggregates while denying person-level or supplier details. Aggregate permission is not permission to reveal underlying rows.
 - `Briefing` is deterministic prose over facts already counted. It is a reusable morning-brief starting point; label FACT/CALCULATED, not an LLM review.
 - Billing KPI has no invoice source. Present N/A, not 0%, 100% or an invented number of exceptions. Building an invoice module is outside read-only AI work.
+- On-time (`JobRules.IsOnTime`, rule `arrival.on_time` v3) is zero grace for every customer **unless a term is registered in `Rules/CustomerTerms.cs`** — since 21 Sep 2026, at the department lead's word, Lotus (`LOTUS`, `LOTUS ASIA`): an arrival up to 30 minutes after plan is not counted late in the KPI, the monthly report, the Data Agent or the dashboard; later than that, it is. The dashboard's own count reads the web copy `app/scmos/customerTerms.ts`; `tests/customerTerms.test.mjs` holds the two tables to each other. The 30-minute problem threshold (`LateBeyond`) and the scorecard's late-arrival column are unchanged and separate.
 
 ### Incidents, operational issues and CAR/PAR
 
