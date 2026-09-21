@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, errorText, issueTarget, number,
+  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, engineeringAvailability, errorText, issueTarget, number,
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
-import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, run, audit } from "./fixtures/ai-control.mjs";
+import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, engineeringReply, run, audit } from "./fixtures/ai-control.mjs";
 import { allowedOperationsControlRequest } from "../app/scmos/aiControlRequest.ts";
 const copy = value => structuredClone(value);
 const rejects = (parser, value) => assert.throws(() => parser(value), /invalid_response/);
@@ -138,6 +138,28 @@ test("the Document & Invoice Agent's paperwork is parsed strictly; nothing is ev
   assert.equal(documentAvailability({ ...withAgent, mock: true }).ready, false);
   assert.equal(documentAvailability({ ...withAgent, agents: withAgent.agents.map(a => a.id === "document-agent" ? { ...a, enabled: false } : a) }).ready, false);
 });
+test("Phase 6 GitHub metadata is parsed strictly and never treated as Operations evidence", () => {
+  assert.deepEqual(parseReply(engineeringReply), engineeringReply);
+  const e = engineeringReply.engineering;
+  const first = e.rows[0];
+  for (const patch of [
+    { engineering: null }, { evidence: reply.evidence },
+    { engineering: { ...e, repository: "other/repo" } },
+    { engineering: { ...e, total: 500 } },
+    { engineering: { ...e, returned: 2 } },
+    { engineering: { ...e, rows: [{ ...first, url: "javascript:alert(1)" }] } },
+    { engineering: { ...e, rows: [{ ...first, url: "https://github.com/fose-cloud/SCMOS/issues/12/evil" }] } },
+    { engineering: { ...e, rows: [{ ...first, body: "malicious issue body" }] } },
+    { engineering: { ...e, rows: [{ ...first, title: "bad\nheading" }] } },
+    { engineering: { ...e, rows: Array(21).fill(first), total: 21, returned: 21 } },
+  ]) rejects(parseReply, { ...engineeringReply, ...patch });
+  assert.equal(askBody("open issues", "engineering-agent").context.page, "engineering");
+  const withAgent = { ...status, agents: [...status.agents, { id: "engineering-agent", name: "Engineering Agent", enabled: true, connected: true }] };
+  assert.equal(engineeringAvailability(status).ready, false);
+  assert.equal(engineeringAvailability(withAgent).ready, true);
+  assert.equal(engineeringAvailability({ ...withAgent, mock: true }).ready, false);
+  assert.equal(engineeringAvailability({ ...withAgent, auditReady: false }).ready, false);
+});
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {
   const controller = new AbortController();
   let calls = 0;
@@ -193,9 +215,9 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.doesNotMatch(source, /dangerouslySetInnerHTML|localStorage\.|useRemembered|\/api\/risk|\/api\/ai\/invoke|\/api\/ai\/approvals/);
   assert.match(source, /canViewAudit \? "\/api\/ai\/audit/);
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
-  // `asking` is the chosen agent's readiness — Operations' or, since Phase 2, the Data Agent's.
-  assert.match(source, /if \(request.current \|\| changeBusy \|\| \(!asking.ready && !isChangeCommand\(message\)\)/);
-  assert.match(source, /const asking = agent === "data-agent" \? dataReady : agent === "communication-agent" \? messagesReady : agent === "document-agent" \? documentsReady : ready;/);
+  // Only Operations may bypass question readiness for its separate change-draft path.
+  assert.match(source, /!asking.ready && !\(agent === "operations-agent" && isChangeCommand\(message\)\)/);
+  assert.match(source, /agent === "document-agent" \? documentsReady : agent === "engineering-agent" \? engineeringReady : ready;/);
   assert.match(source, /operations-changes\/interpret/);
   assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);

@@ -3,6 +3,7 @@ using Scmos.Api.Rules;
 using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Data;
+using Scmos.Api.Ai.Engineering;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -83,7 +84,7 @@ public sealed class ToolRegistry
 {
     public const int OperationsEvidenceLimit = 50;
     public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null, MessagesReadService? messages = null,
-        DocumentsReadService? documents = null)
+        DocumentsReadService? documents = null, EngineeringReadService? engineering = null)
     {
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
@@ -132,6 +133,15 @@ public sealed class ToolRegistry
                 documents is { Connected: true } ? new DocumentsReadHandler(documents) : null)
             {
                 Policy = new(AiActionLevel.Read, "1", "documents", typeof(DocumentsAnswer), DocumentsReadService.EvidenceLimit),
+            },
+            new(EngineeringReadService.Tool,
+                "Read bounded issue, pull request or commit metadata from the server-fixed public SCMOS GitHub repository. view=open_issues, open_prs or recent_commits. Issue bodies are not projected; no diffs, source files, commands, writes or arbitrary URLs.",
+                EngineeringAgent.Id, Capability.AdministerData, AiRisk.Low,
+                new(new("view", false, Choices: EngineeringReadService.Views),
+                    new("limit", true, Max: EngineeringReadService.EvidenceLimit)),
+                engineering is { Connected: true } ? new EngineeringReadHandler(engineering) : null)
+            {
+                Policy = new(AiActionLevel.Read, "1", "github_public_repo", typeof(EngineeringAnswer), EngineeringReadService.EvidenceLimit),
             },
         });
     }

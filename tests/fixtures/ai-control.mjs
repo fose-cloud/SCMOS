@@ -95,6 +95,17 @@ export const messagesReply = {
     ],
   },
 };
+/** Phase 6 fixed-repository metadata; not fetched from GitHub during tests. */
+export const engineeringReply = {
+  runId: "f".repeat(32), code: "ok", summary: "FIXTURE ONLY · พบตัวอย่างหนึ่งรายการในหน้าแรก",
+  agentId: "engineering-agent", mock: false, usage: { inputTokens: 8, outputTokens: 3 }, evidence: null,
+  correlationId: "fixture-corr-eng", contextUsed: false,
+  engineering: {
+    view: "open_issues", repository: "fose-cloud/SCMOS", total: 1, returned: 1,
+    retrievedAt: "2026-09-21T08:00:00Z", basis: "FIXTURE ONLY · first page, read-only metadata",
+    rows: [{ id: "issue:12", title: "Fixture issue", url: "https://github.com/fose-cloud/SCMOS/issues/12", state: "open", at: "2026-09-21T07:00:00Z" }],
+  },
+};
 export const run = {
   runId: reply.runId, userId: "fixture-user", role: "Operation Supervisor", agentId: "operations-agent", model: "fixture-provider",
   scope: { team: true, operatorId: null }, status: "succeeded",

@@ -23,10 +23,10 @@ namespace Scmos.Api.Ai;
 public static class AiAuditRules
 {
     /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. The Data Agent since Phase 2.</summary>
-    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent"];
+    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository"];
 
     /// <summary>The documents tool's views (Phase 5), and the extractor's — a job category, as the Workspace's document reader takes it.</summary>
     public static readonly string[] DocumentViews = ["job", "missing", "invoice", "expiring"];
@@ -96,6 +96,8 @@ public static class AiAuditRules
         var followUp = e.View is not null && FollowUpViews.Contains(e.View, StringComparer.Ordinal);
         // "today" is a view of two tools and "job" of two more; the tool says which vocabulary it speaks.
         var messages = e.Tool == "query_messages";
+        var engineering = e.Tool == "query_repository";
+        var engineeringView = e.View is "open_issues" or "open_prs" or "recent_commits";
         var messageView = e.View is not null && MessageViews.Contains(e.View, StringComparer.Ordinal);
         var documents = e.Tool == "query_documents";
         var documentView = e.View is not null && DocumentViews.Contains(e.View, StringComparer.Ordinal);
@@ -103,11 +105,13 @@ public static class AiAuditRules
         var extractView = e.View is not null && ExtractViews.Contains(e.View, StringComparer.Ordinal);
         if (hasTool ? (e.Limit is null or < 1 or > 50
                 || (messages ? !messageView : documents ? !documentView : extract ? !extractView
+                    : engineering ? !engineeringView || e.Limit > 20
                     : (e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi") && !followUp))
                 || (e.Tool == "query_shipments" && e.View is not ("today" or "risk_today"))
                 || (e.Tool == "search_shipment" && e.View != "search") || (e.Tool == "query_delays" && e.View != "delays")
                 || (e.Tool == "query_followup" != followUp)
-                || (e.Tool == "query_kpi" && e.View != "kpi") || (e.View == "kpi" && e.Tool != "query_kpi"))
+                || (e.Tool == "query_kpi" && e.View != "kpi") || (e.View == "kpi" && e.Tool != "query_kpi")
+                || (engineeringView && !engineering))
             : e.View is not null || e.Limit is not null)
             throw new ArgumentException("Invalid audit summary.");
         var keys = e.SourceKeys ?? [];
@@ -130,6 +134,13 @@ public static class AiAuditRules
             OperatorId = e.Scope.Team ? null : e.Scope.OperatorId, Tool = e.Tool, ToolCallId = e.ToolCallId,
             Model = e.Model!, View = e.View, Limit = e.Limit, Total = e.Total, Returned = e.Returned,
             InputTokens = e.Usage?.InputTokens, OutputTokens = e.Usage?.OutputTokens, SourceKeys = sourceKeys,
+            Source = e.AgentId switch
+            {
+                "engineering-agent" => "github_public_repo",
+                "document-agent" => "documents",
+                "communication-agent" => "line_events+emails",
+                _ => "operation_jobs",
+            },
             CorrelationId = e.CorrelationId, Step = toolEvent ? e.Step ?? 1 : e.Event == "run_completed" ? e.Step : null,
         };
         row.Fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(row)));

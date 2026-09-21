@@ -57,6 +57,14 @@ builder.Services.AddScoped<IKpiReports>(sp => sp.GetRequiredService<KpiService>(
 builder.Services.AddScoped<Scmos.Api.Ai.Communication.ICommunicationSource, Scmos.Api.Ai.Communication.CommunicationSource>();
 // The Document & Invoice Agent (Phase 5) reads the register and the documents table through this one.
 builder.Services.AddScoped<Scmos.Api.Ai.Documents.IDocumentSource, Scmos.Api.Ai.Documents.DocumentSource>();
+builder.Services.AddHttpClient<Scmos.Api.Ai.Engineering.IEngineeringSource, Scmos.Api.Ai.Engineering.GitHubEngineeringSource>(client =>
+{
+    client.BaseAddress = new Uri("https://api.github.com/");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("SCMOS-AI-EngineeringRead/1.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<ReportWriterService>();

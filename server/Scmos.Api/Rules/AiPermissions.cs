@@ -31,6 +31,7 @@ public static class AiPermissions
     public const string Management = "management";
     /// <summary>The Communication Agent (Phase 4): what carriers said, read from the ledgers.</summary>
     public const string Communication = "communication";
+    public const string Engineering = "engineering";
 
     /// <summary>
     /// The catalogue, matching the agreed permission matrix.
@@ -60,6 +61,7 @@ public static class AiPermissions
         new("query_kpi", Kpi, AiPermission.Allow, "อ่านจำนวนงานและ KPI ตรงเวลาตามช่วงเวลา ระบุลูกค้าหรือผู้ขนส่งได้ (คำนวณโดย SCMOS)"),
         // Phase 4 (21 Sep 2026): the Communication Agent's connected read — what carriers said in LINE, from their TMS and in linked mail.
         new("query_messages", Communication, AiPermission.Allow, "อ่านข้อความจากผู้ขนส่ง (LINE · TMS · อีเมลที่จับคู่) ตามที่ระบบอ่านไว้แล้ว ไม่ส่ง ไม่แก้"),
+        new("query_repository", Engineering, AiPermission.Allow, "อ่าน metadata ของ issue, PR และ commit จาก GitHub repo ที่เซิร์ฟเวอร์กำหนด ไม่รันคำสั่งหรือแก้ repo"),
         new("search_supplier", SupplierAgent, AiPermission.Allow, "ค้นหาและอ่านข้อมูลผู้ขนส่ง"),
         new("query_rates", SupplierAgent, AiPermission.Allow, "อ่านตารางราคาและคำนวณราคาตามราคาน้ำมัน"),
         new("recommend_supplier", SupplierAgent, AiPermission.Allow, "เสนอผู้ขนส่งที่เหมาะกับงาน (ข้อเสนอ ไม่ใช่การมอบหมาย)"),

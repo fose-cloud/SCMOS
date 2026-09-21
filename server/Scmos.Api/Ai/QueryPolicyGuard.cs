@@ -2,6 +2,7 @@ using Scmos.Api.Auth;
 using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Data;
+using Scmos.Api.Ai.Engineering;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -16,9 +17,11 @@ public sealed class QueryPolicyGuard(ToolRegistry registry)
 
     public bool Allowed(AppUser user, AgentDefinition agent, string name, bool auditReady)
         => AiPermissionPolicy.AuthorizeTool(user, agent, name, registry, auditReady) == "allowed"
-        && registry.Find(name)?.Policy is { ActionLevel: AiActionLevel.Read, Version: "1",
-            MaxEvidenceRows: ToolRegistry.OperationsEvidenceLimit } policy
-        && Sources.Contains(policy.Source, StringComparer.Ordinal) && Outputs.Contains(policy.OutputType);
+        && registry.Find(name)?.Policy is { ActionLevel: AiActionLevel.Read, Version: "1" } policy
+        && (policy.MaxEvidenceRows == ToolRegistry.OperationsEvidenceLimit
+                && Sources.Contains(policy.Source, StringComparer.Ordinal) && Outputs.Contains(policy.OutputType)
+            || policy is { Source: "github_public_repo", MaxEvidenceRows: EngineeringReadService.EvidenceLimit,
+                OutputType: not null } && policy.OutputType == typeof(EngineeringAnswer));
 
     public AiToolDefinition? Resolve(AppUser user, AgentDefinition agent, AiToolCall call, bool auditReady)
     {

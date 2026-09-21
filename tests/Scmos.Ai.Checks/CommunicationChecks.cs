@@ -108,8 +108,8 @@ static class CommunicationChecks
             && !tool.InputSchema.Valid("{\"view\":\"today\",\"query\":null,\"days\":null,\"limit\":10,\"ownerId\":\"OP-C9\"}"), "4: the schema pins the views, the window and refuses a forged owner");
         var agents = new AgentRegistry();
         var agent = agents.Find("communication-agent")!;
-        check(agents.All.Count == 9 && agent.RequiredCapability == Capability.ViewMailbox && agents.Resolve(new("x", Context: new("line")))?.Id == "communication-agent",
-            "4: the ninth specialist owns the LINE and mail pages and needs the Communication Center's own capability");
+        check(agents.All.Count == 10 && agent.RequiredCapability == Capability.ViewMailbox && agents.Resolve(new("x", Context: new("line")))?.Id == "communication-agent",
+            "4: the Communication Agent owns the LINE and mail pages and needs the Communication Center's own capability");
         check(!AgentRegistry.Enabled(agent, new AiOptions()) && AgentRegistry.Enabled(agent, new AiOptions { CommunicationAgentEnabled = true }), "4: off unless its flag is set");
         var guard = new QueryPolicyGuard(registry);
         check(guard.Allowed(Supervisor, agent, "query_messages", true) && guard.Allowed(Operator, agent, "query_messages", true)

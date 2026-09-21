@@ -5,9 +5,9 @@ import { apiFetch } from "../api";
 import { ZoomBox } from "../TableFrame";
 import type { Screen } from "../nav";
 import {
-  askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, documentAvailability, errorText, EVENT_LABEL, issueTarget, number,
+  askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, documentAvailability, engineeringAvailability, errorText, EVENT_LABEL, issueTarget, number,
   parseAuditPage, parseAuditRun, parseBrief, parseReply, parseStatus, parseToday, stamp, STATUS_LABEL, WINDOW_LABEL,
-  type AgentChoice, type AiReply, type AuditRun, type DocumentsAnswer, type Finding, type KpiAnswer, type MessagesAnswer,
+  type AgentChoice, type AiReply, type AuditRun, type DocumentsAnswer, type EngineeringAnswer, type Finding, type KpiAnswer, type MessagesAnswer,
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
@@ -56,6 +56,7 @@ const DOCUMENT_STATE_LABEL: Record<string, string> = {
   expiring: "ใกล้หมดอายุ", expired: "หมดอายุแล้ว",
 };
 const DOCUMENT_WINDOW_LABEL: Record<string, string> = { all_dates_for_the_job: "ทุกวันที่ของงานนี้", expiry_within_60_days_or_expired: "หมดอายุภายใน 60 วัน หรือหมดแล้ว" };
+const ENGINEERING_PROMPTS = ["GitHub มี issue ที่ยังเปิดอะไรบ้าง", "Pull request ที่ยังเปิดมีอะไรบ้าง", "Commit ล่าสุดของ SCMOS มีอะไรบ้าง"];
 const CHANNEL_LABEL: Record<string, string> = { line: "LINE", tms: "TMS", mail: "อีเมล" };
 const MESSAGE_STATE_LABEL: Record<string, string> = {
   applied: "นำเข้าแล้ว", waiting: "รออนุมัติ", unmatched: "จับคู่ไม่ได้", ignored: "ไม่เกี่ยวกับงาน", failed: "ไม่สำเร็จ", pending: "ยังไม่ได้อ่าน",
@@ -180,6 +181,22 @@ function DocumentsCard({ answer, onOpenJob }: { answer: DocumentsAnswer; onOpenJ
   </>;
 }
 
+function EngineeringCard({ answer }: { answer: EngineeringAnswer }) {
+  const label = answer.view === "open_issues" ? "Issue ที่ยังเปิด" : answer.view === "open_prs" ? "Pull request ที่ยังเปิด" : "Commit ล่าสุด";
+  return <>
+    <div className={s.meta}><span>{answer.repository} · {label}</span><span>อ่านเมื่อ {stamp(answer.retrievedAt)}</span></div>
+    <p className={s.hint}>{answer.basis}</p>
+    <p className={s.hint}>แสดง {number(answer.returned)} รายการจากหน้าแรกของ GitHub · ไม่ใช่ยอดรวมทั้งหมด</p>
+    {answer.rows.length ? <div className={s.evidence} role="region" aria-label="รายการ GitHub ของ SCMOS"><ZoomBox height="420px">
+      <table><thead><tr><th>รายการ</th><th>ชื่อเรื่อง</th><th>อัปเดตเมื่อ</th></tr></thead>
+        <tbody>{answer.rows.map(row => <tr key={row.id}>
+          <td><a className={s.link} href={row.url} target="_blank" rel="noopener noreferrer">{row.id} ↗</a></td>
+          <td>{row.title}</td><td>{stamp(row.at)}</td>
+        </tr>)}</tbody></table>
+    </ZoomBox></div> : <Empty>ไม่พบรายการในหน้าแรกตามมุมมองนี้</Empty>}
+  </>;
+}
+
 function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string) => void }) {
   return <>
     <h3>รายละเอียดรอบการทำงาน</h3>
@@ -204,8 +221,10 @@ function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string)
     </ol>
     {run.status === "incomplete" && <p className={s.error}>ไม่พบเหตุการณ์จบรอบ ห้ามถือว่ารอบนี้ทำงานสำเร็จ</p>}
     {!!run.sourceKeys.length && <>
-      <p className={s.hint}>งานอ้างอิงที่บันทึกไว้ · เปิดดูข้อมูลปัจจุบันตามสิทธิ์ ไม่ใช่ภาพข้อมูลย้อนหลัง</p>
-      <div className={s.actions}>{run.sourceKeys.map(key => <button key={key} className={s.button} onClick={() => onOpenJob(key)}>{key}</button>)}</div>
+      <p className={s.hint}>{run.tool === "query_repository" ? "รหัสรายการ GitHub ที่อ่านไว้ · ไม่ใช่ Job key" : "งานอ้างอิงที่บันทึกไว้ · เปิดดูข้อมูลปัจจุบันตามสิทธิ์ ไม่ใช่ภาพข้อมูลย้อนหลัง"}</p>
+      <div className={s.actions}>{run.sourceKeys.map(key => run.tool === "query_repository"
+        ? <span key={key} className={s.hint}>{key}</span>
+        : <button key={key} className={s.button} onClick={() => onOpenJob(key)}>{key}</button>)}</div>
     </>}
   </>;
 }
@@ -234,13 +253,16 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const dataReady = dataAvailability(status.data);
   const messagesReady = communicationAvailability(status.data);
   const documentsReady = documentAvailability(status.data);
+  const engineeringReady = engineeringAvailability(status.data);
   // Which specialist the question goes to: Operations (the default) or, when
   // the account has one, the Data Agent (Phase 2), the Communication Agent
   // (Phase 4) or the Document & Invoice Agent (Phase 5). The server decides
   // what any may read; this only chooses the door.
   const [agent, setAgent] = useState<AgentChoice>("operations-agent");
-  const asking = agent === "data-agent" ? dataReady : agent === "communication-agent" ? messagesReady : agent === "document-agent" ? documentsReady : ready;
-  const doors = (["operations-agent", "data-agent", "communication-agent", "document-agent"] as const).filter(id => id === "operations-agent" || status.data?.agents.some(a => a.id === id));
+  const asking = agent === "data-agent" ? dataReady : agent === "communication-agent" ? messagesReady
+    : agent === "document-agent" ? documentsReady : agent === "engineering-agent" ? engineeringReady : ready;
+  const doors = (["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent"] as const)
+    .filter(id => id === "operations-agent" || status.data?.agents.some(a => a.id === id));
   const input = useRef<HTMLTextAreaElement>(null);
   const askPanel = useRef<HTMLElement>(null);
   const activityPanel = useRef<HTMLElement>(null);
@@ -312,7 +334,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   }
   async function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (request.current || changeBusy || (!asking.ready && !isChangeCommand(message)) || !message.trim()) return;
+    if (request.current || changeBusy || (!asking.ready && !(agent === "operations-agent" && isChangeCommand(message))) || !message.trim()) return;
     const controller = new AbortController();
     request.current = controller;
     setBusy(true); setReply(null); setAskError(""); setClarification("");
@@ -457,6 +479,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <p>{agent === "data-agent" ? "Data Agent · จำนวนงานและ KPI ตรงเวลาตามช่วงเวลา คำนวณโดย SCMOS"
             : agent === "communication-agent" ? "Communication Agent · ข้อความจากผู้ขนส่งตามที่ระบบอ่านไว้ · ไม่ส่ง ไม่แก้"
             : agent === "document-agent" ? "Document & Invoice Agent · เอกสารตาม checklist ใบแจ้งหนี้เทียบกำหนดวางบิล และเอกสารใกล้หมดอายุ · ไม่เปิดไฟล์ ไม่อนุมัติ"
+            : agent === "engineering-agent" ? "Engineering Agent · รายการ GitHub สาธารณะของ SCMOS · Administrator เท่านั้น"
             : "Operations Agent · ใช้ขอบเขตงานที่เซิร์ฟเวอร์อนุญาตให้บัญชีนี้อ่าน"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
         <p className={s.hint}>AI ช่วยเลือกเครื่องมืออ่านข้อมูล ผลลัพธ์อาจไม่ครบหรือคลาดเคลื่อน ตรวจงานอ้างอิงก่อนตัดสินใจ ไม่ส่งข้อมูลลับหรือคีย์เข้ามาในคำถาม</p>
         <form className={s.form} onSubmit={submit}>
@@ -464,9 +487,11 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             {doors.map(choice => <button key={choice} type="button" disabled={busy}
               className={choice === agent ? s.primary : s.button} aria-pressed={choice === agent}
               onClick={() => { setAgent(choice); setReply(null); setAskError(""); }}>
-              {choice === "data-agent" ? "ข้อมูล KPI" : choice === "communication-agent" ? "ข้อความ LINE · อีเมล" : choice === "document-agent" ? "เอกสาร · ใบแจ้งหนี้" : "Operations"}</button>)}
+              {choice === "data-agent" ? "ข้อมูล KPI" : choice === "communication-agent" ? "ข้อความ LINE · อีเมล"
+                : choice === "document-agent" ? "เอกสาร · ใบแจ้งหนี้" : choice === "engineering-agent" ? "Engineering" : "Operations"}</button>)}
           </div>}
-          <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : agent === "communication-agent" ? MESSAGE_PROMPTS : agent === "document-agent" ? DOCUMENT_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
+          <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : agent === "communication-agent" ? MESSAGE_PROMPTS
+            : agent === "document-agent" ? DOCUMENT_PROMPTS : agent === "engineering-agent" ? ENGINEERING_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
             onClick={() => { setMessage(prompt); input.current?.focus(); }}>{prompt.trim()}</button>)}</div>
           <label htmlFor="ai-question">ต้องการตรวจสอบเรื่องอะไร?</label>
           <textarea id="ai-question" ref={input} className={s.textarea} maxLength={4000} value={message} disabled={busy}
@@ -480,7 +505,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <div className={s.formFooter}>
             <span className={s.hint} id="ai-question-help">{message.length.toLocaleString()} / 4,000 · Ctrl / ⌘ + Enter ส่งคำถาม</span>
             <div className={s.actions}>{busy && <button type="button" className={s.button} onClick={cancel}>หยุดรอ</button>}
-              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : agent === "communication-agent" ? "ถาม Communication Agent →" : agent === "document-agent" ? "ถาม Document Agent →" : "ถาม Operations AI →"}</button></div>
+              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : agent === "communication-agent" ? "ถาม Communication Agent →" : agent === "document-agent" ? "ถาม Document Agent →" : agent === "engineering-agent" ? "ถาม Engineering Agent →" : "ถาม Operations AI →"}</button></div>
           {agent === "operations-agent" && <p className={s.hint}>คำสั่งเติมร่าง (ยังไม่บันทึก): {CHANGE_EXAMPLE} · ผู้รับผิดชอบใช้รหัส เช่น OP-02</p>}
           </div>
           {!asking.ready && <p className={s.hint}>{asking.title}{asking.detail ? " · " + asking.detail : ""}</p>}
@@ -500,6 +525,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             {reply.kpi && <KpiCard kpi={reply.kpi} />}
             {reply.messages && <MessagesCard answer={reply.messages} onOpenJob={onOpenJob} />}
             {reply.documents && <DocumentsCard answer={reply.documents} onOpenJob={onOpenJob} />}
+            {reply.engineering && <EngineeringCard answer={reply.engineering} />}
             {reply.evidence && <>
               <div className={s.meta}><span>วันที่อ้างอิง {reply.evidence.asOfDate} · {reply.evidence.timeZone}</span>
                 <span>ช่วงข้อมูล: {Object.hasOwn(WINDOW_LABEL, reply.evidence.window) ? WINDOW_LABEL[reply.evidence.window] : reply.evidence.window}</span>

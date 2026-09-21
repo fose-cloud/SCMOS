@@ -66,6 +66,13 @@ export type DocumentsAnswer = {
     missing: number; missingBlocking: number; unclear: number; missingFolders: string[] }[];
   retrievedAt: string; rule: string; basis: string; rows: DocumentRow[];
 };
+/** Phase 6 first read: fixed public GitHub repository metadata; bodies never enter this contract. */
+export type EngineeringAnswer = {
+  view: "open_issues" | "open_prs" | "recent_commits";
+  repository: "fose-cloud/SCMOS"; total: number; returned: number;
+  retrievedAt: string; basis: string;
+  rows: { id: string; title: string; url: string; state: "open" | "commit"; at: string }[];
+};
 export type AiReply = {
   runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null;
   /** The API request's correlation id — the same one on every audit event of the run (1D). */
@@ -78,8 +85,9 @@ export type AiReply = {
   messages?: MessagesAnswer | null;
   /** The Document & Invoice Agent's paperwork (Phase 5); null or absent for every other agent. */
   documents?: DocumentsAnswer | null;
+  engineering?: EngineeringAnswer | null;
 };
-export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent";
+export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent" | "engineering-agent";
 export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null; step?: number | null; tool?: string | null };
 export type AuditRun = {
   runId: string; userId: string; role: string; agentId: string; model: string;
@@ -176,6 +184,25 @@ function documentsAnswer(v: unknown): boolean {
       && ["document", "checklist", "job"].includes(r.kind as string) && DOCUMENT_STATES.includes(r.state as string) && r.source === "documents"
       && nullableText(r.uploadedAt) && nullableCount(r.daysLeft));
 }
+function engineeringAnswer(v: unknown): boolean {
+  if (!obj(v) || !["open_issues", "open_prs", "recent_commits"].includes(String(v.view))
+    || v.repository !== "fose-cloud/SCMOS" || !text(v.retrievedAt, 64) || !text(v.basis, 1000)
+    || !count(v.total) || !count(v.returned) || v.total !== v.returned
+    || !Array.isArray(v.rows) || v.rows.length > 20 || v.rows.length !== v.returned) return false;
+  const kind = v.view === "open_issues" ? "issue" : v.view === "open_prs" ? "pr" : "commit";
+  const path = kind === "issue" ? "issues" : kind === "pr" ? "pull" : "commit";
+  const seen = new Set<string>();
+  return v.rows.every(row => {
+    if (!obj(row) || !text(row.id, 80) || !text(row.title, 160) || !row.title
+      || !text(row.url, 200) || !text(row.at, 64) || row.state !== (kind === "commit" ? "commit" : "open")) return false;
+    const suffix = row.id.startsWith(kind + ":") ? row.id.slice(kind.length + 1) : "";
+    if (!(kind === "commit" ? /^[a-fA-F0-9]{40}$/.test(suffix) : /^[1-9]\d*$/.test(suffix))
+      || row.url !== `https://github.com/fose-cloud/SCMOS/${path}/${suffix}` || seen.has(row.id)) return false;
+    seen.add(row.id);
+    return !Array.from(row.title).some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)
+      && !Object.hasOwn(row, "body") && !Object.hasOwn(row, "diff");
+  });
+}
 export function parseReply(v: unknown): AiReply {
   return accept(v, obj(v) && id(v.runId) && v.code === "ok" && text(v.summary) && nullableText(v.agentId)
     && typeof v.mock === "boolean" && usage(v.usage)
@@ -184,10 +211,12 @@ export function parseReply(v: unknown): AiReply {
       : v.agentId === "data-agent" ? v.evidence === null && kpiAnswer(v.kpi)
       : v.agentId === "communication-agent" ? v.evidence === null && messagesAnswer(v.messages)
       : v.agentId === "document-agent" ? v.evidence === null && documentsAnswer(v.documents)
+      : v.agentId === "engineering-agent" ? v.evidence === null && engineeringAnswer(v.engineering)
       : evidence(v.evidence))
     && (v.kpi === undefined || v.kpi === null || kpiAnswer(v.kpi))
     && (v.messages === undefined || v.messages === null || messagesAnswer(v.messages))
     && (v.documents === undefined || v.documents === null || documentsAnswer(v.documents))
+    && (v.engineering === undefined || v.engineering === null || engineeringAnswer(v.engineering))
     && (v.correlationId === undefined || text(v.correlationId, 64))
     && (v.contextUsed === undefined || typeof v.contextUsed === "boolean"));
 }
@@ -215,7 +244,23 @@ export function issueTarget(value: string): typeof ISSUE_TARGETS[number] | null 
 export function askBody(message: string, agent: AgentChoice = "operations-agent") {
   const trimmed = message.trim();
   if (!trimmed || trimmed.length > 4000) throw new ControlError("invalid_request");
-  return { message: trimmed, agentId: agent, context: { page: agent === "data-agent" ? "kpi" : agent === "communication-agent" ? "line" : agent === "document-agent" ? "documents" : "operations" } };
+  return { message: trimmed, agentId: agent, context: { page: agent === "data-agent" ? "kpi" : agent === "communication-agent" ? "line"
+    : agent === "document-agent" ? "documents" : agent === "engineering-agent" ? "engineering" : "operations" } };
+}
+
+/** Administrator-only Phase 6 reader; the server remains the authority for permission. */
+export function engineeringAvailability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
+  const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });
+  if (!status) return blocked("ยังไม่ทราบสถานะ AI", "รีเฟรชสถานะก่อนส่งคำถาม");
+  const agent = status.agents.find(a => a.id === "engineering-agent");
+  if (!agent) return blocked("Engineering Agent ไม่มีในขอบเขตของบัญชีนี้", "");
+  if (!status.enabled || !status.chatEnabled) return blocked("SCMOS AI ยังปิดอยู่", "การเปิด AI ต้องตั้งค่าที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.configurationValid) return blocked("การตั้งค่า AI ยังไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์", "red");
+  if (!agent.enabled || !agent.connected) return blocked("Engineering Agent ยังไม่เปิด", "เปิดด้วย AI:EngineeringAgentEnabled ที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.providerConfigured) return blocked("ยังไม่ได้ตั้งค่า AI provider", "ให้ผู้ดูแลตรวจการตั้งค่าฝั่งเซิร์ฟเวอร์", "amber");
+  if (status.mock) return blocked("Development Mock", "Engineering Agent ไม่ทำงานในโหมดสาธิต", "amber");
+  if (!status.auditReady) return blocked("Audit ถาวรยังไม่พร้อม", "ยังส่งคำถามไม่ได้", "amber");
+  return { ready: true, title: "Engineering Agent พร้อมรับคำถาม", detail: "อ่านรายการ GitHub ของ SCMOS เท่านั้น · ไม่อ่านโค้ด ไม่เขียน · มี Audit", tone: "green" };
 }
 
 /** Whether the Document & Invoice Agent (Phase 5) can take a question now — the same gates as the others, on its own flag. */

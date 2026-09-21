@@ -19,6 +19,14 @@ test("missing scope and future agents never inherit Operations readiness", () =>
   value.agents.push({ id: "rate-agent", name: "Rates", enabled: true, connected: true });
   assert.equal(agentReadiness(value, "rate-agent").code, "not_connected");
 });
+test("reviewed read specialists use their own connection, not the Operations-only liveToolsReady bit", () => {
+  for (const id of ["data-agent", "communication-agent", "document-agent", "engineering-agent"]) {
+    const scoped = { ...live(), liveToolsReady: false,
+      agents: [{ id, name: id, enabled: true, connected: true }] };
+    assert.equal(agentReadiness(scoped, id).ready, true, id);
+    assert.equal(agentReadiness({ ...scoped, agents: [{ ...scoped.agents[0], connected: false }] }, id).ready, false);
+  }
+});
 test("durable stop and unavailable control override otherwise ready fields", () => {
   const control = { available: true, enabled: true, emergencyDisabled: false, revision: 1, canManage: true, canEnable: true, blockReason: "" };
   for (const patch of [{ available: false }, { enabled: false }, { emergencyDisabled: true }])

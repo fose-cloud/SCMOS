@@ -16,6 +16,8 @@ public sealed class AiOptions
     public bool DataAgentEnabled { get; set; }
     // Phase 4: the Communication Agent — reads the LINE and mail ledgers, sends nothing.
     public bool CommunicationAgentEnabled { get; set; }
+    // Phase 6 first read: fixed public GitHub metadata, Administrator only.
+    public bool EngineeringAgentEnabled { get; set; }
     public bool IncidentAgentEnabled { get; set; }
     // Phase 5: the Document & Invoice Agent (the registry's former billing-agent, never connected under that name).
     public bool DocumentAgentEnabled { get; set; }

@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Data;
+using Scmos.Api.Ai.Engineering;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -38,7 +39,9 @@ public sealed record AiChatResponse(string RunId, string Code, string Summary, s
     /// <summary>The Communication Agent's messages (Phase 4); null for every other agent.</summary>
     MessagesAnswer? Messages = null,
     /// <summary>The Document &amp; Invoice Agent's paperwork (Phase 5); null for every other agent.</summary>
-    DocumentsAnswer? Documents = null);
+    DocumentsAnswer? Documents = null,
+    /// <summary>Phase 6 fixed-repository read-only metadata; null for other agents.</summary>
+    EngineeringAnswer? Engineering = null);
 public sealed record AiChatOutcome(int Status, AiChatResponse Response);
 public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,

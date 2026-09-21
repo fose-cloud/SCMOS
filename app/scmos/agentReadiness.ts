@@ -11,12 +11,16 @@ export function agentReadiness(status: AiStatus | null, id: string) {
   if (control && !control.available) return state("control_unavailable", "อ่านสถานะสวิตช์ไม่ได้", "ยังยืนยันความพร้อมไม่ได้");
   if (!agent.enabled || !status.enabled || !status.chatEnabled || (control && !control.enabled))
     return state("disabled", "ปิดอยู่", "ยังไม่เปิดรับคำถามสำหรับ Agent นี้");
-  if (!agent.connected || id !== "operations-agent")
+  // Only the specialists with a reviewed runtime may be shown as ready.
+  // liveToolsReady is Operations-specific; other agents have their own connected flag.
+  const reviewed = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent"].includes(id);
+  if (!agent.connected || !reviewed)
     return state("not_connected", "ยังไม่เชื่อมต่อ", "ยังไม่มีตัวเรียกเครื่องมือที่รองรับ Agent นี้ใน runtime ปัจจุบัน");
   if (!status.configurationValid) return state("configuration_invalid", "ตั้งค่าไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์");
   if (!status.providerConfigured) return state("provider_unavailable", "Provider ไม่พร้อม", "ยังไม่ได้ตั้งค่า provider");
   if (status.mock) return state("mock", "โหมดสาธิต", "ไม่ได้อ่านหรือแก้ข้อมูลงานจริง");
   if (!status.auditReady) return state("audit_unavailable", "Audit ไม่พร้อม", "ไม่อนุญาตให้ส่งผลลัพธ์ที่ไม่มี Audit");
-  if (!status.liveToolsReady) return state("tools_unavailable", "เครื่องมือยังไม่พร้อม", "มีการเชื่อมต่อแต่ runtime ยังไม่พร้อมรับคำถาม");
+  if (id === "operations-agent" && !status.liveToolsReady)
+    return state("tools_unavailable", "เครื่องมือยังไม่พร้อม", "มีการเชื่อมต่อแต่ runtime ยังไม่พร้อมรับคำถาม");
   return state("ready", "พร้อมรับคำถาม", "อ่านตามสิทธิ์ · ตรวจ Audit อีกครั้งเมื่อเรียกใช้งาน · ไม่ใช่ผลทดสอบ provider สด", true);
 }

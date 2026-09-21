@@ -44,6 +44,10 @@ public static class AiServiceRegistration
         services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Documents.DocumentExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Documents.DocumentAgent>());
         // The Workspace's document reader, under the same limiter and audit (S4).
         services.AddScoped<Scmos.Api.Ai.Documents.ExtractionRun>();
+        services.AddScoped(sp => new Scmos.Api.Ai.Engineering.EngineeringReadService(
+            sp.GetService<Scmos.Api.Ai.Engineering.IEngineeringSource>(), sp.GetRequiredService<TimeProvider>()));
+        services.AddScoped<Scmos.Api.Ai.Engineering.EngineeringAgent>();
+        services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Engineering.EngineeringExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Engineering.EngineeringAgent>());
         services.AddScoped<SqlAiExecutionAudit>();
         services.AddScoped<IAiExecutionAudit>(sp => sp.GetRequiredService<SqlAiExecutionAudit>());
         services.AddScoped<AiAuditReader>();
