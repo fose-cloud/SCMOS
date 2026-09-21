@@ -6,7 +6,12 @@ import { useRemembered } from "../pageCache";
 import { stageThai, stamp } from "./WorkflowPanel";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
-import { reversible, type RevertLine } from "../auditRevert";
+import { Pager } from "../BoardBits";
+import { paginate } from "../util";
+import { reversible, supersededIds, type RevertLine } from "../auditRevert";
+
+/** A page of the trail: a hundred rows, the same pager as My Job, the whole page on screen. */
+const ROWS_PER_PAGE = 100;
 
 /**
  * Audit.
@@ -154,6 +159,11 @@ function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onRevert
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [lines, setLines] = useState<RevertLine[]>([]);
+  const [page, setPage] = useState(1);
+  const [per, setPer] = useState(ROWS_PER_PAGE);
+  // A new search starts on its first page.
+  const [pagedFor, setPagedFor] = useState(query);
+  if (pagedFor !== query) { setPagedFor(query); setPage(1); }
 
   if (denied) {
     return (
@@ -170,9 +180,15 @@ function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onRevert
   const shown = rows.filter((row) => !wanted ||
     [row.who, row.entityId, row.entityLabel, row.field, row.oldValue, row.newValue, row.reason]
       .some((f) => (f ?? "").toLowerCase().includes(wanted)));
-  const offered = canRevert ? shown.filter((row) => reversible(row.entity, row.action, row.field)) : [];
+  // A row a later row on the same cell has overtaken cannot come back on its
+  // own — the cell no longer holds its word — so it is marked and not offered.
+  // Judged on the trail loaded here; the API judges again against the register.
+  const superseded = supersededIds(rows);
+  const offered = canRevert ? shown.filter((row) => reversible(row.entity, row.action, row.field) && !superseded.has(row.id)) : [];
   const allPicked = offered.length > 0 && offered.every((row) => picked.has(row.id));
   const outcomeOf = new Map(lines.map((line) => [line.id, line]));
+  const paged = paginate(shown, page, per);
+  const reasonShort = reason.trim().length < 4;
 
   const toggle = (id: number) => setPicked((was) => {
     const next = new Set(was);
@@ -229,11 +245,19 @@ function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onRevert
             <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="เช่น มอบหมายผิดคน 21/09 09:36" maxLength={200}
               style={css("height:32px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px")} />
           </label>
-          <button disabled={busy || picked.size === 0 || reason.trim().length < 4} onClick={() => void revert()}
+          <button disabled={busy || picked.size === 0 || reasonShort} onClick={() => void revert()}
             style={css("height:32px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;border:1px solid #0A2240;background:#0A2240;color:#fff;cursor:pointer;opacity:" +
-              (busy || picked.size === 0 || reason.trim().length < 4 ? ".5" : "1"))}>
+              (busy || picked.size === 0 || reasonShort ? ".5" : "1"))}>
             {busy ? "กำลังย้อนกลับ…" : `ย้อนกลับ ${picked.size} รายการ`}
           </button>
+          {picked.size > 0 && reasonShort && (
+            <span style={css("font-size:11.5px;color:#B45309;flex-basis:100%")}>ใส่เหตุผลอย่างน้อย 4 ตัวอักษรก่อน ปุ่มจึงจะกดได้</span>
+          )}
+          {lines.length > 0 && (
+            <span style={css("font-size:11.5px;color:#465A6E;flex-basis:100%")}>
+              ครั้งล่าสุด: ย้อนกลับ {lines.filter((l) => l.outcome === "reverted").length} · ข้าม {lines.filter((l) => l.outcome !== "reverted").length} — ผลแต่ละแถวแสดงใต้เวลาของแถวนั้น
+            </span>
+          )}
         </div>
       )}
 
@@ -243,7 +267,7 @@ function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onRevert
             ยังไม่มีการบันทึก — ประวัติจะเริ่มสะสมเมื่อมีการแก้ไขข้อมูล
           </div>
         ) : (
-          <ZoomBox zoomable={false}>
+          <ZoomBox capped={false} zoomable={false}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead><tr>
                 {canRevert && (
@@ -255,15 +279,17 @@ function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onRevert
                 <th key={h} style={css("position:sticky;top:0;background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
               ))}</tr></thead>
               <tbody>
-                {shown.map((row) => {
+                {paged.slice.map((row) => {
                   const missing = NEEDS_REASON.includes(row.action) && !row.reason.trim();
-                  const canPick = canRevert && reversible(row.entity, row.action, row.field);
+                  const overtaken = superseded.has(row.id);
+                  const canPick = canRevert && reversible(row.entity, row.action, row.field) && !overtaken;
                   const outcome = outcomeOf.get(row.id);
                   return (
                     <tr key={row.id} style={css("border-bottom:1px solid #F1F5F9;vertical-align:top" + (picked.has(row.id) ? ";background:#F4F8FC" : ""))}>
                       {canRevert && (
-                        <td style={css("padding:8px 10px")}>
+                        <td style={css("padding:8px 10px;white-space:nowrap")}>
                           {canPick && <input type="checkbox" checked={picked.has(row.id)} onChange={() => toggle(row.id)} title="ย้อนกลับรายการนี้" />}
+                          {overtaken && reversible(row.entity, row.action, row.field) && <span title="ช่องนี้ถูกแก้ต่อแล้ว ย้อนกลับแถวที่ใหม่กว่าก่อน" style={css("font-size:10.5px;color:#94A3B8")}>แก้ต่อแล้ว</span>}
                         </td>
                       )}
                       <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;white-space:nowrap;color:#7B8CA0")}>
@@ -311,6 +337,10 @@ function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onRevert
             </table>
           </ZoomBox>
         )}
+        {shown.length > 0 && (
+          <Pager total={paged.total} page={paged.p} pageCount={paged.pageCount} per={per}
+            onPage={setPage} onPer={(n) => { setPer(n); setPage(1); }} />
+        )}
       </div>
     </div>
   );
@@ -328,6 +358,11 @@ function WorkflowLog({ entries, kind, onKind, query, onQuery }: {
     .filter((entry) => !wanted || [entry.jobKey, entry.by, entry.note].some((f) => f.toLowerCase().includes(wanted)));
 
   const kinds = [...new Set(entries.map((entry) => entry.kind))];
+  const [page, setPage] = useState(1);
+  const [per, setPer] = useState(ROWS_PER_PAGE);
+  const [pagedFor, setPagedFor] = useState(kind + "\u0000" + query);
+  if (pagedFor !== kind + "\u0000" + query) { setPagedFor(kind + "\u0000" + query); setPage(1); }
+  const paged = paginate(shown, page, per);
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
@@ -357,7 +392,7 @@ function WorkflowLog({ entries, kind, onKind, query, onQuery }: {
           </div>
         )}
         {entries.length > 0 && (
-          <ZoomBox zoomable={false}>
+          <ZoomBox capped={false} zoomable={false}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
                 <tr>{["เวลา", "ประเภท", "งาน", "จาก → ไป", "บันทึก", "โดย"].map((h) => (
@@ -365,7 +400,7 @@ function WorkflowLog({ entries, kind, onKind, query, onQuery }: {
                 ))}</tr>
               </thead>
               <tbody>
-                {shown.map((entry) => (
+                {paged.slice.map((entry) => (
                   <tr key={entry.id} style={css("border-bottom:1px solid #F1F5F9")}>
                     <td style={css("padding:8px 12px;font-family:ui-monospace,monospace;font-size:11.5px;white-space:nowrap;color:#7B8CA0")}>{stamp(entry.at)}</td>
                     <td style={css("padding:8px 12px;white-space:nowrap")}>
@@ -385,6 +420,10 @@ function WorkflowLog({ entries, kind, onKind, query, onQuery }: {
               </tbody>
             </table>
           </ZoomBox>
+        )}
+        {shown.length > 0 && (
+          <Pager total={paged.total} page={paged.p} pageCount={paged.pageCount} per={per}
+            onPage={setPage} onPer={(n) => { setPer(n); setPage(1); }} />
         )}
       </div>
     </div>
