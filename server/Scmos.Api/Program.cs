@@ -53,6 +53,8 @@ builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<KpiService>();
 // The Data Agent (Phase 2) reads the KPI through this boundary — the same service, the same figures.
 builder.Services.AddScoped<IKpiReports>(sp => sp.GetRequiredService<KpiService>());
+// The Communication Agent (Phase 4) reads the LINE and mail ledgers through this one.
+builder.Services.AddScoped<Scmos.Api.Ai.Communication.ICommunicationSource, Scmos.Api.Ai.Communication.CommunicationSource>();
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<ReportWriterService>();

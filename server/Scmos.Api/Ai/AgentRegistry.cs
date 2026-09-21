@@ -32,6 +32,11 @@ public sealed class AgentRegistry
             [], ["compliance", "training"]),
         Define("management-agent", "Management Agent", "Source-linked specialist summaries", Capability.ViewDashboard,
             ["generate_report"], ["management", "dashboard"]),
+        // The specification's Communication Agent (Phase 4): what the carriers
+        // said, as the LINE parser and the mail links already read it. Reading
+        // the Communication Center is what it needs — never a carrier's account.
+        Define("communication-agent", "Communication Agent", "What carriers said in LINE, from their TMS and in linked mail — read, never sent", Capability.ViewMailbox,
+            ["query_messages"], ["line", "mail", "communications"]),
     });
 
     public AgentDefinition? Find(string id) => All.FirstOrDefault(a => a.Id == id);
@@ -48,6 +53,7 @@ public sealed class AgentRegistry
         "vendor-agent" => options.VendorAgentEnabled,
         "rate-agent" => options.RateAgentEnabled,
         "data-agent" => options.DataAgentEnabled,
+        "communication-agent" => options.CommunicationAgentEnabled,
         "incident-agent" => options.IncidentAgentEnabled,
         "billing-agent" => options.BillingAgentEnabled,
         "compliance-agent" => options.ComplianceAgentEnabled,

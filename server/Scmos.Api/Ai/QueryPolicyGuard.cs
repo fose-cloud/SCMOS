@@ -1,4 +1,5 @@
 using Scmos.Api.Auth;
+using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Operations;
 
@@ -8,7 +9,7 @@ namespace Scmos.Api.Ai;
 public sealed class QueryPolicyGuard(ToolRegistry registry)
 {
     /// <summary>The answer shapes a connected read may return — the Operations evidence, and since Phase 2 the Data Agent's figure.</summary>
-    private static readonly Type[] Outputs = [typeof(OperationsAnswer), typeof(DataAnswer)];
+    private static readonly Type[] Outputs = [typeof(OperationsAnswer), typeof(DataAnswer), typeof(MessagesAnswer)];
 
     public bool Allowed(AppUser user, AgentDefinition agent, string name, bool auditReady)
         => AiPermissionPolicy.AuthorizeTool(user, agent, name, registry, auditReady) == "allowed"

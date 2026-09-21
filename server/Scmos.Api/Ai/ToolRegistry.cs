@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Scmos.Api.Rules;
+using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Operations;
 
@@ -80,7 +81,7 @@ public sealed record AiToolDefinition(string Name, string Description, string Ag
 public sealed class ToolRegistry
 {
     public const int OperationsEvidenceLimit = 50;
-    public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null)
+    public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null, MessagesReadService? messages = null)
     {
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
@@ -109,6 +110,16 @@ public sealed class ToolRegistry
                 data is { Connected: true } ? new DataReadHandler(data) : null)
             {
                 Policy = new(AiActionLevel.Read, "1", "operation_jobs", typeof(DataAnswer), DataReadService.CarrierLimit),
+            },
+            // Phase 4 — the Communication Agent's one read: what the carriers said, as already read.
+            new(MessagesReadService.Tool,
+                "Read what carriers said, as SCMOS's own LINE parser and mail links already read it. view=job with query (a job number, container or customer): every LINE message, TMS event and linked mail about that job. view=waiting: messages waiting for a job owner's approval within the last days. view=unmatched: messages the system could not pin to any job. view=today: today's messages by carrier room. Each row carries the status, arrival, ETA, plate, container and seal the parser read, what the system did with it, and an excerpt with phone numbers masked. Sends nothing; changes nothing.",
+                CommunicationAgent.Id, Capability.ViewMailbox, AiRisk.Low,
+                new(new("view", false, Choices: MessagesReadService.Views), new("query", false, Nullable: true),
+                    new("days", true, Nullable: true, Max: MessagesReadService.MaxDays), new("limit", true, Max: MessagesReadService.EvidenceLimit)),
+                messages is { Connected: true } ? new MessagesReadHandler(messages) : null)
+            {
+                Policy = new(AiActionLevel.Read, "1", "operation_jobs", typeof(MessagesAnswer), MessagesReadService.EvidenceLimit),
             },
         });
     }

@@ -30,6 +30,12 @@ public static class AiServiceRegistration
             sp.GetService<Scmos.Api.Services.IKpiReports>(), sp.GetRequiredService<TimeProvider>()));
         services.AddScoped<Scmos.Api.Ai.Data.DataAgent>();
         services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Data.DataExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Data.DataAgent>());
+        // Phase 4 — the Communication Agent reads the LINE and mail ledgers through
+        // a source the checks can stand in for; a host without one is not connected.
+        services.AddScoped(sp => new Scmos.Api.Ai.Communication.MessagesReadService(
+            sp.GetService<Scmos.Api.Ai.Communication.ICommunicationSource>(), sp.GetRequiredService<TimeProvider>()));
+        services.AddScoped<Scmos.Api.Ai.Communication.CommunicationAgent>();
+        services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Communication.CommunicationExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Communication.CommunicationAgent>());
         services.AddScoped<SqlAiExecutionAudit>();
         services.AddScoped<IAiExecutionAudit>(sp => sp.GetRequiredService<SqlAiExecutionAudit>());
         services.AddScoped<AiAuditReader>();

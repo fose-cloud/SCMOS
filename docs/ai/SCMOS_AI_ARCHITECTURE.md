@@ -30,6 +30,7 @@ Use the existing .NET configuration providers; Azure environment names use doubl
 | `AI:VendorAgentEnabled` | `AI__VendorAgentEnabled` | false |
 | `AI:RateAgentEnabled` | `AI__RateAgentEnabled` | false |
 | `AI:DataAgentEnabled` | `AI__DataAgentEnabled` | false — the Data Agent (Phase 2; was `KpiAgentEnabled`, never set) |
+| `AI:CommunicationAgentEnabled` | `AI__CommunicationAgentEnabled` | false — the Communication Agent (Phase 4): reads the LINE and mail ledgers, sends nothing |
 | `AI:IncidentAgentEnabled` | `AI__IncidentAgentEnabled` | false |
 | `AI:BillingAgentEnabled` | `AI__BillingAgentEnabled` | false |
 | `AI:ComplianceAgentEnabled` | `AI__ComplianceAgentEnabled` | false |

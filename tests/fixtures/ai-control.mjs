@@ -54,6 +54,26 @@ export const kpiReply = {
     basis: "FIXTURE ONLY · SCMOS KpiService", source: "operation_jobs",
   },
 };
+/** The Communication Agent's reply (Phase 4): the messages as the ledger holds them, no Operations evidence. */
+export const messagesReply = {
+  runId: "d".repeat(32), code: "ok", summary: "FIXTURE ONLY · งาน TEST-JOB-001: 2 ข้อความ แสดง 2 · ไม่มีการส่งหรือแก้ไขใด ๆ",
+  agentId: "communication-agent", mock: false, usage: { inputTokens: 12, outputTokens: 6 }, evidence: null,
+  correlationId: "fixture-corr-msg", contextUsed: false,
+  messages: {
+    view: "job", asOfDate: "21/09/2026", timeZone: "Asia/Bangkok", window: "all_dates_for_the_job",
+    total: 2, returned: 2, truncated: false, waiting: 1, applied: 1, unmatched: 0, ignored: 0, mails: 1,
+    jobs: [{ key: "TEST-ONLY-001", jobCode: "TEST-JOB-001", customer: "TEST CUSTOMER", trucker: "TEST TRUCKER", ownerId: "fixture-op", category: "IMPORT", date: "21/09/2026", status: "IN_TRANSIT" }],
+    retrievedAt: "2026-09-21T05:00:00Z", basis: "FIXTURE ONLY · nothing sent, nothing applied",
+    rows: [
+      { id: "line:1", channel: "line", at: "2026-09-21T04:30:00Z", group: "TEST ROOM", jobKey: "TEST-ONLY-001", jobCode: "TEST-JOB-001", customer: "TEST CUSTOMER", trucker: "TEST TRUCKER",
+        status: "DELIVERED", arrival: "21/09/2026 11:20", eta: null, plate: "70-1234", container: "TEST1234567", seal: null, delayed: false, delayCategory: null, question: false,
+        state: "applied", detail: "นำเข้าตารางงานแล้ว", excerpt: "FIXTURE ONLY ถึงโรงงาน 11:20", source: "line_events" },
+      { id: "mail:11", channel: "mail", at: "2026-09-21T02:00:00Z", group: "Test Ops", jobKey: "TEST-ONLY-001", jobCode: "TEST-JOB-001", customer: "TEST CUSTOMER", trucker: "TEST TRUCKER",
+        status: null, arrival: null, eta: null, plate: null, container: null, seal: null, delayed: false, delayCategory: null, question: false,
+        state: "linked", detail: "จับคู่จาก container (98%)", excerpt: "FIXTURE ONLY arrival notice", source: "emails" },
+    ],
+  },
+};
 export const run = {
   runId: reply.runId, userId: "fixture-user", role: "Operation Supervisor", agentId: "operations-agent", model: "fixture-provider",
   scope: { team: true, operatorId: null }, status: "succeeded",

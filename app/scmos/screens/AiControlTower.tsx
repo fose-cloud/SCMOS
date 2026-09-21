@@ -5,9 +5,9 @@ import { apiFetch } from "../api";
 import { ZoomBox } from "../TableFrame";
 import type { Screen } from "../nav";
 import {
-  askBody, availability, controlRequest, ControlError, dataAvailability, errorText, EVENT_LABEL, issueTarget, number,
+  askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, errorText, EVENT_LABEL, issueTarget, number,
   parseAuditPage, parseAuditRun, parseBrief, parseReply, parseStatus, parseToday, stamp, STATUS_LABEL, WINDOW_LABEL,
-  type AgentChoice, type AiReply, type AuditRun, type Finding, type KpiAnswer,
+  type AgentChoice, type AiReply, type AuditRun, type Finding, type KpiAnswer, type MessagesAnswer,
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
@@ -48,6 +48,12 @@ const URGENCY: Record<Finding["urgency"], [string, string]> = {
 };
 const PROMPTS = ["สรุปงานวันนี้", "งานเสี่ยงวันนี้มีอะไรบ้าง", "งานไหนยังไม่มีรถหรือคนขับ", "งานไหนยังไม่มีผู้ขนส่ง", "งานวันนี้ที่เลยเวลาแล้วยังเงียบ", "มีงานล่าช้าอะไรบ้าง", "ค้นหางานลูกค้า "];
 const DATA_PROMPTS = ["KPI เดือนนี้", "KPI เดือนที่แล้ว", "จำนวนงานปีนี้แยกตามผู้ขนส่ง", "KPI เดือนที่แล้วของลูกค้า "];
+const MESSAGE_PROMPTS = ["ข้อความวันนี้มีอะไรบ้าง", "ข้อความที่รออนุมัติ", "ข้อความที่จับคู่งานไม่ได้", "ผู้ขนส่งแจ้งอะไรเกี่ยวกับงาน "];
+const CHANNEL_LABEL: Record<string, string> = { line: "LINE", tms: "TMS", mail: "อีเมล" };
+const MESSAGE_STATE_LABEL: Record<string, string> = {
+  applied: "นำเข้าแล้ว", waiting: "รออนุมัติ", unmatched: "จับคู่ไม่ได้", ignored: "ไม่เกี่ยวกับงาน", failed: "ไม่สำเร็จ", pending: "ยังไม่ได้อ่าน",
+  linked: "จับคู่แล้ว", suggested: "เสนอจับคู่", rejected: "ปฏิเสธการจับคู่",
+};
 const stateName = (value: string) => Object.hasOwn(STATUS_LABEL, value) ? STATUS_LABEL[value] : value;
 const eventName = (value: string) => Object.hasOwn(EVENT_LABEL, value) ? EVENT_LABEL[value] : value;
 function Badge({ children, tone = "muted" }: { children: React.ReactNode; tone?: string }) {
@@ -86,6 +92,46 @@ function KpiCard({ kpi }: { kpi: KpiAnswer }) {
       </ZoomBox>
     </div> : null}
     {kpi.truncated && <p className={s.hint}>แสดง {number(kpi.returned)} จาก {number(kpi.carriersTotal)} ผู้ขนส่ง · ถามให้เจาะจงขึ้นหรือระบุผู้ขนส่ง</p>}
+  </>;
+}
+
+/** What the carriers said, as the ledger holds it: each message with what the parser read and what the system did. */
+function MessagesCard({ answer, onOpenJob }: { answer: MessagesAnswer; onOpenJob: (key: string) => void }) {
+  const stateName = (value: string) => Object.hasOwn(MESSAGE_STATE_LABEL, value) ? MESSAGE_STATE_LABEL[value] : value;
+  return <>
+    <div className={s.meta}><span>วันที่อ้างอิง {answer.asOfDate} · {answer.timeZone}</span>
+      <span>ช่วงข้อมูล: {answer.window}</span>
+      <span>อ่านเมื่อ {stamp(answer.retrievedAt)}</span></div>
+    <div className={s.risk}>
+      <div><strong>{number(answer.total)}</strong>ข้อความ</div>
+      <div><strong>{number(answer.waiting)}</strong>รออนุมัติ</div>
+      <div><strong>{number(answer.applied)}</strong>นำเข้าแล้ว</div>
+      <div><strong>{number(answer.unmatched)}</strong>จับคู่ไม่ได้</div>
+    </div>
+    {answer.jobs.length > 0 && <div className={s.actions}>{answer.jobs.map(job => <button key={job.key} className={s.button} onClick={() => onOpenJob(job.key)}>
+      {job.jobCode || job.key} · {job.customer} ↗</button>)}</div>}
+    <p className={s.hint}>{answer.basis}</p>
+    <p className={s.hint}>แสดง {number(answer.returned)} จาก {number(answer.total)} ข้อความ{answer.truncated ? " · แสดงเพียงบางส่วน กรุณาถามให้เจาะจงขึ้น" : ""}</p>
+    {answer.rows.length ? <div className={s.evidence} role="region" aria-label="ข้อความจากผู้ขนส่ง">
+      <ZoomBox height="520px">
+      <table>
+        <thead><tr><th>เมื่อ · จากใคร</th><th>งาน</th><th>ที่ระบบอ่านได้</th><th>ข้อความ</th></tr></thead>
+        <tbody>{answer.rows.map(row => <tr key={row.id}>
+          <td><Badge tone={row.channel === "mail" ? "blue" : "amber"}>{CHANNEL_LABEL[row.channel] ?? row.channel}</Badge>
+            <p>{stamp(row.at)}</p><p className={s.hint}>{row.group || "—"}</p></td>
+          <td>{row.jobKey ? <button className={s.link} onClick={() => onOpenJob(row.jobKey)}>{row.jobCode || row.jobKey} ↗</button> : "—"}
+            <p className={s.hint}>{row.customer || ""}{row.trucker ? " · " + row.trucker : ""}</p></td>
+          <td>
+            <p>{[row.status && "สถานะ " + row.status, row.arrival && "ถึง " + row.arrival, row.eta && "คาดถึง " + row.eta, row.plate && "ทะเบียน " + row.plate,
+              row.container && "ตู้ " + row.container, row.seal && "ซีล " + row.seal, row.delayed && "ล่าช้า" + (row.delayCategory ? " (" + row.delayCategory + ")" : ""),
+              row.question && "เป็นคำถาม"].filter(Boolean).join(" · ") || "—"}</p>
+            <p><Badge tone={row.state === "applied" || row.state === "linked" ? "green" : row.state === "waiting" || row.state === "suggested" ? "amber" : "muted"}>{stateName(row.state)}</Badge>
+              <span className={s.hint}> {row.detail}</span></p></td>
+          <td><p className={s.hint}>{row.excerpt || "—"}</p></td>
+        </tr>)}</tbody>
+      </table>
+      </ZoomBox>
+    </div> : <Empty>ไม่มีข้อความในขอบเขตและช่วงเวลาของคำถามนี้</Empty>}
   </>;
 }
 
@@ -141,11 +187,13 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const detail = useRemote(canViewAudit && selectedRun ? "/api/ai/audit/" + selectedRun : null, parseAuditRun);
   const ready = availability(status.data);
   const dataReady = dataAvailability(status.data);
+  const messagesReady = communicationAvailability(status.data);
   // Which specialist the question goes to: Operations (the default) or, when
-  // the account has one, the Data Agent (Phase 2). The server decides what
-  // either may read; this only chooses the door.
+  // the account has one, the Data Agent (Phase 2) or the Communication Agent
+  // (Phase 4). The server decides what any may read; this only chooses the door.
   const [agent, setAgent] = useState<AgentChoice>("operations-agent");
-  const asking = agent === "data-agent" ? dataReady : ready;
+  const asking = agent === "data-agent" ? dataReady : agent === "communication-agent" ? messagesReady : ready;
+  const doors = (["operations-agent", "data-agent", "communication-agent"] as const).filter(id => id === "operations-agent" || status.data?.agents.some(a => a.id === id));
   const input = useRef<HTMLTextAreaElement>(null);
   const askPanel = useRef<HTMLElement>(null);
   const activityPanel = useRef<HTMLElement>(null);
@@ -359,16 +407,18 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
 
       <section ref={askPanel} className={s.panel} aria-labelledby="ai-ask">
         <div className={s.sectionTitle}><div><h2 id="ai-ask">Ask SCMOS AI</h2>
-          <p>{agent === "data-agent" ? "Data Agent · จำนวนงานและ KPI ตรงเวลาตามช่วงเวลา คำนวณโดย SCMOS" : "Operations Agent · ใช้ขอบเขตงานที่เซิร์ฟเวอร์อนุญาตให้บัญชีนี้อ่าน"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
+          <p>{agent === "data-agent" ? "Data Agent · จำนวนงานและ KPI ตรงเวลาตามช่วงเวลา คำนวณโดย SCMOS"
+            : agent === "communication-agent" ? "Communication Agent · ข้อความจากผู้ขนส่งตามที่ระบบอ่านไว้ · ไม่ส่ง ไม่แก้"
+            : "Operations Agent · ใช้ขอบเขตงานที่เซิร์ฟเวอร์อนุญาตให้บัญชีนี้อ่าน"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
         <p className={s.hint}>AI ช่วยเลือกเครื่องมืออ่านข้อมูล ผลลัพธ์อาจไม่ครบหรือคลาดเคลื่อน ตรวจงานอ้างอิงก่อนตัดสินใจ ไม่ส่งข้อมูลลับหรือคีย์เข้ามาในคำถาม</p>
         <form className={s.form} onSubmit={submit}>
-          {status.data?.agents.some(a => a.id === "data-agent") && <div className={s.actions} role="group" aria-label="เลือก Agent">
-            {(["operations-agent", "data-agent"] as const).map(choice => <button key={choice} type="button" disabled={busy}
+          {doors.length > 1 && <div className={s.actions} role="group" aria-label="เลือก Agent">
+            {doors.map(choice => <button key={choice} type="button" disabled={busy}
               className={choice === agent ? s.primary : s.button} aria-pressed={choice === agent}
               onClick={() => { setAgent(choice); setReply(null); setAskError(""); }}>
-              {choice === "data-agent" ? "ข้อมูล KPI" : "Operations"}</button>)}
+              {choice === "data-agent" ? "ข้อมูล KPI" : choice === "communication-agent" ? "ข้อความ LINE · อีเมล" : "Operations"}</button>)}
           </div>}
-          <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
+          <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : agent === "communication-agent" ? MESSAGE_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
             onClick={() => { setMessage(prompt); input.current?.focus(); }}>{prompt.trim()}</button>)}</div>
           <label htmlFor="ai-question">ต้องการตรวจสอบเรื่องอะไร?</label>
           <textarea id="ai-question" ref={input} className={s.textarea} maxLength={4000} value={message} disabled={busy}
@@ -382,7 +432,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <div className={s.formFooter}>
             <span className={s.hint} id="ai-question-help">{message.length.toLocaleString()} / 4,000 · Ctrl / ⌘ + Enter ส่งคำถาม</span>
             <div className={s.actions}>{busy && <button type="button" className={s.button} onClick={cancel}>หยุดรอ</button>}
-              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : "ถาม Operations AI →"}</button></div>
+              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : agent === "communication-agent" ? "ถาม Communication Agent →" : "ถาม Operations AI →"}</button></div>
           {agent === "operations-agent" && <p className={s.hint}>คำสั่งเติมร่าง (ยังไม่บันทึก): {CHANGE_EXAMPLE} · ผู้รับผิดชอบใช้รหัส เช่น OP-02</p>}
           </div>
           {!asking.ready && <p className={s.hint}>{asking.title}{asking.detail ? " · " + asking.detail : ""}</p>}
@@ -400,6 +450,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
                 setSelectedRun(reply.runId); activityPanel.current?.scrollIntoView({ block: "start" });
               }}>ดู Audit ของคำตอบนี้</button>}</div>
             {reply.kpi && <KpiCard kpi={reply.kpi} />}
+            {reply.messages && <MessagesCard answer={reply.messages} onOpenJob={onOpenJob} />}
             {reply.evidence && <>
               <div className={s.meta}><span>วันที่อ้างอิง {reply.evidence.asOfDate} · {reply.evidence.timeZone}</span>
                 <span>ช่วงข้อมูล: {Object.hasOwn(WINDOW_LABEL, reply.evidence.window) ? WINDOW_LABEL[reply.evidence.window] : reply.evidence.window}</span>

@@ -14,6 +14,8 @@ public sealed class AiOptions
     public bool RateAgentEnabled { get; set; }
     // Phase 2: the Data Agent (the registry's former kpi-agent, never connected under that name).
     public bool DataAgentEnabled { get; set; }
+    // Phase 4: the Communication Agent — reads the LINE and mail ledgers, sends nothing.
+    public bool CommunicationAgentEnabled { get; set; }
     public bool IncidentAgentEnabled { get; set; }
     public bool BillingAgentEnabled { get; set; }
     public bool ComplianceAgentEnabled { get; set; }

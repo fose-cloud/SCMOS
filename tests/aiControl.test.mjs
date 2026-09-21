@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  askBody, availability, ControlError, controlRequest, dataAvailability, errorText, issueTarget, number,
+  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, errorText, issueTarget, number,
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
-import { status, today, brief, reply, kpiReply, run, audit } from "./fixtures/ai-control.mjs";
+import { status, today, brief, reply, kpiReply, messagesReply, run, audit } from "./fixtures/ai-control.mjs";
 import { allowedOperationsControlRequest } from "../app/scmos/aiControlRequest.ts";
 const copy = value => structuredClone(value);
 const rejects = (parser, value) => assert.throws(() => parser(value), /invalid_response/);
@@ -106,6 +106,20 @@ test("the Data Agent's figure is parsed strictly, and never accepted as Operatio
   assert.equal(dataAvailability(withData).ready, true);
   assert.equal(dataAvailability({ ...withData, agents: withData.agents.map(a => a.id === "data-agent" ? { ...a, enabled: false } : a) }).ready, false);
   assert.equal(dataAvailability({ ...withData, auditReady: false }).ready, false);
+});
+test("the Communication Agent's messages are parsed strictly; nothing is ever mistaken for Operations evidence", () => {
+  assert.equal(parseReply(messagesReply), messagesReply);
+  const m = messagesReply.messages;
+  for (const patch of [{ messages: null }, { messages: { ...m, view: "risk_today" } }, { messages: { ...m, returned: 1 } },
+    { messages: { ...m, rows: [{ ...m.rows[0], channel: "sms" }, m.rows[1]] } }, { messages: { ...m, rows: [{ ...m.rows[0], state: "sent" }, m.rows[1]] } },
+    { messages: { ...m, rows: [{ ...m.rows[0], source: "model" }, m.rows[1]] } }, { messages: { ...m, jobs: Array(6).fill(m.jobs[0]) } }, { evidence: reply.evidence }])
+    rejects(parseReply, { ...messagesReply, ...patch });
+  assert.equal(parseReply({ ...reply, messages: null }).messages, null);
+  assert.equal(askBody("x", "communication-agent").context.page, "line");
+  const withAgent = { ...status, agents: [...status.agents, { id: "communication-agent", name: "Communication Agent", enabled: true, connected: true }] };
+  assert.equal(communicationAvailability(status).ready, false);
+  assert.equal(communicationAvailability(withAgent).ready, true);
+  assert.equal(communicationAvailability({ ...withAgent, mock: true }).ready, false);
   rejects(parseAuditPage, { ...audit, nextBeforeId: -5 });
 });
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {
@@ -165,7 +179,7 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
   // `asking` is the chosen agent's readiness — Operations' or, since Phase 2, the Data Agent's.
   assert.match(source, /if \(request.current \|\| changeBusy \|\| \(!asking.ready && !isChangeCommand\(message\)\)/);
-  assert.match(source, /const asking = agent === "data-agent" \? dataReady : ready;/);
+  assert.match(source, /const asking = agent === "data-agent" \? dataReady : agent === "communication-agent" \? messagesReady : ready;/);
   assert.match(source, /operations-changes\/interpret/);
   assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);

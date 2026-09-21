@@ -43,7 +43,7 @@ type Approval = {
 
 const AGENT_TH: Record<string, string> = {
   operation: "งานปฏิบัติการ", document: "เอกสาร", kpi: "KPI",
-  supplier: "ผู้ขนส่ง", safety: "ความปลอดภัย", management: "ผู้บริหาร",
+  supplier: "ผู้ขนส่ง", safety: "ความปลอดภัย", management: "ผู้บริหาร", communication: "การสื่อสาร",
 };
 const PERMISSION_TH: Record<string, string> = {
   allow: "ทำได้", approval: "ต้องอนุมัติ", deny: "ห้าม",

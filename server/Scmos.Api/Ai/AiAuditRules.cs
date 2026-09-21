@@ -23,10 +23,13 @@ namespace Scmos.Api.Ai;
 public static class AiAuditRules
 {
     /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. The Data Agent since Phase 2.</summary>
-    public static readonly string[] KnownAgents = ["operations-agent", "data-agent"];
+    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages"];
+
+    /// <summary>The messages tool's views (Phase 4).</summary>
+    public static readonly string[] MessageViews = ["job", "waiting", "unmatched", "today"];
 
     /// <summary>The follow-up tool's views (Phase 3).</summary>
     public static readonly string[] FollowUpViews = ["missing_truck", "no_carrier", "unreported", "container_mismatch"];
@@ -87,7 +90,11 @@ public static class AiAuditRules
             || (hasTool && !KnownTools.Contains(e.Tool, StringComparer.Ordinal)))
             throw new ArgumentException("Invalid audit tool.");
         var followUp = e.View is not null && FollowUpViews.Contains(e.View, StringComparer.Ordinal);
-        if (hasTool ? (e.Limit is null or < 1 or > 50 || (e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi") && !followUp)
+        // "today" is a view of two tools; the tool says which vocabulary it speaks.
+        var messages = e.Tool == "query_messages";
+        var messageView = e.View is not null && MessageViews.Contains(e.View, StringComparer.Ordinal);
+        if (hasTool ? (e.Limit is null or < 1 or > 50
+                || (messages ? !messageView : (e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi") && !followUp))
                 || (e.Tool == "query_shipments" && e.View is not ("today" or "risk_today"))
                 || (e.Tool == "search_shipment" && e.View != "search") || (e.Tool == "query_delays" && e.View != "delays")
                 || (e.Tool == "query_followup" != followUp)

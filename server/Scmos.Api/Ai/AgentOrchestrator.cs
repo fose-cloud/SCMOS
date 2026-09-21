@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Auth;
+using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Operations;
 
@@ -10,7 +11,7 @@ namespace Scmos.Api.Ai;
 public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironment environment,
     IAiProvider provider, AgentRegistry agents, AiRunLimiter limiter, ILogger<AgentOrchestrator> log,
     IAgentExecutor<OperationsExecution>? operations = null, IOperationsControl? control = null,
-    IAgentExecutor<DataExecution>? data = null)
+    IAgentExecutor<DataExecution>? data = null, IAgentExecutor<CommunicationExecution>? communication = null)
 {
     private readonly AiOptions _options = options.Value;
     private const string Instructions = "You are an SCMOS assistant. Approved SCMOS rules and source evidence are authoritative. "
@@ -25,8 +26,9 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
             .Select(a => new AiAgentStatus(a.Id, a.Name, _options.Enabled && _options.ChatEnabled
                 && AgentRegistry.Enabled(a, _options),
                 Connected: a.Id == "operations-agent" ? operations?.Connected == true
-                    : a.Id == DataAgent.Id && data?.Connected == true)).ToArray(),
-        AuditReady: operations?.AuditReady == true || data?.AuditReady == true);
+                    : a.Id == DataAgent.Id ? data?.Connected == true
+                    : a.Id == CommunicationAgent.Id && communication?.Connected == true)).ToArray(),
+        AuditReady: operations?.AuditReady == true || data?.AuditReady == true || communication?.AuditReady == true);
 
     public async Task<AiStatus> StatusAsync(AppUser user, CancellationToken token)
     {
@@ -70,8 +72,8 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         var correlation = AiAuditRules.IsCorrelation(correlationId) ? correlationId : "";
         AgentDefinition? agent = null;
         AiChatOutcome Reply(int status, string code, string summary, bool mock = false, AiUsage? usage = null,
-            OperationsAnswer? evidence = null, bool contextUsed = false, DataAnswer? kpi = null)
-            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi));
+            OperationsAnswer? evidence = null, bool contextUsed = false, DataAnswer? kpi = null, MessagesAnswer? messages = null)
+            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi, messages));
 
         if (!AiPermissionPolicy.Authenticated(user)) return Reply(401, "unauthenticated", "Sign in is required.");
         if (!AiPermissionPolicy.InternalUser(user!)) return Reply(403, "forbidden", "AI is not available for this account scope.");
@@ -88,11 +90,14 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         if (agent is null) return Reply(400, "unknown_agent", "This page or agent is not registered.");
         if (!AiPermissionPolicy.CanUse(user!, agent)) return Reply(403, "forbidden", "The requested data scope is not available to this account.");
         if (!controlled && !AgentRegistry.Enabled(agent, _options)) return Reply(503, "agent_disabled", "This specialist is disabled.");
-        // Live mode runs only an agent with a connected executor: Operations, and the Data Agent since Phase 2.
+        // Live mode runs only an agent with a connected executor: Operations, the Data Agent (Phase 2), the Communication Agent (Phase 4).
         var isData = agent.Id == DataAgent.Id;
+        var isCommunication = agent.Id == CommunicationAgent.Id;
         if (!_options.MockMode)
         {
-            var connected = isOperations ? operations?.Connected == true : isData && data?.Connected == true;
+            var connected = isOperations ? operations?.Connected == true
+                : isData ? data?.Connected == true
+                : isCommunication && communication?.Connected == true;
             if (!connected) return Reply(503, "not_connected", "This specialist has no connected read tools.");
         }
         else if (!provider.IsMock || !provider.Configured)
@@ -113,6 +118,14 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
                     if (!data.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
                     var figure = await data.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
                     return Reply(StatusOf(figure.Code), figure.Code, figure.Summary, usage: figure.Usage, kpi: figure.Evidence);
+                }
+                if (isCommunication)
+                {
+                    if (!await communication!.CheckAuditReadyAsync(timeout.Token))
+                        return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้เรียก provider หรืออ่านข้อมูล");
+                    if (!communication.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
+                    var said = await communication.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
+                    return Reply(StatusOf(said.Code), said.Code, said.Summary, usage: said.Usage, messages: said.Evidence);
                 }
                 if (!await operations!.CheckAuditReadyAsync(timeout.Token))
                     return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้เรียก provider หรืออ่านข้อมูลงาน");
