@@ -7,6 +7,7 @@ import {
 } from "../issues";
 import { parseIssueWorkbook } from "../issuesExcel";
 import { exportIssues } from "../excel";
+import { ALL_PERIOD, NO_DATE, inChosenPeriod, monthLabel, periodLabel, periodOptions, type Period } from "../period";
 import type { Job } from "../ops";
 import { css } from "../theme";
 import { StatCard } from "../StatCard";
@@ -126,6 +127,14 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [per, setPer] = useState(ROWS_PER_PAGE);
+  /**
+   * The day an issue was found — year, month, day, each list built from the
+   * issues loaded, the same picker rule the dashboard and KPI use for the
+   * plan date. Asked for on 21 Sep 2026. Applied here, over the rows the
+   * status and severity already fetched, so a month of "outstanding" is one
+   * choice away.
+   */
+  const [period, setPeriod] = useState<Period>(ALL_PERIOD);
 
   /**
    * Arriving from the carrier scorecard with a haulier to look at.
@@ -206,23 +215,29 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
 
   const rows = useMemo(() => {
     const wanted = query.trim().toLowerCase();
-    if (!wanted || !issues) return issues ?? [];
-    return issues.filter((issue) => [
+    const inPeriod = (issues ?? []).filter((issue) => inChosenPeriod(issue.foundOn, period));
+    if (!wanted) return inPeriod;
+    return inPeriod.filter((issue) => [
       issue.code, issue.detail, issue.jobRef, issue.reporter, issue.owner,
       issue.category, issue.jobCustomer, issue.jobTrucker,
     ].some((field) => (field ?? "").toLowerCase().includes(wanted)));
-  }, [issues, query]);
+  }, [issues, query, period]);
+  const dated = useMemo(() => (issues ?? []).map((issue) => ({ date: issue.foundOn })), [issues]);
+  const periods = periodOptions(dated, period);
   // A new filter or search starts at the first page; the pager's own page is kept within what is left.
   const filterStatus = (value: string) => { setStatus(value); setPage(1); };
   const filterSeverity = (value: string) => { setSeverity(value); setPage(1); };
   const filterQuery = (value: string) => { setQuery(value); setPage(1); };
+  const filterPeriod = (next: Period) => { setPeriod(next); setPage(1); };
   const paged = paginate(rows, page, per);
 
   /** The rows as shown — filtered and searched, every page — to the workbook the team keeps. */
   function exportShown() {
     if (rows.length === 0) { onToast("ไม่มีรายการให้ส่งออกในมุมมองนี้"); return; }
     try {
-      const name = exportIssues(rows, status === "ALL" ? "all" : status.toLowerCase());
+      const scope = (status === "ALL" ? "all" : status.toLowerCase())
+        + (period.year === "ALL" ? "" : "_" + [period.year, period.month, period.day].filter((v) => v !== "ALL").join("-"));
+      const name = exportIssues(rows, scope);
       onToast(`ส่งออก ${rows.length} รายการแล้ว · ${name}`);
     } catch (error) {
       onToast("ส่งออกไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
@@ -339,6 +354,30 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
           ["ALL", "ทุกระดับ"],
           ...(form?.severities ?? []).map((s) => [s, s] as [string, string]),
         ]} />
+
+        {/* Year → month → day of the day found, each narrowed by the one
+            above it, so the picker never lands on an empty period. A year
+            resets the month and day; a month resets the day. */}
+        <Picker label="ปีที่พบ" value={period.year} onChange={(v) => filterPeriod({ year: v, month: "ALL", day: "ALL" })} options={[
+          ["ALL", "ทั้งหมด"],
+          ...(periods.undated > 0 ? [[NO_DATE, `ไม่มีวันที่ (${periods.undated})`] as [string, string]] : []),
+          ...periods.years.map((y) => [y, y] as [string, string]),
+        ]} narrow />
+        {period.year !== NO_DATE && <>
+          <Picker label="เดือน" value={period.month} onChange={(v) => filterPeriod({ ...period, month: v, day: "ALL" })} options={[
+            ["ALL", "ทั้งหมด"],
+            ...periods.months.map((m) => [m, `${monthLabel(m)} (${m})`] as [string, string]),
+          ]} narrow />
+          <Picker label="วัน" value={period.day} onChange={(v) => filterPeriod({ ...period, day: v })} options={[
+            ["ALL", "ทั้งหมด"],
+            ...periods.days.map((d) => [d, d] as [string, string]),
+          ]} narrow />
+        </>}
+        {(period.year !== "ALL" || period.month !== "ALL" || period.day !== "ALL") && (
+          <button onClick={() => filterPeriod(ALL_PERIOD)} style={BTN_SECONDARY} title={periodLabel(period)}>
+            ล้างช่วงเวลา
+          </button>
+        )}
 
         <label style={css("display:flex;flex-direction:column;gap:3px;min-width:220px;flex:1")}>
           <span style={LABEL}>ค้นหา</span>
@@ -846,11 +885,13 @@ function Tile({ label, value, tone, note }: { label: string; value: number; tone
   return <StatCard label={label} value={value.toLocaleString()} tone={tone} note={note} compact />;
 }
 
-function Picker({ label, value, onChange, options }: {
+function Picker({ label, value, onChange, options, narrow = false }: {
   label: string; value: string; onChange: (v: string) => void; options: [string, string][];
+  /** For the period pickers, whose values are four digits at most. */
+  narrow?: boolean;
 }) {
   return (
-    <label style={css("display:flex;flex-direction:column;gap:3px;min-width:170px")}>
+    <label style={css("display:flex;flex-direction:column;gap:3px;min-width:" + (narrow ? "96px" : "170px"))}>
       <span style={LABEL}>{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} style={SELECT}>
         {options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}

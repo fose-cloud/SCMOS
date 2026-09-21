@@ -117,14 +117,20 @@ export function monthKeyLabel(key: string): string {
   return year ? `${monthLabel(month)} ${year}` : key;
 }
 
-/** What the pickers may offer, each level narrowed by the one above it. */
-export function periodOptions(jobs: Job[], period: Period) {
+/**
+ * What the pickers may offer, each level narrowed by the one above it.
+ *
+ * Typed on the date alone rather than on a job: the Operational Issues log
+ * filters by the day an issue was found (21 Sep 2026), and an issue is not a
+ * job, but its date is written the same way and asks the same question.
+ */
+export function periodOptions(rows: { date: string }[], period: Period) {
   const years = new Set<string>();
   const months = new Set<string>();
   const days = new Set<string>();
   let undated = 0;
 
-  for (const job of jobs) {
+  for (const job of rows) {
     const parts = partsOf(job.date);
     if (!parts) { undated++; continue; }
     years.add(parts.y);
