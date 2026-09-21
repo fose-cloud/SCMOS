@@ -70,12 +70,19 @@ public class AiGateway(ScmosDbContext db)
         // The database is the roster; the code is the authority on what a
         // permission means. A row edited to say "allow" for a tool the catalogue
         // calls approval is ignored, so a stray UPDATE cannot widen the matrix.
-        return stored.Select(tool =>
+        // A tool the catalogue gained after the roster was seeded (query_kpi,
+        // Phase 2) is shown from the catalogue, switched on, until the seeder
+        // writes its row.
+        var views = stored.Select(tool =>
         {
             var definition = AiPermissions.Find(tool.Name);
             var permission = definition?.Permission.ToString().ToLowerInvariant() ?? "deny";
             return new ToolView(tool.Name, tool.Agent, permission, tool.Description, tool.Enabled);
         }).ToList();
+        views.AddRange(AiPermissions.Catalogue
+            .Where(tool => !stored.Any(row => row.Name.Equals(tool.Name, StringComparison.OrdinalIgnoreCase)))
+            .Select(tool => new ToolView(tool.Name, tool.Agent, tool.Permission.ToString().ToLowerInvariant(), tool.Description, true)));
+        return views.OrderBy(tool => tool.Agent).ThenBy(tool => tool.Name).ToList();
     }
 
     /// <summary>

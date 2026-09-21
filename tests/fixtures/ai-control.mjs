@@ -38,6 +38,22 @@ export const reply = {
     }],
   },
 };
+/** The Data Agent's reply (Phase 2): the figure and its provenance, no Operations evidence. */
+export const kpiReply = {
+  runId: "c".repeat(32), code: "ok", summary: "FIXTURE ONLY · งวด 09/2026: งานทั้งหมด 10 · ตรงเวลา 4 จาก 6 งานที่วัดได้ (67%)",
+  agentId: "data-agent", mock: false, usage: { inputTokens: 12, outputTokens: 6 }, evidence: null,
+  correlationId: "fixture-corr-kpi", contextUsed: false,
+  kpi: {
+    view: "kpi", period: "2026-09", periodLabel: "09/2026", filters: { customer: "TEST CUSTOMER", trucker: "", owner: "" },
+    total: 10, measured: 6, onTime: 4, onTimePercent: 67, notAssessable: 4, undated: 1, formatErrors: 2, actionRequired: 2,
+    byCategory: [{ label: "IMPORT", value: 7 }, { label: "EXPORT", value: 3 }],
+    carriers: [{ carrier: "TEST TRUCKER", total: 5, measured: 3, onTime: 2, percent: 67 }, { carrier: "TEST TRUCKER 2", total: 3, measured: 2, onTime: 1, percent: 50 }],
+    carriersTotal: 3, returned: 2, truncated: true,
+    rule: { id: "arrival.on_time", version: "2", source: "Rules/JobRules.cs:JobRules.IsOnTime", meaning: "FIXTURE ONLY", missingData: "FIXTURE ONLY" },
+    customerContract: "unknown", retrievedAt: "2026-09-20T05:00:00Z", sourceUpdatedAt: "2026-09-20T04:00:00Z",
+    basis: "FIXTURE ONLY · SCMOS KpiService", source: "operation_jobs",
+  },
+};
 export const run = {
   runId: reply.runId, userId: "fixture-user", role: "Operation Supervisor", agentId: "operations-agent", model: "fixture-provider",
   scope: { team: true, operatorId: null }, status: "succeeded",

@@ -25,13 +25,27 @@ export type OperationsAnswer = {
   retrievedAt: string; sourceUpdatedAt: string | null; basis: string; rows: EvidenceRow[];
 };
 export type Usage = { inputTokens: number; outputTokens: number };
+/** The Data Agent's figure (Phase 2): SCMOS's own KPI for a period, with the rule and its version on it. */
+export type KpiCarrier = { carrier: string; total: number; measured: number; onTime: number; percent: number };
+export type KpiAnswer = {
+  view: string; period: string; periodLabel: string; filters: { customer: string; trucker: string; owner: string };
+  total: number; measured: number; onTime: number; onTimePercent: number; notAssessable: number;
+  undated: number; formatErrors: number; actionRequired: number;
+  byCategory: { label: string; value: number }[];
+  carriers: KpiCarrier[]; carriersTotal: number; returned: number; truncated: boolean;
+  rule: { id: string; version: string; source: string; meaning: string; missingData: string };
+  customerContract: string; retrievedAt: string; sourceUpdatedAt: string | null; basis: string; source: string;
+};
 export type AiReply = {
   runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null;
   /** The API request's correlation id — the same one on every audit event of the run (1D). */
   correlationId?: string;
   /** Whether the previous question's facts were given to the model (1D context pilot). */
   contextUsed?: boolean;
+  /** The Data Agent's figure (Phase 2); null or absent for every other agent. */
+  kpi?: KpiAnswer | null;
 };
+export type AgentChoice = "operations-agent" | "data-agent";
 export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null; step?: number | null; tool?: string | null };
 export type AuditRun = {
   runId: string; userId: string; role: string; agentId: string; model: string;
@@ -94,10 +108,23 @@ function evidence(v: unknown): boolean {
       && bools(r, ["hasOwner", "hasDriver", "hasPlate", "arrivalRecorded"])
       && nullableText(r.risk) && r.source === "operation_jobs");
 }
+function kpiAnswer(v: unknown): boolean {
+  return obj(v) && v.view === "kpi" && strings(v, ["period", "periodLabel", "customerContract", "retrievedAt", "basis"]) && v.source === "operation_jobs"
+    && obj(v.filters) && strings(v.filters, ["customer", "trucker", "owner"])
+    && ["total", "measured", "onTime", "onTimePercent", "notAssessable", "undated", "formatErrors", "actionRequired", "carriersTotal", "returned"].every(k => count(v[k]))
+    && (v.measured as number) <= (v.total as number) && (v.onTime as number) <= (v.measured as number) && (v.onTimePercent as number) <= 100
+    && typeof v.truncated === "boolean" && nullableText(v.sourceUpdatedAt)
+    && Array.isArray(v.byCategory) && v.byCategory.length <= 20 && v.byCategory.every(c => obj(c) && text(c.label, 80) && count(c.value))
+    && Array.isArray(v.carriers) && v.carriers.length <= 50 && v.carriers.length === v.returned
+    && v.carriers.every(c => obj(c) && text(c.carrier, 80) && ["total", "measured", "onTime", "percent"].every(k => count(c[k])))
+    && obj(v.rule) && strings(v.rule, ["id", "version", "source", "meaning", "missingData"]);
+}
 export function parseReply(v: unknown): AiReply {
   return accept(v, obj(v) && id(v.runId) && v.code === "ok" && text(v.summary) && nullableText(v.agentId)
     && typeof v.mock === "boolean" && usage(v.usage)
-    && (v.mock ? v.evidence === null : evidence(v.evidence))
+    // The Operations evidence for the Operations agent; the KPI figure for the Data Agent; a mock carries neither.
+    && (v.mock ? v.evidence === null : v.agentId === "data-agent" ? v.evidence === null && kpiAnswer(v.kpi) : evidence(v.evidence))
+    && (v.kpi === undefined || v.kpi === null || kpiAnswer(v.kpi))
     && (v.correlationId === undefined || text(v.correlationId, 64))
     && (v.contextUsed === undefined || typeof v.contextUsed === "boolean"));
 }
@@ -122,10 +149,30 @@ export const ISSUE_TARGETS = ["monitoring", "myjob"] as const;
 export function issueTarget(value: string): typeof ISSUE_TARGETS[number] | null {
   return ISSUE_TARGETS.find(screen => screen === value) ?? null;
 }
-export function askBody(message: string) {
+export function askBody(message: string, agent: AgentChoice = "operations-agent") {
   const trimmed = message.trim();
   if (!trimmed || trimmed.length > 4000) throw new ControlError("invalid_request");
-  return { message: trimmed, agentId: "operations-agent", context: { page: "operations" } };
+  return { message: trimmed, agentId: agent, context: { page: agent === "data-agent" ? "kpi" : "operations" } };
+}
+
+/**
+ * Whether the Data Agent (Phase 2) can take a question now: the same
+ * server-side gates as Operations, minus the Operations switch, which
+ * governs Operations alone. Absent from the status means the account has
+ * no scope for it, and the screen offers nothing.
+ */
+export function dataAvailability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
+  const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });
+  if (!status) return blocked("ยังไม่ทราบสถานะ AI", "รีเฟรชสถานะก่อนส่งคำถาม");
+  const data = status.agents.find(a => a.id === "data-agent");
+  if (!data) return blocked("Data Agent ไม่มีในขอบเขตของบัญชีนี้", "");
+  if (!status.enabled || !status.chatEnabled) return blocked("SCMOS AI ยังปิดอยู่", "การเปิด AI ต้องตั้งค่าที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.configurationValid) return blocked("การตั้งค่า AI ยังไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์", "red");
+  if (!data.enabled || !data.connected) return blocked("Data Agent ยังไม่เปิด", "เปิดด้วย AI:DataAgentEnabled ที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.providerConfigured) return blocked("ยังไม่ได้ตั้งค่า AI provider", "ให้ผู้ดูแลตรวจการตั้งค่าฝั่งเซิร์ฟเวอร์", "amber");
+  if (status.mock) return blocked("Development Mock", "Data Agent ไม่ทำงานในโหมดสาธิต", "amber");
+  if (!status.auditReady) return blocked("Audit ถาวรยังไม่พร้อม", "ยังส่งคำถามไม่ได้", "amber");
+  return { ready: true, title: "Data Agent พร้อมรับคำถาม", detail: "จำนวนงานและ KPI ตรงเวลาตามช่วงเวลา · คำนวณโดย SCMOS · มี Audit", tone: "green" };
 }
 export function availability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
   const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });

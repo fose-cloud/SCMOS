@@ -28,6 +28,10 @@ Update, 20 September 2026 (v2.7.60): **1D is implemented and deployed** — see 
 one read), correlation id proxy → API → audit, in-memory context pilot behind
 `AI:ContextEnabled`. **Phase 1 is complete.** Phase 2 (Data Agent) is next.
 
+Update, 21 September 2026 (v2.7.61): **Phase 2 is implemented and deployed** — see the
+[Phase 2 record](SCMOS_AI_PHASE_2.md): the Data Agent's one read (`query_kpi`) over
+`KpiService` with the provenance block, behind `AI:DataAgentEnabled` (off). Phase 3 is next.
+
 ## 1. What is already present
 
 Gateway/orchestrator/provider abstraction, eight registry descriptors, three connected Operations read tools, strict input validation, per-instance limits, durable AI audit, admin-only Operations switch, read-only Control Tower, existing approval queue, Entra/RBAC, operational/KPI/rate/document services, Graph mail and LINE ingestion/review, Blob, CI/CD and offline checks. Do not rebuild these.

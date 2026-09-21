@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Auth;
+using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -8,7 +9,8 @@ namespace Scmos.Api.Ai;
 /// <summary>Foundation runtime behind the existing gateway, not a second public authority.</summary>
 public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironment environment,
     IAiProvider provider, AgentRegistry agents, AiRunLimiter limiter, ILogger<AgentOrchestrator> log,
-    IAgentExecutor<OperationsExecution>? operations = null, IOperationsControl? control = null)
+    IAgentExecutor<OperationsExecution>? operations = null, IOperationsControl? control = null,
+    IAgentExecutor<DataExecution>? data = null)
 {
     private readonly AiOptions _options = options.Value;
     private const string Instructions = "You are an SCMOS assistant. Approved SCMOS rules and source evidence are authoritative. "
@@ -21,8 +23,10 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         LiveToolsReady: operations?.Ready == true, WriteToolsReady: false,
         agents.All.Where(a => AiPermissionPolicy.CanUse(user, a))
             .Select(a => new AiAgentStatus(a.Id, a.Name, _options.Enabled && _options.ChatEnabled
-                && AgentRegistry.Enabled(a, _options), Connected: a.Id == "operations-agent" && operations?.Connected == true)).ToArray(),
-        AuditReady: operations?.AuditReady == true);
+                && AgentRegistry.Enabled(a, _options),
+                Connected: a.Id == "operations-agent" ? operations?.Connected == true
+                    : a.Id == DataAgent.Id && data?.Connected == true)).ToArray(),
+        AuditReady: operations?.AuditReady == true || data?.AuditReady == true);
 
     public async Task<AiStatus> StatusAsync(AppUser user, CancellationToken token)
     {
@@ -53,6 +57,12 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         return Status(user);
     }
 
+    private static int StatusOf(string code) => code switch
+    {
+        "ok" => 200, "forbidden" => 403, "clarification_required" => 422,
+        "invalid_tool" => 502, "timeout" => 504, "provider_busy" => 429, _ => 503,
+    };
+
     public async Task<AiChatOutcome> RunAsync(AiChatRequest? request, AppUser? user, CancellationToken token, string correlationId = "")
     {
         token.ThrowIfCancellationRequested();
@@ -60,8 +70,8 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         var correlation = AiAuditRules.IsCorrelation(correlationId) ? correlationId : "";
         AgentDefinition? agent = null;
         AiChatOutcome Reply(int status, string code, string summary, bool mock = false, AiUsage? usage = null,
-            OperationsAnswer? evidence = null, bool contextUsed = false)
-            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed));
+            OperationsAnswer? evidence = null, bool contextUsed = false, DataAnswer? kpi = null)
+            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi));
 
         if (!AiPermissionPolicy.Authenticated(user)) return Reply(401, "unauthenticated", "Sign in is required.");
         if (!AiPermissionPolicy.InternalUser(user!)) return Reply(403, "forbidden", "AI is not available for this account scope.");
@@ -78,10 +88,12 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         if (agent is null) return Reply(400, "unknown_agent", "This page or agent is not registered.");
         if (!AiPermissionPolicy.CanUse(user!, agent)) return Reply(403, "forbidden", "The requested data scope is not available to this account.");
         if (!controlled && !AgentRegistry.Enabled(agent, _options)) return Reply(503, "agent_disabled", "This specialist is disabled.");
+        // Live mode runs only an agent with a connected executor: Operations, and the Data Agent since Phase 2.
+        var isData = agent.Id == DataAgent.Id;
         if (!_options.MockMode)
         {
-            if (agent.Id != "operations-agent" || operations is null || !operations.Connected)
-                return Reply(503, "not_connected", "This specialist has no connected read tools.");
+            var connected = isOperations ? operations?.Connected == true : isData && data?.Connected == true;
+            if (!connected) return Reply(503, "not_connected", "This specialist has no connected read tools.");
         }
         else if (!provider.IsMock || !provider.Configured)
             return Reply(503, "provider_unavailable", "Development mock provider is unavailable.");
@@ -94,17 +106,20 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
             timeout.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
             if (!_options.MockMode)
             {
+                if (isData)
+                {
+                    if (!await data!.CheckAuditReadyAsync(timeout.Token))
+                        return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้เรียก provider หรืออ่านข้อมูล");
+                    if (!data.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
+                    var figure = await data.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
+                    return Reply(StatusOf(figure.Code), figure.Code, figure.Summary, usage: figure.Usage, kpi: figure.Evidence);
+                }
                 if (!await operations!.CheckAuditReadyAsync(timeout.Token))
                     return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้เรียก provider หรืออ่านข้อมูลงาน");
                 if (!operations.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
                 // Await cancellation cleanup too; do not detach an audit write from its request scope.
                 var answer = await operations.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
-                var status = answer.Code switch
-                {
-                    "ok" => 200, "forbidden" => 403, "clarification_required" => 422,
-                    "invalid_tool" => 502, "timeout" => 504, "provider_busy" => 429, _ => 503,
-                };
-                return Reply(status, answer.Code, answer.Summary, usage: answer.Usage, evidence: answer.Evidence, contextUsed: answer.ContextUsed);
+                return Reply(StatusOf(answer.Code), answer.Code, answer.Summary, usage: answer.Usage, evidence: answer.Evidence, contextUsed: answer.ContextUsed);
             }
             var result = await provider.CompleteAsync(new(Instructions, request!.Message.Trim(), []), timeout.Token)
                 .WaitAsync(timeout.Token);

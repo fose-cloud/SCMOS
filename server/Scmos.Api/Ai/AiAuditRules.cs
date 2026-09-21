@@ -22,11 +22,11 @@ namespace Scmos.Api.Ai;
 /// </summary>
 public static class AiAuditRules
 {
-    /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. Phase 2 adds the Data Agent.</summary>
-    public static readonly string[] KnownAgents = ["operations-agent"];
+    /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. The Data Agent since Phase 2.</summary>
+    public static readonly string[] KnownAgents = ["operations-agent", "data-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_kpi"];
 
     /// <summary>The most tool steps one run may hold — a bound on the audit, not a licence for the dispatcher.</summary>
     public const int MaxSteps = 8;
@@ -83,9 +83,10 @@ public static class AiAuditRules
             || hasTool != Id(e.ToolCallId) || (!hasTool && e.ToolCallId is not null)
             || (hasTool && !KnownTools.Contains(e.Tool, StringComparer.Ordinal)))
             throw new ArgumentException("Invalid audit tool.");
-        if (hasTool ? (e.Limit is null or < 1 or > 50 || e.View is not ("today" or "risk_today" or "search" or "delays")
+        if (hasTool ? (e.Limit is null or < 1 or > 50 || e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi")
                 || (e.Tool == "query_shipments" && e.View is not ("today" or "risk_today"))
-                || (e.Tool == "search_shipment" && e.View != "search") || (e.Tool == "query_delays" && e.View != "delays"))
+                || (e.Tool == "search_shipment" && e.View != "search") || (e.Tool == "query_delays" && e.View != "delays")
+                || (e.Tool == "query_kpi" && e.View != "kpi") || (e.View == "kpi" && e.Tool != "query_kpi"))
             : e.View is not null || e.Limit is not null)
             throw new ArgumentException("Invalid audit summary.");
         var keys = e.SourceKeys ?? [];

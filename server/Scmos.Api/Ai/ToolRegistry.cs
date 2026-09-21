@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Scmos.Api.Rules;
+using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -79,7 +80,7 @@ public sealed record AiToolDefinition(string Name, string Description, string Ag
 public sealed class ToolRegistry
 {
     public const int OperationsEvidenceLimit = 50;
-    public ToolRegistry(OperationsReadService? operations = null)
+    public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null)
     {
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
@@ -95,6 +96,16 @@ public sealed class ToolRegistry
                 new(new("query", false), new("limit", true, Max: OperationsEvidenceLimit))),
             Read("query_delays", "Read active jobs in the existing My Job DELAY bucket, across all dates; this is not a KPI calculation or the risk queue.",
                 new(new AiArgument("limit", true, Max: OperationsEvidenceLimit))),
+            // Phase 2 — the Data Agent's one read: SCMOS's own KPI for a period.
+            new(DataReadService.Tool,
+                "Read the department's volumes and on-time KPI (SCMOS rule arrival.on_time, zero grace) for one period: a year YYYY, a month YYYY-MM or a day YYYY-MM-DD, optionally narrowed to one customer or one carrier by name. Returns totals, the measured base, on-time count and percent, unassessable/undated counts, and a per-carrier breakdown. Never calculates a figure outside SCMOS.",
+                DataAgent.Id, Capability.ViewDashboard, AiRisk.Low,
+                new(new("period", false, Max: 10), new("customer", false, Nullable: true), new("trucker", false, Nullable: true),
+                    new("limit", true, Max: DataReadService.CarrierLimit)),
+                data is { Connected: true } ? new DataReadHandler(data) : null)
+            {
+                Policy = new(AiActionLevel.Read, "1", "operation_jobs", typeof(DataAnswer), DataReadService.CarrierLimit),
+            },
         });
     }
 

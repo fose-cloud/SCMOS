@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -29,7 +30,9 @@ public sealed record AiChatResponse(string RunId, string Code, string Summary, s
     /// <summary>The API request's correlation id (1D) — the same one on every audit event of the run.</summary>
     string CorrelationId = "",
     /// <summary>Whether the previous question's facts were given to the model (1D context pilot).</summary>
-    bool ContextUsed = false);
+    bool ContextUsed = false,
+    /// <summary>The Data Agent's figure (Phase 2); null for every other agent.</summary>
+    DataAnswer? Kpi = null);
 public sealed record AiChatOutcome(int Status, AiChatResponse Response);
 public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,

@@ -29,14 +29,15 @@ static class SharedContractChecks
         check(default(AiActionLevel) == AiActionLevel.Unspecified,
             "1A: unspecified action metadata is not a read permission");
         check(registry.All.Select(t => t.Name).SequenceEqual(
-            ["query_shipments", "search_shipment", "query_delays"]), "1A: exactly the existing three tools");
+            ["query_shipments", "search_shipment", "query_delays", "query_kpi"]), "1A/2: exactly the existing three Operations tools, and the Data Agent's one (Phase 2)");
         foreach (var tool in registry.All)
         {
+            var data = tool.Name == "query_kpi";
             check(tool.Policy is { ActionLevel: AiActionLevel.Read, Version: "1", Source: "operation_jobs",
                     MaxEvidenceRows: 50, ScopePolicy: "server-resolved-team-or-operator", DeadlineSetting: "AI:TimeoutSeconds" }
-                && tool.Policy.OutputType == typeof(OperationsAnswer), "1A: reviewed policy for " + tool.Name);
+                && tool.Policy.OutputType == (data ? typeof(Scmos.Api.Ai.Data.DataAnswer) : typeof(OperationsAnswer)), "1A: reviewed policy for " + tool.Name);
             check(tool.Risk == AiRisk.Low && tool.AuditPolicy == "required-before-and-after"
-                && tool.AgentId == "operations-agent" && tool.Handler is null,
+                && tool.AgentId == (data ? "data-agent" : "operations-agent") && tool.Handler is null,
                 "1A: metadata changes neither legacy risk/audit nor connectivity");
             using var schema = JsonDocument.Parse(tool.InputSchema.Json);
             var root = schema.RootElement;
@@ -58,8 +59,8 @@ static class SharedContractChecks
             return json.RootElement.EnumerateObject().Select(p => p.Name).SequenceEqual(expected);
         }
         check(Fields(new AiChatResponse("run", "ok", "summary"),
-            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence", "correlationId", "contextUsed"]),
-            "1A/1D: public chat response envelope is the 1A one, plus correlationId and contextUsed appended (1D)");
+            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence", "correlationId", "contextUsed", "kpi"]),
+            "1A/1D/2: public chat response envelope is the 1A one, plus correlationId and contextUsed (1D) and kpi (2) appended");
         check(Fields(new AiStatus(false, false, false, false, true, false, false, []),
             ["enabled", "chatEnabled", "providerConfigured", "mock", "configurationValid", "liveToolsReady",
                 "writeToolsReady", "agents", "auditReady", "operationsControl"]),

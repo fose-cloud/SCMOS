@@ -7,7 +7,7 @@ Phase D, 2026-09-07. All specialists default off. Operations has three source-ba
 | operations-agent | operations, workspace | ViewDashboard |
 | vendor-agent | vendors, suppliers | ManageSuppliers |
 | rate-agent | rates, quotation | ViewRates |
-| kpi-agent | kpi | ViewDashboard |
+| data-agent (the specification's Data Agent; the former `kpi-agent` descriptor, connected in Phase 2 — [record](SCMOS_AI_PHASE_2.md)) | kpi, reports | ViewDashboard |
 | incident-agent | incidents | ViewDashboard |
 | billing-agent | billing | ViewRates; no invoice source exists |
 | compliance-agent | compliance, training | ManageTraining |

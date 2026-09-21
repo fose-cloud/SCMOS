@@ -51,6 +51,8 @@ builder.Services.AddScoped<JobsRepository>();
 builder.Services.AddScoped<CarrierDirectory>();
 builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<KpiService>();
+// The Data Agent (Phase 2) reads the KPI through this boundary — the same service, the same figures.
+builder.Services.AddScoped<IKpiReports>(sp => sp.GetRequiredService<KpiService>());
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<ReportWriterService>();

@@ -20,8 +20,10 @@ public sealed class AgentRegistry
             ["search_supplier", "recommend_supplier"], ["vendors", "suppliers"]),
         Define("rate-agent", "Rate Agent", "Approved rates only; never invent a price", Capability.ViewRates,
             ["query_rates", "recommend_rate"], ["rates", "quotation"]),
-        Define("kpi-agent", "KPI Agent", "Existing SCMOS KPI definitions", Capability.ViewDashboard,
-            ["calculate_kpi", "analyze_kpi"], ["kpi"]),
+        // The specification's "SCMOS Data Agent": the department's own figures
+        // for a period, with the rule and its version on the answer (Phase 2).
+        Define("data-agent", "Data Agent", "Volumes and the on-time KPI for a period, by SCMOS's own rules", Capability.ViewDashboard,
+            ["query_kpi"], ["kpi", "reports"]),
         Define("incident-agent", "Incident Agent", "Incident and CAR/PAR evidence", Capability.ViewDashboard,
             ["query_incidents"], ["incidents"]),
         Define("billing-agent", "Billing Agent", "Unavailable until an authoritative invoice source exists", Capability.ViewRates,
@@ -45,7 +47,7 @@ public sealed class AgentRegistry
         "operations-agent" => options.OperationsAgentEnabled,
         "vendor-agent" => options.VendorAgentEnabled,
         "rate-agent" => options.RateAgentEnabled,
-        "kpi-agent" => options.KpiAgentEnabled,
+        "data-agent" => options.DataAgentEnabled,
         "incident-agent" => options.IncidentAgentEnabled,
         "billing-agent" => options.BillingAgentEnabled,
         "compliance-agent" => options.ComplianceAgentEnabled,

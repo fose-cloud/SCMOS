@@ -65,7 +65,7 @@ The Codex master specification was re-issued on 18–20 September with the same 
 
 ### Phase 1 status against the plan (§2 of the implementation plan)
 
-1A done · 1B done (dispatch extraction, clarification, readiness) · 1C done (rule + source descriptors, calendar fix) · **1D done, v2.7.60** (multi-step audit topology with the dispatch still at one read, correlation id proxy → API → audit rows, in-memory context pilot off by default; [record](SCMOS_AI_PHASE_1D.md)) · **1E done, v2.7.59** (scoped listing/creation, self-approval and IDOR refused, expiry, fingerprint-bound "applied", second factor — S1 closed, S2 narrowed to "no executor by design"; [record](SCMOS_AI_PHASE_1E.md)) · Phase 2 (Data Agent) not started.
+1A done · 1B done (dispatch extraction, clarification, readiness) · 1C done (rule + source descriptors, calendar fix) · **1D done, v2.7.60** (multi-step audit topology with the dispatch still at one read, correlation id proxy → API → audit rows, in-memory context pilot off by default; [record](SCMOS_AI_PHASE_1D.md)) · **1E done, v2.7.59** (scoped listing/creation, self-approval and IDOR refused, expiry, fingerprint-bound "applied", second factor — S1 closed, S2 narrowed to "no executor by design"; [record](SCMOS_AI_PHASE_1E.md)) · **Phase 2 done, v2.7.61** (the Data Agent's first read — volumes and the on-time KPI for a period, customer/trucker filters, the rule and its version on the answer; [record](SCMOS_AI_PHASE_2.md)) · Phase 3 not started.
 
 ### KEEP / REUSE / EXTEND / ADD / AVOID CHANGING (Phase 1 onward)
 

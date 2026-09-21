@@ -97,7 +97,7 @@ public static class AiChatEndpoints
             {
                 result.Response.RunId, result.Response.Code, result.Response.Summary, result.Response.AgentId,
                 result.Response.Mock, result.Response.Usage, result.Response.Evidence,
-                result.Response.CorrelationId, result.Response.ContextUsed,
+                result.Response.CorrelationId, result.Response.ContextUsed, result.Response.Kpi,
                 Error = result.Status >= 400 ? result.Response.Summary : null,
             }, statusCode: result.Status);
         }).WithTags("AI");

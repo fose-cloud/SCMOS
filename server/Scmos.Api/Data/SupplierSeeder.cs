@@ -303,12 +303,17 @@ public static class SupplierSeeder
     /// The permission matrix, written into the database so it is data rather
     /// than a paragraph in a prompt. Nothing here is created for an agent that
     /// does not exist yet — these are the tools the API can already back.
+    /// A tool the catalogue gained later (query_kpi, Phase 2) is added on the
+    /// next start; a row that is already there is never touched, so a switch
+    /// somebody turned off stays off.
     /// </summary>
     private static async Task SeedAiToolsAsync(WebApplication app, ScmosDbContext db)
     {
-        if (await db.AiTools.AnyAsync()) return;
+        var present = await db.AiTools.Select(tool => tool.Name).ToListAsync();
+        var missing = AiPermissions.Catalogue.Where(tool => !present.Contains(tool.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (missing.Count == 0) return;
 
-        db.AiTools.AddRange(AiPermissions.Catalogue.Select(tool => new AiTool
+        db.AiTools.AddRange(missing.Select(tool => new AiTool
         {
             Name = tool.Name, Agent = tool.Agent,
             Permission = tool.Permission.ToString().ToLowerInvariant(),
@@ -316,6 +321,6 @@ public static class SupplierSeeder
         }));
 
         await db.SaveChangesAsync();
-        app.Logger.LogInformation("AI tools: {Count} registered.", AiPermissions.Catalogue.Length);
+        app.Logger.LogInformation("AI tools: {Count} registered.", missing.Count);
     }
 }

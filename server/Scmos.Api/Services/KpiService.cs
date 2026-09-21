@@ -29,7 +29,27 @@ public record KpiReport(
     IReadOnlyList<CarrierLoad> Carriers,
     IReadOnlyList<Counted> ByDay,
     Period Period,
-    string ComputedAt);
+    string ComputedAt,
+    /// <summary>When the register this was computed from last changed — the provenance an AI answer carries (Phase 2).</summary>
+    DateTimeOffset? SourceUpdatedAt = null);
+
+/// <summary>
+/// A narrowing of the figure (Phase 2, the Data Agent): a customer (by
+/// name, case-insensitive, contained), a carrier (by company, through the
+/// directory's aliases), an owner (the restricted account's own jobs).
+/// Empty means not narrowed.
+/// </summary>
+public record KpiFilter(string Customer = "", string Trucker = "", string OwnerId = "")
+{
+    public static readonly KpiFilter None = new();
+    public bool IsNone => Customer.Length == 0 && Trucker.Length == 0 && OwnerId.Length == 0;
+}
+
+/// <summary>The KPI as the Data Agent reads it — the same service, behind a boundary the checks can stand in for.</summary>
+public interface IKpiReports
+{
+    Task<KpiReport> BuildAsync(Period period, KpiFilter filter, CancellationToken token);
+}
 
 /// <summary>
 /// The operational KPIs, computed where the register lives.
@@ -42,9 +62,11 @@ public record KpiReport(
 /// Every count comes from the same rules the workspace colours a row by, so a
 /// job the grid calls "action required" is a job this counts as action required.
 /// </summary>
-public class KpiService(JobRegisterCache register, CarrierDirectory carriers)
+public class KpiService(JobRegisterCache register, CarrierDirectory carriers) : IKpiReports
 {
-    public async Task<KpiReport> BuildAsync(Period period, CancellationToken token)
+    public Task<KpiReport> BuildAsync(Period period, CancellationToken token) => BuildAsync(period, KpiFilter.None, token);
+
+    public async Task<KpiReport> BuildAsync(Period period, KpiFilter filter, CancellationToken token)
     {
         // The same snapshot the measures engine reads, not a second query.
         //
@@ -62,11 +84,18 @@ public class KpiService(JobRegisterCache register, CarrierDirectory carriers)
         var snapshot = await register.ReadAsync(token);
         var directory = await carriers.ReadAsync(token);
 
+        // A carrier filter is a company, not a spelling: "SJ" and "SANGJA" are
+        // one firm once the directory says so, as the carrier panel below counts them.
+        var truckerCompany = filter.Trucker.Length > 0 ? directory.Company(filter.Trucker) : "";
         var jobs = new List<JobRecord>(snapshot.Rows.Count);
         foreach (var row in snapshot.Rows)
         {
             var job = row.Record;
-            if (job is not null && Matches(job, period)) jobs.Add(job);
+            if (job is null || !Matches(job, period)) continue;
+            if (filter.OwnerId.Length > 0 && !string.Equals(job.OpId, filter.OwnerId, StringComparison.OrdinalIgnoreCase)) continue;
+            if (filter.Customer.Length > 0 && !job.Customer.Contains(filter.Customer, StringComparison.OrdinalIgnoreCase)) continue;
+            if (truckerCompany.Length > 0 && !string.Equals(directory.Company(job.Trucker), truckerCompany, StringComparison.OrdinalIgnoreCase)) continue;
+            jobs.Add(job);
         }
 
         var measurable = jobs.Where(JobRules.IsMeasurable).ToList();
@@ -132,7 +161,8 @@ public class KpiService(JobRegisterCache register, CarrierDirectory carriers)
             carrierLoads,
             byDay,
             period,
-            DateTimeOffset.UtcNow.ToString("O"));
+            DateTimeOffset.UtcNow.ToString("O"),
+            snapshot.UpdatedAt == default ? null : snapshot.UpdatedAt);
     }
 
     /// <summary>

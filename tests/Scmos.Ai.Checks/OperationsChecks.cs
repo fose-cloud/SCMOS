@@ -64,7 +64,8 @@ static class OperationsChecks
             return await reader.ReadAsync(tool, args.RootElement, use ?? context, default);
         }
 
-        check(registry.All.All(t => t.Handler is not null), "C: all three read-only handlers connected");
+        check(registry.All.Where(t => t.AgentId == "operations-agent").All(t => t.Handler is not null) && registry.Find("query_kpi")!.Handler is null,
+            "C: all three Operations read-only handlers connected; the Data Agent's tool is unbound without its service (Phase 2)");
         var guard = new QueryPolicyGuard(registry);
         var readCall = new AiToolCall("call", "query_shipments", "{\"view\":\"today\",\"limit\":20}");
         check(guard.Resolve(own, agent, readCall, true) is not null, "1B: connected scoped request resolves");

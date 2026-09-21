@@ -48,6 +48,8 @@ public static class AiPermissions
         new("analyze_excel", Document, AiPermission.Allow, "อ่านและวิเคราะห์ไฟล์ Excel"),
         new("calculate_kpi", Kpi, AiPermission.Allow, "คำนวณ KPI ทั้ง 8 ตัวตามช่วงเวลา"),
         new("analyze_kpi", Kpi, AiPermission.Allow, "วิเคราะห์แนวโน้มและเปรียบเทียบ KPI"),
+        // Phase 2 (20 Sep 2026): the Data Agent's connected read — SCMOS's own figures, the rule named on the answer.
+        new("query_kpi", Kpi, AiPermission.Allow, "อ่านจำนวนงานและ KPI ตรงเวลาตามช่วงเวลา ระบุลูกค้าหรือผู้ขนส่งได้ (คำนวณโดย SCMOS)"),
         new("search_supplier", SupplierAgent, AiPermission.Allow, "ค้นหาและอ่านข้อมูลผู้ขนส่ง"),
         new("query_rates", SupplierAgent, AiPermission.Allow, "อ่านตารางราคาและคำนวณราคาตามราคาน้ำมัน"),
         new("recommend_supplier", SupplierAgent, AiPermission.Allow, "เสนอผู้ขนส่งที่เหมาะกับงาน (ข้อเสนอ ไม่ใช่การมอบหมาย)"),

@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  askBody, availability, ControlError, controlRequest, errorText, issueTarget, number,
+  askBody, availability, ControlError, controlRequest, dataAvailability, errorText, issueTarget, number,
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
-import { status, today, brief, reply, run, audit } from "./fixtures/ai-control.mjs";
+import { status, today, brief, reply, kpiReply, run, audit } from "./fixtures/ai-control.mjs";
 import { allowedOperationsControlRequest } from "../app/scmos/aiControlRequest.ts";
 const copy = value => structuredClone(value);
 const rejects = (parser, value) => assert.throws(() => parser(value), /invalid_response/);
@@ -90,6 +90,22 @@ test("Audit keeps incomplete/running events and cursor; rejects malformed scopes
   assert.equal(parseAuditRun(twoSteps).events.length, 6);
   assert.equal(parseReply({ ...reply, correlationId: "req-1", contextUsed: true }).contextUsed, true);
   rejects(parseReply, { ...reply, contextUsed: "yes" });
+});
+test("the Data Agent's figure is parsed strictly, and never accepted as Operations evidence", () => {
+  assert.equal(parseReply(kpiReply), kpiReply);
+  assert.equal(parseReply({ ...reply, kpi: null }).kpi, null);
+  const kpi = kpiReply.kpi;
+  for (const patch of [{ kpi: null }, { kpi: { ...kpi, onTime: 7 } }, { kpi: { ...kpi, measured: 11 } }, { kpi: { ...kpi, onTimePercent: 101 } },
+    { kpi: { ...kpi, returned: 1 } }, { kpi: { ...kpi, view: "today" } }, { kpi: { ...kpi, source: "model" } }, { kpi: { ...kpi, rule: null } },
+    { kpi: { ...kpi, carriers: Array(51).fill(kpi.carriers[0]), returned: 51 } }, { evidence: reply.evidence }])
+    rejects(parseReply, { ...kpiReply, ...patch });
+  assert.equal(askBody("KPI", "data-agent").agentId, "data-agent"); assert.equal(askBody("KPI", "data-agent").context.page, "kpi");
+  assert.equal(askBody("x").agentId, "operations-agent");
+  const withData = { ...status, agents: [...status.agents, { id: "data-agent", name: "Data Agent", enabled: true, connected: true }] };
+  assert.equal(dataAvailability(status).ready, false);
+  assert.equal(dataAvailability(withData).ready, true);
+  assert.equal(dataAvailability({ ...withData, agents: withData.agents.map(a => a.id === "data-agent" ? { ...a, enabled: false } : a) }).ready, false);
+  assert.equal(dataAvailability({ ...withData, auditReady: false }).ready, false);
   rejects(parseAuditPage, { ...audit, nextBeforeId: -5 });
 });
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {
@@ -147,7 +163,9 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.doesNotMatch(source, /dangerouslySetInnerHTML|localStorage\.|useRemembered|\/api\/risk|\/api\/ai\/invoke|\/api\/ai\/approvals/);
   assert.match(source, /canViewAudit \? "\/api\/ai\/audit/);
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
-  assert.match(source, /if \(request.current \|\| changeBusy \|\| \(!ready.ready && !isChangeCommand\(message\)\)/);
+  // `asking` is the chosen agent's readiness — Operations' or, since Phase 2, the Data Agent's.
+  assert.match(source, /if \(request.current \|\| changeBusy \|\| \(!asking.ready && !isChangeCommand\(message\)\)/);
+  assert.match(source, /const asking = agent === "data-agent" \? dataReady : ready;/);
   assert.match(source, /operations-changes\/interpret/);
   assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);

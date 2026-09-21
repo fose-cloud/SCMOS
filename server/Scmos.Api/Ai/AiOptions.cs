@@ -12,7 +12,8 @@ public sealed class AiOptions
     public bool OperationsEmergencyDisabled { get; set; }
     public bool VendorAgentEnabled { get; set; }
     public bool RateAgentEnabled { get; set; }
-    public bool KpiAgentEnabled { get; set; }
+    // Phase 2: the Data Agent (the registry's former kpi-agent, never connected under that name).
+    public bool DataAgentEnabled { get; set; }
     public bool IncidentAgentEnabled { get; set; }
     public bool BillingAgentEnabled { get; set; }
     public bool ComplianceAgentEnabled { get; set; }
