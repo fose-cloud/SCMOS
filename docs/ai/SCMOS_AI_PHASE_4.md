@@ -53,7 +53,9 @@ Each row carries the channel (LINE / TMS / mail), when, whose room (or which mai
 
 **Build result** — green at the Phase 4 commit.
 
-**Verified on LocalDB, 21 Sep** — `GET /api/ai/status`: a supervisor and an operator see `communication-agent` `connected: true` (flag off); `GET /api/ai/tools` lists `query_messages` under `communication`. A live question needs the provider; the run is proved by the fixture-provider checks, as the other agents' were.
+**Verified on LocalDB, 21 Sep** — `GET /api/ai/status`: a supervisor and an operator see `communication-agent` `connected: true` (flag off); `GET /api/ai/tools` lists `query_messages` under `communication`.
+
+**Verified on production, 21 Sep 15:03** — the department turned `AI__CommunicationAgentEnabled` on at 14:36; `GET /api/ai/status` listed the agent enabled once the app had restarted. The first runs (14:37–14:50) answered `audit_not_ready` with no row written, as did the Data Agent that had answered at noon: the audit writer's flat five-second budget could not commit a run's first event on the working-hours database (a whole-register read in flight). v2.7.68 made that budget half the run's (`AI:TimeoutSeconds`, so 30 s at the department's 60), and the next question — "ข้อความจากผู้ขนส่งวันนี้มีอะไรบ้าง", from the Administrator's account — answered `ok` in 59 s: `today`, 51 messages (50 shown), 14 waiting, 17 applied, 20 unmatched, 260 greetings counted and left out; the newest a LINE "ถึงแล้วครับ" in the 9ISARA room read as ARRIVED 21/09/2026 14:20; a phone in an excerpt shown as `098xxxxxxxx` and the driver's name as `[คนขับ]`; 468 input tokens, 26 output; the audit holding run_started, tool_started, tool_completed and run_completed. Nothing sent, nothing applied.
 
 **Known risks**
 
