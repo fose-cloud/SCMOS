@@ -26,7 +26,10 @@ public static class AiAuditRules
     public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository", "read_source"];
+
+    /// <summary>The source read's modes (Phase 6, second increment) — a step lists a directory or reads a file window.</summary>
+    public static readonly string[] SourceViews = ["list", "file"];
 
     /// <summary>The documents tool's views (Phase 5), and the extractor's — a job category, as the Workspace's document reader takes it.</summary>
     public static readonly string[] DocumentViews = ["job", "missing", "invoice", "expiring"];
@@ -98,6 +101,8 @@ public static class AiAuditRules
         var messages = e.Tool == "query_messages";
         var engineering = e.Tool == "query_repository";
         var engineeringView = e.View is "open_issues" or "open_prs" or "recent_commits";
+        var sourceRead = e.Tool == "read_source";
+        var sourceView = e.View is not null && SourceViews.Contains(e.View, StringComparer.Ordinal);
         var messageView = e.View is not null && MessageViews.Contains(e.View, StringComparer.Ordinal);
         var documents = e.Tool == "query_documents";
         var documentView = e.View is not null && DocumentViews.Contains(e.View, StringComparer.Ordinal);
@@ -106,6 +111,7 @@ public static class AiAuditRules
         if (hasTool ? (e.Limit is null or < 1 or > 50
                 || (messages ? !messageView : documents ? !documentView : extract ? !extractView
                     : engineering ? !engineeringView || e.Limit > 20
+                    : sourceRead ? !sourceView
                     : (e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi") && !followUp))
                 || (e.Tool == "query_shipments" && e.View is not ("today" or "risk_today"))
                 || (e.Tool == "search_shipment" && e.View != "search") || (e.Tool == "query_delays" && e.View != "delays")

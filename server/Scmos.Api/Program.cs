@@ -65,6 +65,15 @@ builder.Services.AddHttpClient<Scmos.Api.Ai.Engineering.IEngineeringSource, Scmo
     client.Timeout = TimeSpan.FromSeconds(10);
     client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+// The Engineering Agent's source read (Phase 6, second increment): the same host, repository and rules, the contents API.
+builder.Services.AddHttpClient<Scmos.Api.Ai.Engineering.ISourceFileSource, Scmos.Api.Ai.Engineering.GitHubSourceFileSource>(client =>
+{
+    client.BaseAddress = new Uri("https://api.github.com/");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("SCMOS-AI-EngineeringRead/1.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.MaxResponseContentBufferSize = 2 * 1024 * 1024;
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<ReportWriterService>();

@@ -17,7 +17,8 @@ public sealed record AiPageContext(string Page);
 public enum AiRisk { Low, Medium, High, Restricted }
 public sealed record AiUsage(int InputTokens, int OutputTokens);
 public sealed record AiToolCall(string Id, string Name, string Arguments);
-public sealed record AiProviderRequest(string Instructions, string Message, IReadOnlyList<AiToolDefinition> Tools);
+/// <param name="Context">Untrusted excerpts the model reads as data beside the question — the Engineering Agent's source windows (Phase 6); empty for every other run.</param>
+public sealed record AiProviderRequest(string Instructions, string Message, IReadOnlyList<AiToolDefinition> Tools, string Context = "");
 public sealed record AiProviderResult(string Code, string? Text = null,
     IReadOnlyList<AiToolCall>? ToolCalls = null, AiUsage? Usage = null, bool Mock = false);
 
@@ -41,7 +42,9 @@ public sealed record AiChatResponse(string RunId, string Code, string Summary, s
     /// <summary>The Document &amp; Invoice Agent's paperwork (Phase 5); null for every other agent.</summary>
     DocumentsAnswer? Documents = null,
     /// <summary>Phase 6 fixed-repository read-only metadata; null for other agents.</summary>
-    EngineeringAnswer? Engineering = null);
+    EngineeringAnswer? Engineering = null,
+    /// <summary>The Engineering Agent's source read and the model's analysis of it (Phase 6, second increment); null for every other run.</summary>
+    SourceAnswer? Source = null);
 public sealed record AiChatOutcome(int Status, AiChatResponse Response);
 public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,

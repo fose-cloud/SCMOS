@@ -18,6 +18,8 @@ public sealed class AiOptions
     public bool CommunicationAgentEnabled { get; set; }
     // Phase 6 first read: fixed public GitHub metadata, Administrator only.
     public bool EngineeringAgentEnabled { get; set; }
+    // Phase 6 second increment: the repository's own source, read-only and bounded, for the same agent. Off unless set.
+    public bool EngineeringSourceEnabled { get; set; }
     public bool IncidentAgentEnabled { get; set; }
     // Phase 5: the Document & Invoice Agent (the registry's former billing-agent, never connected under that name).
     public bool DocumentAgentEnabled { get; set; }

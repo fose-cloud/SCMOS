@@ -5,11 +5,13 @@ using Scmos.Api.Ai.Operations;
 namespace Scmos.Api.Ai;
 
 /// <summary>One request-owned budget; not a singleton and never reset after a failed call.</summary>
-public sealed class AiDispatchBudget
+public sealed class AiDispatchBudget(int maxToolCalls = AiDispatchBudget.MaxToolCalls)
 {
+    /// <summary>One read per run for every agent but the Engineering Agent's source read, which names its own bound (Phase 6, second increment).</summary>
     public const int MaxToolCalls = 1;
     private int attempts;
-    public bool TryConsume() => Interlocked.Increment(ref attempts) <= MaxToolCalls;
+    public int Allowed => maxToolCalls;
+    public bool TryConsume() => Interlocked.Increment(ref attempts) <= maxToolCalls;
 }
 
 /// <summary>Only connected, validated reads. The caller retains durable before/after audit lifecycle.</summary>

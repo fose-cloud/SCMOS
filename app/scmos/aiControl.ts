@@ -73,6 +73,20 @@ export type EngineeringAnswer = {
   retrievedAt: string; basis: string;
   rows: { id: string; title: string; url: string; state: "open" | "commit"; at: string }[];
 };
+/**
+ * Phase 6, second increment: the Engineering Agent's bounded, read-only source
+ * read — each step a listing or a numbered window of a file at the fixed ref —
+ * and the model's analysis of it, which is the model's opinion and labelled so.
+ * Nothing was run, changed or deployed.
+ */
+export type SourceStep = {
+  step: number; mode: "list" | "file"; path: string; from: number; lines: number; returned: number; totalLines: number; truncated: boolean;
+  size: number; sha: string; entries: { name: string; path: string; kind: "file" | "dir"; size: number }[]; text: string; source: "github_public_repo";
+};
+export type SourceAnswer = {
+  repository: "fose-cloud/SCMOS"; ref: "azure-dotnet-migration"; total: number; returned: number; retrievedAt: string;
+  steps: SourceStep[]; analysis: string; basis: string;
+};
 export type AiReply = {
   runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null;
   /** The API request's correlation id — the same one on every audit event of the run (1D). */
@@ -86,6 +100,8 @@ export type AiReply = {
   /** The Document & Invoice Agent's paperwork (Phase 5); null or absent for every other agent. */
   documents?: DocumentsAnswer | null;
   engineering?: EngineeringAnswer | null;
+  /** The Engineering Agent's source read and the model's analysis (Phase 6, second increment); null or absent for every other run. */
+  source?: SourceAnswer | null;
 };
 export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent" | "engineering-agent";
 export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null; step?: number | null; tool?: string | null };
@@ -205,6 +221,20 @@ function engineeringAnswer(v: unknown): boolean {
       && !Object.hasOwn(row, "body") && !Object.hasOwn(row, "diff");
   });
 }
+function sourceAnswer(v: unknown): boolean {
+  if (!obj(v) || v.repository !== "fose-cloud/SCMOS" || v.ref !== "azure-dotnet-migration" || !text(v.retrievedAt, 64)
+    || !text(v.basis, 1000) || typeof v.analysis !== "string" || v.analysis.length > 8200
+    || !count(v.total) || !count(v.returned) || v.total !== v.returned
+    || !Array.isArray(v.steps) || v.steps.length < 1 || v.steps.length > 4 || v.steps.length !== v.returned) return false;
+  return v.steps.every((step, index) => obj(step) && step.step === index + 1 && ["list", "file"].includes(step.mode as string)
+    && typeof step.path === "string" && step.path.length <= 200 && !/\.\.|^\/|\\/.test(step.path)
+    && ["from", "lines", "returned", "totalLines", "size"].every(k => count(step[k]) || step[k] === 0) && typeof step.truncated === "boolean"
+    && typeof step.sha === "string" && step.sha.length <= 64 && step.source === "github_public_repo"
+    && typeof step.text === "string" && step.text.length <= 200000
+    && Array.isArray(step.entries) && step.entries.length <= 50 && step.entries.every(entry => obj(entry) && text(entry.name, 200) && text(entry.path, 200)
+      && ["file", "dir"].includes(entry.kind as string) && (count(entry.size) || entry.size === 0))
+    && !Object.hasOwn(step, "diff") && !Object.hasOwn(step, "command"));
+}
 export function parseReply(v: unknown): AiReply {
   return accept(v, obj(v) && id(v.runId) && v.code === "ok" && text(v.summary) && nullableText(v.agentId)
     && typeof v.mock === "boolean" && usage(v.usage)
@@ -213,12 +243,15 @@ export function parseReply(v: unknown): AiReply {
       : v.agentId === "data-agent" ? v.evidence === null && kpiAnswer(v.kpi)
       : v.agentId === "communication-agent" ? v.evidence === null && messagesAnswer(v.messages)
       : v.agentId === "document-agent" ? v.evidence === null && documentsAnswer(v.documents)
-      : v.agentId === "engineering-agent" ? v.evidence === null && engineeringAnswer(v.engineering)
+      // The Engineering Agent answers with metadata or with a source read — one, never both, never neither.
+      : v.agentId === "engineering-agent" ? v.evidence === null
+        && ((v.source === undefined || v.source === null) ? engineeringAnswer(v.engineering) : (v.engineering === undefined || v.engineering === null) && sourceAnswer(v.source))
       : evidence(v.evidence))
     && (v.kpi === undefined || v.kpi === null || kpiAnswer(v.kpi))
     && (v.messages === undefined || v.messages === null || messagesAnswer(v.messages))
     && (v.documents === undefined || v.documents === null || documentsAnswer(v.documents))
     && (v.engineering === undefined || v.engineering === null || engineeringAnswer(v.engineering))
+    && (v.source === undefined || v.source === null || sourceAnswer(v.source))
     && (v.correlationId === undefined || text(v.correlationId, 64))
     && (v.contextUsed === undefined || typeof v.contextUsed === "boolean"));
 }

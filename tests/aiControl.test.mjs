@@ -5,7 +5,7 @@ import {
   askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, engineeringAvailability, errorText, issueTarget, number,
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
-import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, engineeringReply, run, audit } from "./fixtures/ai-control.mjs";
+import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, engineeringReply, sourceReply, run, audit } from "./fixtures/ai-control.mjs";
 import { allowedOperationsControlRequest } from "../app/scmos/aiControlRequest.ts";
 const copy = value => structuredClone(value);
 const rejects = (parser, value) => assert.throws(() => parser(value), /invalid_response/);
@@ -169,6 +169,18 @@ test("Phase 6 GitHub metadata is parsed strictly and never treated as Operations
   assert.equal(engineeringAvailability(withAgent).ready, true);
   assert.equal(engineeringAvailability({ ...withAgent, mock: true }).ready, false);
   assert.equal(engineeringAvailability({ ...withAgent, auditReady: false }).ready, false);
+});
+test("the Engineering Agent's source read is parsed strictly; the analysis is text, the steps are bounded, nothing else is mistaken for it", () => {
+  assert.deepEqual(parseReply(sourceReply), sourceReply);
+  const src = sourceReply.source;
+  for (const patch of [{ source: { ...src, ref: "main" } }, { source: { ...src, repository: "other/repo" } }, { source: { ...src, returned: 1 } },
+    { source: { ...src, steps: [{ ...src.steps[0], mode: "exec" }, src.steps[1]] } }, { source: { ...src, steps: [{ ...src.steps[0], path: "../etc" }, src.steps[1]] } },
+    { source: { ...src, steps: [{ ...src.steps[0], step: 2 }, src.steps[1]] } }, { source: { ...src, steps: [{ ...src.steps[0], source: "shell" }, src.steps[1]] } },
+    { source: { ...src, steps: [{ ...src.steps[0], diff: "x" }, src.steps[1]] } }, { source: { ...src, analysis: 4 } },
+    { engineering: engineeringReply.engineering }, { source: null }])
+    rejects(parseReply, { ...sourceReply, ...patch });
+  assert.equal(parseReply({ ...reply, source: null }).source, null);
+  assert.deepEqual(parseReply(engineeringReply), engineeringReply);
 });
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {
   const controller = new AbortController();

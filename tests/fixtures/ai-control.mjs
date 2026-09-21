@@ -106,6 +106,21 @@ export const engineeringReply = {
     rows: [{ id: "issue:12", title: "Fixture issue", url: "https://github.com/fose-cloud/SCMOS/issues/12", state: "open", at: "2026-09-21T07:00:00Z" }],
   },
 };
+export const sourceReply = {
+  runId: "a1".repeat(16), code: "ok", summary: "FIXTURE ONLY · อ่านซอร์ส 2 ครั้ง · การวิเคราะห์ของโมเดล — ยังไม่ได้ตรวจสอบ ทดสอบ หรือแก้ไข · ไม่ได้รันคำสั่ง แก้ไฟล์ หรือ deploy",
+  agentId: "engineering-agent", mock: false, usage: { inputTokens: 300, outputTokens: 40 }, evidence: null,
+  correlationId: "fixture-corr-src", contextUsed: false,
+  source: {
+    repository: "fose-cloud/SCMOS", ref: "azure-dotnet-migration", total: 2, returned: 2, retrievedAt: "2026-09-22T05:00:00Z",
+    steps: [
+      { step: 1, mode: "list", path: "app/scmos", from: 0, lines: 0, returned: 2, totalLines: 2, truncated: false, size: 0, sha: "",
+        entries: [{ name: "ops.ts", path: "app/scmos/ops.ts", kind: "file", size: 1200 }, { name: "screens", path: "app/scmos/screens", kind: "dir", size: 0 }], text: "", source: "github_public_repo" },
+      { step: 2, mode: "file", path: "app/scmos/ops.ts", from: 330, lines: 10, returned: 10, totalLines: 500, truncated: true, size: 1200, sha: "abc123",
+        entries: [], text: "  330  FIXTURE ONLY\n  331  const onTime = ...", source: "github_public_repo" },
+    ],
+    analysis: "FIXTURE ONLY · สาเหตุที่น่าจะเป็น: …", basis: "FIXTURE ONLY · read-only; nothing was run, changed or deployed",
+  },
+};
 export const run = {
   runId: reply.runId, userId: "fixture-user", role: "Operation Supervisor", agentId: "operations-agent", model: "fixture-provider",
   scope: { team: true, operatorId: null }, status: "succeeded",

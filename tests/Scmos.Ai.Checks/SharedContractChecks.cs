@@ -27,8 +27,11 @@ static class SharedContractChecks
             && Scmos.Api.Rules.CustomerTerms.GraceMinutes("lotus") == 30 && Scmos.Api.Rules.CustomerTerms.GraceMinutes("L'OREAL") == 0,
             "1C: a customer's registered term resolves for that customer with its grace, and the department's rule for everyone else");
         var budget = new AiDispatchBudget();
-        check(budget.TryConsume() && !budget.TryConsume() && !budget.TryConsume(),
+        check(budget.TryConsume() && !budget.TryConsume() && !budget.TryConsume() && budget.Allowed == 1,
             "1B: one call per request including failed attempts");
+        var wider = new AiDispatchBudget(Scmos.Api.Ai.Engineering.EngineeringAgent.MaxSourceSteps);
+        check(wider.Allowed == 4 && wider.TryConsume() && wider.TryConsume() && wider.TryConsume() && wider.TryConsume() && !wider.TryConsume(),
+            "6: the Engineering Agent's source read names its own bound, four, and the fifth is refused");
         var concurrentBudget = new AiDispatchBudget();
         var winners = 0;
         Parallel.For(0, 20, _ => { if (concurrentBudget.TryConsume()) Interlocked.Increment(ref winners); });
@@ -36,23 +39,25 @@ static class SharedContractChecks
         check(default(AiActionLevel) == AiActionLevel.Unspecified,
             "1A: unspecified action metadata is not a read permission");
         check(registry.All.Select(t => t.Name).SequenceEqual(
-            ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "query_repository"]), "1A/2/3/4/5/6: reviewed read tools only");
+            ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "query_repository", "read_source"]), "1A/2/3/4/5/6: reviewed read tools only");
         foreach (var tool in registry.All)
         {
             var data = tool.Name == "query_kpi";
             var messages = tool.Name == "query_messages";
             var documents = tool.Name == "query_documents";
             var engineering = tool.Name == "query_repository";
+            var sourceRead = tool.Name == "read_source";
             check(tool.Policy is { ActionLevel: AiActionLevel.Read, Version: "1",
                     ScopePolicy: "server-resolved-team-or-operator", DeadlineSetting: "AI:TimeoutSeconds" }
-                && tool.Policy.Source == (engineering ? "github_public_repo" : documents ? "documents" : "operation_jobs")
+                && tool.Policy.Source == (engineering || sourceRead ? "github_public_repo" : documents ? "documents" : "operation_jobs")
                 && tool.Policy.MaxEvidenceRows == (engineering ? 20 : 50)
                 && tool.Policy.OutputType == (engineering ? typeof(Scmos.Api.Ai.Engineering.EngineeringAnswer)
+                    : sourceRead ? typeof(Scmos.Api.Ai.Engineering.SourceStep)
                     : documents ? typeof(Scmos.Api.Ai.Documents.DocumentsAnswer)
                     : data ? typeof(Scmos.Api.Ai.Data.DataAnswer) : messages ? typeof(Scmos.Api.Ai.Communication.MessagesAnswer)
                     : typeof(OperationsAnswer)), "1A/5: reviewed policy for " + tool.Name);
             check(tool.Risk == AiRisk.Low && tool.AuditPolicy == "required-before-and-after"
-                && tool.AgentId == (engineering ? "engineering-agent" : documents ? "document-agent" : data ? "data-agent" : messages ? "communication-agent" : "operations-agent") && tool.Handler is null,
+                && tool.AgentId == (engineering || sourceRead ? "engineering-agent" : documents ? "document-agent" : data ? "data-agent" : messages ? "communication-agent" : "operations-agent") && tool.Handler is null,
                 "1A: metadata changes neither legacy risk/audit nor connectivity");
             using var schema = JsonDocument.Parse(tool.InputSchema.Json);
             var root = schema.RootElement;
@@ -74,7 +79,7 @@ static class SharedContractChecks
             return json.RootElement.EnumerateObject().Select(p => p.Name).SequenceEqual(expected);
         }
         check(Fields(new AiChatResponse("run", "ok", "summary"),
-            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence", "correlationId", "contextUsed", "kpi", "messages", "documents", "engineering"]),
+            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence", "correlationId", "contextUsed", "kpi", "messages", "documents", "engineering", "source"]),
             "1A/1D/2/4/5/6: public chat response envelope remains append-only");
         check(Fields(new AiStatus(false, false, false, false, true, false, false, []),
             ["enabled", "chatEnabled", "providerConfigured", "mock", "configurationValid", "liveToolsReady",

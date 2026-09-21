@@ -62,6 +62,8 @@ public static class AiPermissions
         // Phase 4 (21 Sep 2026): the Communication Agent's connected read — what carriers said in LINE, from their TMS and in linked mail.
         new("query_messages", Communication, AiPermission.Allow, "อ่านข้อความจากผู้ขนส่ง (LINE · TMS · อีเมลที่จับคู่) ตามที่ระบบอ่านไว้แล้ว ไม่ส่ง ไม่แก้"),
         new("query_repository", Engineering, AiPermission.Allow, "อ่าน metadata ของ issue, PR และ commit จาก GitHub repo ที่เซิร์ฟเวอร์กำหนด ไม่รันคำสั่งหรือแก้ repo"),
+        // Phase 6, second increment (22 Sep 2026): the repository's own source, read-only and bounded, for analysing a cause — never a command, an edit or a deploy.
+        new("read_source", Engineering, AiPermission.Allow, "อ่านซอร์สโค้ดของ SCMOS แบบจำกัด อ่านอย่างเดียว (app · API · tests · docs) เพื่อวิเคราะห์สาเหตุ ไม่รันคำสั่ง ไม่แก้ไฟล์ ไม่ deploy"),
         new("search_supplier", SupplierAgent, AiPermission.Allow, "ค้นหาและอ่านข้อมูลผู้ขนส่ง"),
         new("query_rates", SupplierAgent, AiPermission.Allow, "อ่านตารางราคาและคำนวณราคาตามราคาน้ำมัน"),
         new("recommend_supplier", SupplierAgent, AiPermission.Allow, "เสนอผู้ขนส่งที่เหมาะกับงาน (ข้อเสนอ ไม่ใช่การมอบหมาย)"),

@@ -42,8 +42,8 @@ public sealed class AgentRegistry
         // the Communication Center is what it needs — never a carrier's account.
         Define("communication-agent", "Communication Agent", "What carriers said in LINE, from their TMS and in linked mail — read, never sent", Capability.ViewMailbox,
             ["query_messages"], ["line", "mail", "communications"]),
-        Define("engineering-agent", "Engineering Agent", "Read-only SCMOS GitHub issue, PR and commit metadata", Capability.AdministerData,
-            ["query_repository"], ["engineering"]),
+        Define("engineering-agent", "Engineering Agent", "Read-only SCMOS GitHub issue, PR and commit metadata, and a bounded read of the repository's own source", Capability.AdministerData,
+            ["query_repository", "read_source"], ["engineering"]),
     });
 
     public AgentDefinition? Find(string id) => All.FirstOrDefault(a => a.Id == id);

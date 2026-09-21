@@ -84,7 +84,7 @@ public sealed class ToolRegistry
 {
     public const int OperationsEvidenceLimit = 50;
     public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null, MessagesReadService? messages = null,
-        DocumentsReadService? documents = null, EngineeringReadService? engineering = null)
+        DocumentsReadService? documents = null, EngineeringReadService? engineering = null, SourceReadService? source = null)
     {
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
@@ -142,6 +142,17 @@ public sealed class ToolRegistry
                 engineering is { Connected: true } ? new EngineeringReadHandler(engineering) : null)
             {
                 Policy = new(AiActionLevel.Read, "1", "github_public_repo", typeof(EngineeringAnswer), EngineeringReadService.EvidenceLimit),
+            },
+            // Phase 6, second increment — the repository's own source, read-only: one directory listed or one window of one file read per step.
+            new(SourceReadService.Tool,
+                "Read the server-fixed SCMOS repository's own source at the branch production is built from, read-only. mode=list with path = a directory ('' for the root) lists its entries; mode=file with path = a file reads a window of numbered lines from `from` (default 1) for `lines` (default 200, max 400). Only app/, server/Scmos.Api/, tests/ and docs/ are readable; migrations, workflows, settings, environment and key files never are. Nothing is executed, changed, committed or deployed. limit bounds a listing's entries (max 50).",
+                EngineeringAgent.Id, Capability.AdministerData, AiRisk.Low,
+                new(new("mode", false, Choices: SourceReadService.Modes), new("path", false, Nullable: true, Max: SourcePolicy.MaxPathLength),
+                    new("from", true, Nullable: true, Max: SourceReadService.MaxFrom), new("lines", true, Nullable: true, Max: SourceReadService.MaxLines),
+                    new("limit", true, Max: SourceReadService.EntryLimit)),
+                source is { Connected: true } ? new SourceReadHandler(source) : null)
+            {
+                Policy = new(AiActionLevel.Read, "1", "github_public_repo", typeof(SourceStep), SourceReadService.EntryLimit),
             },
         });
     }

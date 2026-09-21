@@ -80,8 +80,8 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         AgentDefinition? agent = null;
         AiChatOutcome Reply(int status, string code, string summary, bool mock = false, AiUsage? usage = null,
             OperationsAnswer? evidence = null, bool contextUsed = false, DataAnswer? kpi = null, MessagesAnswer? messages = null,
-            DocumentsAnswer? paperwork = null, EngineeringAnswer? repositoryEvidence = null)
-            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi, messages, paperwork, repositoryEvidence));
+            DocumentsAnswer? paperwork = null, EngineeringAnswer? repositoryEvidence = null, SourceAnswer? source = null)
+            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi, messages, paperwork, repositoryEvidence, source));
 
         if (!AiPermissionPolicy.Authenticated(user)) return Reply(401, "unauthenticated", "Sign in is required.");
         if (!AiPermissionPolicy.InternalUser(user!)) return Reply(403, "forbidden", "AI is not available for this account scope.");
@@ -153,7 +153,7 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
                         return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้อ่าน GitHub");
                     if (!engineering.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
                     var found = await engineering.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
-                    return Reply(StatusOf(found.Code), found.Code, found.Summary, usage: found.Usage, repositoryEvidence: found.Evidence);
+                    return Reply(StatusOf(found.Code), found.Code, found.Summary, usage: found.Usage, repositoryEvidence: found.Evidence, source: found.Source);
                 }
                 if (!await operations!.CheckAuditReadyAsync(timeout.Token))
                     return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้เรียก provider หรืออ่านข้อมูลงาน");

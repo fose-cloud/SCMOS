@@ -21,7 +21,10 @@ public sealed class QueryPolicyGuard(ToolRegistry registry)
         && (policy.MaxEvidenceRows == ToolRegistry.OperationsEvidenceLimit
                 && Sources.Contains(policy.Source, StringComparer.Ordinal) && Outputs.Contains(policy.OutputType)
             || policy is { Source: "github_public_repo", MaxEvidenceRows: EngineeringReadService.EvidenceLimit,
-                OutputType: not null } && policy.OutputType == typeof(EngineeringAnswer));
+                OutputType: not null } && policy.OutputType == typeof(EngineeringAnswer)
+            // The source read (Phase 6, second increment): one listing or one file window per step, the entries bounded at fifty.
+            || policy is { Source: "github_public_repo", MaxEvidenceRows: SourceReadService.EntryLimit,
+                OutputType: not null } && policy.OutputType == typeof(SourceStep));
 
     public AiToolDefinition? Resolve(AppUser user, AgentDefinition agent, AiToolCall call, bool auditReady)
     {

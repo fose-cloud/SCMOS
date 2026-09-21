@@ -10,7 +10,7 @@ Originally Phase D, 2026-09-07; updated 21 September 2026. The currently connect
 | data-agent (the specification's Data Agent; the former `kpi-agent` descriptor, connected in Phase 2 — [record](SCMOS_AI_PHASE_2.md)) | kpi, reports | ViewDashboard |
 | communication-agent (the specification's Communication Agent, connected in Phase 4 — [record](SCMOS_AI_PHASE_4.md); tool `query_messages`; reads the LINE and mail ledgers, sends nothing) | line, mail, communications | ViewMailbox |
 | document-agent (the specification's Document & Invoice Agent, connected in Phase 5 in the former billing descriptor's place — [record](SCMOS_AI_PHASE_5.md); tool `query_documents`; the Workspace's document reader is audited under it as `extract_document`; opens no file, approves nothing) | documents, verification, compliance, billing | UploadDocuments |
-| engineering-agent (local Phase 6 first read — [record](SCMOS_AI_PHASE_6.md); tool `query_repository`; fixed public GitHub metadata only, no writes) | engineering | AdministerData (Administrator only) |
+| engineering-agent (Phase 6 — [record](SCMOS_AI_PHASE_6.md); tools `query_repository` (fixed public GitHub metadata) and, behind its own switch, `read_source` (a bounded, read-only read of the repository's source with the model's analysis labelled as its own); no run, edit, commit or deploy exists) | engineering | AdministerData (Administrator only) |
 | incident-agent | incidents | ViewDashboard |
 | compliance-agent | compliance, training | ManageTraining |
 | management-agent | management, dashboard | ViewDashboard |

@@ -7,7 +7,7 @@ import type { Screen } from "../nav";
 import {
   askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, documentAvailability, engineeringAvailability, errorText, EVENT_LABEL, issueTarget, number,
   parseAuditPage, parseAuditRun, parseBrief, parseReply, parseStatus, parseToday, stamp, STATUS_LABEL, WINDOW_LABEL,
-  type AgentChoice, type AiReply, type AuditRun, type DocumentsAnswer, type EngineeringAnswer, type Finding, type KpiAnswer, type MessagesAnswer,
+  type AgentChoice, type AiReply, type AuditRun, type DocumentsAnswer, type EngineeringAnswer, type Finding, type KpiAnswer, type MessagesAnswer, type SourceAnswer,
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
@@ -56,7 +56,8 @@ const DOCUMENT_STATE_LABEL: Record<string, string> = {
   expiring: "ใกล้หมดอายุ", expired: "หมดอายุแล้ว",
 };
 const DOCUMENT_WINDOW_LABEL: Record<string, string> = { all_dates_for_the_job: "ทุกวันที่ของงานนี้", expiry_within_60_days_or_expired: "หมดอายุภายใน 60 วัน หรือหมดแล้ว" };
-const ENGINEERING_PROMPTS = ["GitHub มี issue ที่ยังเปิดอะไรบ้าง", "Pull request ที่ยังเปิดมีอะไรบ้าง", "Commit ล่าสุดของ SCMOS มีอะไรบ้าง"];
+const ENGINEERING_PROMPTS = ["GitHub มี issue ที่ยังเปิดอะไรบ้าง", "Pull request ที่ยังเปิดมีอะไรบ้าง", "Commit ล่าสุดของ SCMOS มีอะไรบ้าง",
+  "อ่านโค้ดแล้วอธิบายว่ากฎ on-time ของ Lotus อยู่ตรงไหน", "ดูโฟลเดอร์ server/Scmos.Api/Rules มีไฟล์อะไรบ้าง", "อ่านโค้ดแล้ววิเคราะห์สาเหตุที่ "];
 const CHANNEL_LABEL: Record<string, string> = { line: "LINE", tms: "TMS", mail: "อีเมล" };
 const MESSAGE_STATE_LABEL: Record<string, string> = {
   applied: "นำเข้าแล้ว", waiting: "รออนุมัติ", unmatched: "จับคู่ไม่ได้", ignored: "ไม่เกี่ยวกับงาน", failed: "ไม่สำเร็จ", pending: "ยังไม่ได้อ่าน",
@@ -194,6 +195,30 @@ function EngineeringCard({ answer }: { answer: EngineeringAnswer }) {
           <td>{row.title}</td><td>{stamp(row.at)}</td>
         </tr>)}</tbody></table>
     </ZoomBox></div> : <Empty>ไม่พบรายการในหน้าแรกตามมุมมองนี้</Empty>}
+  </>;
+}
+
+/**
+ * What the Engineering Agent read of the source, step by step, and what the
+ * model made of it — the analysis is shown under its own label, as the
+ * model's opinion, because that is what it is.
+ */
+function SourceCard({ answer }: { answer: SourceAnswer }) {
+  return <>
+    <div className={s.meta}><span>{answer.repository} @ {answer.ref}</span><span>อ่าน {number(answer.returned)} ครั้ง</span><span>อ่านเมื่อ {stamp(answer.retrievedAt)}</span></div>
+    <p className={s.hint}>{answer.basis}</p>
+    <div className={s.evidence} role="region" aria-label="การวิเคราะห์ของโมเดล">
+      <p><Badge tone="amber">การวิเคราะห์ของโมเดล</Badge> <span className={s.hint}>ยังไม่ได้ตรวจสอบ ทดสอบ หรือแก้ไข — เป็นความเห็นจากโค้ดที่อ่าน ไม่ใช่ข้อเท็จจริงที่ระบบยืนยัน</span></p>
+      <p className={s.summary}>{answer.analysis || "—"}</p>
+    </div>
+    {answer.steps.map(step => <div key={step.step} className={s.evidence} role="region" aria-label={`ขั้นที่ ${step.step}`}>
+      <p><Badge tone="blue">ขั้นที่ {step.step} · {step.mode === "list" ? "ดูโฟลเดอร์" : "อ่านไฟล์"}</Badge> <code className={s.runId}>{step.path || "/"}</code>
+        {step.mode === "file" && step.returned > 0 && <span className={s.hint}> · บรรทัด {number(step.from)}–{number(step.from + step.returned - 1)} จาก {number(step.totalLines)}{step.truncated ? " · ยังมีต่อ" : ""}</span>}
+        {step.mode === "list" && <span className={s.hint}> · {number(step.returned)} จาก {number(step.totalLines)} รายการ{step.truncated ? " · แสดงบางส่วน" : ""}</span>}</p>
+      {step.mode === "list"
+        ? (step.entries.length ? <ul>{step.entries.map(entry => <li key={entry.path}><code className={s.runId}>{entry.kind === "dir" ? "[dir] " : ""}{entry.path}</code>{entry.kind === "file" ? <span className={s.hint}> · {number(entry.size)} B</span> : null}</li>)}</ul> : <p className={s.hint}>{step.text || "ไม่มีรายการ"}</p>)
+        : <ZoomBox height="360px" zoomable={false}><pre className={s.runId} style={{ whiteSpace: "pre", margin: 0, padding: "8px 10px" }}>{step.text || "—"}</pre></ZoomBox>}
+    </div>)}
   </>;
 }
 
@@ -479,7 +504,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <p>{agent === "data-agent" ? "Data Agent · จำนวนงานและ KPI ตรงเวลาตามช่วงเวลา คำนวณโดย SCMOS"
             : agent === "communication-agent" ? "Communication Agent · ข้อความจากผู้ขนส่งตามที่ระบบอ่านไว้ · ไม่ส่ง ไม่แก้"
             : agent === "document-agent" ? "Document & Invoice Agent · เอกสารตาม checklist ใบแจ้งหนี้เทียบกำหนดวางบิล และเอกสารใกล้หมดอายุ · ไม่เปิดไฟล์ ไม่อนุมัติ"
-            : agent === "engineering-agent" ? "Engineering Agent · รายการ GitHub สาธารณะของ SCMOS · Administrator เท่านั้น"
+            : agent === "engineering-agent" ? "Engineering Agent · รายการ GitHub ของ SCMOS และอ่านซอร์สแบบจำกัด อ่านอย่างเดียว · ไม่รันคำสั่ง ไม่แก้ไฟล์ ไม่ deploy · Administrator เท่านั้น"
             : "Operations Agent · ใช้ขอบเขตงานที่เซิร์ฟเวอร์อนุญาตให้บัญชีนี้อ่าน"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
         <p className={s.hint}>AI ช่วยเลือกเครื่องมืออ่านข้อมูล ผลลัพธ์อาจไม่ครบหรือคลาดเคลื่อน ตรวจงานอ้างอิงก่อนตัดสินใจ ไม่ส่งข้อมูลลับหรือคีย์เข้ามาในคำถาม</p>
         <form className={s.form} onSubmit={submit}>
@@ -526,6 +551,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             {reply.messages && <MessagesCard answer={reply.messages} onOpenJob={onOpenJob} />}
             {reply.documents && <DocumentsCard answer={reply.documents} onOpenJob={onOpenJob} />}
             {reply.engineering && <EngineeringCard answer={reply.engineering} />}
+            {reply.source && <SourceCard answer={reply.source} />}
             {reply.evidence && <>
               <div className={s.meta}><span>วันที่อ้างอิง {reply.evidence.asOfDate} · {reply.evidence.timeZone}</span>
                 <span>ช่วงข้อมูล: {Object.hasOwn(WINDOW_LABEL, reply.evidence.window) ? WINDOW_LABEL[reply.evidence.window] : reply.evidence.window}</span>

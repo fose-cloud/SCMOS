@@ -31,7 +31,8 @@ Use the existing .NET configuration providers; Azure environment names use doubl
 | `AI:RateAgentEnabled` | `AI__RateAgentEnabled` | false |
 | `AI:DataAgentEnabled` | `AI__DataAgentEnabled` | false — the Data Agent (Phase 2; was `KpiAgentEnabled`, never set) |
 | `AI:CommunicationAgentEnabled` | `AI__CommunicationAgentEnabled` | false — the Communication Agent (Phase 4): reads the LINE and mail ledgers, sends nothing |
-| `AI:EngineeringAgentEnabled` | `AI__EngineeringAgentEnabled` | false — local Phase 6 first read: fixed public GitHub metadata, Administrator only, no writes |
+| `AI:EngineeringAgentEnabled` | `AI__EngineeringAgentEnabled` | false — Phase 6 first read: fixed public GitHub metadata, Administrator only, no writes |
+| `AI:EngineeringSourceEnabled` | `AI__EngineeringSourceEnabled` | false — Phase 6 second increment: the repository's own source, read-only and bounded (four reads a question, app/API/tests/docs only, secrets masked), the model's analysis labelled as its own; no run, edit or deploy exists to be offered |
 | `AI:IncidentAgentEnabled` | `AI__IncidentAgentEnabled` | false |
 | `AI:DocumentAgentEnabled` | `AI__DocumentAgentEnabled` | false — the Document & Invoice Agent (Phase 5; was `BillingAgentEnabled`, never set): paperwork held and owed, invoices against the billing rule, compliance files near expiry; opens no file, approves nothing |
 | `AI:ComplianceAgentEnabled` | `AI__ComplianceAgentEnabled` | false |
