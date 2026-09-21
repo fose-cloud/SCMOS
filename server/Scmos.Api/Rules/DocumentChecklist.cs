@@ -19,6 +19,14 @@ public record RequiredDocument(string Folder, string English, string Thai, bool 
 /// </summary>
 public static class DocumentChecklist
 {
+    /// <summary>
+    /// How many calendar days after a job is done the carrier's invoice is due —
+    /// the billing KPI's own figure. Written once, here: the checklist's reason,
+    /// the KPI's "not yet measurable" line and the Document Agent's invoice
+    /// read all say the same number because they all read this one.
+    /// </summary>
+    public const int InvoiceDays = 4;
+
     private static readonly RequiredDocument Booking = new(
         "Booking", "Booking / DO", "ใบจองหรือ Delivery Order", true,
         "ผู้ขนส่งไม่รู้ว่าไปรับอะไรที่ไหน");
@@ -37,7 +45,7 @@ public static class DocumentChecklist
 
     private static readonly RequiredDocument Invoice = new(
         "Invoice", "Supplier Invoice", "ใบแจ้งหนี้ผู้ขนส่ง", false,
-        "ต้องได้รับภายใน 4 วันหลังงานเสร็จตาม KPI การวางบิล");
+        $"ต้องได้รับภายใน {InvoiceDays} วันหลังงานเสร็จตาม KPI การวางบิล");
 
     public static IReadOnlyList<RequiredDocument> For(string category) =>
         (category ?? "").Trim().ToUpperInvariant() switch
@@ -52,9 +60,16 @@ public static class DocumentChecklist
     /// A POD before the truck has left is not missing, it is early — and an
     /// alert for it teaches people that the checklist cries wolf. Booking and
     /// E-Card are wanted from the start; the rest only once the job has run.
+    ///
+    /// "Has run" is read by <see cref="JobRules.IsRunning"/>, which knows both
+    /// the register's controlled codes and the old free text. Until 22 Sep
+    /// 2026 this went through <see cref="JobStatus.FromLegacy"/>, which turns
+    /// a code it does not recognise — every controlled code — into DRAFT, so
+    /// once the register moved to codes no running job was asked for its POD
+    /// until it was done. The rule had not changed; its reading had.
     /// </summary>
     public static bool ExpectedNow(RequiredDocument document, string status) =>
         document.Folder is "Booking" or "ECard"
         || JobRules.IsDone(status)
-        || JobStatus.IsRunning(JobStatus.FromLegacy(status));
+        || JobRules.IsRunning(status);
 }

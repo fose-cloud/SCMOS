@@ -26,8 +26,13 @@ public sealed class AgentRegistry
             ["query_kpi"], ["kpi", "reports"]),
         Define("incident-agent", "Incident Agent", "Incident and CAR/PAR evidence", Capability.ViewDashboard,
             ["query_incidents"], ["incidents"]),
-        Define("billing-agent", "Billing Agent", "Unavailable until an authoritative invoice source exists", Capability.ViewRates,
-            [], ["billing"]),
+        // The specification's Document & Invoice Agent (Phase 5): the paperwork
+        // the department already keeps, by the checklist, billing and compliance
+        // rules the screens already apply. The former billing-agent descriptor,
+        // never connected under that name — an invoice ledger still does not
+        // exist, and the read says so where it would matter.
+        Define("document-agent", "Document & Invoice Agent", "Paperwork held and owed per job, carrier invoices against the billing rule, compliance files near expiry — read, never approved", Capability.UploadDocuments,
+            ["query_documents"], ["documents", "verification", "compliance", "billing"]),
         Define("compliance-agent", "Compliance Agent", "Training and qualification evidence", Capability.ManageTraining,
             [], ["compliance", "training"]),
         Define("management-agent", "Management Agent", "Source-linked specialist summaries", Capability.ViewDashboard,
@@ -55,7 +60,7 @@ public sealed class AgentRegistry
         "data-agent" => options.DataAgentEnabled,
         "communication-agent" => options.CommunicationAgentEnabled,
         "incident-agent" => options.IncidentAgentEnabled,
-        "billing-agent" => options.BillingAgentEnabled,
+        "document-agent" => options.DocumentAgentEnabled,
         "compliance-agent" => options.ComplianceAgentEnabled,
         "management-agent" => options.ManagementAgentEnabled,
         _ => false,

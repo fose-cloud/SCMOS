@@ -55,6 +55,8 @@ builder.Services.AddScoped<KpiService>();
 builder.Services.AddScoped<IKpiReports>(sp => sp.GetRequiredService<KpiService>());
 // The Communication Agent (Phase 4) reads the LINE and mail ledgers through this one.
 builder.Services.AddScoped<Scmos.Api.Ai.Communication.ICommunicationSource, Scmos.Api.Ai.Communication.CommunicationSource>();
+// The Document & Invoice Agent (Phase 5) reads the register and the documents table through this one.
+builder.Services.AddScoped<Scmos.Api.Ai.Documents.IDocumentSource, Scmos.Api.Ai.Documents.DocumentSource>();
 builder.Services.AddScoped<KpiEngine>();
 builder.Services.AddScoped<MonthlyReportService>();
 builder.Services.AddScoped<ReportWriterService>();

@@ -17,7 +17,8 @@ public sealed class AiOptions
     // Phase 4: the Communication Agent — reads the LINE and mail ledgers, sends nothing.
     public bool CommunicationAgentEnabled { get; set; }
     public bool IncidentAgentEnabled { get; set; }
-    public bool BillingAgentEnabled { get; set; }
+    // Phase 5: the Document & Invoice Agent (the registry's former billing-agent, never connected under that name).
+    public bool DocumentAgentEnabled { get; set; }
     public bool ComplianceAgentEnabled { get; set; }
     public bool ManagementAgentEnabled { get; set; }
     // Reserved, NOT an authorization to wire writes. Phase B always refuses them.

@@ -9,8 +9,8 @@ Phase D, 2026-09-07. All specialists default off. Operations has three source-ba
 | rate-agent | rates, quotation | ViewRates |
 | data-agent (the specification's Data Agent; the former `kpi-agent` descriptor, connected in Phase 2 — [record](SCMOS_AI_PHASE_2.md)) | kpi, reports | ViewDashboard |
 | communication-agent (the specification's Communication Agent, connected in Phase 4 — [record](SCMOS_AI_PHASE_4.md); tool `query_messages`; reads the LINE and mail ledgers, sends nothing) | line, mail, communications | ViewMailbox |
+| document-agent (the specification's Document & Invoice Agent, connected in Phase 5 in the former billing descriptor's place — [record](SCMOS_AI_PHASE_5.md); tool `query_documents`; the Workspace's document reader is audited under it as `extract_document`; opens no file, approves nothing) | documents, verification, compliance, billing | UploadDocuments |
 | incident-agent | incidents | ViewDashboard |
-| billing-agent | billing | ViewRates; no invoice source exists |
 | compliance-agent | compliance, training | ManageTraining |
 | management-agent | management, dashboard | ViewDashboard |
 

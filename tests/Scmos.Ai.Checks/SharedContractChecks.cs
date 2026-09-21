@@ -29,16 +29,20 @@ static class SharedContractChecks
         check(default(AiActionLevel) == AiActionLevel.Unspecified,
             "1A: unspecified action metadata is not a read permission");
         check(registry.All.Select(t => t.Name).SequenceEqual(
-            ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages"]), "1A/2/3/4: the three original Operations tools, the follow-up one (3), the Data Agent's (2) and the Communication Agent's (4)");
+            ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents"]),
+            "1A/2/3/4/5: the three original Operations tools, the follow-up one (3), the Data Agent's (2), the Communication Agent's (4) and the Document & Invoice Agent's (5)");
         foreach (var tool in registry.All)
         {
             var data = tool.Name == "query_kpi";
             var messages = tool.Name == "query_messages";
-            check(tool.Policy is { ActionLevel: AiActionLevel.Read, Version: "1", Source: "operation_jobs",
+            var documents = tool.Name == "query_documents";
+            check(tool.Policy is { ActionLevel: AiActionLevel.Read, Version: "1",
                     MaxEvidenceRows: 50, ScopePolicy: "server-resolved-team-or-operator", DeadlineSetting: "AI:TimeoutSeconds" }
-                && tool.Policy.OutputType == (data ? typeof(Scmos.Api.Ai.Data.DataAnswer) : messages ? typeof(Scmos.Api.Ai.Communication.MessagesAnswer) : typeof(OperationsAnswer)), "1A: reviewed policy for " + tool.Name);
+                && tool.Policy.Source == (documents ? "documents" : "operation_jobs")
+                && tool.Policy.OutputType == (data ? typeof(Scmos.Api.Ai.Data.DataAnswer) : messages ? typeof(Scmos.Api.Ai.Communication.MessagesAnswer)
+                    : documents ? typeof(Scmos.Api.Ai.Documents.DocumentsAnswer) : typeof(OperationsAnswer)), "1A: reviewed policy for " + tool.Name);
             check(tool.Risk == AiRisk.Low && tool.AuditPolicy == "required-before-and-after"
-                && tool.AgentId == (data ? "data-agent" : messages ? "communication-agent" : "operations-agent") && tool.Handler is null,
+                && tool.AgentId == (data ? "data-agent" : messages ? "communication-agent" : documents ? "document-agent" : "operations-agent") && tool.Handler is null,
                 "1A: metadata changes neither legacy risk/audit nor connectivity");
             using var schema = JsonDocument.Parse(tool.InputSchema.Json);
             var root = schema.RootElement;
@@ -60,8 +64,8 @@ static class SharedContractChecks
             return json.RootElement.EnumerateObject().Select(p => p.Name).SequenceEqual(expected);
         }
         check(Fields(new AiChatResponse("run", "ok", "summary"),
-            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence", "correlationId", "contextUsed", "kpi", "messages"]),
-            "1A/1D/2/4: public chat response envelope is the 1A one, plus correlationId and contextUsed (1D), kpi (2) and messages (4) appended");
+            ["runId", "code", "summary", "agentId", "mock", "usage", "evidence", "correlationId", "contextUsed", "kpi", "messages", "documents"]),
+            "1A/1D/2/4/5: public chat response envelope is the 1A one, plus correlationId and contextUsed (1D), kpi (2), messages (4) and documents (5) appended");
         check(Fields(new AiStatus(false, false, false, false, true, false, false, []),
             ["enabled", "chatEnabled", "providerConfigured", "mock", "configurationValid", "liveToolsReady",
                 "writeToolsReady", "agents", "auditReady", "operationsControl"]),

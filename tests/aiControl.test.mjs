@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, errorText, issueTarget, number,
+  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, errorText, issueTarget, number,
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
-import { status, today, brief, reply, kpiReply, messagesReply, run, audit } from "./fixtures/ai-control.mjs";
+import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, run, audit } from "./fixtures/ai-control.mjs";
 import { allowedOperationsControlRequest } from "../app/scmos/aiControlRequest.ts";
 const copy = value => structuredClone(value);
 const rejects = (parser, value) => assert.throws(() => parser(value), /invalid_response/);
@@ -122,6 +122,22 @@ test("the Communication Agent's messages are parsed strictly; nothing is ever mi
   assert.equal(communicationAvailability({ ...withAgent, mock: true }).ready, false);
   rejects(parseAuditPage, { ...audit, nextBeforeId: -5 });
 });
+test("the Document & Invoice Agent's paperwork is parsed strictly; nothing is ever mistaken for Operations evidence", () => {
+  assert.equal(parseReply(documentsReply), documentsReply);
+  const d = documentsReply.documents;
+  for (const patch of [{ documents: null }, { documents: { ...d, view: "waiting" } }, { documents: { ...d, returned: 1 } },
+    { documents: { ...d, rows: [{ ...d.rows[0], kind: "invoice" }, d.rows[1]] } }, { documents: { ...d, rows: [{ ...d.rows[0], state: "approved" }, d.rows[1]] } },
+    { documents: { ...d, rows: [{ ...d.rows[0], source: "model" }, d.rows[1]] } }, { documents: { ...d, rows: [{ ...d.rows[0], daysLeft: "soon" }, d.rows[1]] } },
+    { documents: { ...d, jobs: [{ ...d.jobs[0], missingFolders: "Images" }] } }, { documents: { ...d, rule: 4 } }, { evidence: reply.evidence }])
+    rejects(parseReply, { ...documentsReply, ...patch });
+  assert.equal(parseReply({ ...reply, documents: null }).documents, null);
+  assert.equal(askBody("x", "document-agent").context.page, "documents");
+  const withAgent = { ...status, agents: [...status.agents, { id: "document-agent", name: "Document & Invoice Agent", enabled: true, connected: true }] };
+  assert.equal(documentAvailability(status).ready, false);
+  assert.equal(documentAvailability(withAgent).ready, true);
+  assert.equal(documentAvailability({ ...withAgent, mock: true }).ready, false);
+  assert.equal(documentAvailability({ ...withAgent, agents: withAgent.agents.map(a => a.id === "document-agent" ? { ...a, enabled: false } : a) }).ready, false);
+});
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {
   const controller = new AbortController();
   let calls = 0;
@@ -179,7 +195,7 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
   // `asking` is the chosen agent's readiness — Operations' or, since Phase 2, the Data Agent's.
   assert.match(source, /if \(request.current \|\| changeBusy \|\| \(!asking.ready && !isChangeCommand\(message\)\)/);
-  assert.match(source, /const asking = agent === "data-agent" \? dataReady : agent === "communication-agent" \? messagesReady : ready;/);
+  assert.match(source, /const asking = agent === "data-agent" \? dataReady : agent === "communication-agent" \? messagesReady : agent === "document-agent" \? documentsReady : ready;/);
   assert.match(source, /operations-changes\/interpret/);
   assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);

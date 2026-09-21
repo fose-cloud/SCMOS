@@ -32,7 +32,7 @@ Use the existing .NET configuration providers; Azure environment names use doubl
 | `AI:DataAgentEnabled` | `AI__DataAgentEnabled` | false — the Data Agent (Phase 2; was `KpiAgentEnabled`, never set) |
 | `AI:CommunicationAgentEnabled` | `AI__CommunicationAgentEnabled` | false — the Communication Agent (Phase 4): reads the LINE and mail ledgers, sends nothing |
 | `AI:IncidentAgentEnabled` | `AI__IncidentAgentEnabled` | false |
-| `AI:BillingAgentEnabled` | `AI__BillingAgentEnabled` | false |
+| `AI:DocumentAgentEnabled` | `AI__DocumentAgentEnabled` | false — the Document & Invoice Agent (Phase 5; was `BillingAgentEnabled`, never set): paperwork held and owed, invoices against the billing rule, compliance files near expiry; opens no file, approves nothing |
 | `AI:ComplianceAgentEnabled` | `AI__ComplianceAgentEnabled` | false |
 | `AI:ManagementAgentEnabled` | `AI__ManagementAgentEnabled` | false |
 | `AI:WriteToolsEnabled` | `AI__WriteToolsEnabled` | Reserved, false; setting true does not activate writes |

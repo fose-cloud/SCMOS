@@ -1,3 +1,5 @@
+using Scmos.Api.Ai;
+using Scmos.Api.Ai.Documents;
 using Scmos.Api.Auth;
 using Scmos.Api.Services;
 
@@ -11,9 +13,9 @@ public static class AiExtractEndpoints
     public static void MapAiExtract(this IEndpointRouteBuilder routes)
     {
         routes.MapPost("/api/ai-extract", async (HttpContext context, IUserAccessor users,
-            IDocumentExtractor extractor, CancellationToken token) =>
+            IDocumentExtractor extractor, ExtractionRun run, CancellationToken token) =>
         {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            if (users.Current(context) is not { } user) return ApiResults.SignInRequired;
 
             if (!context.Request.HasFormContentType)
                 return ApiResults.Error("Expected a multipart form", StatusCodes.Status415UnsupportedMediaType);
@@ -36,7 +38,11 @@ public static class AiExtractEndpoints
                 parts.Add(new DocumentPart(file.FileName, file.ContentType ?? "", BinaryData.FromBytes(buffer.ToArray())));
             }
 
-            var result = await extractor.ReadAsync(category, parts, token);
+            // Since Phase 5 the read goes through the platform's limiter and audit
+            // (ExtractionRun); the call and the answer are the ones they always were.
+            var correlationId = AiAuditRules.CorrelationOf(context.Request.Headers["X-Correlation-Id"], context.TraceIdentifier);
+            context.Response.Headers["X-Correlation-Id"] = correlationId;
+            var result = await run.ReadAsync(user, category, parts, extractor, correlationId, token);
             return result.Fields is null
                 ? ApiResults.Error(result.Error ?? "Could not read the file.", result.Status)
                 : Results.Json(new { fields = result.Fields });

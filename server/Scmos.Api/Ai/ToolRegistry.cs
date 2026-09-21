@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Scmos.Api.Rules;
 using Scmos.Api.Ai.Communication;
+using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Operations;
 
@@ -81,7 +82,8 @@ public sealed record AiToolDefinition(string Name, string Description, string Ag
 public sealed class ToolRegistry
 {
     public const int OperationsEvidenceLimit = 50;
-    public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null, MessagesReadService? messages = null)
+    public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null, MessagesReadService? messages = null,
+        DocumentsReadService? documents = null)
     {
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
@@ -120,6 +122,16 @@ public sealed class ToolRegistry
                 messages is { Connected: true } ? new MessagesReadHandler(messages) : null)
             {
                 Policy = new(AiActionLevel.Read, "1", "operation_jobs", typeof(MessagesAnswer), MessagesReadService.EvidenceLimit),
+            },
+            // Phase 5 — the Document & Invoice Agent's one read: the paperwork as filed, judged by the screens' own rules.
+            new(DocumentsReadService.Tool,
+                "Read the paperwork SCMOS holds, by its own rules. view=job with query (a job number, container or customer): the files filed for that job and the required folders still empty (booking/DO, E-Card, POD, photos, carrier invoice - blocking ones marked). view=missing: jobs short of required paperwork within the last days by plan date (and 2 days ahead), blocking first. view=invoice: done jobs within the last days and whether the carrier's invoice is filed within the billing rule's 4 days of completion. view=expiring: suppliers' and drivers' compliance files expiring within the 60-day watch or already expired. Opens no file, compares no amount, approves nothing, changes nothing.",
+                DocumentAgent.Id, Capability.UploadDocuments, AiRisk.Low,
+                new(new("view", false, Choices: DocumentsReadService.Views), new("query", false, Nullable: true),
+                    new("days", true, Nullable: true, Max: DocumentsReadService.MaxDays), new("limit", true, Max: DocumentsReadService.EvidenceLimit)),
+                documents is { Connected: true } ? new DocumentsReadHandler(documents) : null)
+            {
+                Policy = new(AiActionLevel.Read, "1", "documents", typeof(DocumentsAnswer), DocumentsReadService.EvidenceLimit),
             },
         });
     }

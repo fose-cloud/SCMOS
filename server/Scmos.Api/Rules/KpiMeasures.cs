@@ -57,7 +57,7 @@ public static class KpiMeasures
             "เคส CAR/PAR ที่เปิดอยู่และที่เกินกำหนด (incident_cases)", false),
 
         new(MeasureId.Billing, "Billing", "การวางบิล", MeasureKind.Rate,
-            "ใบแจ้งหนี้จากผู้รับเหมา เทียบกับกำหนด 4 วันหลังงานเสร็จ — ยังไม่มีตารางใบแจ้งหนี้ในระบบ", true),
+            $"ใบแจ้งหนี้จากผู้รับเหมา เทียบกับกำหนด {DocumentChecklist.InvoiceDays} วันหลังงานเสร็จ — ยังไม่มีตารางใบแจ้งหนี้ในระบบ", true),
 
         new(MeasureId.SupplierPerformance, "Supplier Performance", "ผลงานผู้ขนส่ง", MeasureKind.Rate,
             "คะแนนรวมถ่วงน้ำหนักจากตรงเวลา ตอบยืนยัน และความล่าช้าที่เป็นความรับผิดชอบของผู้ขนส่ง", true),

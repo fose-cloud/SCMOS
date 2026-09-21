@@ -36,6 +36,14 @@ public static class AiServiceRegistration
             sp.GetService<Scmos.Api.Ai.Communication.ICommunicationSource>(), sp.GetRequiredService<TimeProvider>()));
         services.AddScoped<Scmos.Api.Ai.Communication.CommunicationAgent>();
         services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Communication.CommunicationExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Communication.CommunicationAgent>());
+        // Phase 5 — the Document & Invoice Agent reads the register and the documents
+        // table through one source; a host without it (the checks) leaves the tool unbound.
+        services.AddScoped(sp => new Scmos.Api.Ai.Documents.DocumentsReadService(
+            sp.GetService<Scmos.Api.Ai.Documents.IDocumentSource>(), sp.GetRequiredService<TimeProvider>()));
+        services.AddScoped<Scmos.Api.Ai.Documents.DocumentAgent>();
+        services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Documents.DocumentExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Documents.DocumentAgent>());
+        // The Workspace's document reader, under the same limiter and audit (S4).
+        services.AddScoped<Scmos.Api.Ai.Documents.ExtractionRun>();
         services.AddScoped<SqlAiExecutionAudit>();
         services.AddScoped<IAiExecutionAudit>(sp => sp.GetRequiredService<SqlAiExecutionAudit>());
         services.AddScoped<AiAuditReader>();

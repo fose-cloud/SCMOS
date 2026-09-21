@@ -51,6 +51,21 @@ export type MessagesAnswer = {
   jobs: { key: string; jobCode: string; customer: string; trucker: string; ownerId: string; category: string; date: string; status: string }[];
   retrievedAt: string; basis: string; rows: MessageRow[];
 };
+/** The Document & Invoice Agent's paperwork (Phase 5): what is filed and owed, by the screens' own rules — no file opened, nothing approved. */
+export type DocumentRow = {
+  id: string; kind: string; jobKey: string; jobCode: string; customer: string; trucker: string; category: string; date: string; status: string;
+  folder: string; fileName: string; docKind: string; uploadedBy: string; uploadedAt: string | null; expiryDate: string; daysLeft: number | null; owner: string;
+  state: string; detail: string; source: string;
+};
+export type DocumentsAnswer = {
+  view: string; asOfDate: string; timeZone: string; window: string;
+  total: number; returned: number; truncated: boolean;
+  held: number; missing: number; blocking: number; unclear: number;
+  inTime: number; late: number; due: number; overdue: number; expiring: number; expired: number;
+  jobs: { key: string; jobCode: string; customer: string; trucker: string; ownerId: string; category: string; date: string; arrDate: string; status: string; container: string;
+    missing: number; missingBlocking: number; unclear: number; missingFolders: string[] }[];
+  retrievedAt: string; rule: string; basis: string; rows: DocumentRow[];
+};
 export type AiReply = {
   runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null;
   /** The API request's correlation id — the same one on every audit event of the run (1D). */
@@ -61,8 +76,10 @@ export type AiReply = {
   kpi?: KpiAnswer | null;
   /** The Communication Agent's messages (Phase 4); null or absent for every other agent. */
   messages?: MessagesAnswer | null;
+  /** The Document & Invoice Agent's paperwork (Phase 5); null or absent for every other agent. */
+  documents?: DocumentsAnswer | null;
 };
-export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent";
+export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent";
 export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null; step?: number | null; tool?: string | null };
 export type AuditRun = {
   runId: string; userId: string; role: string; agentId: string; model: string;
@@ -146,6 +163,19 @@ function messagesAnswer(v: unknown): boolean {
       && ["line", "tms", "mail"].includes(r.channel as string) && MESSAGE_STATES.includes(r.state as string) && ["line_events", "emails"].includes(r.source as string)
       && ["status", "arrival", "eta", "plate", "container", "seal", "delayCategory"].every(k => nullableText(r[k])) && typeof r.delayed === "boolean" && typeof r.question === "boolean");
 }
+const DOCUMENT_STATES = ["held", "unclear", "missing", "blocking", "filed_in_time", "filed_late", "due", "overdue", "expiring", "expired"];
+function documentsAnswer(v: unknown): boolean {
+  return obj(v) && ["job", "missing", "invoice", "expiring"].includes(v.view as string) && strings(v, ["asOfDate", "timeZone", "window", "retrievedAt", "rule", "basis"])
+    && ["total", "returned", "held", "missing", "blocking", "unclear", "inTime", "late", "due", "overdue", "expiring", "expired"].every(k => count(v[k]))
+    && typeof v.truncated === "boolean"
+    && Array.isArray(v.jobs) && v.jobs.length <= 50 && v.jobs.every(j => obj(j)
+      && strings(j, ["key", "jobCode", "customer", "trucker", "ownerId", "category", "date", "arrDate", "status", "container"])
+      && ["missing", "missingBlocking", "unclear"].every(k => count(j[k])) && Array.isArray(j.missingFolders) && j.missingFolders.every(f => text(f, 20)))
+    && Array.isArray(v.rows) && v.rows.length <= 50 && v.rows.length === v.returned && (v.returned as number) <= (v.total as number)
+    && v.rows.every(r => obj(r) && strings(r, ["id", "jobKey", "jobCode", "customer", "trucker", "category", "date", "status", "folder", "fileName", "docKind", "uploadedBy", "expiryDate", "owner", "state", "detail"])
+      && ["document", "checklist", "job"].includes(r.kind as string) && DOCUMENT_STATES.includes(r.state as string) && r.source === "documents"
+      && nullableText(r.uploadedAt) && nullableCount(r.daysLeft));
+}
 export function parseReply(v: unknown): AiReply {
   return accept(v, obj(v) && id(v.runId) && v.code === "ok" && text(v.summary) && nullableText(v.agentId)
     && typeof v.mock === "boolean" && usage(v.usage)
@@ -153,9 +183,11 @@ export function parseReply(v: unknown): AiReply {
     && (v.mock ? v.evidence === null
       : v.agentId === "data-agent" ? v.evidence === null && kpiAnswer(v.kpi)
       : v.agentId === "communication-agent" ? v.evidence === null && messagesAnswer(v.messages)
+      : v.agentId === "document-agent" ? v.evidence === null && documentsAnswer(v.documents)
       : evidence(v.evidence))
     && (v.kpi === undefined || v.kpi === null || kpiAnswer(v.kpi))
     && (v.messages === undefined || v.messages === null || messagesAnswer(v.messages))
+    && (v.documents === undefined || v.documents === null || documentsAnswer(v.documents))
     && (v.correlationId === undefined || text(v.correlationId, 64))
     && (v.contextUsed === undefined || typeof v.contextUsed === "boolean"));
 }
@@ -183,7 +215,22 @@ export function issueTarget(value: string): typeof ISSUE_TARGETS[number] | null 
 export function askBody(message: string, agent: AgentChoice = "operations-agent") {
   const trimmed = message.trim();
   if (!trimmed || trimmed.length > 4000) throw new ControlError("invalid_request");
-  return { message: trimmed, agentId: agent, context: { page: agent === "data-agent" ? "kpi" : agent === "communication-agent" ? "line" : "operations" } };
+  return { message: trimmed, agentId: agent, context: { page: agent === "data-agent" ? "kpi" : agent === "communication-agent" ? "line" : agent === "document-agent" ? "documents" : "operations" } };
+}
+
+/** Whether the Document & Invoice Agent (Phase 5) can take a question now — the same gates as the others, on its own flag. */
+export function documentAvailability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
+  const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });
+  if (!status) return blocked("ยังไม่ทราบสถานะ AI", "รีเฟรชสถานะก่อนส่งคำถาม");
+  const agent = status.agents.find(a => a.id === "document-agent");
+  if (!agent) return blocked("Document Agent ไม่มีในขอบเขตของบัญชีนี้", "");
+  if (!status.enabled || !status.chatEnabled) return blocked("SCMOS AI ยังปิดอยู่", "การเปิด AI ต้องตั้งค่าที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.configurationValid) return blocked("การตั้งค่า AI ยังไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์", "red");
+  if (!agent.enabled || !agent.connected) return blocked("Document Agent ยังไม่เปิด", "เปิดด้วย AI:DocumentAgentEnabled ที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.providerConfigured) return blocked("ยังไม่ได้ตั้งค่า AI provider", "ให้ผู้ดูแลตรวจการตั้งค่าฝั่งเซิร์ฟเวอร์", "amber");
+  if (status.mock) return blocked("Development Mock", "Document Agent ไม่ทำงานในโหมดสาธิต", "amber");
+  if (!status.auditReady) return blocked("Audit ถาวรยังไม่พร้อม", "ยังส่งคำถามไม่ได้", "amber");
+  return { ready: true, title: "Document Agent พร้อมรับคำถาม", detail: "เอกสารตาม checklist · ใบแจ้งหนี้เทียบกำหนดวางบิล · เอกสารใกล้หมดอายุ · ไม่เปิดไฟล์ ไม่อนุมัติ · มี Audit", tone: "green" };
 }
 
 /** Whether the Communication Agent (Phase 4) can take a question now — the same gates as the Data Agent, on its own flag. */

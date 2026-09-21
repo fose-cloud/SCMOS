@@ -49,6 +49,10 @@ public static class AiPermissions
         // Phase 3 (21 Sep 2026): what to chase — the bell's and the LINE chase's rules, read-only.
         new("query_followup", Operation, AiPermission.Allow, "อ่านงานที่ต้องติดตาม: ยังไม่มีรถ/คนขับ ยังไม่มีผู้ขนส่ง เลยเวลาแผนแล้วเงียบ เลขตู้ไม่ตรงมาตรฐาน"),
         new("read_document", Document, AiPermission.Allow, "อ่าน PDF / รูป / E-Card / POD จาก Blob"),
+        // Phase 5 (22 Sep 2026): the Document & Invoice Agent's connected read — paperwork held and owed, invoices against the billing rule, compliance files near expiry.
+        new("query_documents", Document, AiPermission.Allow, "อ่านเอกสารของงานตาม checklist ใบแจ้งหนี้ผู้ขนส่งเทียบกำหนดวางบิล และเอกสารผู้ขนส่ง/คนขับที่ใกล้หมดอายุ (ไม่เปิดไฟล์ ไม่อนุมัติ)"),
+        // The Workspace's document reader, under the platform's limiter and audit since Phase 5 — the same call it always was.
+        new("extract_document", Document, AiPermission.Allow, "อ่านเอกสารงาน (booking / DO / B/L / รูป) เป็นช่องกรอกของฟอร์มเพิ่มงาน — ผู้ใช้ตรวจก่อนบันทึก"),
         new("analyze_excel", Document, AiPermission.Allow, "อ่านและวิเคราะห์ไฟล์ Excel"),
         new("calculate_kpi", Kpi, AiPermission.Allow, "คำนวณ KPI ทั้ง 8 ตัวตามช่วงเวลา"),
         new("analyze_kpi", Kpi, AiPermission.Allow, "วิเคราะห์แนวโน้มและเปรียบเทียบ KPI"),

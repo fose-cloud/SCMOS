@@ -420,7 +420,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
             KpiMeasures.Of(MeasureId.Billing).English,
             KpiMeasures.Of(MeasureId.Billing).Thai,
             "Rate", false, null, 0, "%",
-            "ยังวัดไม่ได้ — ระบบยังไม่มีตารางใบแจ้งหนี้ผู้รับเหมา จึงไม่มีอะไรให้นับเทียบกับกำหนด 4 วัน",
+            $"ยังวัดไม่ได้ — ระบบยังไม่มีตารางใบแจ้งหนี้ผู้รับเหมา จึงไม่มีอะไรให้นับเทียบกับกำหนด {DocumentChecklist.InvoiceDays} วัน",
             []);
 
     private Measure SupplierPerformance(

@@ -120,8 +120,10 @@ public class DocumentExtractor(IOptions<OpenAiOptions> options, ILogger<Document
         }
         catch (ClientResultException error)
         {
+            // The provider's own words stay in the log: they can name the model,
+            // the endpoint or the request, none of which the screen should show.
             log.LogWarning(error, "OpenAI refused the extraction request.");
-            return new ExtractionResult(null, $"Could not read the file: {error.Message}", StatusCodes.Status502BadGateway);
+            return new ExtractionResult(null, "Could not read the file.", StatusCodes.Status502BadGateway);
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {

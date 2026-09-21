@@ -55,6 +55,27 @@ export const kpiReply = {
   },
 };
 /** The Communication Agent's reply (Phase 4): the messages as the ledger holds them, no Operations evidence. */
+export const documentsReply = {
+  runId: "e".repeat(32), code: "ok", summary: "FIXTURE ONLY · งาน TEST-JOB-001: มีไฟล์ 1 · ยังขาด 1 · ไม่เปิดไฟล์ ไม่เทียบยอดเงิน ไม่อนุมัติใด ๆ",
+  agentId: "document-agent", mock: false, usage: { inputTokens: 12, outputTokens: 6 }, evidence: null,
+  correlationId: "fixture-corr-doc", contextUsed: false,
+  documents: {
+    view: "job", asOfDate: "22/09/2026", timeZone: "Asia/Bangkok", window: "all_dates_for_the_job",
+    total: 2, returned: 2, truncated: false, held: 1, missing: 1, blocking: 0, unclear: 0,
+    inTime: 0, late: 0, due: 0, overdue: 0, expiring: 0, expired: 0,
+    jobs: [{ key: "TEST-ONLY-001", jobCode: "TEST-JOB-001", customer: "TEST CUSTOMER", trucker: "TEST TRUCKER", ownerId: "fixture-op", category: "IMPORT", date: "21/09/2026", arrDate: "21/09/2026", status: "COMPLETED", container: "TEST1234567",
+      missing: 1, missingBlocking: 0, unclear: 0, missingFolders: ["Images"] }],
+    retrievedAt: "2026-09-22T05:00:00Z", rule: "FIXTURE ONLY · DocumentChecklist v1", basis: "FIXTURE ONLY · no file opened, nothing approved",
+    rows: [
+      { id: "doc:1", kind: "document", jobKey: "TEST-ONLY-001", jobCode: "TEST-JOB-001", customer: "TEST CUSTOMER", trucker: "TEST TRUCKER", category: "IMPORT", date: "21/09/2026", status: "COMPLETED",
+        folder: "POD", fileName: "pod-1.pdf", docKind: "", uploadedBy: "fixture.cs", uploadedAt: "2026-09-21T03:00:00Z", expiryDate: "", daysLeft: null, owner: "",
+        state: "held", detail: "อยู่ในโฟลเดอร์ POD", source: "documents" },
+      { id: "job:TEST-ONLY-001:Images", kind: "checklist", jobKey: "TEST-ONLY-001", jobCode: "TEST-JOB-001", customer: "TEST CUSTOMER", trucker: "TEST TRUCKER", category: "IMPORT", date: "21/09/2026", status: "COMPLETED",
+        folder: "Images", fileName: "", docKind: "รูปหน้างาน", uploadedBy: "", uploadedAt: null, expiryDate: "", daysLeft: null, owner: "",
+        state: "missing", detail: "ยังไม่มี: FIXTURE ONLY", source: "documents" },
+    ],
+  },
+};
 export const messagesReply = {
   runId: "d".repeat(32), code: "ok", summary: "FIXTURE ONLY · งาน TEST-JOB-001: 2 ข้อความ แสดง 2 · ไม่มีการส่งหรือแก้ไขใด ๆ",
   agentId: "communication-agent", mock: false, usage: { inputTokens: 12, outputTokens: 6 }, evidence: null,

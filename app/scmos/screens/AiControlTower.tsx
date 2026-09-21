@@ -5,9 +5,9 @@ import { apiFetch } from "../api";
 import { ZoomBox } from "../TableFrame";
 import type { Screen } from "../nav";
 import {
-  askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, errorText, EVENT_LABEL, issueTarget, number,
+  askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, documentAvailability, errorText, EVENT_LABEL, issueTarget, number,
   parseAuditPage, parseAuditRun, parseBrief, parseReply, parseStatus, parseToday, stamp, STATUS_LABEL, WINDOW_LABEL,
-  type AgentChoice, type AiReply, type AuditRun, type Finding, type KpiAnswer, type MessagesAnswer,
+  type AgentChoice, type AiReply, type AuditRun, type DocumentsAnswer, type Finding, type KpiAnswer, type MessagesAnswer,
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
@@ -49,6 +49,13 @@ const URGENCY: Record<Finding["urgency"], [string, string]> = {
 const PROMPTS = ["สรุปงานวันนี้", "งานเสี่ยงวันนี้มีอะไรบ้าง", "งานไหนยังไม่มีรถหรือคนขับ", "งานไหนยังไม่มีผู้ขนส่ง", "งานวันนี้ที่เลยเวลาแล้วยังเงียบ", "มีงานล่าช้าอะไรบ้าง", "ค้นหางานลูกค้า "];
 const DATA_PROMPTS = ["KPI เดือนนี้", "KPI เดือนที่แล้ว", "จำนวนงานปีนี้แยกตามผู้ขนส่ง", "KPI เดือนที่แล้วของลูกค้า "];
 const MESSAGE_PROMPTS = ["ข้อความวันนี้มีอะไรบ้าง", "ข้อความที่รออนุมัติ", "ข้อความที่จับคู่งานไม่ได้", "ผู้ขนส่งแจ้งอะไรเกี่ยวกับงาน "];
+const DOCUMENT_PROMPTS = ["งานไหนเอกสารยังไม่ครบ", "ใบแจ้งหนี้ผู้ขนส่งของงานที่เสร็จแล้ว", "เอกสารผู้ขนส่งหรือคนขับที่ใกล้หมดอายุ", "เอกสารของงาน "];
+const DOCUMENT_STATE_LABEL: Record<string, string> = {
+  held: "มีแล้ว", unclear: "อ่านไม่ชัด", missing: "ยังไม่มี", blocking: "ยังไม่มี · หยุดงานได้",
+  filed_in_time: "ใบแจ้งหนี้ตามกำหนด", filed_late: "ใบแจ้งหนี้เกินกำหนด", due: "ยังไม่มี · ในกำหนด", overdue: "ยังไม่มี · เกินกำหนด",
+  expiring: "ใกล้หมดอายุ", expired: "หมดอายุแล้ว",
+};
+const DOCUMENT_WINDOW_LABEL: Record<string, string> = { all_dates_for_the_job: "ทุกวันที่ของงานนี้", expiry_within_60_days_or_expired: "หมดอายุภายใน 60 วัน หรือหมดแล้ว" };
 const CHANNEL_LABEL: Record<string, string> = { line: "LINE", tms: "TMS", mail: "อีเมล" };
 const MESSAGE_STATE_LABEL: Record<string, string> = {
   applied: "นำเข้าแล้ว", waiting: "รออนุมัติ", unmatched: "จับคู่ไม่ได้", ignored: "ไม่เกี่ยวกับงาน", failed: "ไม่สำเร็จ", pending: "ยังไม่ได้อ่าน",
@@ -135,6 +142,44 @@ function MessagesCard({ answer, onOpenJob }: { answer: MessagesAnswer; onOpenJob
   </>;
 }
 
+/** The paperwork as the documents table holds it: each file, each empty folder, each job's invoice standing, judged by the screens' own rules. */
+function DocumentsCard({ answer, onOpenJob }: { answer: DocumentsAnswer; onOpenJob: (key: string) => void }) {
+  const stateName = (value: string) => Object.hasOwn(DOCUMENT_STATE_LABEL, value) ? DOCUMENT_STATE_LABEL[value] : value;
+  const tone = (state: string) => state === "held" || state === "filed_in_time" ? "green"
+    : state === "blocking" || state === "overdue" || state === "expired" ? "red"
+    : state === "missing" || state === "filed_late" || state === "due" || state === "expiring" || state === "unclear" ? "amber" : "muted";
+  const counts = answer.view === "invoice"
+    ? [[answer.total, "งานเสร็จ"], [answer.inTime, "ใบแจ้งหนี้ตามกำหนด"], [answer.late, "เกินกำหนด"], [answer.due + answer.overdue, "ยังไม่มีใบแจ้งหนี้"]]
+    : answer.view === "expiring" ? [[answer.total, "เอกสาร"], [answer.expired, "หมดอายุแล้ว"], [answer.expiring, "ใกล้หมดอายุ"], [answer.returned, "แสดง"]]
+    : [[answer.held, answer.view === "job" ? "ไฟล์ที่มี" : "งานที่ครบ"], [answer.missing, answer.view === "job" ? "โฟลเดอร์ที่ขาด" : "งานที่ยังขาด"], [answer.blocking, "หยุดงานได้"], [answer.unclear, "อ่านไม่ชัด"]];
+  return <>
+    <div className={s.meta}><span>วันที่อ้างอิง {answer.asOfDate} · {answer.timeZone}</span>
+      <span>ช่วงข้อมูล: {Object.hasOwn(DOCUMENT_WINDOW_LABEL, answer.window) ? DOCUMENT_WINDOW_LABEL[answer.window] : answer.window}</span>
+      <span>กฎ: {answer.rule}</span>
+      <span>อ่านเมื่อ {stamp(answer.retrievedAt)}</span></div>
+    <div className={s.risk}>{counts.map(([value, label]) => <div key={label}><strong>{number(value as number)}</strong>{label}</div>)}</div>
+    {answer.jobs.length > 0 && answer.view === "job" && <div className={s.actions}>{answer.jobs.map(job => <button key={job.key} className={s.button} onClick={() => onOpenJob(job.key)}>
+      {job.jobCode || job.key} · {job.customer} ↗</button>)}</div>}
+    <p className={s.hint}>{answer.basis}</p>
+    <p className={s.hint}>แสดง {number(answer.returned)} จาก {number(answer.total)} รายการ{answer.truncated ? " · แสดงเพียงบางส่วน กรุณาถามให้เจาะจงขึ้น" : ""}</p>
+    {answer.rows.length ? <div className={s.evidence} role="region" aria-label="เอกสาร">
+      <ZoomBox height="520px">
+      <table>
+        <thead><tr><th>{answer.view === "expiring" ? "ของใคร" : "งาน"}</th><th>เอกสาร</th><th>สถานะ</th><th>รายละเอียด</th></tr></thead>
+        <tbody>{answer.rows.map(row => <tr key={row.id}>
+          <td>{row.jobKey ? <button className={s.link} onClick={() => onOpenJob(row.jobKey)}>{row.jobCode || row.jobKey} ↗</button> : row.owner || "—"}
+            <p className={s.hint}>{row.jobKey ? [row.customer, row.trucker, row.date].filter(Boolean).join(" · ") : row.folder}</p></td>
+          <td>{row.kind === "document" ? <><p>{row.fileName || "—"}</p><p className={s.hint}>{[row.folder, row.docKind, row.uploadedBy, row.uploadedAt ? stamp(row.uploadedAt) : ""].filter(Boolean).join(" · ")}</p></>
+            : <><p>{row.docKind || row.folder || "—"}</p><p className={s.hint}>{row.folder}</p></>}</td>
+          <td><Badge tone={tone(row.state)}>{stateName(row.state)}</Badge>{row.daysLeft !== null && <p className={s.hint}>{row.expiryDate}</p>}</td>
+          <td><p className={s.hint}>{row.detail || "—"}</p></td>
+        </tr>)}</tbody>
+      </table>
+      </ZoomBox>
+    </div> : <Empty>ไม่มีรายการในขอบเขตและช่วงเวลาของคำถามนี้</Empty>}
+  </>;
+}
+
 function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string) => void }) {
   return <>
     <h3>รายละเอียดรอบการทำงาน</h3>
@@ -188,12 +233,14 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const ready = availability(status.data);
   const dataReady = dataAvailability(status.data);
   const messagesReady = communicationAvailability(status.data);
+  const documentsReady = documentAvailability(status.data);
   // Which specialist the question goes to: Operations (the default) or, when
-  // the account has one, the Data Agent (Phase 2) or the Communication Agent
-  // (Phase 4). The server decides what any may read; this only chooses the door.
+  // the account has one, the Data Agent (Phase 2), the Communication Agent
+  // (Phase 4) or the Document & Invoice Agent (Phase 5). The server decides
+  // what any may read; this only chooses the door.
   const [agent, setAgent] = useState<AgentChoice>("operations-agent");
-  const asking = agent === "data-agent" ? dataReady : agent === "communication-agent" ? messagesReady : ready;
-  const doors = (["operations-agent", "data-agent", "communication-agent"] as const).filter(id => id === "operations-agent" || status.data?.agents.some(a => a.id === id));
+  const asking = agent === "data-agent" ? dataReady : agent === "communication-agent" ? messagesReady : agent === "document-agent" ? documentsReady : ready;
+  const doors = (["operations-agent", "data-agent", "communication-agent", "document-agent"] as const).filter(id => id === "operations-agent" || status.data?.agents.some(a => a.id === id));
   const input = useRef<HTMLTextAreaElement>(null);
   const askPanel = useRef<HTMLElement>(null);
   const activityPanel = useRef<HTMLElement>(null);
@@ -409,6 +456,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
         <div className={s.sectionTitle}><div><h2 id="ai-ask">Ask SCMOS AI</h2>
           <p>{agent === "data-agent" ? "Data Agent · จำนวนงานและ KPI ตรงเวลาตามช่วงเวลา คำนวณโดย SCMOS"
             : agent === "communication-agent" ? "Communication Agent · ข้อความจากผู้ขนส่งตามที่ระบบอ่านไว้ · ไม่ส่ง ไม่แก้"
+            : agent === "document-agent" ? "Document & Invoice Agent · เอกสารตาม checklist ใบแจ้งหนี้เทียบกำหนดวางบิล และเอกสารใกล้หมดอายุ · ไม่เปิดไฟล์ ไม่อนุมัติ"
             : "Operations Agent · ใช้ขอบเขตงานที่เซิร์ฟเวอร์อนุญาตให้บัญชีนี้อ่าน"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
         <p className={s.hint}>AI ช่วยเลือกเครื่องมืออ่านข้อมูล ผลลัพธ์อาจไม่ครบหรือคลาดเคลื่อน ตรวจงานอ้างอิงก่อนตัดสินใจ ไม่ส่งข้อมูลลับหรือคีย์เข้ามาในคำถาม</p>
         <form className={s.form} onSubmit={submit}>
@@ -416,9 +464,9 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             {doors.map(choice => <button key={choice} type="button" disabled={busy}
               className={choice === agent ? s.primary : s.button} aria-pressed={choice === agent}
               onClick={() => { setAgent(choice); setReply(null); setAskError(""); }}>
-              {choice === "data-agent" ? "ข้อมูล KPI" : choice === "communication-agent" ? "ข้อความ LINE · อีเมล" : "Operations"}</button>)}
+              {choice === "data-agent" ? "ข้อมูล KPI" : choice === "communication-agent" ? "ข้อความ LINE · อีเมล" : choice === "document-agent" ? "เอกสาร · ใบแจ้งหนี้" : "Operations"}</button>)}
           </div>}
-          <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : agent === "communication-agent" ? MESSAGE_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
+          <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : agent === "communication-agent" ? MESSAGE_PROMPTS : agent === "document-agent" ? DOCUMENT_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
             onClick={() => { setMessage(prompt); input.current?.focus(); }}>{prompt.trim()}</button>)}</div>
           <label htmlFor="ai-question">ต้องการตรวจสอบเรื่องอะไร?</label>
           <textarea id="ai-question" ref={input} className={s.textarea} maxLength={4000} value={message} disabled={busy}
@@ -432,7 +480,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <div className={s.formFooter}>
             <span className={s.hint} id="ai-question-help">{message.length.toLocaleString()} / 4,000 · Ctrl / ⌘ + Enter ส่งคำถาม</span>
             <div className={s.actions}>{busy && <button type="button" className={s.button} onClick={cancel}>หยุดรอ</button>}
-              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : agent === "communication-agent" ? "ถาม Communication Agent →" : "ถาม Operations AI →"}</button></div>
+              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : agent === "communication-agent" ? "ถาม Communication Agent →" : agent === "document-agent" ? "ถาม Document Agent →" : "ถาม Operations AI →"}</button></div>
           {agent === "operations-agent" && <p className={s.hint}>คำสั่งเติมร่าง (ยังไม่บันทึก): {CHANGE_EXAMPLE} · ผู้รับผิดชอบใช้รหัส เช่น OP-02</p>}
           </div>
           {!asking.ready && <p className={s.hint}>{asking.title}{asking.detail ? " · " + asking.detail : ""}</p>}
@@ -451,6 +499,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
               }}>ดู Audit ของคำตอบนี้</button>}</div>
             {reply.kpi && <KpiCard kpi={reply.kpi} />}
             {reply.messages && <MessagesCard answer={reply.messages} onOpenJob={onOpenJob} />}
+            {reply.documents && <DocumentsCard answer={reply.documents} onOpenJob={onOpenJob} />}
             {reply.evidence && <>
               <div className={s.meta}><span>วันที่อ้างอิง {reply.evidence.asOfDate} · {reply.evidence.timeZone}</span>
                 <span>ช่วงข้อมูล: {Object.hasOwn(WINDOW_LABEL, reply.evidence.window) ? WINDOW_LABEL[reply.evidence.window] : reply.evidence.window}</span>

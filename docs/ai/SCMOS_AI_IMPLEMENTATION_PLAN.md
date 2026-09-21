@@ -42,6 +42,12 @@ Update, 21 September 2026 (v2.7.66): **Phase 4 is implemented and deployed** —
 over the LINE and mail ledgers as already read, phones masked and drivers removed, behind
 `AI:CommunicationAgentEnabled` (off). Phase 5 is next.
 
+Update, 22 September 2026 (v2.7.70): **Phase 5 is implemented and deployed** — see the
+[Phase 5 record](SCMOS_AI_PHASE_5.md): the Document & Invoice Agent's one read (`query_documents`)
+over the documents table and the register by the checklist, billing and compliance rules the screens
+already apply, behind `AI:DocumentAgentEnabled` (off); the Workspace's document reader under the
+shared limiter and audit (S4). No invoice ledger; insufficient evidence is stated, not filled.
+
 ## 1. What is already present
 
 Gateway/orchestrator/provider abstraction, eight registry descriptors, three connected Operations read tools, strict input validation, per-instance limits, durable AI audit, admin-only Operations switch, read-only Control Tower, existing approval queue, Entra/RBAC, operational/KPI/rate/document services, Graph mail and LINE ingestion/review, Blob, CI/CD and offline checks. Do not rebuild these.

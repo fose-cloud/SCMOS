@@ -75,7 +75,7 @@ static class AuditChecks
         {
             start with { RunId = "forged" }, start with { Model = "PRIVATE key\n" },
             start with { Scope = new(false, "") }, start with { Role = "unknown" },
-            start with { AgentId = "billing-agent" }, start with { Status = "PRIVATE_PROVIDER_ERROR" },
+            start with { AgentId = "vendor-agent" }, start with { Status = "PRIVATE_PROVIDER_ERROR" },
             start with { UserId = new string('x', 161) }, start with { Usage = new(-1, 2) },
             tool with { Tool = "delete_shipment" }, tool with { ToolCallId = "PROVIDER_RAW_ID" },
             tool with { Limit = 51 }, tool with { View = "PRIVATE_SEARCH_TEXT" },
@@ -123,7 +123,7 @@ static class AuditChecks
         Refuses(() => AiAuditRules.From(s1 with { CorrelationId = "has space" }), check, "1D: a malformed correlation id is refused");
         Refuses(() => AiAuditRules.From(s1 with { CorrelationId = new string('x', 65) }), check, "1D: an overlong correlation id is refused");
         Refuses(() => AiAuditRules.From(s1 with { Step = 1 }), check, "1D: run_started names no step");
-        Refuses(() => AiAuditRules.From(s1 with { AgentId = "billing-agent" }), check, "1D: an agent that is not connected is not audited");
+        Refuses(() => AiAuditRules.From(s1 with { AgentId = "vendor-agent" }), check, "1D: an agent that is not connected is not audited");
         check(AiAuditRules.CorrelationOf(" req-42.a_b:c ", "trace") == "req-42.a_b:c" && AiAuditRules.CorrelationOf("bad value", "0HN:1") == "0HN:1"
             && AiAuditRules.CorrelationOf("", "") is { Length: 32 } && AiAuditRules.CorrelationOf("<script>", "") is { Length: 32 },
             "1D: the header when well-formed, else the trace id, else a fresh id");
