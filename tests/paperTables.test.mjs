@@ -67,3 +67,25 @@ test("every screen but the control tower is drawn on paper", () => {
     assert.ok(sheet.includes(rule), rule);
   }
 });
+
+/*
+ * 21 Sep 2026: the settings modal's fields read black on navy. The skin turns
+ * a field's white ground into a navy panel outside the paper but never touched
+ * its ink, which is the browser's black unless the screen names one. The
+ * stylesheet now gives every field the light ink by default and the dark one
+ * on paper and in tables; the sign-in card, white and drawn raw, is paper.
+ */
+test("a field's default ink is light off the paper and dark on it", () => {
+  const sheet = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const login = readFileSync(new URL("../app/scmos/overlays/Login.tsx", import.meta.url), "utf8");
+  assert.match(sheet, /^input, select, textarea \{ color: #EAF4FC; \}$/m);
+  assert.match(sheet, /^input::placeholder, textarea::placeholder \{ color: #7FA5CC; \}$/m);
+  assert.match(sheet, /^\.paper input, \.paper select, \.paper textarea,\ntable input, table select, table textarea \{ color: #16232F; \}$/m);
+  assert.match(sheet, /^\.paper input::placeholder, \.paper textarea::placeholder,\ntable input::placeholder, table textarea::placeholder \{ color: #94A3B8; \}$/m);
+  // The light rule comes first, so the paper's dark one wins by order as well as weight.
+  assert.ok(sheet.indexOf("input, select, textarea { color: #EAF4FC; }") < sheet.indexOf(".paper input, .paper select"));
+  assert.match(login, /<div className="paper" style=\{css\("position:fixed;inset:0;z-index:90/);
+  // The settings modal's fields name no ink of their own: the default is what they get.
+  const overlays = readFileSync(new URL("../app/scmos/overlays/Overlays.tsx", import.meta.url), "utf8");
+  for (const field of overlays.match(/const (?:field|box) = "[^"]+"/g) ?? []) assert.doesNotMatch(field, /color:/);
+});

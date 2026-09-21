@@ -145,7 +145,10 @@ export function Login(p: Props) {
   }
 
   return (
-    <div style={css("position:fixed;inset:0;z-index:90;display:flex;overflow:auto;background:#fff;"
+    // `paper`: the card is white, so its fields take the paper's dark ink and
+    // placeholder rather than the light ones every field outside the paper
+    // gets by default — see globals.css.
+    <div className="paper" style={css("position:fixed;inset:0;z-index:90;display:flex;overflow:auto;background:#fff;"
       + "font-family:'Source Sans 3',system-ui,sans-serif")}>
       <style>{KEYFRAMES}</style>
 

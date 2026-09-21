@@ -18,6 +18,20 @@ a:hover { color: #8ed4ff; }
 input, select, button, textarea { font-family: inherit; }
 button { cursor: pointer; }
 
+/* A field's ink is the browser's unless the screen names one, and the
+   browser's is black. The skin turns a field's white ground into a navy panel
+   everywhere outside the paper, and left the ink alone: on 21 September 2026
+   the settings modal's fields, and the leave-cover form in it, read black on
+   navy. Outside the paper the default ink is the light one, as the skin would
+   have written it; on paper, and in the tables that are paper wherever they
+   stand, it stays the dark one. A colour a screen declares still wins. */
+input, select, textarea { color: #EAF4FC; }
+input::placeholder, textarea::placeholder { color: #7FA5CC; }
+.paper input, .paper select, .paper textarea,
+table input, table select, table textarea { color: #16232F; }
+.paper input::placeholder, .paper textarea::placeholder,
+table input::placeholder, table textarea::placeholder { color: #94A3B8; }
+
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-thumb { background: rgba(90,150,200,.35); border-radius: 6px; border: 3px solid #06152a; }
 ::-webkit-scrollbar-track { background: transparent; }
