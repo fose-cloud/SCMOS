@@ -243,7 +243,7 @@ function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onRevert
             ยังไม่มีการบันทึก — ประวัติจะเริ่มสะสมเมื่อมีการแก้ไขข้อมูล
           </div>
         ) : (
-          <ZoomBox>
+          <ZoomBox zoomable={false}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead><tr>
                 {canRevert && (
@@ -357,7 +357,7 @@ function WorkflowLog({ entries, kind, onKind, query, onQuery }: {
           </div>
         )}
         {entries.length > 0 && (
-          <ZoomBox>
+          <ZoomBox zoomable={false}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
                 <tr>{["เวลา", "ประเภท", "งาน", "จาก → ไป", "บันทึก", "โดย"].map((h) => (
