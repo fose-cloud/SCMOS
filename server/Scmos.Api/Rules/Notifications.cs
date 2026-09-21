@@ -179,17 +179,23 @@ public static class Notifications
     /// A job that still has no carrier. The most expensive thing on this list:
     /// every other alert is about a job that will run.
     /// </summary>
-    public static bool NeedsCarrier(JobRecord job) =>
-        !JobRules.IsDone(job.Status) && job.Trucker.Trim().Length == 0;
+    public static bool NeedsCarrier(JobRecord job) => NeedsCarrier(job.Status, job.Trucker);
+
+    /// <summary>The same rule on the cells, for a caller that holds the row in another shape (the Operations agent, Phase 3).</summary>
+    public static bool NeedsCarrier(string status, string trucker) =>
+        !JobRules.IsDone(status) && trucker.Trim().Length == 0;
 
     /// <summary>
     /// A carrier is named but nothing else is: no plate, no driver. The job will
     /// run and nobody knows what is turning up.
     /// </summary>
-    public static bool MissingBookingData(JobRecord job) =>
-        !JobRules.IsDone(job.Status)
-        && job.Trucker.Trim().Length > 0
-        && (job.Licence.Trim().Length == 0 || job.Driver.Trim().Length == 0);
+    public static bool MissingBookingData(JobRecord job) => MissingBookingData(job.Status, job.Trucker, job.Licence, job.Driver);
+
+    /// <summary>The same rule on the cells.</summary>
+    public static bool MissingBookingData(string status, string trucker, string licence, string driver) =>
+        !JobRules.IsDone(status)
+        && trucker.Trim().Length > 0
+        && (licence.Trim().Length == 0 || driver.Trim().Length == 0);
 
     /// <summary>
     /// A container number that does not match the standard.
@@ -200,8 +206,11 @@ public static class Notifications
     /// A real card-to-booking comparison needs the cards, which are not in the
     /// system yet — so this is named for what it actually checks.
     /// </summary>
-    public static bool ContainerWillNotMatch(JobRecord job) =>
-        job.Container.Trim().Length > 0 && !Formats.IsContainer(Formats.Clean(job.Container));
+    public static bool ContainerWillNotMatch(JobRecord job) => ContainerWillNotMatch(job.Container);
+
+    /// <summary>The same rule on the cell.</summary>
+    public static bool ContainerWillNotMatch(string container) =>
+        container.Trim().Length > 0 && !Formats.IsContainer(Formats.Clean(container));
 
     /// <summary>Days between a job's plan date and today; null when the date will not parse.</summary>
     public static int? DaysAway(JobRecord job, int today)

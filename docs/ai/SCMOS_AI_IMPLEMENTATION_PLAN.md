@@ -32,6 +32,11 @@ Update, 21 September 2026 (v2.7.61): **Phase 2 is implemented and deployed** —
 [Phase 2 record](SCMOS_AI_PHASE_2.md): the Data Agent's one read (`query_kpi`) over
 `KpiService` with the provenance block, behind `AI:DataAgentEnabled` (off). Phase 3 is next.
 
+Update, 21 September 2026 (v2.7.62): **Phase 3 is implemented and deployed** — see the
+[Phase 3 record](SCMOS_AI_PHASE_3.md): `query_followup` with four views on the bell's and
+the LINE chase's own rules (missing_truck, no_carrier, unreported, container_mismatch).
+Phase 4 is next.
+
 ## 1. What is already present
 
 Gateway/orchestrator/provider abstraction, eight registry descriptors, three connected Operations read tools, strict input validation, per-instance limits, durable AI audit, admin-only Operations switch, read-only Control Tower, existing approval queue, Entra/RBAC, operational/KPI/rate/document services, Graph mail and LINE ingestion/review, Blob, CI/CD and offline checks. Do not rebuild these.

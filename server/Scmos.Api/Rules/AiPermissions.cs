@@ -44,6 +44,8 @@ public static class AiPermissions
         new("search_shipment", Operation, AiPermission.Allow, "ค้นหางานด้วยเลขตู้ / Job / ลูกค้า"),
         new("query_delays", Operation, AiPermission.Allow, "อ่านรายการความล่าช้าและสาเหตุ"),
         new("query_capacity", Operation, AiPermission.Allow, "อ่านกำลังรถที่ผู้ขนส่งแจ้งไว้"),
+        // Phase 3 (21 Sep 2026): what to chase — the bell's and the LINE chase's rules, read-only.
+        new("query_followup", Operation, AiPermission.Allow, "อ่านงานที่ต้องติดตาม: ยังไม่มีรถ/คนขับ ยังไม่มีผู้ขนส่ง เลยเวลาแผนแล้วเงียบ เลขตู้ไม่ตรงมาตรฐาน"),
         new("read_document", Document, AiPermission.Allow, "อ่าน PDF / รูป / E-Card / POD จาก Blob"),
         new("analyze_excel", Document, AiPermission.Allow, "อ่านและวิเคราะห์ไฟล์ Excel"),
         new("calculate_kpi", Kpi, AiPermission.Allow, "คำนวณ KPI ทั้ง 8 ตัวตามช่วงเวลา"),

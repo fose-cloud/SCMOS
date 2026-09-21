@@ -26,7 +26,10 @@ public static class AiAuditRules
     public static readonly string[] KnownAgents = ["operations-agent", "data-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_kpi"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi"];
+
+    /// <summary>The follow-up tool's views (Phase 3).</summary>
+    public static readonly string[] FollowUpViews = ["missing_truck", "no_carrier", "unreported", "container_mismatch"];
 
     /// <summary>The most tool steps one run may hold — a bound on the audit, not a licence for the dispatcher.</summary>
     public const int MaxSteps = 8;
@@ -83,9 +86,11 @@ public static class AiAuditRules
             || hasTool != Id(e.ToolCallId) || (!hasTool && e.ToolCallId is not null)
             || (hasTool && !KnownTools.Contains(e.Tool, StringComparer.Ordinal)))
             throw new ArgumentException("Invalid audit tool.");
-        if (hasTool ? (e.Limit is null or < 1 or > 50 || e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi")
+        var followUp = e.View is not null && FollowUpViews.Contains(e.View, StringComparer.Ordinal);
+        if (hasTool ? (e.Limit is null or < 1 or > 50 || (e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi") && !followUp)
                 || (e.Tool == "query_shipments" && e.View is not ("today" or "risk_today"))
                 || (e.Tool == "search_shipment" && e.View != "search") || (e.Tool == "query_delays" && e.View != "delays")
+                || (e.Tool == "query_followup" != followUp)
                 || (e.Tool == "query_kpi" && e.View != "kpi") || (e.View == "kpi" && e.Tool != "query_kpi"))
             : e.View is not null || e.Limit is not null)
             throw new ArgumentException("Invalid audit summary.");

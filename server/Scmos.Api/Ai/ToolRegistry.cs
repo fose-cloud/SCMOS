@@ -96,6 +96,10 @@ public sealed class ToolRegistry
                 new(new("query", false), new("limit", true, Max: OperationsEvidenceLimit))),
             Read("query_delays", "Read active jobs in the existing My Job DELAY bucket, across all dates; this is not a KPI calculation or the risk queue.",
                 new(new AiArgument("limit", true, Max: OperationsEvidenceLimit))),
+            // Phase 3 — what to chase, by the bell's and the LINE chase's own rules.
+            Read(OperationsReadService.FollowUpTool,
+                "Read active Import/Export jobs that need a follow-up, by SCMOS's existing rules. view=missing_truck: due within 2 days (or overdue), carrier named but plate or driver missing, not yet arrived. view=no_carrier: due within 2 days (or overdue), no carrier yet. view=unreported: scheduled today, plan time already passed, and the register does not yet say the truck left (status before DISPATCHED) or arrived. view=container_mismatch: container number not in the 4-letter + 7-digit standard. Each row carries the reason and the suggested follow-up; no risk score is invented.",
+                new(new("view", false, Choices: OperationsReadService.FollowUpViews), new("limit", true, Max: OperationsEvidenceLimit))),
             // Phase 2 — the Data Agent's one read: SCMOS's own KPI for a period.
             new(DataReadService.Tool,
                 "Read the department's volumes and on-time KPI (SCMOS rule arrival.on_time, zero grace) for one period: a year YYYY, a month YYYY-MM or a day YYYY-MM-DD, optionally narrowed to one customer or one carrier by name. Returns totals, the measured base, on-time count and percent, unassessable/undated counts, and a per-carrier breakdown. Never calculates a figure outside SCMOS.",

@@ -4,7 +4,7 @@ Phase D, 2026-09-07. All specialists default off. Operations has three source-ba
 
 | Specialist | Page hints | Additional existing capability |
 | --- | --- | --- |
-| operations-agent | operations, workspace | ViewDashboard |
+| operations-agent (tools: query_shipments, search_shipment, query_delays, and since Phase 3 query_followup — [record](SCMOS_AI_PHASE_3.md)) | operations, workspace | ViewDashboard |
 | vendor-agent | vendors, suppliers | ManageSuppliers |
 | rate-agent | rates, quotation | ViewRates |
 | data-agent (the specification's Data Agent; the former `kpi-agent` descriptor, connected in Phase 2 — [record](SCMOS_AI_PHASE_2.md)) | kpi, reports | ViewDashboard |

@@ -28,6 +28,10 @@ public sealed class OperationsReadService(IOperationsSource source, TimeProvider
 {
     public static DateOnly Today(DateTimeOffset utc) => DateOnly.FromDateTime(utc.ToOffset(Formats.Zone).DateTime);
 
+    /// <summary>Phase 3 — what to chase, by the department's own rules: the bell's and the LINE chase's, on the Monitor's horizon.</summary>
+    public const string FollowUpTool = "query_followup";
+    public static readonly string[] FollowUpViews = ["missing_truck", "no_carrier", "unreported", "container_mismatch"];
+
     public async Task<OperationsAnswer> ReadAsync(string tool, JsonElement arguments, AiToolContext context,
         CancellationToken token)
     {
@@ -41,10 +45,15 @@ public sealed class OperationsReadService(IOperationsSource source, TimeProvider
             "query_shipments" => arguments.GetProperty("view").GetString()!,
             "search_shipment" => "search",
             "query_delays" => "delays",
+            FollowUpTool => arguments.GetProperty("view").GetString()!,
             _ => throw new InvalidOperationException("Unknown read tool."),
         };
-        if (limit is < 1 or > ToolRegistry.OperationsEvidenceLimit || view is not ("today" or "risk_today" or "search" or "delays"))
+        if (limit is < 1 or > ToolRegistry.OperationsEvidenceLimit
+            || (tool == FollowUpTool ? !FollowUpViews.Contains(view, StringComparer.Ordinal) : view is not ("today" or "risk_today" or "search" or "delays")))
             throw new InvalidOperationException("Invalid read arguments.");
+        // The follow-up views judge the plan moment against the clock: the read's
+        // own instant, in the department's time zone.
+        var bangkok = now.ToOffset(Formats.Zone);
         var search = view == "search" ? arguments.GetProperty("query").GetString()!.Trim() : "";
         if (view == "search" && (string.IsNullOrWhiteSpace(search) || search.Length > 120))
             throw new InvalidOperationException("Invalid search.");
@@ -67,25 +76,52 @@ public sealed class OperationsReadService(IOperationsSource source, TimeProvider
             var day = Formats.ParseDay(job.Date);
             if (day is null) undated++;
             var flag = MonitorRules.Judge(job, today);
+            var arrived = job.ArrDate.Trim().Length > 0 || job.ArrTime.Trim().Length > 0;
+            var near = day is not null && day <= today.AddDays(MonitorRules.SoonDays);
+            // "unreported": today's job, its plan moment passed, and the register
+            // not yet saying the truck has left or arrived (the LINE chase rule).
+            var planAt = day == today ? Formats.Moment(job.Date, row.PlanTime) : null;
+            var minutesPast = planAt is { } at ? (int)Math.Floor((bangkok.DateTime - at).TotalMinutes) : (int?)null;
             var include = view switch
             {
                 "today" => day == today,
                 // A date window, not a new risk formula: backlog plus the existing near-term horizon.
-                "risk_today" => day is not null && day <= today.AddDays(MonitorRules.SoonDays) && flag is not null,
+                "risk_today" => near && flag is not null,
                 "delays" => WorkspaceTabs.Matches(WorkspaceTabs.Delay, job, "", today),
                 "search" => new[] { job.Key, job.JobCode, job.Container, job.Customer }
                     .Any(value => value.Contains(search, StringComparison.OrdinalIgnoreCase)),
+                // Phase 3 — the bell's own rules, on the Monitor's horizon, for what to chase.
+                "missing_truck" => near && !arrived && Notifications.MissingBookingData(job.Status, job.Trucker, job.Licence, job.Driver),
+                "no_carrier" => near && !arrived && Notifications.NeedsCarrier(job.Status, job.Trucker),
+                "unreported" => minutesPast is >= 0 && !LineChase.Reported(job.Cat, job.Status, job.ArrDate, job.ArrTime),
+                "container_mismatch" => Notifications.ContainerWillNotMatch(job.Container),
                 _ => false,
             };
             if (!include) continue;
             total++;
-            var explanation = view == "delays" ? "สถานะหรือช่อง REASON/DELAY ระบุความล่าช้าตามกฎ My Job"
-                : flag is { } risk ? Explain(risk.Why) : "";
+            var explanation = view switch
+            {
+                "delays" => "สถานะหรือช่อง REASON/DELAY ระบุความล่าช้าตามกฎ My Job",
+                "missing_truck" => job.Licence.Trim().Length == 0 && job.Driver.Trim().Length == 0 ? "มีผู้ขนส่งแล้ว แต่ยังไม่มีทั้งทะเบียนรถและชื่อคนขับ"
+                    : job.Licence.Trim().Length == 0 ? "มีผู้ขนส่งแล้ว แต่ยังไม่มีทะเบียนรถ" : "มีผู้ขนส่งแล้ว แต่ยังไม่มีชื่อคนขับ",
+                "no_carrier" => day!.Value.DayNumber - today.DayNumber is var away && away < 0 ? $"ยังไม่มีผู้ขนส่ง และเลยกำหนดมาแล้ว {-away} วัน"
+                    : away == 0 ? "ยังไม่มีผู้ขนส่ง และกำหนดวันนี้" : $"ยังไม่มีผู้ขนส่ง อีก {away} วันถึงกำหนด",
+                "unreported" => $"เลยเวลาแผน {row.PlanTime} มา {minutesPast} นาที ยังไม่มีรายงานสถานะ (ยังไม่ถึง DISPATCHED และไม่มีเวลาถึง)",
+                "container_mismatch" => "เลขตู้ไม่ตรงมาตรฐาน (4 ตัวอักษร + 7 หลัก) E-Card จะไม่ตรงกับ booking",
+                _ => flag is { } risk ? Explain(risk.Why) : "",
+            };
+            var suggested = view switch
+            {
+                "missing_truck" => "ขอทะเบียนรถและชื่อคนขับจากผู้ขนส่ง",
+                "no_carrier" => "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ",
+                "unreported" => "ติดตามผู้ขนส่ง — ถามสถานะรถและเวลาถึง",
+                "container_mismatch" => "ตรวจเลขตู้กับ booking ก่อนรถถึงหน้าท่า",
+                _ => flag is { } action ? Action(action.Why) : "",
+            };
             var evidence = new OperationEvidence(job.Key, Text(job.Cat), Text(job.JobCode), Text(job.Container),
                 Text(job.Customer), Text(job.Trucker), Text(job.Date), row.PlanTime, Text(job.Status),
-                job.Owner.Length > 0, job.Driver.Length > 0, job.Licence.Length > 0,
-                job.ArrDate.Trim().Length > 0 || job.ArrTime.Trim().Length > 0,
-                flag?.Why.ToString(), explanation, flag is { } action ? Action(action.Why) : "");
+                job.Owner.Length > 0, job.Driver.Length > 0, job.Licence.Length > 0, arrived,
+                flag?.Why.ToString(), explanation, suggested);
             matched.Add((evidence, view == "risk_today" ? (int)flag!.Value.Why : 0, day?.DayNumber ?? int.MaxValue));
             // Count the whole scoped result but retain at most the requested evidence rows.
             matched.Sort((a, b) =>
@@ -97,7 +133,13 @@ public sealed class OperationsReadService(IOperationsSource source, TimeProvider
             if (matched.Count > limit) matched.RemoveAt(matched.Count - 1);
         }
         return new(view, Formats.PlanDate(today), "Asia/Bangkok",
-            view == "today" ? "scheduled_today_active" : view == "risk_today" ? "overdue_through_next_2_days" : "all_active_dates",
+            view switch
+            {
+                "today" => "scheduled_today_active",
+                "risk_today" or "missing_truck" or "no_carrier" => "overdue_through_next_2_days",
+                "unreported" => "scheduled_today_plan_time_passed",
+                _ => "all_active_dates",
+            },
             total, matched.Count, total > matched.Count, undated, invalid, now, updated,
             "SCMOS MonitorRules.Judge / WorkspaceTabs.Delay; calculated from scoped records, not model-generated",
             matched.Select(pair => pair.Row).ToArray());

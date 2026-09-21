@@ -6,7 +6,7 @@ import { ZoomBox } from "../TableFrame";
 import type { Screen } from "../nav";
 import {
   askBody, availability, controlRequest, ControlError, dataAvailability, errorText, EVENT_LABEL, issueTarget, number,
-  parseAuditPage, parseAuditRun, parseBrief, parseReply, parseStatus, parseToday, stamp, STATUS_LABEL,
+  parseAuditPage, parseAuditRun, parseBrief, parseReply, parseStatus, parseToday, stamp, STATUS_LABEL, WINDOW_LABEL,
   type AgentChoice, type AiReply, type AuditRun, type Finding, type KpiAnswer,
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
@@ -46,7 +46,7 @@ const URGENCY: Record<Finding["urgency"], [string, string]> = {
   Now: ["ต้องติดตาม", "red"], Soon: ["เตรียมดำเนินการ", "amber"],
   Watch: ["เฝ้าดู", "blue"], Records: ["ตรวจคุณภาพข้อมูล", "muted"],
 };
-const PROMPTS = ["สรุปงานวันนี้", "งานเสี่ยงวันนี้มีอะไรบ้าง", "มีงานล่าช้าอะไรบ้าง", "ค้นหางานลูกค้า "];
+const PROMPTS = ["สรุปงานวันนี้", "งานเสี่ยงวันนี้มีอะไรบ้าง", "งานไหนยังไม่มีรถหรือคนขับ", "งานไหนยังไม่มีผู้ขนส่ง", "งานวันนี้ที่เลยเวลาแล้วยังเงียบ", "มีงานล่าช้าอะไรบ้าง", "ค้นหางานลูกค้า "];
 const DATA_PROMPTS = ["KPI เดือนนี้", "KPI เดือนที่แล้ว", "จำนวนงานปีนี้แยกตามผู้ขนส่ง", "KPI เดือนที่แล้วของลูกค้า "];
 const stateName = (value: string) => Object.hasOwn(STATUS_LABEL, value) ? STATUS_LABEL[value] : value;
 const eventName = (value: string) => Object.hasOwn(EVENT_LABEL, value) ? EVENT_LABEL[value] : value;
@@ -402,7 +402,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             {reply.kpi && <KpiCard kpi={reply.kpi} />}
             {reply.evidence && <>
               <div className={s.meta}><span>วันที่อ้างอิง {reply.evidence.asOfDate} · {reply.evidence.timeZone}</span>
-                <span>ช่วงข้อมูล: {reply.evidence.window}</span>
+                <span>ช่วงข้อมูล: {Object.hasOwn(WINDOW_LABEL, reply.evidence.window) ? WINDOW_LABEL[reply.evidence.window] : reply.evidence.window}</span>
                 <span>อ่านเมื่อ {stamp(reply.evidence.retrievedAt)}</span>
                 <span>ต้นทางปรับปรุงล่าสุด {stamp(reply.evidence.sourceUpdatedAt)}</span></div>
               <p className={s.hint}>{reply.evidence.basis}</p>

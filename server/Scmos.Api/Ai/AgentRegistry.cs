@@ -15,7 +15,7 @@ public sealed class AgentRegistry
     public IReadOnlyList<AgentDefinition> All { get; } = Array.AsReadOnly(new[]
     {
         Define("operations-agent", "Operations Agent", "Operational shipment evidence and risk", Capability.ViewDashboard,
-            ["query_shipments", "search_shipment", "query_delays"], ["operations", "workspace"]),
+            ["query_shipments", "search_shipment", "query_delays", "query_followup"], ["operations", "workspace"]),
         Define("vendor-agent", "Vendor Agent", "Approved vendor evidence", Capability.ManageSuppliers,
             ["search_supplier", "recommend_supplier"], ["vendors", "suppliers"]),
         Define("rate-agent", "Rate Agent", "Approved rates only; never invent a price", Capability.ViewRates,

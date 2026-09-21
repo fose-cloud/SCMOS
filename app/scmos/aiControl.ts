@@ -189,6 +189,11 @@ export function availability(status: AiStatus | null): { ready: boolean; title: 
   if (!status.liveToolsReady) return blocked("เครื่องมืออ่านงานยังไม่พร้อม", "รีเฟรชสถานะหรือแจ้งผู้ดูแลระบบ", "amber");
   return { ready: true, title: "Operations AI พร้อมรับคำถาม", detail: "อ่านอย่างเดียว · มี Audit · ตรวจสอบคำตอบจากงานอ้างอิงได้", tone: "green" };
 }
+/** The windows a read may say it covered, as a person reads them. */
+export const WINDOW_LABEL: Record<string, string> = {
+  scheduled_today_active: "งานที่กำหนดไว้วันนี้", overdue_through_next_2_days: "งานเลยกำหนดถึงอีก 2 วันข้างหน้า",
+  all_active_dates: "งาน active ทุกวันที่", scheduled_today_plan_time_passed: "งานวันนี้ที่เลยเวลาแผนแล้ว",
+};
 export const EVENT_LABEL: Record<string, string> = {
   run_started: "เริ่มรอบการทำงาน", tool_started: "เริ่มอ่านข้อมูล", tool_completed: "จบการอ่านข้อมูล", run_completed: "จบรอบการทำงาน",
 };

@@ -97,11 +97,14 @@ public static class LineChase
     /// department has already written up is not asked about ahead of its
     /// plan time; the rounds still ask for an arrival time that is missing.
     /// </summary>
-    public static bool Reported(LineReminder.JobLine job)
+    public static bool Reported(LineReminder.JobLine job) => Reported(job.Category, job.Status, job.ArrDate, job.ArrTime);
+
+    /// <summary>The same rule on the cells, for a caller that holds the row in another shape (the Operations agent's "unreported" view, Phase 3).</summary>
+    public static bool Reported(string category, string status, string arrDate, string arrTime)
     {
-        if (Formats.Clean(job.ArrDate).Length > 0 || Formats.Clean(job.ArrTime).Length > 0) return true;
-        var now = LineAuthority.Rank(job.Category, job.Status);
-        var left = LineAuthority.Rank(job.Category, JobStatus.Dispatched);
+        if (Formats.Clean(arrDate).Length > 0 || Formats.Clean(arrTime).Length > 0) return true;
+        var now = LineAuthority.Rank(category, status);
+        var left = LineAuthority.Rank(category, JobStatus.Dispatched);
         return now >= 0 && left >= 0 && now >= left;
     }
 

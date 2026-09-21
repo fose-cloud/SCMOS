@@ -29,7 +29,7 @@ static class SharedContractChecks
         check(default(AiActionLevel) == AiActionLevel.Unspecified,
             "1A: unspecified action metadata is not a read permission");
         check(registry.All.Select(t => t.Name).SequenceEqual(
-            ["query_shipments", "search_shipment", "query_delays", "query_kpi"]), "1A/2: exactly the existing three Operations tools, and the Data Agent's one (Phase 2)");
+            ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi"]), "1A/2/3: the three original Operations tools, the follow-up one (Phase 3), and the Data Agent's one (Phase 2)");
         foreach (var tool in registry.All)
         {
             var data = tool.Name == "query_kpi";
