@@ -66,4 +66,13 @@ public static class AuditActions
     /// <summary>The action a changed field means, or null when it is not worth a row.</summary>
     public static (string Action, string Label)? For(string field) =>
         Significant.TryGetValue(field, out var found) ? found : null;
+
+    /// <summary>The field a row's label names — the way back from the trail to the cell (for <see cref="AuditRevert"/>), or null when the label is not one of ours.</summary>
+    public static string? FieldOf(string label)
+    {
+        var wanted = (label ?? "").Trim();
+        foreach (var (field, (_, shown)) in Significant)
+            if (string.Equals(shown, wanted, StringComparison.Ordinal)) return field;
+        return null;
+    }
 }

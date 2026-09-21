@@ -9,12 +9,35 @@ namespace Scmos.Api.Endpoints;
 ///
 /// Read-only by design. There is no route that edits or deletes an entry, and
 /// there is not going to be one — a trail somebody can tidy up is not a trail.
+/// The one write here, <c>/revert</c> (21 Sep 2026), edits the <em>job</em>
+/// a row is about, back to the row's old value, and leaves a new row saying
+/// so — the trail itself only grows.
 /// </summary>
 public static class AuditEndpoints
 {
+    public record RevertBody(List<long>? Ids, string? Reason);
+
     public static void MapAudit(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/audit").WithTags("Audit");
+
+        // Put a job's cell back to what a row says it was — a new edit by the
+        // person pressing it, refused when the cell has moved on since. The
+        // authority is the grid's own: assigning needs AssignJobs, any other
+        // cell on a colleague's job needs EditAnyJob (checked per row).
+        group.MapPost("/revert", async (RevertBody? body, HttpContext context, IUserAccessor users,
+            AuditRevertService reverts, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewAudit) || !(user.Can(Capability.EditAnyJob) || user.Can(Capability.AssignJobs)))
+                return ApiResults.Error("ย้อนกลับได้เฉพาะระดับหัวหน้างานขึ้นไป", StatusCodes.Status403Forbidden);
+
+            var outcome = await reverts.RevertAsync(user, body?.Ids ?? [], body?.Reason ?? "", token);
+            return outcome.Ok
+                ? Results.Json(outcome)
+                : ApiResults.Error(outcome.Message, StatusCodes.Status400BadRequest);
+        });
 
         group.MapGet("", async (string? entity, string? entityId, string? who, string? action,
             int? skip, int? take, HttpContext context, IUserAccessor users, AuditService audit,

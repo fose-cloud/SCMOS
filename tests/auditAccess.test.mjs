@@ -77,7 +77,9 @@ test("the screen asks the capability rather than a stand-in for seniority", () =
   // It asked `isSupervisor`, which is ApproveAi wearing another name. Left
   // alone, the screen would have gone on refusing what the API had started
   // allowing.
-  assert.match(app, /screen === "audit" && <Audit canView=\{able\("ViewAudit"\)\} \/>/);
+  assert.match(app, /screen === "audit" && <Audit canView=\{able\("ViewAudit"\)\}/);
+  // Putting a cell back from the trail (21 Sep 2026) is the grid's own authority — assigning or editing a colleague's job — asked by capability too.
+  assert.match(app, /canRevert=\{able\("ViewAudit"\) && \(able\("AssignJobs"\) \|\| able\("EditAnyJob"\)\)\}/);
 });
 
 /**

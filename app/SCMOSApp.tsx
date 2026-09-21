@@ -3224,7 +3224,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               moment the audit trail was opened to operators — the screen would
               have gone on refusing what the API had started allowing.
             */}
-            {screen === "audit" && <Audit canView={able("ViewAudit")} />}
+            {screen === "audit" && <Audit canView={able("ViewAudit")} canRevert={able("ViewAudit") && (able("AssignJobs") || able("EditAnyJob"))} onToast={setToast} />}
 
             {/* Supplier register, CAR/PAR and the assistant all read the API
                 rather than the demo file. Incident and CAR/PAR are one register

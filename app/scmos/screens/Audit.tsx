@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import { stageThai, stamp } from "./WorkflowPanel";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
+import { reversible, type RevertLine } from "../auditRevert";
 
 /**
  * Audit.
@@ -60,13 +61,19 @@ const KIND_TONE: Record<string, string> = {
   "supplier-request": "#B45309", "supplier-response": "#7B8CA0", "assign-carrier": "#0A2240",
 };
 
-export function Audit({ canView }: { canView: boolean }) {
+export function Audit({ canView, canRevert = false, onToast }: {
+  canView: boolean;
+  /** Supervisor and above: may put a job's cell back to what a row says it was. */
+  canRevert?: boolean;
+  onToast?: (message: string) => void;
+}) {
   const [entries, setEntries] = useRemembered<Entry[]>("audit.entries");
   const [trail, setTrail] = useRemembered<Trail[]>("audit.trail");
   const [denied, setDenied] = useState(false);
   const [view, setView] = useState<"trail" | "workflow">("trail");
   const [kind, setKind] = useState("All");
   const [query, setQuery] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,7 +94,7 @@ export function Audit({ canView }: { canView: boolean }) {
       setEntries((held) => flow ?? held ?? []);
     })();
     return () => { cancelled = true; };
-  }, [setEntries, setTrail]);
+  }, [setEntries, setTrail, reload]);
 
   if (!entries || !trail) {
     return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:34px;text-align:center;font-size:12.5px;color:#94A3B8")}>กำลังโหลด…</div>;
@@ -97,7 +104,8 @@ export function Audit({ canView }: { canView: boolean }) {
     return (
       <div style={css("display:flex;flex-direction:column;gap:14px")}>
         <Switcher view={view} onView={setView} trail={trail.length} flow={entries.length} />
-        <TrailTable rows={trail} denied={denied || !canView} query={query} onQuery={setQuery} />
+        <TrailTable rows={trail} denied={denied || !canView} query={query} onQuery={setQuery}
+          canRevert={canRevert} onToast={onToast} onReverted={() => setReload((n) => n + 1)} />
       </div>
     );
   }
@@ -135,9 +143,18 @@ function Switcher({ view, onView, trail, flow }: {
  * information rather than evidence. A change that should carry a reason and
  * does not is marked — an empty reason on a carrier swap is itself a finding.
  */
-function TrailTable({ rows, denied, query, onQuery }: {
+function TrailTable({ rows, denied, query, onQuery, canRevert, onToast, onReverted }: {
   rows: Trail[]; denied: boolean; query: string; onQuery: (v: string) => void;
+  canRevert: boolean; onToast?: (message: string) => void; onReverted: () => void;
 }) {
+  // Rows ticked to be put back, the reason for putting them back, and what
+  // the API said about each one the last time — state that lives only while
+  // the screen is open, like the question in the assistant's box.
+  const [picked, setPicked] = useState<Set<number>>(() => new Set());
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lines, setLines] = useState<RevertLine[]>([]);
+
   if (denied) {
     return (
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-left:3px solid #B45309;border-radius:5px;padding:20px 22px")}>
@@ -153,6 +170,38 @@ function TrailTable({ rows, denied, query, onQuery }: {
   const shown = rows.filter((row) => !wanted ||
     [row.who, row.entityId, row.entityLabel, row.field, row.oldValue, row.newValue, row.reason]
       .some((f) => (f ?? "").toLowerCase().includes(wanted)));
+  const offered = canRevert ? shown.filter((row) => reversible(row.entity, row.action, row.field)) : [];
+  const allPicked = offered.length > 0 && offered.every((row) => picked.has(row.id));
+  const outcomeOf = new Map(lines.map((line) => [line.id, line]));
+
+  const toggle = (id: number) => setPicked((was) => {
+    const next = new Set(was);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setPicked(allPicked ? new Set() : new Set(offered.map((row) => row.id)));
+
+  const revert = async () => {
+    if (busy || picked.size === 0) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/audit/revert", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: [...picked], reason }),
+      });
+      const body = await response.json().catch(() => null) as { message?: string; error?: string; reverted?: number; lines?: RevertLine[] } | null;
+      onToast?.(body?.message ?? body?.error ?? `ย้อนกลับไม่สำเร็จ (${response.status})`);
+      if (response.ok) {
+        setLines(body?.lines ?? []);
+        setPicked(new Set());
+        onReverted();
+      }
+    } catch (error) {
+      onToast?.("ย้อนกลับไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
@@ -167,6 +216,27 @@ function TrailTable({ rows, denied, query, onQuery }: {
         </div>
       </div>
 
+      {canRevert && (
+        // Putting cells back from the trail: tick the rows, say why, press.
+        // Each row goes back only while the cell still holds what the row
+        // says it became; the API says which ones it refused and why.
+        <div style={css("background:#fff;border:1px solid #D8E0E8;border-left:3px solid #0A2240;border-radius:5px;padding:11px 16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap")}>
+          <div style={css("font-size:12.5px;color:#465A6E;min-width:150px")}>
+            เลือกแล้ว <b style={css("color:#0A2240")}>{picked.size}</b> จาก {offered.length} รายการที่ย้อนกลับได้
+          </div>
+          <label style={css("display:flex;flex-direction:column;gap:4px;flex:1;min-width:240px")}>
+            <span style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>เหตุผลที่ย้อนกลับ</span>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="เช่น มอบหมายผิดคน 21/09 09:36" maxLength={200}
+              style={css("height:32px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px")} />
+          </label>
+          <button disabled={busy || picked.size === 0 || reason.trim().length < 4} onClick={() => void revert()}
+            style={css("height:32px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;border:1px solid #0A2240;background:#0A2240;color:#fff;cursor:pointer;opacity:" +
+              (busy || picked.size === 0 || reason.trim().length < 4 ? ".5" : "1"))}>
+            {busy ? "กำลังย้อนกลับ…" : `ย้อนกลับ ${picked.size} รายการ`}
+          </button>
+        </div>
+      )}
+
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         {shown.length === 0 ? (
           <div style={css("padding:30px;text-align:center;font-size:12.5px;color:#94A3B8")}>
@@ -175,15 +245,35 @@ function TrailTable({ rows, denied, query, onQuery }: {
         ) : (
           <ZoomBox>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-              <thead><tr>{["เวลา", "ผู้ใช้", "การกระทำ", "รายการ", "เดิม → ใหม่", "เหตุผล", "IP / Session"].map((h) => (
+              <thead><tr>
+                {canRevert && (
+                  <th style={css("position:sticky;top:0;background:#F8FAFC;padding:8px 10px;border-bottom:1px solid #E9EFF5;width:28px")}>
+                    <input type="checkbox" checked={allPicked} disabled={offered.length === 0} onChange={toggleAll} title="เลือกทุกรายการที่ย้อนกลับได้ในผลค้นหานี้" />
+                  </th>
+                )}
+                {["เวลา", "ผู้ใช้", "การกระทำ", "รายการ", "เดิม → ใหม่", "เหตุผล", "IP / Session"].map((h) => (
                 <th key={h} style={css("position:sticky;top:0;background:#F8FAFC;padding:8px 12px;text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
               ))}</tr></thead>
               <tbody>
                 {shown.map((row) => {
                   const missing = NEEDS_REASON.includes(row.action) && !row.reason.trim();
+                  const canPick = canRevert && reversible(row.entity, row.action, row.field);
+                  const outcome = outcomeOf.get(row.id);
                   return (
-                    <tr key={row.id} style={css("border-bottom:1px solid #F1F5F9;vertical-align:top")}>
-                      <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;white-space:nowrap;color:#7B8CA0")}>{stamp(row.at)}</td>
+                    <tr key={row.id} style={css("border-bottom:1px solid #F1F5F9;vertical-align:top" + (picked.has(row.id) ? ";background:#F4F8FC" : ""))}>
+                      {canRevert && (
+                        <td style={css("padding:8px 10px")}>
+                          {canPick && <input type="checkbox" checked={picked.has(row.id)} onChange={() => toggle(row.id)} title="ย้อนกลับรายการนี้" />}
+                        </td>
+                      )}
+                      <td style={css(CELL + ";font-family:ui-monospace,monospace;font-size:11.5px;white-space:nowrap;color:#7B8CA0")}>
+                        {stamp(row.at)}
+                        {outcome && (
+                          <div style={css("font-family:inherit;font-size:11px;margin-top:3px;color:" + (outcome.outcome === "reverted" ? "#16794C" : "#B45309"))}>
+                            {outcome.outcome === "reverted" ? "ย้อนกลับแล้ว" : outcome.detail || outcome.outcome}
+                          </div>
+                        )}
+                      </td>
                       <td style={css(CELL + ";white-space:nowrap")}>
                         <div style={css("color:#0A2240")}>{row.who}</div>
                         <div style={css("font-size:11px;color:#94A3B8")}>{row.role}</div>
