@@ -63,7 +63,7 @@ public static class CorrectionProposer
             try { node = JsonNode.Parse(job.Data)?.AsObject(); }
             catch (System.Text.Json.JsonException) { continue; }
             if (node is null) continue;
-            var cells = CorrectionRules.Fields.ToDictionary(field => field, field => node[field]?.GetValue<string>() ?? "", StringComparer.Ordinal);
+            var cells = CorrectionRules.Fields.Concat(CorrectionRules.Evidence).ToDictionary(field => field, field => node[field]?.GetValue<string>() ?? "", StringComparer.Ordinal);
             // A cancelled job is history; its spelling is nobody's to approve.
             if (string.Equals(cells["status"], JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)) { cancelledJobs++; continue; }
 
@@ -75,7 +75,13 @@ public static class CorrectionProposer
                 var one = proposals.FirstOrDefault(c => c.Field == field);
                 if (one is null)
                 {
-                    if (!OnList(field, value, job.Cat, lists)) leftAlone[$"{field}: {Show(value)}"] = leftAlone.GetValueOrDefault($"{field}: {Show(value)}") + 1;
+                    if (!OnList(field, value, job.Cat, lists))
+                    {
+                        // A bare customer name the rotation holds under several sites is said so: the fix is a site in the destination, not a new rotation row.
+                        var sites = field == "customer" ? CorrectionRules.Sites(value, lists.Customers) : 0;
+                        var label = sites > 1 ? $"{field}: {Show(value)} — หลายไซต์ใน Job Rotation ({sites}) ปลายทาง/โรงงานไม่ระบุ" : $"{field}: {Show(value)}";
+                        leftAlone[label] = leftAlone.GetValueOrDefault(label) + 1;
+                    }
                     continue;
                 }
                 byRule[one.Rule] = byRule.GetValueOrDefault(one.Rule) + 1;

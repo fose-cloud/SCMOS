@@ -30,7 +30,7 @@ public static class CorrectionCheck
         };
         var lists = new CorrectionLists(
             ["1X20'", "1X40'", "1X40' HQ", "1X20' RF", "1X40' RF", "1X6WH", "1X4WH", "COMBINE"],
-            ["LOTUS", "LOTUS ASIA", "L'OREAL", "The Chemours"],
+            ["LOTUS", "LOTUS ASIA", "L'OREAL", "The Chemours", "TERRATEC MACHINERY", "DANA (FREE ZONE)", "DANA (LKB)", "DANA (RAYONG)", "HENKEL (BANGPOO)", "HENKEL (BANGPOO) BKK", "TOA (Bangna)", "U.C."],
             spelling => carriers.TryGetValue(new string(spelling.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray()), out var name) ? name : null);
 
         /* ---- type ---- */
@@ -48,9 +48,24 @@ public static class CorrectionCheck
         failed += Say("a doubled space is not a different customer", To(CorrectionRules.Customer("Lotus  Asia", lists.Customers)), "LOTUS ASIA");
         failed += Say("a non-breaking space is not a different customer", To(CorrectionRules.Customer("LOTUS" + (char)0xA0 + "ASIA", lists.Customers)), "LOTUS ASIA");
         failed += Say("LOTUS is LOTUS, not LOTUS ASIA", To(CorrectionRules.Customer("LOTUS", lists.Customers)), null);
-        failed += Say("LOTUSASIA (no space) is not read as LOTUS ASIA — a person decides", To(CorrectionRules.Customer("LOTUSASIA", lists.Customers)), null);
+        failed += Say("LOTUSASIA is the same letters as LOTUS ASIA", To(CorrectionRules.Customer("LOTUSASIA", lists.Customers)), "LOTUS ASIA");
+        failed += Say("TOA BANGNA is TOA (Bangna) — punctuation is not a customer", To(CorrectionRules.Customer("TOA BANGNA", lists.Customers)), "TOA (Bangna)");
+        failed += Say("U.C is U.C.", To(CorrectionRules.Customer("U.C", lists.Customers)), "U.C.");
         failed += Say("a customer the rotation has never heard of is left alone", To(CorrectionRules.Customer("OPTIDUR", lists.Customers)), null);
         failed += Say("the rotation's own spelling proposes nothing", To(CorrectionRules.Customer("The Chemours", lists.Customers)), null);
+        var terratec = CorrectionRules.Customer("TERRATEC", lists.Customers);
+        failed += Say("TERRATEC is the one rotation name that begins with it", To(terratec), "TERRATEC MACHINERY");
+        failed += Say("and the reason says so", terratec?.Reason.Contains("ชื่อเดียวใน Job Rotation ที่ขึ้นต้นด้วย TERRATEC") == true, true);
+        failed += Say("DANA with three sites and no evidence is left for a person", To(CorrectionRules.Customer("DANA", lists.Customers)), null);
+        failed += Say("and the report can say it is three sites", CorrectionRules.Sites("DANA", lists.Customers), 3);
+        var rayong = CorrectionRules.Customer("DANA", lists.Customers, "XPO-RAYONG");
+        failed += Say("DANA delivered to XPO-RAYONG is DANA (RAYONG)", To(rayong), "DANA (RAYONG)");
+        failed += Say("by the site rule, and the reason names the evidence", rayong?.Rule == "customer.rotation.site" && rayong.Reason.Contains("ระบุ RAYONG"), true);
+        failed += Say("DANA delivered to XPO LADKRABANG names no site the rotation spells (LKB) — left alone", To(CorrectionRules.Customer("DANA", lists.Customers, "XPO  LADKRABANG")), null);
+        failed += Say("HENKEL delivered to BANGPOO is HENKEL (BANGPOO), not the BKK one — every site word must be there", To(CorrectionRules.Customer("HENKEL", lists.Customers, "BANGPOO")), "HENKEL (BANGPOO)");
+        failed += Say("HENKEL delivered to BANGPOO BKK is the BKK one", To(CorrectionRules.Customer("HENKEL", lists.Customers, "WH BANGPOO / BKK")), "HENKEL (BANGPOO) BKK");
+        failed += Say("HENKEL delivered to HAZCHEM names a site the rotation does not list — left alone", To(CorrectionRules.Customer("HENKEL", lists.Customers, "HAZCHEM")), null);
+        failed += Say("the site is read from the job's own cells through Propose", CorrectionRules.Propose("IMPORT", new Dictionary<string, string> { ["customer"] = "DANA", ["destination"] = "XPO-RAYONG" }, lists).Single().To, "DANA (RAYONG)");
 
         /* ---- trucker ---- */
         var sj = CorrectionRules.Carrier("SJ", lists.CarrierOf);

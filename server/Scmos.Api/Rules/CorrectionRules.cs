@@ -40,6 +40,9 @@ public static class CorrectionRules
     /// <summary>The dropdown columns, in the order the grid shows them.</summary>
     public static readonly string[] Fields = ["cat", "customer", "trucker", "type", "status"];
 
+    /// <summary>The cells a customer proposal may read as evidence of the site — never proposed themselves.</summary>
+    public static readonly string[] Evidence = ["destination", "plant"];
+
     public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["cat"] = "หมวด", ["customer"] = "ลูกค้า", ["trucker"] = "ผู้ขนส่ง", ["type"] = "ประเภทรถ/ตู้", ["status"] = "สถานะ",
@@ -64,7 +67,7 @@ public static class CorrectionRules
             var one = field switch
             {
                 "cat" => Category(value),
-                "customer" => Customer(value, lists.Customers),
+                "customer" => Customer(value, lists.Customers, string.Join(' ', Evidence.Select(name => cells.TryGetValue(name, out var text) ? text ?? "" : ""))),
                 "trucker" => Carrier(value, lists.CarrierOf),
                 "type" => VehicleType(value, lists.TypeCodes),
                 "status" => Status(value, category),
@@ -84,17 +87,56 @@ public static class CorrectionRules
     }
 
     /// <summary>
-    /// The Job Rotation's spelling of the same name: the same letters after
-    /// case, padding, doubled spaces, a non-breaking space or a trailing full
-    /// stop. Not a shorter name, not a longer one — LOTUS is not LOTUS ASIA.
+    /// The Job Rotation's spelling of the same customer, three ways, each
+    /// only when it is the one answer:
+    /// <list type="number">
+    /// <item>the same letters — case, spacing, punctuation and a trailing full stop aside: TOA BANGNA is TOA (Bangna), U.C is U.C.;</item>
+    /// <item>the one rotation name that begins with the job's words: TERRATEC is TERRATEC MACHINERY when no other name starts with TERRATEC;</item>
+    /// <item>among several that begin so — the rotation names a customer's sites, DANA (FREE ZONE) · DANA (LKB) · DANA (RAYONG) — the one whose
+    /// site the job's own destination or plant names: DANA delivered to XPO-RAYONG is DANA (RAYONG).</item>
+    /// </list>
+    /// A name on the list as spelled proposes nothing, so LOTUS stays LOTUS beside LOTUS ASIA. Several sites and no evidence,
+    /// or a name the rotation has never heard of, is left for a person — the report says which and how many.
     /// </summary>
-    public static Correction? Customer(string value, IReadOnlyList<string> customers)
+    public static Correction? Customer(string value, IReadOnlyList<string> customers, string evidence = "")
     {
         var key = CustomerKey(value);
         if (key.Length == 0) return null;
-        var match = customers.FirstOrDefault(name => CustomerKey(name) == key);
-        return match is null || match == value ? null : new("customer", value, match, "customer.rotation", "ชื่อลูกค้าตาม Job Rotation");
+        var exact = customers.FirstOrDefault(name => CustomerKey(name) == key);
+        if (exact is not null) return exact == value ? null : new("customer", value, exact, "customer.rotation", "ชื่อลูกค้าตาม Job Rotation");
+
+        var words = Tokens(value);
+        if (words.Count == 0) return null;
+        var sites = customers.Where(name => Tokens(name) is var its && its.Count > words.Count && its.Take(words.Count).SequenceEqual(words)).ToList();
+        if (sites.Count == 1)
+            return new("customer", value, sites[0], "customer.rotation", $"ชื่อเดียวใน Job Rotation ที่ขึ้นต้นด้วย {Squash(value)}");
+        if (sites.Count == 0) return null;
+
+        // Several sites: the job's own destination or plant has to name one of them, whole.
+        var seen = Tokens(evidence).ToHashSet(StringComparer.Ordinal);
+        var named = sites.Select(name => (Name: name, Site: Tokens(name).Skip(words.Count).ToList()))
+            .Where(one => one.Site.All(seen.Contains)).OrderByDescending(one => one.Site.Count).ToList();
+        if (named.Count == 0) return null;
+        // BANGPOO and BANGPOO BKK both named: the site that says more, when it says everything the others say, is the one meant.
+        var best = named[0];
+        if (named.Count > 1 && (named[1].Site.Count == best.Site.Count || named.Skip(1).Any(other => !other.Site.All(best.Site.Contains)))) return null;
+        return new("customer", value, best.Name, "customer.rotation.site", $"ปลายทาง/โรงงานของงานระบุ {string.Join(' ', best.Site)} — ใน Job Rotation คือ {best.Name}");
     }
+
+    /// <summary>How many rotation names a bare customer name could mean — for the report's "left alone" list to say "หลายไซต์".</summary>
+    public static int Sites(string value, IReadOnlyList<string> customers)
+    {
+        var words = Tokens(value);
+        return words.Count == 0 ? 0 : customers.Count(name => Tokens(name) is var its && its.Count > words.Count && its.Take(words.Count).SequenceEqual(words));
+    }
+
+    private static readonly char[] Separators = [' ', '-', '/', '(', ')', ',', '.', '_'];
+
+    /// <summary>A name as words: upper case, letters and digits only, split on spaces, hyphens and brackets — "DANA (FREE ZONE)" is DANA · FREE · ZONE.</summary>
+    public static IReadOnlyList<string> Tokens(string value) =>
+        (value ?? "").Replace(Nbsp, " ").Split(Separators, StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => new string(word.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray()))
+            .Where(word => word.Length > 0).ToList();
 
     /// <summary>The subcontractor register's name for a spelling it knows — SJ, SANGJA, "Sangja " all mean Sangja Transport Co., Ltd.</summary>
     public static Correction? Carrier(string value, Func<string, string?> carrierOf)
@@ -139,6 +181,6 @@ public static class CorrectionRules
     public static string Squash(string value) =>
         string.Join(' ', (value ?? "").Replace(Nbsp, " ").Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
-    /// <summary>The name without its case, padding, doubled spaces or a trailing full stop.</summary>
-    public static string CustomerKey(string value) => Squash(value).TrimEnd('.').ToUpperInvariant();
+    /// <summary>The name as letters and digits only, upper case — the same key the carrier register uses, so punctuation and spacing never make two customers of one.</summary>
+    public static string CustomerKey(string value) => new((value ?? "").ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
 }

@@ -13,7 +13,7 @@ The rules that know the lists propose the list's spelling. **Nothing is written 
 | Column | List | Proposes | Leaves alone |
 | --- | --- | --- | --- |
 | type | the vehicle types on offer (`VehicleTypeService.ActiveCodesAsync`) | `JobVehicleType.Canonical` — `1X40 REEFER → 1X40' RF`, `1x20 → 1X20'`, `1X40HC → 1X40' HQ` | a code on the list as typed (COMBINE), a retired code (`1X20 DG`), a note in the type column |
-| customer | the Job Rotation's customer names | the same name after case, padding, a doubled or non-breaking space, a trailing full stop | `LOTUS` vs `LOTUS ASIA`; `LOTUSASIA`; a name the rotation has never heard of |
+| customer | the Job Rotation's customer names | the same letters (case, spacing, punctuation aside: `TOA BANGNA → TOA (Bangna)`); the one rotation name that begins with the job's words (`TERRATEC → TERRATEC MACHINERY`); among several sites, the one the job's own destination/plant names (`DANA` to `XPO-RAYONG → DANA (RAYONG)`, `HENKEL` to `BANGPOO → HENKEL (BANGPOO)`) | `LOTUS` beside `LOTUS ASIA` (on the list as spelled); several sites and no evidence (`DANA` to `XPO LADKRABANG` — the rotation spells it LKB); a name the rotation has never heard of |
 | trucker | the subcontractor register with its aliases (`CarrierDirectory`) | the company the register says a spelling means — `SJ → Sangja Transport Co., Ltd.` | a haulier the register has never seen |
 | cat | IMPORT · EXPORT · DELIVERY | case and padding | any other word |
 | status | the job's own ladder (`JobStatus.For(cat)`) | another case (`delivered`), the legacy words (`Truck Assigned`, `waiting truck`) | a stage nobody can name — never re-filed as DRAFT |
@@ -36,4 +36,4 @@ Nothing is guessed. What no rule can read is printed in the report's "left alone
 
 ## Verified
 
-`--check-corrections` (36 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.
+`--check-corrections` (47 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.
