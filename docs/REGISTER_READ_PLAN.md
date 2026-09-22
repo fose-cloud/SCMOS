@@ -41,6 +41,15 @@ Stop asking for the whole register per screen.
 Migration first (additive columns + backfill, reviewed as the plan requires); then one screen at a
 time, each with a check that its figure equals the snapshot's figure over the same rows before the
 snapshot path is removed — the two must agree on the day they coexist, or the new one is wrong.
-Three to five days of work. Until then: v2.7.77's stale-while-revalidate and the S2/B2 tiers carry
+Three to five days of work.
+
+**22 September 2026, evening.** Always On was already on for the API App Service, so the 75–85 seconds
+measured after each of that day's deploys was never Azure unloading an idle site — it was this
+snapshot, built by whoever opened a screen first. `RegisterWarmup` now builds it five seconds after
+the process starts (2,106 rows in 2.6 s on the development copy; the first authenticated read after
+it returned in 0.65 s), so a restart costs the process and not a person. That removes the
+restart-shaped part of the cost and leaves the part this plan is about: the working-hours reads,
+which are to be measured on a normal morning through the SRE Agent's `requests` view before any
+column is promoted. Until then: v2.7.77's stale-while-revalidate and the S2/B2 tiers carry
 the load, and [`--check-register-cache`](../server/Scmos.Api/Data/RegisterCacheCheck.cs) proves the
 cache's behaviour on a development database.

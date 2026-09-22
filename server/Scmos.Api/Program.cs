@@ -138,6 +138,8 @@ builder.Services.AddScoped<DelegationService>();
 // Proposed dropdown corrections and delay reasons, decided by the job's owner (22 Sep 2026).
 builder.Services.AddScoped<CorrectionService>();
 builder.Services.AddHostedService<CorrectionScheduler>();
+// The register snapshot, built once at startup so the first reader after a deploy does not wait for it.
+builder.Services.AddHostedService<RegisterWarmup>();
 builder.Services.AddScoped<JobTransferService>();
 builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();
