@@ -51,6 +51,7 @@ static class ManagementChecks
             ("J-3", "OP-M9", Job("J-3", "OP-M9", "22/09/2026", "RECEIVED", "CHEMOURS", "SANGJA", "260900700011", "MSKU1111111", reason: "ติดด่าน", cat: "EXPORT")),
             ("J-4", "OP-M1", Job("J-4", "OP-M1", "20/09/2026", "RECEIVED", "L'OREAL", "SHORE", "260900760040", "MSKU3333333")),
             ("J-5", "OP-M1", Job("J-5", "OP-M1", "22/09/2026", "RECEIVED", "CHEMOURS", "SHORE", "260900700099", "MSKU4444444", reason: "late")),
+            ("J-6", "OP-M1", Job("J-6", "OP-M1", "20/09/2026", "COMPLETED", "OPTIDUR", "SANGJA", "260900800177", "MSKU5555555")),
         };
         var rows = jobs.Select(job => JobsRepository.AnalysisRow(job.Key, job.Owner, job.Json, Now.AddMinutes(-5))).ToList();
         var day = Now.AddHours(-3);
@@ -193,6 +194,10 @@ static class ManagementChecks
         var run2 = audit.Entries.Where(x => x.RunId == "00000000000000000000000000000002").ToList();
         check(run2.Select(x => x.Event).SequenceEqual(["run_started", "tool_started", "tool_completed", "run_completed"]) && run2[^1] is { Status: "clarification_required", Step: 1, Total: null, SourceKeys: null }
             && run2.Select(AiAuditRules.From).ToList() is { Count: 4 }, "8: the one step taken is audited and the completion names it without evidence");
+        provider.Selection = new("ok", "", [new("c2b", ManagementPlans.JobPlan, "{\"query\":\"260900800177\"}")], new(3, 1));
+        var finished = await runtime.RunAsync("0000000000000000000000000000002b", new("สรุปงาน 260900800177", ManagementAgent.Id), Supervisor, agent, default);
+        check(finished.Code == "ok" && finished.Operations is { Returned: 1 } && finished.Operations.Rows[0].Key == "J-6" && finished.Evidence!.Steps == 3,
+            "8: a finished job is summarised too — the plan's search reaches completed jobs, which the Operations Agent's own search does not");
         provider.Selection = new("ok", "", [new("c3", ManagementPlans.JobPlan, "{\"query\":\"NOPE-000\"}")], new(3, 1));
         check((await runtime.RunAsync("00000000000000000000000000000003", new("สรุปงาน NOPE", ManagementAgent.Id), Supervisor, agent, default)) is { Code: "clarification_required" } none && none.Summary.StartsWith("ไม่พบงาน"),
             "8: no match is said plainly");
@@ -226,7 +231,7 @@ static class ManagementChecks
             "8: customer service is offered only the plan they may run whole; a plan the model picks anyway is refused before any step");
         provider.Selection = new("ok", "", [new("c7", ManagementPlans.LatePaperworkPlan, "{\"limit\":50}")], new(3, 1));
         check((await runtime.RunAsync("00000000000000000000000000000007", new("x", ManagementAgent.Id), Executive, agent, default)).Code == "forbidden" && audit.Entries.Last() is { RunId: "00000000000000000000000000000007", Event: "run_completed", Status: "failed" }
-            && (await runtime.RunAsync("00000000000000000000000000000008", new("x", ManagementAgent.Id), Viewer, agent, default)).Code == "forbidden" && provider.Calls == 6,
+            && (await runtime.RunAsync("00000000000000000000000000000008", new("x", ManagementAgent.Id), Viewer, agent, default)).Code == "forbidden" && provider.Calls == 7,
             "8: a person who may run no plan whole is refused after the run started and before the model is called");
         check((await runtime.RunAsync("00000000000000000000000000000009", new("x", ManagementAgent.Id), Carrier, agent, default)).Code == "forbidden" && audit.Entries.All(x => x.RunId != "00000000000000000000000000000009"),
             "8: a carrier is refused before anything is audited");

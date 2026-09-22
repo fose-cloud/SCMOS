@@ -71,7 +71,8 @@ public sealed class OperationsReadService(IOperationsSource source, TimeProvider
             // Defense in depth even for a substituted/cached source implementation.
             if (!scope.Team && !string.Equals(job.OwnerId, scope.OwnerId, StringComparison.OrdinalIgnoreCase)) continue;
             if (row.UpdatedAt != default && (updated is null || row.UpdatedAt > updated)) updated = row.UpdatedAt;
-            if (!WorkspaceTabs.CountedInWorkspace(job.Cat) || JobRules.IsDone(job.Status)
+            // Done jobs are out of every view but a search the server has asked to reach them (a summary of a finished job).
+            if (!WorkspaceTabs.CountedInWorkspace(job.Cat) || (JobRules.IsDone(job.Status) && !(view == "search" && context.IncludeDone))
                 || WorkspaceTabs.IsCancelled(job) || string.IsNullOrWhiteSpace(job.Key)) continue;
             var day = Formats.ParseDay(job.Date);
             if (day is null) undated++;

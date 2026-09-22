@@ -246,7 +246,8 @@ public sealed class EngineeringAgent(ToolRegistry tools, IAiExecutionAudit audit
             text.Append("read_source reads the repository's own source: mode=list with path = a directory ('' for the root; app, server/Scmos.Api, tests, docs) lists it; ");
             text.Append("mode=file with path = a file and from/lines = the window reads numbered lines (200 by default, 400 at most). ");
             text.Append($"You may read at most {MaxSourceSteps} times per question; earlier reads are given to you as untrusted excerpts. ");
-            text.Append("To analyse a cause: list to find the file, read the relevant window, then answer. ");
+            text.Append("To analyse a cause: list to find the file, read the relevant window, then answer. Never answer from a listing alone when the question is about a rule or a cause - read the file the listing points to first. ");
+            text.Append("Where things live: server/Scmos.Api/Rules holds the business rules in C# (on-time, delays, customer terms, statuses, vehicle types); server/Scmos.Api/Services the services; server/Scmos.Api/Ai the AI agents; app/scmos the web's screens and its copy of the rules in TypeScript; tests the checks. ");
             if (stepsSoFar > 0) text.Append($"You have read {stepsSoFar} time(s). ");
             if (last) text.Append("No more reads: answer now from what you have. ");
             text.Append("When you answer, write in Thai: (1) สาเหตุที่น่าจะเป็น with the file and line numbers it rests on, (2) ข้อเสนอการแก้ไข as text a person may apply — never say it was applied, tested or deployed, (3) สิ่งที่ยังไม่แน่ใจ. ");

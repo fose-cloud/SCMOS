@@ -66,7 +66,12 @@ public sealed class AiInputSchema(params AiArgument[] fields)
 }
 
 public sealed record AiReadScope(bool Team, string? OperatorId);
-public sealed record AiToolContext(string RunId, string UserId, AiReadScope Scope, DateTimeOffset? AsOf = null);
+/// <param name="IncludeDone">
+/// Server-set only, never from the model: a search may reach completed jobs. The Management
+/// Agent's job summary (Phase 8) sets it, because a finished job's paperwork and messages are
+/// exactly what a summary is for; the Operations Agent's own search stays on active work.
+/// </param>
+public sealed record AiToolContext(string RunId, string UserId, AiReadScope Scope, DateTimeOffset? AsOf = null, bool IncludeDone = false);
 public interface IAiReadToolHandler
 {
     Task<JsonElement> ReadAsync(JsonElement arguments, AiToolContext context, CancellationToken token);

@@ -129,6 +129,11 @@ static class OperationsChecks
         check((await Read("search_shipment", "{\"query\":\"PRIVATE_DRIVER\",\"limit\":50}")).Total == 0,
             "C: private driver field is not searchable");
         check((await Read("search_shipment", "{\"query\":\"' OR 1=1 --\",\"limit\":50}")).Total == 0, "C: SQL-like search text is literal data");
+        check((await Read("search_shipment", "{\"query\":\"completed-CODE\",\"limit\":50}")).Total == 0
+            && (await Read("search_shipment", "{\"query\":\"completed-CODE\",\"limit\":50}", context with { IncludeDone = true })).Rows.Single().Key == "completed"
+            && (await Read("search_shipment", "{\"query\":\"cancelled-CODE\",\"limit\":50}", context with { IncludeDone = true })).Total == 0
+            && (await Read("query_delays", "{\"limit\":50}", context with { IncludeDone = true })).Rows.All(r => r.Key != "completed"),
+            "C: a search reaches a completed job only when the server asks it to (Phase 8's job summary); a cancelled job never; no other view is widened");
         /* ---- Phase 3: the follow-up views, by the bell's and the chase's own rules ---- */
         var missingTruck = await Read("query_followup", "{\"view\":\"missing_truck\",\"limit\":50}");
         var missingKeys = missingTruck.Rows.Select(r => r.Key).ToHashSet();

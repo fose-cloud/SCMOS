@@ -178,7 +178,9 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
                 toolStarted = true;
                 toolCompleted = false;
                 if (!budget.TryConsume()) throw new InvalidOperationException("Tool budget exhausted.");
-                var result = await definition.Handler!.ReadAsync(arguments, new(runId, user.UserId, scope, clock.GetUtcNow()), token);
+                // The job plan's search reaches finished jobs: a summary is most often asked about one.
+                var result = await definition.Handler!.ReadAsync(arguments,
+                    new(runId, user.UserId, scope, clock.GetUtcNow(), IncludeDone: plan.Name == ManagementPlans.JobPlan && step.Tool == "search_shipment"), token);
                 switch (step.Tool)
                 {
                     case "search_shipment" or "query_delays":
