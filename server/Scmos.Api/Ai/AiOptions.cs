@@ -20,6 +20,8 @@ public sealed class AiOptions
     public bool EngineeringAgentEnabled { get; set; }
     // Phase 6 second increment: the repository's own source, read-only and bounded, for the same agent. Off unless set.
     public bool EngineeringSourceEnabled { get; set; }
+    // Phase 7: the SRE Agent — the platform's own health, deployments and failure counts; restarts nothing. Off unless set.
+    public bool SreAgentEnabled { get; set; }
     public bool IncidentAgentEnabled { get; set; }
     // Phase 5: the Document & Invoice Agent (the registry's former billing-agent, never connected under that name).
     public bool DocumentAgentEnabled { get; set; }

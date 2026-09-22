@@ -13,7 +13,7 @@ export function agentReadiness(status: AiStatus | null, id: string) {
     return state("disabled", "ปิดอยู่", "ยังไม่เปิดรับคำถามสำหรับ Agent นี้");
   // Only the specialists with a reviewed runtime may be shown as ready.
   // liveToolsReady is Operations-specific; other agents have their own connected flag.
-  const reviewed = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent"].includes(id);
+  const reviewed = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent"].includes(id);
   if (!agent.connected || !reviewed)
     return state("not_connected", "ยังไม่เชื่อมต่อ", "ยังไม่มีตัวเรียกเครื่องมือที่รองรับ Agent นี้ใน runtime ปัจจุบัน");
   if (!status.configurationValid) return state("configuration_invalid", "ตั้งค่าไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์");

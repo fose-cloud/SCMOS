@@ -5,6 +5,7 @@ using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Engineering;
 using Scmos.Api.Ai.Operations;
+using Scmos.Api.Ai.Sre;
 
 namespace Scmos.Api.Ai;
 
@@ -84,7 +85,8 @@ public sealed class ToolRegistry
 {
     public const int OperationsEvidenceLimit = 50;
     public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null, MessagesReadService? messages = null,
-        DocumentsReadService? documents = null, EngineeringReadService? engineering = null, SourceReadService? source = null)
+        DocumentsReadService? documents = null, EngineeringReadService? engineering = null, SourceReadService? source = null,
+        PlatformReadService? platform = null)
     {
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
@@ -153,6 +155,16 @@ public sealed class ToolRegistry
                 source is { Connected: true } ? new SourceReadHandler(source) : null)
             {
                 Policy = new(AiActionLevel.Read, "1", "github_public_repo", typeof(SourceStep), SourceReadService.EntryLimit),
+            },
+            // Phase 7 — the SRE Agent's one read: the platform's own signals, measured; GitHub's workflow runs, read.
+            new(PlatformReadService.Tool,
+                "Read the SCMOS platform's own condition, read-only. view=health: the API process, the database's answer time, the register cache, storage and AI configuration, and when LINE, TMS, mail, register edits and AI runs were last seen. view=deployments: the latest GitHub workflow runs of the fixed repository (API and Web deployments) with status and conclusion. view=errors: this platform's own failure counts by kind over the last days (1-30, default 1) with a safe identifier for the newest. Restarts nothing, changes nothing; no secret, address or person's data; no metric that was not measured.",
+                SreAgent.Id, Capability.AdministerData, AiRisk.Low,
+                new(new("view", false, Choices: PlatformReadService.Views), new("days", true, Nullable: true, Max: PlatformReadService.MaxDays),
+                    new("limit", true, Max: PlatformReadService.EvidenceLimit)),
+                platform is { Connected: true } ? new PlatformReadHandler(platform) : null)
+            {
+                Policy = new(AiActionLevel.Read, "1", "platform", typeof(PlatformAnswer), PlatformReadService.EvidenceLimit),
             },
         });
     }

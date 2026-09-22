@@ -32,6 +32,8 @@ public static class AiPermissions
     /// <summary>The Communication Agent (Phase 4): what carriers said, read from the ledgers.</summary>
     public const string Communication = "communication";
     public const string Engineering = "engineering";
+    /// <summary>The SRE Agent (Phase 7): the platform's own condition, read and measured.</summary>
+    public const string Sre = "sre";
 
     /// <summary>
     /// The catalogue, matching the agreed permission matrix.
@@ -64,6 +66,8 @@ public static class AiPermissions
         new("query_repository", Engineering, AiPermission.Allow, "อ่าน metadata ของ issue, PR และ commit จาก GitHub repo ที่เซิร์ฟเวอร์กำหนด ไม่รันคำสั่งหรือแก้ repo"),
         // Phase 6, second increment (22 Sep 2026): the repository's own source, read-only and bounded, for analysing a cause — never a command, an edit or a deploy.
         new("read_source", Engineering, AiPermission.Allow, "อ่านซอร์สโค้ดของ SCMOS แบบจำกัด อ่านอย่างเดียว (app · API · tests · docs) เพื่อวิเคราะห์สาเหตุ ไม่รันคำสั่ง ไม่แก้ไฟล์ ไม่ deploy"),
+        // Phase 7 (22 Sep 2026): the SRE Agent's connected read — health, deployments and failure counts; restarts nothing.
+        new("query_platform", Sre, AiPermission.Allow, "อ่านสุขภาพระบบ (API · ฐานข้อมูล · cache · workers), การ deploy ล่าสุด และจำนวนข้อผิดพลาด — ไม่รีสตาร์ต ไม่แก้ไข"),
         new("search_supplier", SupplierAgent, AiPermission.Allow, "ค้นหาและอ่านข้อมูลผู้ขนส่ง"),
         new("query_rates", SupplierAgent, AiPermission.Allow, "อ่านตารางราคาและคำนวณราคาตามราคาน้ำมัน"),
         new("recommend_supplier", SupplierAgent, AiPermission.Allow, "เสนอผู้ขนส่งที่เหมาะกับงาน (ข้อเสนอ ไม่ใช่การมอบหมาย)"),

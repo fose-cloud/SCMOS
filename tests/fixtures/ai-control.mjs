@@ -121,6 +121,19 @@ export const sourceReply = {
     analysis: "FIXTURE ONLY · สาเหตุที่น่าจะเป็น: …", basis: "FIXTURE ONLY · read-only; nothing was run, changed or deployed",
   },
 };
+export const platformReply = {
+  runId: "b2".repeat(16), code: "ok", summary: "FIXTURE ONLY · สุขภาพระบบ: 2 สัญญาณ · ผิดปกติ 0 · ควรดู 1 · ไม่ได้รีสตาร์ต ย้อนกลับ หรือแก้ไขใด ๆ",
+  agentId: "sre-agent", mock: false, usage: { inputTokens: 12, outputTokens: 6 }, evidence: null,
+  correlationId: "fixture-corr-sre", contextUsed: false,
+  platform: {
+    view: "health", window: "now", total: 2, returned: 2, truncated: false, retrievedAt: "2026-09-22T05:00:00Z",
+    basis: "FIXTURE ONLY · measured by the API; nothing restarted, rolled back or changed",
+    rows: [
+      { id: "health:database", kind: "health", label: "Database", value: "320 ms", detail: "ตอบเร็ว", at: "2026-09-22T05:00:00Z", state: "ok", source: "database" },
+      { id: "health:register", kind: "health", label: "Register snapshot", value: "ไม่อยู่ใน cache", detail: "FIXTURE ONLY", at: null, state: "warn", source: "cache" },
+    ],
+  },
+};
 export const run = {
   runId: reply.runId, userId: "fixture-user", role: "Operation Supervisor", agentId: "operations-agent", model: "fixture-provider",
   scope: { team: true, operatorId: null }, status: "succeeded",

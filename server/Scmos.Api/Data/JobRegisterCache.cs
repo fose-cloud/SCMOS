@@ -160,4 +160,11 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
         Interlocked.Increment(ref _version);
         cache.Remove(CacheKey);
     }
+
+    /// <summary>
+    /// The snapshot as cached, or null — without reading. The SRE Agent
+    /// (Phase 7) reports whether the next reader will pay the whole-register
+    /// read; asking this method to load it would be that read.
+    /// </summary>
+    public JobRegisterSnapshot? Peek() => cache.TryGetValue(CacheKey, out JobRegisterSnapshot? found) ? found : null;
 }

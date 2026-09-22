@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, engineeringAvailability, errorText, issueTarget, number,
+  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, engineeringAvailability, errorText, issueTarget, number, sreAvailability,
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
-import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, engineeringReply, sourceReply, run, audit } from "./fixtures/ai-control.mjs";
+import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, engineeringReply, sourceReply, platformReply, run, audit } from "./fixtures/ai-control.mjs";
 import { allowedOperationsControlRequest } from "../app/scmos/aiControlRequest.ts";
 const copy = value => structuredClone(value);
 const rejects = (parser, value) => assert.throws(() => parser(value), /invalid_response/);
@@ -182,6 +182,22 @@ test("the Engineering Agent's source read is parsed strictly; the analysis is te
   assert.equal(parseReply({ ...reply, source: null }).source, null);
   assert.deepEqual(parseReply(engineeringReply), engineeringReply);
 });
+test("the SRE Agent's platform signals are parsed strictly; a URL, an address or a secret in a row is refused", () => {
+  assert.deepEqual(parseReply(platformReply), platformReply);
+  const pl = platformReply.platform;
+  for (const patch of [{ platform: null }, { platform: { ...pl, view: "restart" } }, { platform: { ...pl, returned: 1 } },
+    { platform: { ...pl, rows: [{ ...pl.rows[0], state: "down" }, pl.rows[1]] } }, { platform: { ...pl, rows: [{ ...pl.rows[0], kind: "action" }, pl.rows[1]] } },
+    { platform: { ...pl, rows: [{ ...pl.rows[0], detail: "see https://portal.azure.com" }, pl.rows[1]] } },
+    { platform: { ...pl, rows: [{ ...pl.rows[0], detail: "mail admin@leschaco.com" }, pl.rows[1]] } },
+    { platform: { ...pl, rows: [{ ...pl.rows[0], secret: "x" }, pl.rows[1]] } }, { evidence: reply.evidence }])
+    rejects(parseReply, { ...platformReply, ...patch });
+  assert.equal(parseReply({ ...reply, platform: null }).platform, null);
+  assert.equal(askBody("x", "sre-agent").context.page, "sre");
+  const withAgent = { ...status, agents: [...status.agents, { id: "sre-agent", name: "SRE Agent", enabled: true, connected: true }] };
+  assert.equal(sreAvailability(status).ready, false);
+  assert.equal(sreAvailability(withAgent).ready, true);
+  assert.equal(sreAvailability({ ...withAgent, mock: true }).ready, false);
+});
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {
   const controller = new AbortController();
   let calls = 0;
@@ -239,7 +255,7 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
   // Only Operations may bypass question readiness for its separate change-draft path.
   assert.match(source, /!asking.ready && !\(agent === "operations-agent" && isChangeCommand\(message\)\)/);
-  assert.match(source, /agent === "document-agent" \? documentsReady : agent === "engineering-agent" \? engineeringReady : ready;/);
+  assert.match(source, /agent === "document-agent" \? documentsReady : agent === "engineering-agent" \? engineeringReady : agent === "sre-agent" \? sreReady : ready;/);
   assert.match(source, /operations-changes\/interpret/);
   assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);

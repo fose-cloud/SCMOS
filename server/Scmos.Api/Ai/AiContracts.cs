@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Documents;
+using Scmos.Api.Ai.Sre;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Engineering;
 using Scmos.Api.Ai.Operations;
@@ -44,7 +45,9 @@ public sealed record AiChatResponse(string RunId, string Code, string Summary, s
     /// <summary>Phase 6 fixed-repository read-only metadata; null for other agents.</summary>
     EngineeringAnswer? Engineering = null,
     /// <summary>The Engineering Agent's source read and the model's analysis of it (Phase 6, second increment); null for every other run.</summary>
-    SourceAnswer? Source = null);
+    SourceAnswer? Source = null,
+    /// <summary>The SRE Agent's platform signals (Phase 7); null for every other agent.</summary>
+    PlatformAnswer? Platform = null);
 public sealed record AiChatOutcome(int Status, AiChatResponse Response);
 public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,

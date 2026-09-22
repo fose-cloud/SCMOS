@@ -44,6 +44,9 @@ public sealed class AgentRegistry
             ["query_messages"], ["line", "mail", "communications"]),
         Define("engineering-agent", "Engineering Agent", "Read-only SCMOS GitHub issue, PR and commit metadata, and a bounded read of the repository's own source", Capability.AdministerData,
             ["query_repository", "read_source"], ["engineering"]),
+        // The specification's SRE Agent (Phase 7): what the platform knows about itself — read, measured, never acted on.
+        Define("sre-agent", "SRE Agent", "The platform's own health, deployments and failure counts — read and measured, nothing restarted or changed", Capability.AdministerData,
+            ["query_platform"], ["sre", "health", "system"]),
     });
 
     public AgentDefinition? Find(string id) => All.FirstOrDefault(a => a.Id == id);
@@ -62,6 +65,7 @@ public sealed class AgentRegistry
         "data-agent" => options.DataAgentEnabled,
         "communication-agent" => options.CommunicationAgentEnabled,
         "engineering-agent" => options.EngineeringAgentEnabled,
+        "sre-agent" => options.SreAgentEnabled,
         "incident-agent" => options.IncidentAgentEnabled,
         "document-agent" => options.DocumentAgentEnabled,
         "compliance-agent" => options.ComplianceAgentEnabled,

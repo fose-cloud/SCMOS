@@ -87,6 +87,15 @@ export type SourceAnswer = {
   repository: "fose-cloud/SCMOS"; ref: "azure-dotnet-migration"; total: number; returned: number; retrievedAt: string;
   steps: SourceStep[]; analysis: string; basis: string;
 };
+/** Phase 7: the SRE Agent's platform signals — measured by the API about itself, read from GitHub for deployments; safe identifiers only, nothing acted on. */
+export type PlatformSignal = {
+  id: string; kind: "health" | "deployment" | "error"; label: string; value: string; detail: string; at: string | null;
+  state: "ok" | "warn" | "bad" | "unknown"; source: string;
+};
+export type PlatformAnswer = {
+  view: "health" | "deployments" | "errors"; window: string; total: number; returned: number; truncated: boolean;
+  retrievedAt: string; basis: string; rows: PlatformSignal[];
+};
 export type AiReply = {
   runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null;
   /** The API request's correlation id — the same one on every audit event of the run (1D). */
@@ -102,8 +111,10 @@ export type AiReply = {
   engineering?: EngineeringAnswer | null;
   /** The Engineering Agent's source read and the model's analysis (Phase 6, second increment); null or absent for every other run. */
   source?: SourceAnswer | null;
+  /** The SRE Agent's platform signals (Phase 7); null or absent for every other agent. */
+  platform?: PlatformAnswer | null;
 };
-export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent" | "engineering-agent";
+export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent" | "engineering-agent" | "sre-agent";
 export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null; step?: number | null; tool?: string | null };
 export type AuditRun = {
   runId: string; userId: string; role: string; agentId: string; model: string;
@@ -235,6 +246,14 @@ function sourceAnswer(v: unknown): boolean {
       && ["file", "dir"].includes(entry.kind as string) && (count(entry.size) || entry.size === 0))
     && !Object.hasOwn(step, "diff") && !Object.hasOwn(step, "command"));
 }
+function platformAnswer(v: unknown): boolean {
+  return obj(v) && ["health", "deployments", "errors"].includes(v.view as string) && strings(v, ["window", "retrievedAt", "basis"])
+    && count(v.total) && count(v.returned) && typeof v.truncated === "boolean" && (v.returned as number) <= (v.total as number)
+    && Array.isArray(v.rows) && v.rows.length <= 50 && v.rows.length === v.returned
+    && v.rows.every(r => obj(r) && strings(r, ["id", "label", "value", "detail", "source"]) && ["health", "deployment", "error"].includes(r.kind as string)
+      && ["ok", "warn", "bad", "unknown"].includes(r.state as string) && nullableText(r.at)
+      && !/https?:\/\//.test(String(r.detail)) && !/\w@\w/.test(String(r.detail)) && !Object.hasOwn(r, "secret") && !Object.hasOwn(r, "connectionString"));
+}
 export function parseReply(v: unknown): AiReply {
   return accept(v, obj(v) && id(v.runId) && v.code === "ok" && text(v.summary) && nullableText(v.agentId)
     && typeof v.mock === "boolean" && usage(v.usage)
@@ -246,12 +265,14 @@ export function parseReply(v: unknown): AiReply {
       // The Engineering Agent answers with metadata or with a source read — one, never both, never neither.
       : v.agentId === "engineering-agent" ? v.evidence === null
         && ((v.source === undefined || v.source === null) ? engineeringAnswer(v.engineering) : (v.engineering === undefined || v.engineering === null) && sourceAnswer(v.source))
+      : v.agentId === "sre-agent" ? v.evidence === null && platformAnswer(v.platform)
       : evidence(v.evidence))
     && (v.kpi === undefined || v.kpi === null || kpiAnswer(v.kpi))
     && (v.messages === undefined || v.messages === null || messagesAnswer(v.messages))
     && (v.documents === undefined || v.documents === null || documentsAnswer(v.documents))
     && (v.engineering === undefined || v.engineering === null || engineeringAnswer(v.engineering))
     && (v.source === undefined || v.source === null || sourceAnswer(v.source))
+    && (v.platform === undefined || v.platform === null || platformAnswer(v.platform))
     && (v.correlationId === undefined || text(v.correlationId, 64))
     && (v.contextUsed === undefined || typeof v.contextUsed === "boolean"));
 }
@@ -280,10 +301,25 @@ export function askBody(message: string, agent: AgentChoice = "operations-agent"
   const trimmed = message.trim();
   if (!trimmed || trimmed.length > 4000) throw new ControlError("invalid_request");
   return { message: trimmed, agentId: agent, context: { page: agent === "data-agent" ? "kpi" : agent === "communication-agent" ? "line"
-    : agent === "document-agent" ? "documents" : agent === "engineering-agent" ? "engineering" : "operations" } };
+    : agent === "document-agent" ? "documents" : agent === "engineering-agent" ? "engineering" : agent === "sre-agent" ? "sre" : "operations" } };
 }
 
 /** Administrator-only Phase 6 reader; the server remains the authority for permission. */
+/** Whether the SRE Agent (Phase 7) can take a question now — the same gates, on its own flag; absent from the status means the account is not an Administrator. */
+export function sreAvailability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
+  const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });
+  if (!status) return blocked("ยังไม่ทราบสถานะ AI", "รีเฟรชสถานะก่อนส่งคำถาม");
+  const agent = status.agents.find(a => a.id === "sre-agent");
+  if (!agent) return blocked("SRE Agent ไม่มีในขอบเขตของบัญชีนี้", "");
+  if (!status.enabled || !status.chatEnabled) return blocked("SCMOS AI ยังปิดอยู่", "การเปิด AI ต้องตั้งค่าที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.configurationValid) return blocked("การตั้งค่า AI ยังไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์", "red");
+  if (!agent.enabled || !agent.connected) return blocked("SRE Agent ยังไม่เปิด", "เปิดด้วย AI:SreAgentEnabled ที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.providerConfigured) return blocked("ยังไม่ได้ตั้งค่า AI provider", "ให้ผู้ดูแลตรวจการตั้งค่าฝั่งเซิร์ฟเวอร์", "amber");
+  if (status.mock) return blocked("Development Mock", "SRE Agent ไม่ทำงานในโหมดสาธิต", "amber");
+  if (!status.auditReady) return blocked("Audit ถาวรยังไม่พร้อม", "ยังส่งคำถามไม่ได้", "amber");
+  return { ready: true, title: "SRE Agent พร้อมรับคำถาม", detail: "สุขภาพระบบ · การ deploy · ข้อผิดพลาด — วัดและอ่านเท่านั้น ไม่รีสตาร์ต ไม่แก้ไข · มี Audit", tone: "green" };
+}
+
 export function engineeringAvailability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
   const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });
   if (!status) return blocked("ยังไม่ทราบสถานะ AI", "รีเฟรชสถานะก่อนส่งคำถาม");

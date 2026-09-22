@@ -53,6 +53,11 @@ because no authoritative invoice ledger or approved-rate/terms data is available
 first Administrator-only, read-only GitHub metadata slice behind
 `AI:EngineeringAgentEnabled`; see the [Phase 6 record](SCMOS_AI_PHASE_6.md).
 
+Update, 22 September 2026 (v2.7.75): **Phase 7 is implemented and deployed** — see the
+[Phase 7 record](SCMOS_AI_PHASE_7.md): the SRE Agent's one read (`query_platform`) over what the
+platform knows about itself and the repository's workflow runs, behind `AI:SreAgentEnabled` (off);
+no telemetry connector, and none claimed. Phases 8–9 remain.
+
 ## 1. What is already present
 
 Gateway/orchestrator/provider abstraction, eight registry descriptors, three connected Operations read tools, strict input validation, per-instance limits, durable AI audit, admin-only Operations switch, read-only Control Tower, existing approval queue, Entra/RBAC, operational/KPI/rate/document services, Graph mail and LINE ingestion/review, Blob, CI/CD and offline checks. Do not rebuild these.

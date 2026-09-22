@@ -50,6 +50,11 @@ public static class AiServiceRegistration
         services.AddScoped(sp => new Scmos.Api.Ai.Engineering.SourceReadService(
             sp.GetService<Scmos.Api.Ai.Engineering.ISourceFileSource>(),
             sp.GetRequiredService<IOptions<AiOptions>>().Value.EngineeringSourceEnabled));
+        // Phase 7 — the SRE Agent reads the platform's own signals; deployments need GitHub, which a host without it (the checks) leaves out.
+        services.AddScoped(sp => new Scmos.Api.Ai.Sre.PlatformReadService(
+            sp.GetService<Scmos.Api.Ai.Sre.IPlatformSource>(), sp.GetService<Scmos.Api.Ai.Sre.IDeploymentSource>(), sp.GetRequiredService<TimeProvider>()));
+        services.AddScoped<Scmos.Api.Ai.Sre.SreAgent>();
+        services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Sre.SreExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Sre.SreAgent>());
         services.AddScoped<Scmos.Api.Ai.Engineering.EngineeringAgent>();
         services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Engineering.EngineeringExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Engineering.EngineeringAgent>());
         services.AddScoped<SqlAiExecutionAudit>();

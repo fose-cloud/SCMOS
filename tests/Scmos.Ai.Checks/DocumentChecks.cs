@@ -158,7 +158,7 @@ static class DocumentChecks
             && !tool.InputSchema.Valid("{\"view\":\"missing\",\"query\":null,\"days\":null,\"limit\":10,\"ownerId\":\"OP-C9\"}"), "5: the schema pins the views, the window and refuses a forged owner");
         var agents = new AgentRegistry();
         var agent = agents.Find("document-agent")!;
-        check(agents.All.Count == 10 && agents.Find("billing-agent") is null && agent.RequiredCapability == Capability.UploadDocuments
+        check(agents.All.Count == 11 && agents.Find("billing-agent") is null && agent.RequiredCapability == Capability.UploadDocuments
             && agents.Resolve(new("x", Context: new("verification")))?.Id == "document-agent" && agents.Resolve(new("x", Context: new("billing")))?.Id == "document-agent",
             "5: the former billing descriptor is the Document & Invoice Agent, owning the documents, verification, compliance and billing pages");
         check(!AgentRegistry.Enabled(agent, new AiOptions()) && AgentRegistry.Enabled(agent, new AiOptions { DocumentAgentEnabled = true }), "5: off unless its flag is set");

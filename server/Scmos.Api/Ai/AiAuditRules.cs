@@ -23,10 +23,13 @@ namespace Scmos.Api.Ai;
 public static class AiAuditRules
 {
     /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. The Data Agent since Phase 2.</summary>
-    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent"];
+    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository", "read_source"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository", "read_source", "query_platform"];
+
+    /// <summary>The platform tool's views (Phase 7).</summary>
+    public static readonly string[] PlatformViews = ["health", "deployments", "errors"];
 
     /// <summary>The source read's modes (Phase 6, second increment) — a step lists a directory or reads a file window.</summary>
     public static readonly string[] SourceViews = ["list", "file"];
@@ -103,6 +106,8 @@ public static class AiAuditRules
         var engineeringView = e.View is "open_issues" or "open_prs" or "recent_commits";
         var sourceRead = e.Tool == "read_source";
         var sourceView = e.View is not null && SourceViews.Contains(e.View, StringComparer.Ordinal);
+        var platform = e.Tool == "query_platform";
+        var platformView = e.View is not null && PlatformViews.Contains(e.View, StringComparer.Ordinal);
         var messageView = e.View is not null && MessageViews.Contains(e.View, StringComparer.Ordinal);
         var documents = e.Tool == "query_documents";
         var documentView = e.View is not null && DocumentViews.Contains(e.View, StringComparer.Ordinal);
@@ -112,6 +117,7 @@ public static class AiAuditRules
                 || (messages ? !messageView : documents ? !documentView : extract ? !extractView
                     : engineering ? !engineeringView || e.Limit > 20
                     : sourceRead ? !sourceView
+                    : platform ? !platformView
                     : (e.View is not ("today" or "risk_today" or "search" or "delays" or "kpi") && !followUp))
                 || (e.Tool == "query_shipments" && e.View is not ("today" or "risk_today"))
                 || (e.Tool == "search_shipment" && e.View != "search") || (e.Tool == "query_delays" && e.View != "delays")
@@ -143,6 +149,7 @@ public static class AiAuditRules
             Source = e.AgentId switch
             {
                 "engineering-agent" => "github_public_repo",
+                "sre-agent" => "platform",
                 "document-agent" => "documents",
                 "communication-agent" => "line_events+emails",
                 _ => "operation_jobs",

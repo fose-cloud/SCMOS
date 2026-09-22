@@ -4,6 +4,7 @@ using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Engineering;
 using Scmos.Api.Ai.Operations;
+using Scmos.Api.Ai.Sre;
 
 namespace Scmos.Api.Ai;
 
@@ -11,9 +12,9 @@ namespace Scmos.Api.Ai;
 public sealed class QueryPolicyGuard(ToolRegistry registry)
 {
     /// <summary>The answer shapes a connected read may return — the Operations evidence, and since Phase 2 the Data Agent's figure.</summary>
-    private static readonly Type[] Outputs = [typeof(OperationsAnswer), typeof(DataAnswer), typeof(MessagesAnswer), typeof(DocumentsAnswer)];
-    /// <summary>The tables a reviewed read may stand on: the register, and since Phase 5 the documents table beside it.</summary>
-    private static readonly string[] Sources = ["operation_jobs", "documents"];
+    private static readonly Type[] Outputs = [typeof(OperationsAnswer), typeof(DataAnswer), typeof(MessagesAnswer), typeof(DocumentsAnswer), typeof(PlatformAnswer)];
+    /// <summary>The sources a reviewed read may stand on: the register, since Phase 5 the documents table beside it, since Phase 7 the platform's own signals.</summary>
+    private static readonly string[] Sources = ["operation_jobs", "documents", "platform"];
 
     public bool Allowed(AppUser user, AgentDefinition agent, string name, bool auditReady)
         => AiPermissionPolicy.AuthorizeTool(user, agent, name, registry, auditReady) == "allowed"
