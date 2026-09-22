@@ -184,19 +184,21 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
                 switch (step.Tool)
                 {
                     case "search_shipment" or "query_delays":
-                        operations = Valid(result.Deserialize<OperationsAnswer>(), step.View, limit.Value, e => e.View, e => e.Rows, r => r.Key, e => (e.Total, e.Returned));
+                        operations = Valid(result.Deserialize<OperationsAnswer>(), step.View, limit.Value, e => e.View, e => e.Rows, r => r.Key, e => (e.Total, e.Returned, e.Truncated));
                         last = (operations.Total, operations.Returned, operations.Rows.Select(r => r.Key).ToArray());
                         break;
                     case DocumentsReadService.Tool:
-                        documents = Valid(result.Deserialize<DocumentsAnswer>(), step.View, limit.Value, e => e.View, e => e.Rows, r => r.Id, e => (e.Total, e.Returned));
+                        documents = Valid(result.Deserialize<DocumentsAnswer>(), step.View, limit.Value, e => e.View, e => e.Rows, r => r.Id, e => (e.Total, e.Returned, e.Truncated));
                         if (plan.Name == ManagementPlans.JobPlan && (documents.Jobs.Count != 1
                             || documents.Jobs.Any(job => job.Key != foundKey)
                             || documents.Rows.Any(row => row.JobKey != foundKey)))
                             throw new InvalidOperationException("Keyed document read was not limited to the selected job.");
+                        if (plan.Name == ManagementPlans.LatePaperworkPlan && !MissingEvidenceAligned(documents))
+                            throw new InvalidOperationException("Missing-paperwork jobs disagree with audited evidence rows.");
                         last = (documents.Total, documents.Returned, documents.Rows.Select(r => r.Id).ToArray());
                         break;
                     case MessagesReadService.Tool:
-                        messages = Valid(result.Deserialize<MessagesAnswer>(), step.View, limit.Value, e => e.View, e => e.Rows, r => r.Id, e => (e.Total, e.Returned));
+                        messages = Valid(result.Deserialize<MessagesAnswer>(), step.View, limit.Value, e => e.View, e => e.Rows, r => r.Id, e => (e.Total, e.Returned, e.Truncated));
                         if (plan.Name == ManagementPlans.JobPlan && (messages.Jobs.Any(job => job.Key != foundKey)
                             || messages.Rows.Any(row => row.JobKey != foundKey)))
                             throw new InvalidOperationException("Keyed message read was not limited to the selected job.");
@@ -212,7 +214,7 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
                 // The job plan's first step must find exactly one job; more or none is a question back, not a guess.
                 if (plan.Name == ManagementPlans.JobPlan && index == 1)
                 {
-                    if (operations!.Returned != 1)
+                    if (operations!.Total != 1 || operations.Returned != 1)
                     {
                         // A question back, after one audited step: the completion names the step count and, as the rules have it, no evidence.
                         await Audit("run_completed", "clarification_required");
@@ -272,14 +274,26 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
     /// <summary>The same shape check every specialist applies to its own read, applied to each step's answer.</summary>
     private static TAnswer Valid<TAnswer, TRow>(TAnswer? answer, string expectedView, int limit, Func<TAnswer, string> view,
         Func<TAnswer, IReadOnlyList<TRow>?> rows, Func<TRow, string> key,
-        Func<TAnswer, (int Total, int Returned)> counts) where TAnswer : class
+        Func<TAnswer, (int Total, int Returned, bool Truncated)> counts) where TAnswer : class
     {
         if (answer is null || rows(answer) is not { } list) throw new InvalidOperationException("Invalid read output.");
-        var (total, returned) = counts(answer);
+        var (total, returned, truncated) = counts(answer);
         if (view(answer) != expectedView || returned != list.Count || returned < 0 || total < returned || returned > limit
+            || truncated != (total > returned)
             || list.Select(key).Distinct(StringComparer.Ordinal).Count() != list.Count)
             throw new InvalidOperationException("Invalid read output.");
         return answer;
+    }
+
+    /// <summary>The missing-paperwork view supplies one evidence row per job.
+    /// A finding must never name a job absent from the rows the audit records.</summary>
+    public static bool MissingEvidenceAligned(DocumentsAnswer answer)
+    {
+        if (answer.View != "missing" || answer.Jobs is null || answer.Rows is null
+            || answer.Jobs.Count != answer.Returned) return false;
+        var keys = answer.Jobs.Select(job => job.Key).ToHashSet(StringComparer.Ordinal);
+        return keys.Count == answer.Jobs.Count && keys.All(key => !string.IsNullOrWhiteSpace(key))
+            && keys.SetEquals(answer.Rows.Select(row => row.JobKey));
     }
 
     /// <summary>What the model is told: the plans, that it may pick one, and that it composes nothing.</summary>
@@ -308,9 +322,15 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
                 $"{job.Customer} · {job.Trucker} · {job.Category} · {job.Date} {job.PlanTime} · {job.Status}" + (job.Risk is { Length: > 0 } risk ? $" · {risk}" : ""), [job.Key]));
             if (documents is not null)
             {
-                var missing = documents.Rows.Where(row => row.State is "missing" or "blocking").Select(row => row.Folder).Where(f => f.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+                // Held files are listed before empty checklist folders, so a
+                // capped evidence list can omit missing rows. The standing is
+                // calculated from every file and remains authoritative.
+                var missing = documents.Jobs[0].MissingFolders.Where(f => f.Length > 0).Distinct(StringComparer.Ordinal).ToList();
                 findings.Add(new("paperwork", "เอกสาร", $"มีแล้ว {documents.Held} · ยังขาด {documents.Missing}" + (documents.Blocking > 0 ? $" · หยุดงานได้ {documents.Blocking}" : "") + (documents.Unclear > 0 ? $" · อ่านไม่ชัด {documents.Unclear}" : ""),
-                    missing.Count > 0 ? "ยังไม่มี " + string.Join(" · ", missing) : "ครบตาม checklist", [job.Key]));
+                    (missing.Count > 0 ? "ยังไม่มี " + string.Join(" · ", missing)
+                        : documents.Missing > 0 ? "ยังขาดเอกสาร แต่รายละเอียดไม่อยู่ในแถวที่แสดง"
+                        : documents.Unclear > 0 ? "ไม่มีโฟลเดอร์ขาด แต่มีไฟล์อ่านไม่ชัด"
+                        : "ครบตาม checklist") + (documents.Truncated ? " · แสดงรายการเอกสารไม่ครบ" : ""), [job.Key]));
             }
             if (messages is not null)
             {
@@ -325,11 +345,12 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
             var both = documents.Jobs.Where(job => delayed.Contains(job.Key)).ToList();
             findings.Add(new("delayed", "งานล่าช้า (กล่อง DELAY)", operations.Total.ToString(), operations.Truncated ? $"อ่าน {operations.Returned} จาก {operations.Total} งาน" : "ทั้งหมด", operations.Rows.Select(r => r.Key).ToList()));
             findings.Add(new("short", "งานที่เอกสารยังไม่ครบ", documents.Total.ToString(), $"ช่วง {documents.Window}" + (documents.Truncated ? $" · อ่าน {documents.Returned} จาก {documents.Total} งาน" : ""), documents.Jobs.Select(j => j.Key).ToList()));
-            findings.Add(new("both", "อยู่ในทั้งสองรายการ", both.Count.ToString(),
+            var partial = operations.Truncated || documents.Truncated;
+            findings.Add(new("both", partial ? "พบในทั้งสองจากส่วนที่อ่านได้" : "อยู่ในทั้งสองรายการ", both.Count.ToString(),
                 both.Count == 0 ? "ไม่มีงานที่ทั้งล่าช้าและเอกสารไม่ครบในส่วนที่อ่านได้"
                     : string.Join(" · ", both.Take(10).Select(job => $"{(job.JobCode.Length > 0 ? job.JobCode : job.Key)} ขาด {string.Join("/", job.MissingFolders)}")) + (both.Count > 10 ? " …" : ""),
                 both.Select(j => j.Key).ToList()));
-            if (operations.Truncated || documents.Truncated)
+            if (partial)
                 findings.Add(new("partial", "ส่วนที่ยังไม่ได้เทียบ", "มี", "รายการใดรายการหนึ่งอ่านได้ไม่ครบ งานที่เหลือยังไม่ได้เทียบ — ไม่ใช่ว่าไม่มี", []));
         }
         return findings;
@@ -349,7 +370,7 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
             return $"{e.Title}: " + string.Join(" · ", e.Findings.Select(f => f.Id == "job" ? $"{f.Value} ({f.Detail})" : $"{f.Label} {f.Value}")) + tail;
         var both = e.Findings.FirstOrDefault(f => f.Id == "both");
         return $"{e.Title}: " + string.Join(" · ", e.Findings.Where(f => f.Id is "delayed" or "short").Select(f => $"{f.Label} {f.Value}"))
-            + (both is null ? "" : $" · อยู่ในทั้งสอง {both.Value}" + (both.JobKeys.Count > 0 ? $" ({both.Detail})" : ""))
+            + (both is null ? "" : $" · {(e.Findings.Any(f => f.Id == "partial") ? "พบในทั้งสองอย่างน้อย" : "อยู่ในทั้งสอง")} {both.Value}" + (both.JobKeys.Count > 0 ? $" ({both.Detail})" : ""))
             + (e.Findings.Any(f => f.Id == "partial") ? " · อ่านได้ไม่ครบ" : "") + " · " + CausationLabel + tail;
     }
 

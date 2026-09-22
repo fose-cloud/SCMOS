@@ -162,6 +162,15 @@ static class ManagementChecks
         var direct = await documents.ReadAsync(DocumentsReadService.Tool, ManagementPlans.Arguments(job, 2, planArgs, "J-1"), new("x", Supervisor.UserId, new(true, null), Now), default);
         check(summary.Documents!.Held == direct.Held && summary.Documents.Missing == direct.Missing && summary.Documents.Rows.Count == direct.Rows.Count,
             "8: a step's answer is the specialist's own answer to the same arguments — the plan adds no reading of its own");
+        var crowdedDocuments = new DocumentsReadService(new DocumentFixture(jobs,
+            Enumerable.Range(100, 55).Select(id => Doc(id, "J-1", "Booking", day)).ToArray(), []), clock);
+        var crowded = await crowdedDocuments.ReadAsync(DocumentsReadService.Tool, ManagementPlans.Arguments(job, 2, planArgs, "J-1"),
+            new("x", Supervisor.UserId, new(true, null), Now), default);
+        var paperwork = ManagementAgent.Findings(job, summary.Operations, crowded, summary.Messages).Single(f => f.Id == "paperwork");
+        check(crowded.Truncated && crowded.Missing > 0 && crowded.Rows.All(row => row.State is not ("missing" or "blocking"))
+            && paperwork.Detail.Contains("ยังไม่มี") && paperwork.Detail.Contains("แสดงรายการเอกสารไม่ครบ")
+            && !paperwork.Detail.Contains("ครบตาม checklist"),
+            "9: many held files cannot hide missing checklist folders behind the 50-row evidence cap");
         check(provider.LastRequest!.Tools.Select(t => t.Name).SequenceEqual([ManagementPlans.JobPlan, ManagementPlans.LatePaperworkPlan]) && provider.LastRequest.Tools.All(t => t.AgentId == ManagementAgent.Id)
             && provider.LastRequest.Instructions.Contains("exactly one summary plan") && provider.LastRequest.Instructions.Contains("cannot add, reorder or parameterise a step") && provider.LastRequest.Context == "",
             "8: the model is offered the plans this person may run whole, and told it composes nothing");
@@ -213,8 +222,23 @@ static class ManagementChecks
         check(c.Findings.Select(f => f.Id).SequenceEqual(["delayed", "short", "both"]) && c.Findings[0].Value == "3" && c.Findings[0].JobKeys.Order().SequenceEqual(["J-2", "J-3", "J-5"])
             && both.Value == "2" && both.JobKeys.Order().SequenceEqual(["J-2", "J-3"]) && both.Detail.Contains("260900800160 ขาด ") && !c.Findings[1].JobKeys.Contains("J-5"),
             "8: the overlap is the set intersection by key — the delayed job with its paperwork complete is not in it, the incomplete job that is not late is not in it");
+        var switchedDocumentJob = crossed.Documents! with
+        {
+            Jobs = crossed.Documents.Jobs.Select((item, index) => index == 0 ? item with { Key = "J-FOREIGN" } : item).ToList(),
+        };
+        check(ManagementAgent.MissingEvidenceAligned(crossed.Documents) && !ManagementAgent.MissingEvidenceAligned(switchedDocumentJob),
+            "9: a missing-paperwork finding cannot name a job absent from the evidence rows recorded in the audit");
         check(crossed.Summary.Contains("งานล่าช้า (กล่อง DELAY) 3") && crossed.Summary.Contains("อยู่ในทั้งสอง 2") && crossed.Summary.Contains(ManagementAgent.CausationLabel) && !crossed.Summary.Contains("เพราะ") && !crossed.Summary.Contains("สาเหตุคือ"),
             "8: the summary counts both lists and their overlap and says the overlap is not a cause");
+        var partialOperations = crossed.Operations! with { Total = 53, Truncated = true };
+        var partialDocuments = crossed.Documents! with { Total = 52, Truncated = true };
+        var partialFindings = ManagementAgent.Findings(late, partialOperations, partialDocuments, null);
+        var partialSummary = ManagementAgent.Summarise(c with { Findings = partialFindings });
+        check(partialFindings.Single(f => f.Id == "both").Label.Contains("ส่วนที่อ่านได้")
+            && partialFindings.Any(f => f.Id == "partial")
+            && partialSummary.Contains("พบในทั้งสองอย่างน้อย 2") && partialSummary.Contains("อ่านได้ไม่ครบ")
+            && !partialSummary.Contains("อยู่ในทั้งสอง 2"),
+            "9: a bounded overlap is a lower bound, not an exact total, when either specialist returned only part of its list");
         provider.Selection = new("ok", "", [new("c5", ManagementPlans.LatePaperworkPlan, "{\"limit\":50}")], new(5, 2));
         var own = await runtime.RunAsync("00000000000000000000000000000005", new("งานล่าช้างานไหนเอกสารยังไม่ครบ", ManagementAgent.Id), Operator, agent, default);
         // Operation User already has ViewTeam in the agreed role matrix. The plan must
