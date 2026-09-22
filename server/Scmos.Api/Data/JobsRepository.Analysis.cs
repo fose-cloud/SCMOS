@@ -47,7 +47,9 @@ public partial class JobsRepository
                 Key = key, OwnerId = ownerId, Raw = default,
                 Owner = Present(job.Owner), Driver = Present(job.Driver), Licence = Present(job.Licence),
                 Reason = Present(job.Reason), MoveReason = "", MoveBy = "", CancelReason = "",
-                Abs = "", Booking = "", Destination = "", Sid = "", Seal = "",
+                // The ABS number and the booking stay: they are how an export is referred to, and what a
+                // search is asked for (22 Sep 2026) — references, not a person's data or a free note.
+                Destination = "", Sid = "", Seal = "",
             }, Formats.IsTime(time) ? time : "", updatedAt);
         }
         catch (JsonException) { return new(ownerId, null, "", updatedAt); }

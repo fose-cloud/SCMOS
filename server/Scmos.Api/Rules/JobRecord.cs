@@ -27,6 +27,8 @@ public class JobRecord
     [JsonPropertyName("trucker")] public string Trucker { get; set; } = "";
     [JsonPropertyName("jobCode")] public string JobCode { get; set; } = "";
     [JsonPropertyName("abs")] public string Abs { get; set; } = "";
+    /// <summary>The export's booking number — with the ABS, how an export is referred to; searched since 22 Sep 2026.</summary>
+    [JsonPropertyName("booking")] public string Booking { get; set; } = "";
     [JsonPropertyName("jobNo")] public string JobNo { get; set; } = "";
     [JsonPropertyName("planTime")] public string PlanTime { get; set; } = "";
     [JsonPropertyName("arrDate")] public string ArrDate { get; set; } = "";

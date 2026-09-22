@@ -103,7 +103,7 @@ public sealed class ToolRegistry
         {
             Read("query_shipments", "Read active Import/Export jobs. view=today lists jobs scheduled today in Thailand; view=risk_today lists today's high-risk/attention queue (overdue through the next 2 days) using SCMOS MonitorRules. Never calculates new risk weights.",
                 new(new("view", false, Choices: ["today", "risk_today"]), new("limit", true, Max: OperationsEvidenceLimit))),
-            Read("search_shipment", "Search active Import/Export jobs by key, job code, container or customer, across all dates. No driver, private note or other personal-data search.",
+            Read("search_shipment", "Search active Import/Export jobs by key, job code, ABS number, booking, container or customer, across all dates. No driver, private note or other personal-data search.",
                 new(new("query", false), new("limit", true, Max: OperationsEvidenceLimit))),
             Read("query_delays", "Read active jobs in the existing My Job DELAY bucket, across all dates; this is not a KPI calculation or the risk queue.",
                 new(new AiArgument("limit", true, Max: OperationsEvidenceLimit))),

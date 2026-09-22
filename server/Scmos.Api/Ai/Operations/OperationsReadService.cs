@@ -89,8 +89,9 @@ public sealed class OperationsReadService(IOperationsSource source, TimeProvider
                 // A date window, not a new risk formula: backlog plus the existing near-term horizon.
                 "risk_today" => near && flag is not null,
                 "delays" => WorkspaceTabs.Matches(WorkspaceTabs.Delay, job, "", today),
-                "search" => new[] { job.Key, job.JobCode, job.Container, job.Customer }
-                    .Any(value => value.Contains(search, StringComparison.OrdinalIgnoreCase)),
+                // An export is referred to by its ABS number and its booking — the header search knows both ("Job/ABS"), and so does this (22 Sep 2026).
+                "search" => new[] { job.Key, job.JobCode, job.Abs, job.Booking, job.Container, job.Customer }
+                    .Any(value => value.Length > 0 && value.Contains(search, StringComparison.OrdinalIgnoreCase)),
                 // Phase 3 — the bell's own rules, on the Monitor's horizon, for what to chase.
                 "missing_truck" => near && !arrived && Notifications.MissingBookingData(job.Status, job.Trucker, job.Licence, job.Driver),
                 "no_carrier" => near && !arrived && Notifications.NeedsCarrier(job.Status, job.Trucker),
