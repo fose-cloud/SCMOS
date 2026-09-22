@@ -94,7 +94,7 @@ public static class CorrectionProposer
         foreach (var row in snapshot.Rows)
         {
             if (row.Record is not { } job) continue;
-            var cells = CorrectionRules.Fields.Concat(CorrectionRules.Evidence)
+            var cells = CorrectionRules.Fields.Concat(CorrectionRules.Evidence).Distinct(StringComparer.Ordinal)
                 .ToDictionary(field => field, field => row.Raw.TryGetProperty(field, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "", StringComparer.Ordinal);
             // A cancelled job is history; its spelling is nobody's to approve.
             if (string.Equals(cells["status"], JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)) { cancelledJobs++; continue; }
