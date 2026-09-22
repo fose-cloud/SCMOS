@@ -41,6 +41,11 @@ on:
         type: choice
         options: ["no", "report", "apply", "undo"]
         default: "no"
+      proposeCorrections:
+        description: "Dropdown cells off their lists: report what would be proposed, or queue the proposals for the jobs' owners to approve (writes no cell)"
+        type: choice
+        options: ["no", "report", "queue"]
+        default: "no"
 
 env:
   DOTNET_VERSION: "10.0.x"
@@ -83,7 +88,7 @@ jobs:
       # need nothing but the binary.
       - name: Rule checks
         run: |
-          for check in monitor delegation types duplicates scorecard capability signin report problems route briefing line carrier-api audit-revert email graph messages subscriptions notifications queue links review; do
+          for check in monitor delegation types corrections duplicates scorecard capability signin report problems route briefing line carrier-api audit-revert email graph messages subscriptions notifications queue links review; do
             echo "::group::--check-$check"
             dotnet run --project ${{ env.PROJECT }} --configuration Release --no-build               --no-launch-profile -- "--check-$check"
             echo "::endgroup::"
@@ -284,6 +289,28 @@ jobs:
           esac
 
           dotnet publish/Scmos.Api.dll --merge-places $extra
+
+      # The dropdown columns judged against their own lists (22 Sep 2026).
+      # "report" writes nothing; "queue" writes proposals, and a cell changes
+      # only when the job's owner approves it on the job — the LINE rule. There
+      # is no apply here by design.
+      - name: Propose dropdown corrections
+        if: github.event_name == 'workflow_dispatch' && inputs.proposeCorrections != 'no'
+        env:
+          ConnectionStrings__ScmosDb: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: |
+          if [ -z "$ConnectionStrings__ScmosDb" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
+            exit 1
+          fi
+
+          case "${{ inputs.proposeCorrections }}" in
+            report) extra="" ;;
+            queue)  extra="--queue" ;;
+          esac
+
+          dotnet publish/Scmos.Api.dll --propose-corrections $extra
 
       - name: Deploy API to Azure App Service
         uses: azure/webapps-deploy@v3

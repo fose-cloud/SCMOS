@@ -1,0 +1,101 @@
+using Scmos.Api.Rules;
+
+namespace Scmos.Api.Data;
+
+/// <summary>
+/// Runs <see cref="CorrectionRules"/> against the spellings the register
+/// actually holds, with <c>--check-corrections</c>. No database: the lists
+/// are three names long and the carrier register is a dictionary.
+///
+/// The cases that matter most are the ones that must come back
+/// <b>unchanged</b>: a shorter customer name is not the longer one, a
+/// retired type is never proposed, a status nobody can name is not re-filed
+/// as new. A rule that proposes something for every cell is the rule that
+/// would have an owner approving a guess.
+/// </summary>
+public static class CorrectionCheck
+{
+    public static int? Run(string[] args)
+    {
+        if (!args.Contains("--check-corrections")) return null;
+
+        var failed = 0;
+        Console.WriteLine("Proposed corrections: the list's spelling, or nothing.");
+        Console.WriteLine();
+
+        var carriers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SJ"] = "Sangja Transport Co., Ltd.", ["SANGJA"] = "Sangja Transport Co., Ltd.", ["SANGJATRANSPORTCOLTD"] = "Sangja Transport Co., Ltd.",
+            ["9ISARA"] = "9 Isara Logistics Co., Ltd.", ["9ISARALOGISTICSCOLTD"] = "9 Isara Logistics Co., Ltd.",
+        };
+        var lists = new CorrectionLists(
+            ["1X20'", "1X40'", "1X40' HQ", "1X20' RF", "1X40' RF", "1X6WH", "1X4WH", "COMBINE"],
+            ["LOTUS", "LOTUS ASIA", "L'OREAL", "The Chemours"],
+            spelling => carriers.TryGetValue(new string(spelling.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray()), out var name) ? name : null);
+
+        /* ---- type ---- */
+        failed += Say("1X40 REEFER is the reefer forty as the list spells it", To(CorrectionRules.VehicleType("1X40 REEFER", lists.TypeCodes)), "1X40' RF");
+        failed += Say("1x20 is the twenty", To(CorrectionRules.VehicleType("1x20", lists.TypeCodes)), "1X20'");
+        failed += Say("1X40HC is the tall forty", To(CorrectionRules.VehicleType("1X40HC", lists.TypeCodes)), "1X40' HQ");
+        failed += Say("a code on the list as spelled proposes nothing", To(CorrectionRules.VehicleType("1X20'", lists.TypeCodes)), null);
+        failed += Say("a code added to the list since (COMBINE) proposes nothing", To(CorrectionRules.VehicleType("COMBINE", lists.TypeCodes)), null);
+        failed += Say("a retired code is never proposed", To(CorrectionRules.VehicleType("1X20 DG", lists.TypeCodes)), null);
+        failed += Say("a note typed into the type column is left alone", To(CorrectionRules.VehicleType("1X20 DG >> 1X40 DG", lists.TypeCodes)), null);
+
+        /* ---- customer ---- */
+        failed += Say("lotus asia is LOTUS ASIA", To(CorrectionRules.Customer("lotus asia", lists.Customers)), "LOTUS ASIA");
+        failed += Say("a trailing full stop is not a different customer", To(CorrectionRules.Customer("LOTUS ASIA.", lists.Customers)), "LOTUS ASIA");
+        failed += Say("a doubled space is not a different customer", To(CorrectionRules.Customer("Lotus  Asia", lists.Customers)), "LOTUS ASIA");
+        failed += Say("a non-breaking space is not a different customer", To(CorrectionRules.Customer("LOTUS" + (char)0xA0 + "ASIA", lists.Customers)), "LOTUS ASIA");
+        failed += Say("LOTUS is LOTUS, not LOTUS ASIA", To(CorrectionRules.Customer("LOTUS", lists.Customers)), null);
+        failed += Say("LOTUSASIA (no space) is not read as LOTUS ASIA — a person decides", To(CorrectionRules.Customer("LOTUSASIA", lists.Customers)), null);
+        failed += Say("a customer the rotation has never heard of is left alone", To(CorrectionRules.Customer("OPTIDUR", lists.Customers)), null);
+        failed += Say("the rotation's own spelling proposes nothing", To(CorrectionRules.Customer("The Chemours", lists.Customers)), null);
+
+        /* ---- trucker ---- */
+        var sj = CorrectionRules.Carrier("SJ", lists.CarrierOf);
+        failed += Say("SJ is Sangja Transport as the register names it", To(sj), "Sangja Transport Co., Ltd.");
+        failed += Say("and the reason keeps the old spelling for the owner", sj?.Reason.Contains("(เดิมสะกด SJ)") == true, true);
+        failed += Say("9ISARA is 9 Isara Logistics", To(CorrectionRules.Carrier("9ISARA", lists.CarrierOf)), "9 Isara Logistics Co., Ltd.");
+        failed += Say("the register's own name proposes nothing", To(CorrectionRules.Carrier("Sangja Transport Co., Ltd.", lists.CarrierOf)), null);
+        failed += Say("a haulier the register has never seen is left alone", To(CorrectionRules.Carrier("XYZ TRANSPORT", lists.CarrierOf)), null);
+
+        /* ---- category ---- */
+        failed += Say("Import is IMPORT", To(CorrectionRules.Category("Import")), "IMPORT");
+        failed += Say("a padded EXPORT is EXPORT", To(CorrectionRules.Category("EXPORT ")), "EXPORT");
+        failed += Say("IMPORT proposes nothing", To(CorrectionRules.Category("IMPORT")), null);
+        failed += Say("a word that is not a category is left alone", To(CorrectionRules.Category("Domestic")), null);
+
+        /* ---- status ---- */
+        failed += Say("delivered is DELIVERED", To(CorrectionRules.Status("delivered", "IMPORT")), "DELIVERED");
+        failed += Say("Truck Assigned is TRUCK_ASSIGNED", To(CorrectionRules.Status("Truck Assigned", "IMPORT")), "TRUCK_ASSIGNED");
+        failed += Say("the old 'waiting truck' is WAITING_SUPPLIER", To(CorrectionRules.Status("waiting truck", "EXPORT")), "WAITING_SUPPLIER");
+        failed += Say("a code on the ladder proposes nothing", To(CorrectionRules.Status("DELIVERED", "IMPORT")), null);
+        failed += Say("a stage nobody can name is not re-filed as DRAFT", To(CorrectionRules.Status("xyz", "IMPORT")), null);
+        failed += Say("COMPLETED stays COMPLETED", To(CorrectionRules.Status("COMPLETED", "EXPORT")), null);
+
+        /* ---- a job's cells together ---- */
+        var cells = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["cat"] = "EXPORT", ["customer"] = "lotus asia", ["trucker"] = "SJ", ["type"] = "1X40 REEFER", ["status"] = "",
+        };
+        var proposals = CorrectionRules.Propose("EXPORT", cells, lists);
+        failed += Say("a job's proposals are one per off-list cell, in column order", string.Join(",", proposals.Select(p => p.Field)), "customer,trucker,type");
+        failed += Say("a blank cell proposes nothing", proposals.Any(p => p.Field == "status"), false);
+        failed += Say("every proposal names its rule", proposals.All(p => p.Rule.Length > 0 && p.Reason.Length > 0 && p.From != p.To), true);
+        failed += Say("the labels name every dropdown column", CorrectionRules.Fields.All(CorrectionRules.Labels.ContainsKey), true);
+
+        Console.WriteLine();
+        Console.WriteLine(failed == 0 ? "Every proposal is a list's spelling; everything else is left for a person." : $"{failed} check(s) failed.");
+        return failed == 0 ? 0 : 1;
+    }
+
+    private static string? To(Correction? one) => one?.To;
+
+    private static int Say<T>(string why, T got, T want)
+    {
+        var ok = EqualityComparer<T>.Default.Equals(got, want);
+        Console.WriteLine($"{(ok ? "ok  " : "FAIL")}  {why,-70} {(ok ? "" : $"got {got ?? (object)"null"}  want {want ?? (object)"null"}")}");
+        return ok ? 0 : 1;
+    }
+}

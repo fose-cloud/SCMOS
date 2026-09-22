@@ -101,6 +101,7 @@ import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
 import { LineReview } from "./scmos/screens/LineReview";
 import { CarrierApiClients } from "./scmos/screens/CarrierApiClients";
 import { pendingByKey, pendingMarks, type LinePending } from "./scmos/linePending";
+import { correctionsByKey, mergeMarks, type Correction } from "./scmos/corrections";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
@@ -303,6 +304,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * Read beside the register delta, on the same tick; written by nobody here.
    */
   const [linePending, setLinePending] = useState<LinePending[]>([]);
+  // What the rules propose to change on dropdown cells, waiting for each
+  // job's owner (22 Sep 2026) — read on the same tick as the hauliers'
+  // messages, marked on the same rows, decided in the same drawer.
+  const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [correctionsMine, setCorrectionsMine] = useState(0);
   /** The job whose date is being moved or which is being called off, and which of the two. */
   const [changing, setChanging] = useState<{ key: string; mode: "move" | "cancel" } | null>(null);
   /**
@@ -750,15 +756,36 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const linePendingRef = useRef(loadLinePending);
   linePendingRef.current = loadLinePending;
 
+  const loadCorrections = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/corrections/pending", { headers: { accept: "application/json" } });
+      if (!response.ok) return;
+      const body = await response.json().catch(() => null) as { items?: Correction[]; mine?: number } | null;
+      if (!body || !appMounted.current) return;
+      const items = Array.isArray(body.items) ? body.items : [];
+      setCorrections((was) => {
+        if (was.length !== items.length || was.some((one, i) => one.id !== items[i]?.id)) touch();
+        return items;
+      });
+      setCorrectionsMine(typeof body.mine === "number" ? body.mine : 0);
+    } catch {
+      // A mark on a row is a convenience; the register is not.
+    }
+  }, [touch]);
+  const correctionsRef = useRef(loadCorrections);
+  correctionsRef.current = loadCorrections;
+
   useEffect(() => {
     if (!isSignedIn || !ops) return;
     const tick = () => {
       if (document.visibilityState === "visible") void syncRef.current();
       if (document.visibilityState === "visible") void linePendingRef.current();
+      if (document.visibilityState === "visible") void correctionsRef.current();
     };
     // The marks are wanted from the first paint; the register delta keeps
     // its own cadence.
     void linePendingRef.current();
+    void correctionsRef.current();
     const timer = window.setInterval(tick, SYNC_EVERY_MS);
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);
@@ -1045,7 +1072,28 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     || (!!job.opId && actingFor.includes(job.opId));
 
   const linePendingByKey = useMemo(() => pendingByKey(linePending), [linePending]);
-  const linePendingMarks = useMemo(() => pendingMarks(linePending), [linePending]);
+  const linePendingMarks = useMemo(() => mergeMarks(pendingMarks(linePending), corrections), [linePending, corrections]);
+  const correctionsByJob = useMemo(() => correctionsByKey(corrections), [corrections]);
+
+  /**
+   * The owner's word on a proposal — one, every one on a job, or every one
+   * on their own jobs. The API judges who may; this only asks and reports.
+   */
+  const correctionAct = async (what: { id: number } | { jobKey: string } | { mine: true }, how: "apply" | "reject" = "apply") => {
+    const path = "id" in what ? `/api/corrections/${what.id}/${how}`
+      : "jobKey" in what ? `/api/corrections/job/${encodeURIComponent(what.jobKey)}/apply` : "/api/corrections/apply-mine";
+    try {
+      const response = await apiFetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "" }) });
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      setToast(answer?.message ?? answer?.error ?? `ทำรายการไม่สำเร็จ (${response.status})`);
+      // The card goes the moment the API has settled it — a 409 is settled too.
+      if ((response.ok || response.status === 409) && "id" in what) setCorrections((was) => was.filter((one) => one.id !== what.id));
+      if (response.ok) touch();
+    } catch (error) {
+      setToast("ทำรายการไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+    await Promise.all([loadCorrections(), syncRef.current()]);
+  };
 
   /**
    * Approving or setting aside a LINE message from the job drawer. The API
@@ -3034,6 +3082,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   canAssign={able("AssignJobs")}
                   covering={covering}
                   linePending={linePendingMarks}
+                  corrections={{ mine: correctionsMine, total: corrections.length,
+                    onApplyMine: correctionsMine > 0 && able("EditOwnJobs") ? () => correctionAct({ mine: true }) : undefined }}
                   serverPages={serverPages}
                   fullRegisterLoaded={!!ops}
                   sectionPages={sectionPages}
@@ -3386,6 +3436,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           canEdit={canEditJob(drawerJob)}
           line={linePendingByKey[drawerJob.key] ?? []}
           onLineAct={canEditJob(drawerJob) ? lineAct : undefined}
+          corrections={correctionsByJob[drawerJob.key] ?? []}
+          onCorrectionAct={canEditJob(drawerJob) ? correctionAct : undefined}
           onClose={() => setDrawer(null)}
           onRaiseIssue={() => {
             const now = new Date();

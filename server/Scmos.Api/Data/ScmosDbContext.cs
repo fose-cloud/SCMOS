@@ -76,6 +76,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
     public DbSet<VehicleTypeRow> VehicleTypes => Set<VehicleTypeRow>();
     public DbSet<TypeMigrationBackup> TypeMigrationBackups => Set<TypeMigrationBackup>();
+    /// <summary>Dropdown cells the rules propose to change, waiting for the job's owner (22 Sep 2026).</summary>
+    public DbSet<JobCorrection> JobCorrections => Set<JobCorrection>();
     public DbSet<SupplierEvaluation> SupplierEvaluations => Set<SupplierEvaluation>();
 
     public DbSet<FuelBand> FuelBands => Set<FuelBand>();
@@ -1182,6 +1184,31 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.AppliedBy).HasMaxLength(120).HasDefaultValue("");
             e.Property(x => x.Result).HasMaxLength(1000).HasDefaultValue("");
             e.HasIndex(x => new { x.State, x.RequestedAt }).HasDatabaseName("approval_state_idx");
+        });
+
+        model.Entity<JobCorrection>(entry =>
+        {
+            entry.ToTable("job_corrections");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Batch).HasColumnName("batch").HasMaxLength(20);
+            entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(80);
+            entry.Property(e => e.JobCode).HasColumnName("job_code").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(e => e.OwnerId).HasColumnName("owner_id").HasMaxLength(20).HasDefaultValue("");
+            entry.Property(e => e.Field).HasColumnName("field").HasMaxLength(20);
+            entry.Property(e => e.FromValue).HasColumnName("from_value").HasMaxLength(200);
+            entry.Property(e => e.ToValue).HasColumnName("to_value").HasMaxLength(200);
+            entry.Property(e => e.Rule).HasColumnName("rule").HasMaxLength(40);
+            entry.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.ProposedBy).HasColumnName("proposed_by").HasMaxLength(120);
+            entry.Property(e => e.ProposedAt).HasColumnName("proposed_at");
+            entry.Property(e => e.State).HasColumnName("state").HasMaxLength(12).HasDefaultValue(CorrectionState.Pending);
+            entry.Property(e => e.DecidedBy).HasColumnName("decided_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.DecidedAt).HasColumnName("decided_at");
+            entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(300).HasDefaultValue("");
+            entry.HasIndex(e => new { e.State, e.JobKey }).HasDatabaseName("job_corrections_state_idx");
+            // One open proposal per cell: a second run over the same cell supersedes the first, never doubles it.
+            entry.HasIndex(e => new { e.JobKey, e.Field }).IsUnique().HasFilter("[state] = 'pending'").HasDatabaseName("job_corrections_pending_cell_idx");
         });
 
         model.Entity<ReportUpload>(upload =>

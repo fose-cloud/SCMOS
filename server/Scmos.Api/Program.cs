@@ -135,6 +135,8 @@ builder.Services.AddHttpClient(CarrierWebhookDispatcher.ClientName, client =>
 builder.Services.AddHostedService<CarrierWebhookDispatcher>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();
+// Proposed dropdown corrections, decided by the job's owner (22 Sep 2026).
+builder.Services.AddScoped<CorrectionService>();
 builder.Services.AddScoped<JobTransferService>();
 builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();
@@ -283,6 +285,7 @@ var app = builder.Build();
 if (ScorecardCheck.Run(args) is int scorecardExit) return scorecardExit;
 if (DuplicateCheck.Run(args) is int duplicateExit) return duplicateExit;
 if (TypeCheck.Run(args) is int typeExit) return typeExit;
+if (CorrectionCheck.Run(args) is int correctionExit) return correctionExit;
 if (DelegationCheck.Run(args) is int delegationExit) return delegationExit;
 if (MonitorCheck.Run(args) is int monitorExit) return monitorExit;
 if (RouteCheck.Run(args) is int routeExit) return routeExit;
@@ -361,6 +364,14 @@ if (args.Contains("--check-register-cache"))
     return await RegisterCacheCheck.RunAsync(app);
 }
 
+// Proposes the list spelling for dropdown cells that are off their lists —
+// reports by default; --queue puts the proposals in the owners' queues. No
+// --apply: a cell changes only when its owner approves, on the job.
+if (args.Contains("--propose-corrections"))
+{
+    return await CorrectionProposer.RunAsync(app, args);
+}
+
 // Reports by default; --apply writes; --undo puts the last run back. Merges the
 // spellings of one place into one, so a saved distance is findable from all of
 // them. See PlaceMerge for why the mapping is written out by hand.
@@ -418,6 +429,7 @@ app.MapAudit();
 app.MapDashboard();
 app.MapStaff();
 app.MapCapacity();
+app.MapCorrections();
 app.MapVehicleTypes();
 app.MapCarrier();
 app.MapCarrierApi();

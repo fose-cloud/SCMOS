@@ -134,8 +134,14 @@ type Props = {
   canAssign: boolean;
   /** Whose jobs this person is covering today, from /api/me. */
   covering: { id: string; name: string }[];
-  /** How many LINE messages wait on each job, by key — the row says so and opens the drawer. */
+  /** How many LINE messages and proposed corrections wait on each job, by key — the row says so and opens the drawer. */
   linePending?: Record<string, PendingMark>;
+  /**
+   * The proposed corrections waiting (22 Sep 2026): how many in all, how many
+   * on this person's own jobs, and the one act that approves all of theirs —
+   * absent when they own none or may not edit.
+   */
+  corrections?: { mine: number; total: number; onApplyMine?: () => Promise<void> | void };
   /** Rows per page, from the viewer's settings. */
   per: number;
   /**
@@ -1980,6 +1986,23 @@ export function Workspace(p: Props) {
                       : p.sync.at ? "บันทึกลงฐานข้อมูลแล้ว " + p.sync.at
                         : "ต่อฐานข้อมูลแล้ว"}
               </span>
+              {!!p.corrections?.total && (
+                // What the rules propose, waiting for the owners: the count,
+                // and — for the person whose jobs they are — the one click
+                // that approves all of theirs. Each job's own proposals are
+                // decided in its drawer.
+                <span title="ค่าที่ไม่ตรงกับรายการ dropdown ที่ระบบเสนอให้แก้ — เจ้าของงานกดอนุมัติในรายละเอียดงาน หรืออนุมัติทั้งหมดของตัวเองที่นี่"
+                  style={css("display:flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:13px;font-size:11px;border:1px solid #7A5A2A;background:#3A2E18;color:#FFC978")}>
+                  AI เสนอแก้ {p.corrections.total.toLocaleString()} รายการ
+                  {p.corrections.mine > 0 && <span>· ของฉัน {p.corrections.mine.toLocaleString()}</span>}
+                  {p.corrections.onApplyMine && (
+                    <button type="button" onClick={() => void p.corrections?.onApplyMine?.()}
+                      style={css("height:20px;padding:0 8px;border:1px solid #F0C36D;background:#F0C36D;color:#3A2E18;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}>
+                      อนุมัติทั้งหมดของฉัน
+                    </button>
+                  )}
+                </span>
+              )}
               {complete && (
                 <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
                   {(isMyJob

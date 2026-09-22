@@ -5,6 +5,7 @@ import { badge, css, opTone } from "../theme";
 import { isCancelled, MOVED_BY, wasMoved, type Job, type Masters } from "../ops";
 import { describe } from "../lineReview";
 import { pendingText, pendingWrites, sourceOf, sourcesOf, type LinePending } from "../linePending";
+import { correctionText, type Correction } from "../corrections";
 
 /* ---------------------------------------------------------- job drawer */
 
@@ -23,6 +24,10 @@ export function JobDrawer(p: {
   line?: LinePending[];
   /** Approves or sets aside one of them; absent when this person may not act on the job. Resolves when the API has answered. */
   onLineAct?: (id: number, what: "apply" | "dismiss", jobKey: string) => Promise<void> | void;
+  /** The dropdown corrections the rules propose on this job (22 Sep 2026), waiting for its owner. */
+  corrections?: Correction[];
+  /** Approves or rejects one, or approves every one on this job; absent when this person may not act on the job. */
+  onCorrectionAct?: (what: { id: number } | { jobKey: string }, how?: "apply" | "reject") => Promise<void> | void;
 }) {
   const { job: j } = p;
   // The message whose approval is out with the API. Its buttons are quiet
@@ -33,6 +38,12 @@ export function JobDrawer(p: {
     if (acting !== null) return;
     setActing(id);
     try { await p.onLineAct?.(id, what, j.key); } finally { setActing(null); }
+  };
+  // The same quiet buttons for a proposal: -1 stands for "all of this job's".
+  const decide = async (what: { id: number } | { jobKey: string }, how: "apply" | "reject") => {
+    if (acting !== null) return;
+    setActing("id" in what ? what.id : -1);
+    try { await p.onCorrectionAct?.(what, how); } finally { setActing(null); }
   };
   const rows: [string, string | undefined][] =
     j.cat === "DELIVERY"
@@ -112,6 +123,43 @@ export function JobDrawer(p: {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {!!p.corrections?.length && (
+          // What the rules propose for this job's dropdown cells — the list's
+          // spelling for a value typed another way — waiting for the owner's
+          // word, given here the way a LINE message's is. Nothing is written
+          // until อนุมัติ; ไม่แก้ keeps the value as typed and is remembered.
+          <div style={css("border:1px solid #F0C36D;background:#FFFBEB;border-radius:5px;padding:11px 13px;display:flex;flex-direction:column;gap:9px")}>
+            <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
+              <span style={css(badge("AI", "amber"))}>AI</span>
+              <span style={css("font-size:11px;color:#64748B")}>{p.corrections.length} รายการเสนอแก้ให้ตรงรายการ dropdown</span>
+              {p.onCorrectionAct && p.corrections.length > 1 && (
+                <button onClick={() => void decide({ jobKey: j.key }, "apply")} disabled={acting !== null}
+                  style={css(`margin-left:auto;height:24px;padding:0 10px;border-radius:4px;border:1px solid #16A34A;background:#16A34A;color:#fff;font-size:11px;font-family:inherit;cursor:${acting !== null ? "wait" : "pointer"}`)}>
+                  {acting === -1 ? "กำลังบันทึก…" : "อนุมัติทั้งหมดของงานนี้"}
+                </button>
+              )}
+            </div>
+            {p.corrections.map((one) => (
+              <div key={one.id} style={css("display:flex;flex-direction:column;gap:4px;padding-top:7px;border-top:1px solid #F5E3C7")}>
+                <span style={css("font-size:11.5px;font-weight:600;color:#B45309")}>{correctionText(one)}</span>
+                <span style={css("font-size:10.5px;color:#94A3B8")}>{one.reason}</span>
+                {p.onCorrectionAct && (
+                  <div style={css("display:flex;gap:6px;margin-top:2px;align-items:center")}>
+                    <button onClick={() => void decide({ id: one.id }, "apply")} disabled={acting !== null}
+                      style={css(`height:26px;padding:0 12px;border-radius:4px;border:1px solid #16A34A;background:#16A34A;color:#fff;font-size:11.5px;font-family:inherit;cursor:${acting !== null ? "wait" : "pointer"}`)}>
+                      {acting === one.id ? "กำลังบันทึก…" : "อนุมัติ"}
+                    </button>
+                    <button onClick={() => void decide({ id: one.id }, "reject")} disabled={acting !== null}
+                      style={css(`height:26px;padding:0 12px;border-radius:4px;border:1px solid #D3DBE3;background:#fff;color:#B91C1C;font-size:11.5px;font-family:inherit;cursor:${acting !== null ? "wait" : "pointer"}`)}>
+                      ไม่แก้
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
