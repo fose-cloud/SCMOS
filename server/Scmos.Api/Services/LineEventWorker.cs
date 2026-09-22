@@ -496,6 +496,28 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             return;
         }
 
+        // A message that cannot write anything — no status, a closed or held
+        // job, a step backwards — pinned to a job that already holds every
+        // designated cell is filed too (22 Sep 2026): the owner has nothing to
+        // approve, and a row lit "LINE 1" over a finished job was the whole of
+        // what they would have seen.
+        if (!decision.Applies && row.JobKey.Length > 0)
+        {
+            var pinned = await db.OperationJobs.AsNoTracking().Where(job => job.Key == row.JobKey)
+                .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data }).FirstOrDefaultAsync(stopping);
+            var candidate = pinned is null ? null : LineMatching.Candidate(pinned.Key, pinned.Cat, pinned.Trucker, pinned.Status, pinned.Data);
+            if (decision.Redundant(candidate))
+            {
+                row.ProcessingStatus = LineProcessing.Ignored;
+                row.ErrorCode = LineAuthority.Outcome.AlreadyRecorded;
+                row.ErrorMessage = "งานมีข้อมูลในคอลัมน์ที่กำหนดครบแล้ว — ไม่ดึงจากไลน์ซ้ำ";
+                await db.SaveChangesAsync(stopping);
+                log.LogInformation("LINE message {Id}: job {Key} already holds every designated cell ({Outcome}) — filed",
+                    row.Id, row.JobKey, decision.Result);
+                return;
+            }
+        }
+
         /*
          * Everything else waits for a person, including a decision of "ok".
          *

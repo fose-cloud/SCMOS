@@ -17,7 +17,7 @@ import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
 import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadJobsSince, loadPlanFile, saveJobs } from "./scmos/store";
-import { SYNC_EVERY_MS, applyDelta, needsFullReload } from "./scmos/registerSync";
+import { QUEUES_EVERY_MS, SYNC_EVERY_MS, applyDelta, needsFullReload } from "./scmos/registerSync";
 import { SaveQueue } from "./scmos/saveQueue";
 import { forget, pageCacheKey, readCachedPage, rememberOperator, writeCachedPage } from "./scmos/pageCache";
 import { cleanupJobs, duplicateGroups, type CleanupReport, type DupGroup } from "./scmos/cleanup";
@@ -794,20 +794,31 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     if (!isSignedIn || !ops) return;
     const tick = () => {
       if (document.visibilityState === "visible") void syncRef.current();
-      if (document.visibilityState === "visible") void linePendingRef.current();
-      if (document.visibilityState === "visible") void correctionsRef.current();
     };
-    // The marks are wanted from the first paint; the register delta keeps
-    // its own cadence.
-    void linePendingRef.current();
-    void correctionsRef.current();
+    // The two queues — the hauliers' messages and the proposed corrections —
+    // are asked every minute, and on coming back to the tab: they change by
+    // the hour, not by the second, and every ask is two reads the API makes
+    // for every open workspace ("ลดการดึงข้อมูลที่ทำให้ระบบช้า", 22 Sep 2026).
+    // The register delta keeps its own, shorter cadence.
+    const marks = () => {
+      if (document.visibilityState !== "visible") return;
+      void linePendingRef.current();
+      void correctionsRef.current();
+    };
+    marks();
     const timer = window.setInterval(tick, SYNC_EVERY_MS);
+    const queues = window.setInterval(marks, QUEUES_EVERY_MS);
     window.addEventListener("focus", tick);
+    window.addEventListener("focus", marks);
     document.addEventListener("visibilitychange", tick);
+    document.addEventListener("visibilitychange", marks);
     return () => {
       window.clearInterval(timer);
+      window.clearInterval(queues);
       window.removeEventListener("focus", tick);
+      window.removeEventListener("focus", marks);
       document.removeEventListener("visibilitychange", tick);
+      document.removeEventListener("visibilitychange", marks);
     };
   }, [isSignedIn, ops]);
 

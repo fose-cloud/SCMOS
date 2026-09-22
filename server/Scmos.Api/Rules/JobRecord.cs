@@ -41,6 +41,8 @@ public class JobRecord
     [JsonPropertyName("type")] public string Type { get; set; } = "";
     [JsonPropertyName("weight")] public string Weight { get; set; } = "";
     [JsonPropertyName("reason")] public string Reason { get; set; } = "";
+    /// <summary>The free note beside the row — on an export, where a delay reason goes (22 Sep 2026), since the export layout has no REASON / DELAY column.</summary>
+    [JsonPropertyName("remark")] public string Remark { get; set; } = "";
 
     /// <summary>
     /// The INCIDENT REPORT column, in the operator's own words.

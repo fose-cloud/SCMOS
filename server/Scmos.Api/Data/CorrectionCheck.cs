@@ -120,6 +120,10 @@ public static class CorrectionCheck
         failed += Say("by the carrier rule, quoting the message and the lateness", breakdown?.Rule == "reason.carrier" && breakdown.Reason.Contains("75 นาที") && breakdown.Reason.Contains("รถเสียกลางทาง"), true);
         var port = DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", plant: "LOTUS ASIA", destination: "", status: "COMPLETED"), [], today);
         failed += Say("a late export with no message and no port on the leg is proposed the department's main reason", port?.To, "Delay due to Traffic Congestion");
+        failed += Say("and an export's reason goes into REMARK — the export layout has no REASON / DELAY", port?.Field, "remark");
+        failed += Say("an import's goes into REASON / DELAY", breakdown?.Field, "reason");
+        failed += Say("an export whose REMARK already says something is not proposed over", DelayReasonRule.Propose(new JobRecord { Key = "J", Cat = "EXPORT", Date = "21/09/2026", PlanTime = "09:00", ArrDate = "21/09/2026", ArrTime = "11:00", Customer = "OPTIDUR", Remark = "รอคิวโหลด", Status = "COMPLETED" }, [], today), null);
+        failed += Say("a proposal is a delay reason by its rule, whichever column it goes to", DelayReasonRule.IsReasonRule("reason.route") && DelayReasonRule.IsReasonRule("reason.carrier") && !DelayReasonRule.IsReasonRule("customer.rotation"), true);
         var lcb = DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", destination: "LCB TERMINAL B"), ["สวัสดีครับ"], today);
         failed += Say("a late import off a port is proposed Port Traffic Congestion", lcb?.To, "Port Traffic Congestion");
         failed += Say("by the route rule, naming the port and that another may be picked", lcb?.Rule == "reason.route" && lcb.Reason.Contains("LCB TERMINAL B") && lcb.Reason.Contains("เลือกเหตุผลอื่นได้"), true);

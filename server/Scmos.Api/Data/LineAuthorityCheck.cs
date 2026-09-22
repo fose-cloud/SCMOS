@@ -399,6 +399,22 @@ public static class LineAuthorityCheck
         if (!stampedRight) failed++;
         Console.WriteLine($"  {(stampedRight ? "ok  " : "FAIL")}  an arrival the register already holds is not taken again; a missing time still is; a status move still is");
 
+        // 22 Sep 2026: a job holding every designated cell takes nothing more
+        // from a room unless the message moves it forward — a message with
+        // nothing to write is filed, not lit "LINE 1" on the row.
+        var full = Job("T6", "SHORE", "DELIVERED", plate: "70-1234") with { ArrDate = "22/09/2026", ArrTime = "08:00", Driver = "สมชาย", Contact = "081-2345678" };
+        var noStatus = LineAuthority.Move(full, null);
+        var backwards = LineAuthority.Move(full, "IN_TRANSIT");
+        var forward = LineAuthority.Move(full with { Status = "IN_TRANSIT" }, LineParser.SiteArrival);
+        var closed = LineAuthority.Move(full with { Status = "COMPLETED" }, LineParser.SiteArrival);
+        var redundantRight = noStatus.Redundant(full) && backwards.Redundant(full) && closed.Redundant(full with { Status = "COMPLETED" })
+            && !forward.Redundant(full with { Status = "IN_TRANSIT" })
+            && !noStatus.Redundant(full with { Driver = "" }) && !noStatus.Redundant(full with { ArrTime = "" })
+            && !noStatus.Redundant(null)
+            && LineAuthority.Cells.Designated.SequenceEqual([LineAuthority.Cells.Licence, LineAuthority.Cells.Driver, LineAuthority.Cells.Contact, LineAuthority.Cells.ArrDate, LineAuthority.Cells.ArrTime]);
+        if (!redundantRight) failed++;
+        Console.WriteLine($"  {(redundantRight ? "ok  " : "FAIL")}  a message that writes nothing to a job holding every designated cell is filed; a forward move, a missing cell or no pinned job still waits");
+
         /* ------------------------------------- at the site, by category */
 
         Console.WriteLine();

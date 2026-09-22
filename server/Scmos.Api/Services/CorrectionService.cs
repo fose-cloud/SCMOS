@@ -7,7 +7,7 @@ using Scmos.Api.Rules;
 namespace Scmos.Api.Services;
 
 /// <summary>One proposal as the workspace reads it: what would change on which job, and why.</summary>
-public sealed record CorrectionView(long Id, string JobKey, string JobCode, string Field, string Label, string From, string To, string Reason, DateTimeOffset ProposedAt);
+public sealed record CorrectionView(long Id, string JobKey, string JobCode, string Field, string Label, string From, string To, string Reason, DateTimeOffset ProposedAt, string Rule);
 
 /// <summary>What became of one decision — for the toast, and for the count a bulk approval reports.</summary>
 public sealed record CorrectionOutcome(bool Ok, int Status, string Message, int Applied = 0, int Stale = 0, int Refused = 0);
@@ -67,7 +67,7 @@ public sealed class CorrectionService(ScmosDbContext db, JobsRepository jobs, De
         if (!await MayActOnAsync(user, row.JobKey, token))
             return new(false, StatusCodes.Status403Forbidden, "อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่");
         var chosen = (pick ?? "").Trim();
-        if (chosen.Length > 0 && row.Field == DelayReasonRule.Field && chosen != row.ToValue)
+        if (chosen.Length > 0 && DelayReasonRule.IsReasonRule(row.Rule) && chosen != row.ToValue)
         {
             if (!DelayReasonRule.IsCatalogued(chosen)) return new(false, StatusCodes.Status400BadRequest, "เหตุผลต้องเป็นหนึ่งในรายการที่กำหนด");
             row.Note = $"เจ้าของเลือก \"{chosen}\" แทนที่เสนอ \"{row.ToValue}\"";
@@ -207,5 +207,5 @@ public sealed class CorrectionService(ScmosDbContext db, JobsRepository jobs, De
     private static string Name(JobCorrection row) => row.JobCode.Length > 0 ? row.JobCode : row.JobKey;
 
     private static CorrectionView View(JobCorrection row) =>
-        new(row.Id, row.JobKey, row.JobCode, row.Field, CorrectionRules.Labels.GetValueOrDefault(row.Field, row.Field), row.FromValue, row.ToValue, row.Reason, row.ProposedAt);
+        new(row.Id, row.JobKey, row.JobCode, row.Field, CorrectionRules.Labels.GetValueOrDefault(row.Field, row.Field), row.FromValue, row.ToValue, row.Reason, row.ProposedAt, row.Rule);
 }

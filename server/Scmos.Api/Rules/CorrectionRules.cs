@@ -73,6 +73,7 @@ public static class CorrectionRules
     {
         ["cat"] = "หมวด", ["customer"] = "ลูกค้า", ["trucker"] = "ผู้ขนส่ง", ["type"] = "ประเภทรถ/ตู้", ["status"] = "สถานะ",
         [DelayReasonRule.Field] = DelayReasonRule.Label,
+        [DelayReasonRule.ExportField] = DelayReasonRule.ExportLabel,
     };
 
     private static readonly string[] Categories = ["IMPORT", "EXPORT", "DELIVERY"];

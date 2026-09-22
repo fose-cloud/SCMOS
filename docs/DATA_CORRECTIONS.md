@@ -32,7 +32,7 @@ Nothing is guessed. What no rule can read is printed in the report's "left alone
 | no message; a port or terminal on the leg (LCB, Laem Chabang, แหลมฉบัง, PAT, ICD, terminal, ท่าเรือ) | `Port Traffic Congestion` | `reason.route` |
 | no message, no port | `Delay due to Traffic Congestion` — the department's main reason | `reason.route` |
 
-The proposal says how late and which of the two defaults it took; the drawer shows the whole catalogue in a list with the proposal selected, and **approving writes what the owner picked** (`POST /api/corrections/{id}/apply` with `value`, catalogue only). A reason a person typed is never proposed over; a rejected reason proposal is not asked again. `CorrectionScheduler` runs the pass every 30 minutes (`Corrections:AutoMinutes`, 0 = off) so this morning's late arrival is asked about this morning.
+On an IMPORT the reason goes into REASON / DELAY; on an EXPORT — whose layout has no such column — into REMARK ("สำหรับตารางงาน EXPORT กำหนดให้ใส่คำตอบในคอลัมน์ REMARK"), and an export whose REMARK already says something is not asked. The proposal says how late and which of the two defaults it took; the drawer shows the whole catalogue in a list with the proposal selected, and **approving writes what the owner picked** (`POST /api/corrections/{id}/apply` with `value`, catalogue only). A reason a person typed is never proposed over; a rejected reason proposal is not asked again. `CorrectionScheduler` runs the pass every 30 minutes (`Corrections:AutoMinutes`, 0 = off) so this morning's late arrival is asked about this morning.
 
 ## The flow
 
@@ -50,4 +50,4 @@ The proposal says how late and which of the two defaults it took; the drawer sho
 
 ## Verified
 
-`--check-corrections` (59 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.
+`--check-corrections` (82 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.

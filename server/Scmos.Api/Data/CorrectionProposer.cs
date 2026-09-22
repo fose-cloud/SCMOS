@@ -76,9 +76,9 @@ public static class CorrectionProposer
         var open = await db.JobCorrections.Where(row => row.State == CorrectionState.Pending).ToListAsync(token);
         var openByCell = open.ToDictionary(row => (row.JobKey, row.Field), row => row);
         var declined = await db.JobCorrections.AsNoTracking().Where(row => row.State == CorrectionState.Rejected)
-            .Select(row => new { row.JobKey, row.Field, row.FromValue, row.ToValue }).ToListAsync(token);
-        var declinedCells = declined.Where(row => row.Field == DelayReasonRule.Field).Select(row => row.JobKey).ToHashSet(StringComparer.Ordinal);
-        var declinedValues = declined.Where(row => row.Field != DelayReasonRule.Field).Select(row => (row.JobKey, row.Field, row.FromValue, row.ToValue)).ToHashSet();
+            .Select(row => new { row.JobKey, row.Field, row.FromValue, row.ToValue, row.Rule }).ToListAsync(token);
+        var declinedCells = declined.Where(row => DelayReasonRule.IsReasonRule(row.Rule)).Select(row => row.JobKey).ToHashSet(StringComparer.Ordinal);
+        var declinedValues = declined.Where(row => !DelayReasonRule.IsReasonRule(row.Rule)).Select(row => (row.JobKey, row.Field, row.FromValue, row.ToValue)).ToHashSet();
         var messages = await MessagesAsync(db, today, token);
 
         var byRule = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -103,6 +103,17 @@ public static class CorrectionProposer
             var proposals = CorrectionRules.Propose(job.Cat, cells, lists).ToList();
             var reason = DelayReasonRule.Propose(job, messages.GetValueOrDefault(row.Key, []), today);
             if (reason is not null) { lateAsked++; proposals.Add(reason); }
+            // A delay reason waiting under the wrong column for its category — the export rows queued into
+            // REASON before the department moved them to REMARK — is retired, so the drawer shows one.
+            if (queue && openByCell.TryGetValue((row.Key, DelayReasonRule.Field), out var misplaced)
+                && DelayReasonRule.IsReasonRule(misplaced.Rule) && DelayReasonRule.FieldFor(job.Cat) != DelayReasonRule.Field)
+            {
+                misplaced.State = CorrectionState.Stale;
+                misplaced.DecidedAt = clock.GetUtcNow();
+                misplaced.Note = $"ย้ายไปคอลัมน์ {DelayReasonRule.ExportField} (รอบ {batch})";
+                openByCell.Remove((row.Key, DelayReasonRule.Field));
+                superseded++;
+            }
 
             foreach (var field in CorrectionRules.Fields)
             {
@@ -122,7 +133,7 @@ public static class CorrectionProposer
 
             foreach (var one in proposals)
             {
-                if (one.Field == DelayReasonRule.Field ? declinedCells.Contains(row.Key) : declinedValues.Contains((row.Key, one.Field, one.From, one.To)))
+                if (DelayReasonRule.IsReasonRule(one.Rule) ? declinedCells.Contains(row.Key) : declinedValues.Contains((row.Key, one.Field, one.From, one.To)))
                 { skippedDeclined++; continue; }
                 byRule[one.Rule] = byRule.GetValueOrDefault(one.Rule) + 1;
                 var mapping = $"{one.Field}: {Show(one.From)} → {Show(one.To)}";

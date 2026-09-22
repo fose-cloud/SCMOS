@@ -25,6 +25,8 @@ export type Correction = {
   to: string;
   reason: string;
   proposedAt: string;
+  /** Which rule proposed it — type.canonical, customer.rotation.site, reason.route … */
+  rule?: string;
 };
 
 /** What the API answers on /api/corrections/pending. */
@@ -33,9 +35,9 @@ export type CorrectionFeed = { items: Correction[]; count: number; mine: number 
 /** One reason an owner may pick for a late shipment — the catalogue as the rule holds it (/api/corrections/reasons). */
 export type ReasonChoice = { text: string; category: string; thai: string };
 
-/** The proposal is a delay reason: the owner may pick another from the catalogue before approving. */
-export function isReasonProposal(one: Pick<Correction, "field">): boolean {
-  return one.field === "reason";
+/** The proposal is a delay reason — by its rule, whichever column it goes to (REASON / DELAY on an import, REMARK on an export): the owner may pick another from the catalogue before approving. */
+export function isReasonProposal(one: Pick<Correction, "field" | "rule">): boolean {
+  return typeof one.rule === "string" ? one.rule.startsWith("reason.") : one.field === "reason";
 }
 
 /** The proposals waiting on each job, in the order the API sent them. */

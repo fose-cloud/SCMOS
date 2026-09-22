@@ -31,8 +31,18 @@ namespace Scmos.Api.Rules;
 /// </summary>
 public static partial class DelayReasonRule
 {
+    /// <summary>IMPORT's column: REASON / DELAY.</summary>
     public const string Field = "reason";
+    /// <summary>EXPORT's column: the export layout has no REASON / DELAY, so the reason goes into REMARK ("สำหรับตารางงาน EXPORT กำหนดให้ใส่คำตอบในคอลัมน์ REMARK", 22 Sep 2026).</summary>
+    public const string ExportField = "remark";
     public const string Label = "เหตุผล / ความล่าช้า";
+    public const string ExportLabel = "หมายเหตุ (REMARK) — เหตุผลความล่าช้า";
+    /// <summary>The rules' names all begin with this; a proposal is a delay reason by its rule, whichever column it goes to.</summary>
+    public const string RulePrefix = "reason.";
+
+    /// <summary>Which column the reason goes to for this category.</summary>
+    public static string FieldFor(string category) => category.Trim().Equals("EXPORT", StringComparison.OrdinalIgnoreCase) ? ExportField : Field;
+    public static bool IsReasonRule(string? rule) => (rule ?? "").StartsWith(RulePrefix, StringComparison.Ordinal);
     /// <summary>How far back a late shipment is asked about. Older than this, the owner is unlikely to remember and the KPI period has closed.</summary>
     public const int LookbackDays = 90;
 
@@ -61,8 +71,9 @@ public static partial class DelayReasonRule
     {
         var cat = job.Cat.Trim().ToUpperInvariant();
         if (cat is not ("IMPORT" or "EXPORT")) return false;
-        if (JobStatus.IsClosedOut(job.Status) && !JobStatus.IsDone(job.Status)) return false;
-        if (Formats.Clean(job.Reason).Length > 0) return false;
+        if (string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)) return false;
+        // The column the reason would go to must be blank: a person's own words stand.
+        if (Formats.Clean(cat == "EXPORT" ? job.Remark : job.Reason).Length > 0) return false;
         var late = JobRules.MinutesLate(job);
         if (late is null || late <= CustomerTerms.GraceMinutes(job.Customer)) return false;
         var day = Formats.ParseDay(job.Date);
@@ -77,6 +88,8 @@ public static partial class DelayReasonRule
     public static Correction? Propose(JobRecord job, IReadOnlyList<string> messages, DateOnly today)
     {
         if (!Asks(job, today)) return null;
+        var field = FieldFor(job.Cat);
+        var was = field == ExportField ? job.Remark : job.Reason;
         var late = (int)Math.Round(JobRules.MinutesLate(job)!.Value);
         var lateness = $"รถถึงช้ากว่าแผน {late} นาที";
 
@@ -86,7 +99,7 @@ public static partial class DelayReasonRule
             if (read.Category == DelayCategory.Other || read.Confidence < 0.6) continue;
             var excerpt = Formats.Clean(text);
             if (excerpt.Length > 80) excerpt = excerpt[..80] + "…";
-            return new(Field, job.Reason, TextOf(read.Category), "reason.carrier",
+            return new(field, was, TextOf(read.Category), "reason.carrier",
                 $"{lateness} · ผู้ขนส่งแจ้ง \"{excerpt}\" ({read.Basis})");
         }
 
@@ -94,9 +107,9 @@ public static partial class DelayReasonRule
         var places = string.Join(" · ", new[] { from, to, job.Plant, job.CyYard, job.Destination }.Where(place => place.Trim().Length > 0).Distinct());
         var port = new[] { from, to, job.Plant, job.CyYard, job.Destination }.FirstOrDefault(place => PortPlaces().IsMatch(place));
         return port is not null
-            ? new(Field, job.Reason, TextOf(DelayCategory.Port), "reason.route",
+            ? new(field, was, TextOf(DelayCategory.Port), "reason.route",
                 $"{lateness} · ไม่มีข้อความจากผู้ขนส่ง — เส้นทางผ่านท่าเรือ/ลาน ({port.Trim()}) จึงเสนอเหตุผลหลัก; เลือกเหตุผลอื่นได้จากรายการ")
-            : new(Field, job.Reason, TextOf(DelayCategory.Traffic), "reason.route",
+            : new(field, was, TextOf(DelayCategory.Traffic), "reason.route",
                 $"{lateness} · ไม่มีข้อความจากผู้ขนส่ง — เสนอเหตุผลหลักของแผนก{(places.Length > 0 ? $" (เส้นทาง {places})" : "")}; เลือกเหตุผลอื่นได้จากรายการ");
     }
 }

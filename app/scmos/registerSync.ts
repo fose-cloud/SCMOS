@@ -77,3 +77,6 @@ export function needsFullReload(delta: { full: boolean; count: number }, localCo
 
 /** How often an open workspace asks what changed, while somebody is looking at it. */
 export const SYNC_EVERY_MS = 20_000;
+
+/** How often the workspace asks for the two queues (hauliers' messages, proposed corrections): every minute, and on coming back to the tab. */
+export const QUEUES_EVERY_MS = 60_000;

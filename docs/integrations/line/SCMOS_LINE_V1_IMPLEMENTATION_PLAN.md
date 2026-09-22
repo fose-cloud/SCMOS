@@ -412,3 +412,9 @@ assumes is not being written yet either.
 The 20–30 real vendor messages are still wanted. The parser is checked against
 the specification's examples and shapes the register makes likely, which is not
 the same as being checked against what vendors actually type.
+
+### 22 Sep 2026 — a job holding every designated cell takes nothing more from a room
+
+"เมื่อคอลัมน์ที่กำหนดไว้มีการใส่ข้อมูลในตารางแล้ว กำหนดให้ LINE ไม่ต้องดึงข้อมูลเข้ามาแล้ว — ลดการดึงข้อมูลที่ทำให้ระบบช้า และจะได้ไม่ต้องทำงานตลอดเวลา".
+
+The designated cells are `LineAuthority.Cells.Designated`: LICENCE, DRIVER, DRIVER CONTACT, ARRIVAL DATE, ARRIVAL TIME. Since 20 Sep a message whose every fill the job already holds, and a same-status message whose arrival the job already holds, were filed as `already-there`. What still lit "LINE 1" on a finished row was a message that could write nothing at all — no status in it, a closed or held job, a step backwards — pinned to a job that already held all five. `LineDecision.Redundant(job)` names that case and the worker files it as `already-recorded` (IGNORED) instead of NEED_REVIEW; a forward status move still waits for the owner, and a message pinned to no one job is still the review screen's. The web asks for the two queues (hauliers' messages, proposed corrections) every minute and on returning to the tab instead of every 20 seconds; the register delta keeps its 20-second cadence. Checked in `--check-line` (LineAuthorityCheck).

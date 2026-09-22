@@ -91,6 +91,8 @@ public static class LineAuthority
 
         /// <summary>Already there. Not an error, and not a change.</summary>
         public const string AlreadyThere = "already-there";
+        /// <summary>Filed, not queued: the job already holds every designated cell and the message moves nothing forward (22 Sep 2026).</summary>
+        public const string AlreadyRecorded = "already-recorded";
 
         /// <summary>
         /// Already at that status, and the message gives the arrival time the
@@ -177,6 +179,14 @@ public static class LineAuthority
         public const string Seal = "seal";
         public const string ArrDate = "arrDate";
         public const string ArrTime = "arrTime";
+
+        /// <summary>
+        /// The cells the department designated (22 Sep 2026: "เมื่อคอลัมน์ที่กำหนดไว้
+        /// มีการใส่ข้อมูลในตารางแล้ว กำหนดให้ LINE ไม่ต้องดึงข้อมูลเข้ามาแล้ว"): a
+        /// job holding every one of them takes nothing more from a room
+        /// unless the message moves its status forward.
+        /// </summary>
+        public static readonly string[] Designated = [Licence, Driver, Contact, ArrDate, ArrTime];
 
         /// <summary>The cell's name as a person reads it.</summary>
         public static string Label(string cell) => cell switch
@@ -271,6 +281,16 @@ public static class LineAuthority
     {
         /// <summary>Whether this decision should change a job at all.</summary>
         public bool Applies => Result is Outcome.Ok or Outcome.TruckDetails or Outcome.AllJobs or Outcome.ArrivalOnly;
+
+        /// <summary>
+        /// Whether a message that would write nothing should be filed rather
+        /// than queued: the job it is pinned to already holds every
+        /// designated cell, so there is nothing a person could approve. A
+        /// forward status move still waits for the owner; so does a message
+        /// pinned to no one job, which is the review screen's.
+        /// </summary>
+        public bool Redundant(JobCandidate? job) =>
+            !Applies && job is not null && Keys.Count == 1 && Cells.Designated.All(job.Holds);
 
         /// <summary>Whether this decision writes every one of its keys, not one chosen among them.</summary>
         public bool Every => Result == Outcome.AllJobs;
