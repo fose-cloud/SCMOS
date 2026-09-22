@@ -57,6 +57,9 @@ public static class CorrectionProposer
         var superseded = 0;
         var cancelledJobs = 0;
         var typeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        // For a bare customer name the rotation holds under several sites: what the jobs' destinations
+        // and plants actually say, so the department can add the synonym the rule is missing.
+        var ambiguous = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
 
         foreach (var job in jobs)
         {
@@ -83,6 +86,12 @@ public static class CorrectionProposer
                         var sites = field == "customer" ? CorrectionRules.Sites(value, lists.Customers) : 0;
                         var label = sites > 1 ? $"{field}: {Show(value)} — หลายไซต์ใน Job Rotation ({sites}) ปลายทาง/โรงงานไม่ระบุ" : $"{field}: {Show(value)}";
                         leftAlone[label] = leftAlone.GetValueOrDefault(label) + 1;
+                        if (sites > 1)
+                        {
+                            var evidence = $"{CorrectionRules.Squash(cells["destination"])} | {CorrectionRules.Squash(cells["plant"])}";
+                            var seen = ambiguous.TryGetValue(value, out var found) ? found : ambiguous[value] = new Dictionary<string, int>(StringComparer.Ordinal);
+                            seen[evidence] = seen.GetValueOrDefault(evidence) + 1;
+                        }
                     }
                     continue;
                 }
@@ -149,6 +158,17 @@ public static class CorrectionProposer
             foreach (var (value, count) in leftAlone.OrderByDescending(entry => entry.Value).Take(60))
                 Console.WriteLine($"   {count,5}  {value}");
             if (leftAlone.Count > 60) Console.WriteLine($"   … and {leftAlone.Count - 60} more spellings");
+        }
+        if (ambiguous.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Several sites, no evidence — the rotation's sites, and what the jobs' DESTINATION | PLANT LOADING say (add a synonym in CorrectionRules.SiteSynonyms when a pair is clear):");
+            foreach (var (name, seen) in ambiguous.OrderByDescending(entry => entry.Value.Values.Sum()))
+            {
+                Console.WriteLine($"   {Show(name)} → {string.Join(" · ", CorrectionRules.SiteNames(name, lists.Customers))}");
+                foreach (var (evidence, count) in seen.OrderByDescending(entry => entry.Value).Take(8))
+                    Console.WriteLine($"      {count,5}  {evidence}");
+            }
         }
         if (!queue)
         {

@@ -61,7 +61,12 @@ public static class CorrectionCheck
         var rayong = CorrectionRules.Customer("DANA", lists.Customers, "XPO-RAYONG");
         failed += Say("DANA delivered to XPO-RAYONG is DANA (RAYONG)", To(rayong), "DANA (RAYONG)");
         failed += Say("by the site rule, and the reason names the evidence", rayong?.Rule == "customer.rotation.site" && rayong.Reason.Contains("ระบุ RAYONG"), true);
-        failed += Say("DANA delivered to XPO LADKRABANG names no site the rotation spells (LKB) — left alone", To(CorrectionRules.Customer("DANA", lists.Customers, "XPO  LADKRABANG")), null);
+        var lkb = CorrectionRules.Customer("DANA", lists.Customers, "XPO  LADKRABANG");
+        failed += Say("DANA delivered to XPO LADKRABANG is DANA (LKB) by the department's synonym", To(lkb), "DANA (LKB)");
+        failed += Say("and the reason shows the synonym it used", lkb?.Reason.Contains("LADKRABANG = LKB") == true, true);
+        failed += Say("LAD KRABANG in two words is the same site", To(CorrectionRules.Customer("DANA", lists.Customers, "WH LAD KRABANG")), "DANA (LKB)");
+        failed += Say("a destination naming no site and no synonym is still left alone", To(CorrectionRules.Customer("DANA", lists.Customers, "XPO CHONBURI")), null);
+        failed += Say("the report can name the sites a bare name could mean", string.Join(",", CorrectionRules.SiteNames("DANA", lists.Customers)), "DANA (FREE ZONE),DANA (LKB),DANA (RAYONG)");
         failed += Say("HENKEL delivered to BANGPOO is HENKEL (BANGPOO), not the BKK one — every site word must be there", To(CorrectionRules.Customer("HENKEL", lists.Customers, "BANGPOO")), "HENKEL (BANGPOO)");
         failed += Say("HENKEL delivered to BANGPOO BKK is the BKK one", To(CorrectionRules.Customer("HENKEL", lists.Customers, "WH BANGPOO / BKK")), "HENKEL (BANGPOO) BKK");
         failed += Say("HENKEL delivered to HAZCHEM names a site the rotation does not list — left alone", To(CorrectionRules.Customer("HENKEL", lists.Customers, "HAZCHEM")), null);

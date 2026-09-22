@@ -40,8 +40,23 @@ public static class CorrectionRules
     /// <summary>The dropdown columns, in the order the grid shows them.</summary>
     public static readonly string[] Fields = ["cat", "customer", "trucker", "type", "status"];
 
-    /// <summary>The cells a customer proposal may read as evidence of the site — never proposed themselves.</summary>
+    /// <summary>The cells a customer proposal may read as evidence of the site — DESTINATION and PLANT LOADING on the grid — never proposed themselves.</summary>
     public static readonly string[] Evidence = ["destination", "plant"];
+
+    /// <summary>
+    /// What a destination calls a site the rotation names another way — the
+    /// department's own abbreviations (22 Sep 2026: "เพิ่มคำพ้อง"). Each entry
+    /// is the words a destination or plant may carry, and the word the
+    /// rotation's site uses instead. A synonym is added only when the report
+    /// showed the pair; a guessed one would be a guessed customer.
+    /// </summary>
+    public static readonly (string[] Words, string Site)[] SiteSynonyms =
+    [
+        (["LADKRABANG"], "LKB"),
+        (["LAD", "KRABANG"], "LKB"),
+        (["LATKRABANG"], "LKB"),
+        (["LAT", "KRABANG"], "LKB"),
+    ];
 
     public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -112,23 +127,36 @@ public static class CorrectionRules
             return new("customer", value, sites[0], "customer.rotation", $"ชื่อเดียวใน Job Rotation ที่ขึ้นต้นด้วย {Squash(value)}");
         if (sites.Count == 0) return null;
 
-        // Several sites: the job's own destination or plant has to name one of them, whole.
+        // Several sites: the job's own destination or plant has to name one of them, whole —
+        // in the rotation's word, or in a word the department's synonyms say means it.
         var seen = Tokens(evidence).ToHashSet(StringComparer.Ordinal);
+        var via = new List<string>();
+        foreach (var (alias, site) in SiteSynonyms)
+        {
+            if (!alias.All(seen.Contains) || seen.Contains(site)) continue;
+            seen.Add(site);
+            via.Add($"{string.Join(' ', alias)} = {site}");
+        }
         var named = sites.Select(name => (Name: name, Site: Tokens(name).Skip(words.Count).ToList()))
             .Where(one => one.Site.All(seen.Contains)).OrderByDescending(one => one.Site.Count).ToList();
         if (named.Count == 0) return null;
         // BANGPOO and BANGPOO BKK both named: the site that says more, when it says everything the others say, is the one meant.
         var best = named[0];
         if (named.Count > 1 && (named[1].Site.Count == best.Site.Count || named.Skip(1).Any(other => !other.Site.All(best.Site.Contains)))) return null;
-        return new("customer", value, best.Name, "customer.rotation.site", $"ปลายทาง/โรงงานของงานระบุ {string.Join(' ', best.Site)} — ใน Job Rotation คือ {best.Name}");
+        var used = via.Where(one => best.Site.Contains(one.Split(" = ")[1])).ToList();
+        return new("customer", value, best.Name, "customer.rotation.site",
+            $"ปลายทาง/โรงงานของงานระบุ {string.Join(' ', best.Site)}{(used.Count > 0 ? $" ({string.Join(", ", used)})" : "")} — ใน Job Rotation คือ {best.Name}");
     }
 
-    /// <summary>How many rotation names a bare customer name could mean — for the report's "left alone" list to say "หลายไซต์".</summary>
-    public static int Sites(string value, IReadOnlyList<string> customers)
+    /// <summary>The rotation names a bare customer name could mean — for the report's "left alone" list to say which sites.</summary>
+    public static IReadOnlyList<string> SiteNames(string value, IReadOnlyList<string> customers)
     {
         var words = Tokens(value);
-        return words.Count == 0 ? 0 : customers.Count(name => Tokens(name) is var its && its.Count > words.Count && its.Take(words.Count).SequenceEqual(words));
+        return words.Count == 0 ? [] : customers.Where(name => Tokens(name) is var its && its.Count > words.Count && its.Take(words.Count).SequenceEqual(words)).ToList();
     }
+
+    /// <summary>How many rotation names a bare customer name could mean.</summary>
+    public static int Sites(string value, IReadOnlyList<string> customers) => SiteNames(value, customers).Count;
 
     private static readonly char[] Separators = [' ', '-', '/', '(', ')', ',', '.', '_'];
 
