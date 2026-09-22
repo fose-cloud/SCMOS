@@ -50,6 +50,34 @@ public record SupplierScore(
     double? DelayFree, int DelayCount,
     int? Score);
 
+/// <summary>
+/// Which customers and hauliers the measures are read over — any of the
+/// chosen customers, and any of the chosen hauliers, the dashboard's own
+/// CUSTOMER / TRUCKER pickers. Asked for on 22 Sep 2026: the six measured
+/// cards stayed the whole period's while every count beside them narrowed.
+/// A haulier is matched through the carrier register, so "SANGJA" and
+/// "Sangja Transport Co., Ltd." are one choice; a customer by its spelling,
+/// as the picker offers it.
+/// </summary>
+public sealed record KpiScope(IReadOnlyList<string> Customers, IReadOnlyList<string> Truckers)
+{
+    public static readonly KpiScope All = new([], []);
+    public const int MaxChoices = 20;
+    public bool IsAll => Customers.Count == 0 && Truckers.Count == 0;
+
+    /// <summary>The pickers' pipe-separated any-of values, as the web sends them; "ALL" or empty is no filter.</summary>
+    public static KpiScope Parse(string? customer, string? trucker) => new(Choices(customer), Choices(trucker));
+
+    private static IReadOnlyList<string> Choices(string? value) =>
+        (value ?? "").Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(choice => choice != "ALL" && choice.Length <= 120 && !choice.Any(char.IsControl))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxChoices).ToList();
+
+    public bool HasCustomer(string customer) => Customers.Count == 0 || Customers.Contains(Formats.Clean(customer), StringComparer.OrdinalIgnoreCase);
+
+    public string Key => IsAll ? "" : "|c=" + string.Join(",", Customers.OrderBy(c => c, StringComparer.OrdinalIgnoreCase)) + "|t=" + string.Join(",", Truckers.OrderBy(t => t, StringComparer.OrdinalIgnoreCase));
+}
+
 public record KpiEngineReport(
     Period Period,
     int Jobs,
@@ -113,8 +141,8 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     /// report reads has to be able to invalidate it, so the caller adds a stamp
     /// for the rest.
     /// </summary>
-    private static string CacheKey(Period period, DateTimeOffset updatedAt) =>
-        $"kpi-report-v2|{period}|{updatedAt.UtcTicks}";
+    private static string CacheKey(Period period, KpiScope scope, DateTimeOffset updatedAt) =>
+        $"kpi-report-v2|{period}|{updatedAt.UtcTicks}{scope.Key}";
 
     /// <summary>
     /// A stamp that moves whenever anything the report reads besides the
@@ -151,7 +179,9 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         return $"{issues}|{cases}|{delays}|{preRuns}";
     }
 
-    public async Task<KpiEngineReport> BuildAsync(Period period, CancellationToken token)
+    public Task<KpiEngineReport> BuildAsync(Period period, CancellationToken token) => BuildAsync(period, KpiScope.All, token);
+
+    public async Task<KpiEngineReport> BuildAsync(Period period, KpiScope scope, CancellationToken token)
     {
         var snapshot = await register.ReadAsync(token);
 
@@ -161,7 +191,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         // report cached against the jobs alone would go on showing one company
         // as two until a job happened to change.
         var directory = await carriers.ReadAsync(token);
-        var key = CacheKey(period, snapshot.UpdatedAt)
+        var key = CacheKey(period, scope, snapshot.UpdatedAt)
             + "|" + directory.Stamp
             + "|" + await InputsStampAsync(token);
         if (cache.TryGetValue(key, out KpiEngineReport? ready) && ready is not null) return ready;
@@ -174,6 +204,9 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         {
             var record = row.Record;
             if (record is null || !InPeriod(record, period)) continue;
+            // The dashboard's CUSTOMER / TRUCKER: a customer by spelling, a haulier through the register.
+            if (!scope.HasCustomer(record.Customer)) continue;
+            if (scope.Truckers.Count > 0 && !scope.Truckers.Any(wanted => directory.Same(row.Trucker, wanted))) continue;
             var entry = (row.Key, directory.Company(row.Trucker), record);
             jobs.Add(entry);
 
@@ -191,6 +224,10 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         var delays = await db.DelayRecords.AsNoTracking().ToListAsync(token);
         var cases = await db.IncidentCases.AsNoTracking().ToListAsync(token);
         var issues = await db.OperationalIssues.AsNoTracking().ToListAsync(token);
+        // Under a scope, a case counts only when it is pinned to a job in that scope: a case pinned to
+        // nothing cannot be said to be this customer's or this haulier's, so it is left out and said so.
+        var unpinnedCases = scope.IsAll ? 0 : cases.Count(c => c.JobKey.Length == 0 || !keys.Contains(c.JobKey));
+        if (!scope.IsAll) cases = cases.Where(c => keys.Contains(c.JobKey)).ToList();
 
         // Issues are kept for the whole period, matched or not: the ones that
         // reach a job are somebody's score, and the ones that do not are still
@@ -218,6 +255,16 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
             Billing(),
             SupplierPerformance(jobs, requests, delays, out var scores),
         };
+        if (!scope.IsAll)
+        {
+            var scoped = "ตามตัวกรอง " + string.Join(" · ", new[] { scope.Customers.Count > 0 ? "ลูกค้า " + string.Join(", ", scope.Customers) : "",
+                scope.Truckers.Count > 0 ? "ผู้ขนส่ง " + string.Join(", ", scope.Truckers) : "" }.Where(part => part.Length > 0));
+            measures = measures.Select(measure => measure with
+            {
+                Note = measure.Note + " · " + scoped
+                    + (measure.Id is nameof(MeasureId.Accident) or nameof(MeasureId.CarPar) && unpinnedCases > 0 ? $" · ไม่นับเคสที่ไม่ได้ผูกกับงานในขอบเขต {unpinnedCases} เคส" : ""),
+            }).ToList();
+        }
 
         var report = new KpiEngineReport(period, jobs.Count, measures, scores,
             DateTimeOffset.UtcNow.ToString("O"), scorecard, unattributed, periodIssues.Count);
@@ -244,9 +291,11 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     /// thousand rows; if that ever stops being cheap, cache it — do not fork the
     /// calculation.
     /// </summary>
-    public async Task<KpiEngineReport> BuildWithTrendAsync(Period period, CancellationToken token)
+    public Task<KpiEngineReport> BuildWithTrendAsync(Period period, CancellationToken token) => BuildWithTrendAsync(period, KpiScope.All, token);
+
+    public async Task<KpiEngineReport> BuildWithTrendAsync(Period period, KpiScope scope, CancellationToken token)
     {
-        var report = await BuildAsync(period, token);
+        var report = await BuildAsync(period, scope, token);
 
         var months = await MonthsAsync(token);
         if (months.Count == 0) return report;
@@ -264,7 +313,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         foreach (var month in window)
         {
             var parts = month.Split('-');
-            byMonth.Add((month, await BuildAsync(new Period(parts[0], parts[1], ""), token)));
+            byMonth.Add((month, await BuildAsync(new Period(parts[0], parts[1], ""), scope, token)));
         }
 
         var measures = report.Measures.Select(measure => measure with

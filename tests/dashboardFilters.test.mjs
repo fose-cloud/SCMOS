@@ -41,7 +41,17 @@ test("both tabs and Excel use the same filtered data, drill preserves dimensions
   const dashboard = readFileSync(new URL("../app/scmos/screens/Dashboard.tsx", import.meta.url), "utf8");
   assert.match(dashboard, /FilterPickMany label="CUSTOMER"/);
   assert.match(dashboard, /FilterPickMany label="TRUCKER"/);
-  assert.match(dashboard, /ไม่ได้กรองตาม CUSTOMER \/ TRUCKER/);
+  // 22 Sep 2026: the six measured cards follow the pickers too — the engine is asked with them,
+  // and the line that said they were not filtered is gone.
+  assert.doesNotMatch(dashboard, /ไม่ได้กรองตาม CUSTOMER \/ TRUCKER/);
+  assert.match(dashboard, /filters=\{filters\}/);
+  const tower = readFileSync(new URL("../app/scmos/screens/ControlTower.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(tower, /ไม่ได้กรองตาม CUSTOMER \/ TRUCKER/);
+  assert.match(tower, /if \(filters\.customer && filters\.customer !== "ALL"\) query\.set\("customer", filters\.customer\);/);
+  assert.match(tower, /if \(filters\.trucker && filters\.trucker !== "ALL"\) query\.set\("trucker", filters\.trucker\);/);
+  assert.match(tower, /useReport\(period, p\.filters\)/);
+  const endpoint = readFileSync(new URL("../server/Scmos.Api/Endpoints/KpiEndpoints.cs", import.meta.url), "utf8");
+  assert.match(endpoint, /KpiScope\.Parse\(customer, trucker\)/);
 });
 
 /* --------------------------------------- one picker narrows the other */

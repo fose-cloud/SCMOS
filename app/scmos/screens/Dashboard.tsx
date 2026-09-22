@@ -247,10 +247,9 @@ export function Dashboard({ jobs, allJobs, filters, onFilters, period, onPeriod,
             allJobs={allJobs}
             period={period}
             onPeriod={onPeriod}
-            // The measured cards are the API's, over the period alone — the
-            // tower says "ไม่ได้กรองตาม CUSTOMER / TRUCKER" beside them while
-            // either picker is narrowing everything else.
-            dimensionsActive={dimensionsActive}
+            // The measured cards are the API's, over the period and — since
+            // 22 Sep 2026 — the CUSTOMER / TRUCKER the pickers have chosen.
+            filters={filters}
             userName={p.userName}
             onDrill={onDrill}
             onOpen={p.onOpen}

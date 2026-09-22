@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { css } from "../theme";
+import type { DashboardFilters } from "../dashboardFilters";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import type { Job, OpsStats } from "../ops";
@@ -65,12 +66,19 @@ type Report = { jobs: number; measures: Measure[]; suppliers: Supplier[] };
  */
 const MINIMUM_SAMPLE = 5;
 
-/** The report for the period the bar has chosen, with its months of trend. */
-function useReport(period: Period): { report: Report | null; failed: boolean } {
+/**
+ * The report for the period the bar has chosen, with its months of trend —
+ * and, since 22 Sep 2026, for the customers and hauliers the pickers have
+ * chosen: the measured cards narrowed the same way as every count beside
+ * them, by the engine, not by the browser.
+ */
+function useReport(period: Period, filters: DashboardFilters): { report: Report | null; failed: boolean } {
   const query = new URLSearchParams({ trend: "true" });
   if (period.year && period.year !== "ALL") query.set("year", period.year);
   if (period.month && period.month !== "ALL") query.set("month", period.month);
   if (period.day && period.day !== "ALL") query.set("day", period.day.slice(0, 2));
+  if (filters.customer && filters.customer !== "ALL") query.set("customer", filters.customer);
+  if (filters.trucker && filters.trucker !== "ALL") query.set("trucker", filters.trucker);
   const search = query.toString();
 
   const [report, setReport] = useRemembered<Report>("controlTower:" + search);
@@ -319,8 +327,8 @@ type Props = {
   allJobs: Job[];
   period: Period;
   onPeriod: (period: Period) => void;
-  /** Whether CUSTOMER / TRUCKER are narrowing the counts below. The measured cards are not narrowed by them. */
-  dimensionsActive: boolean;
+  /** The CUSTOMER / TRUCKER pickers, which narrow the measured cards as well as the counts. */
+  filters: DashboardFilters;
   userName: string;
   onDrill: (target: WsTarget) => void;
   onOpen: (screen: string) => void;
@@ -336,7 +344,7 @@ export function ControlTower(p: Props) {
   const total = s.jobs.length;
   const monthly = period.month !== "ALL" && period.day === "ALL";
 
-  const { report, failed } = useReport(period);
+  const { report, failed } = useReport(period, p.filters);
   const measure = (id: string) => report?.measures.find((m) => m.id === id);
 
   /* ---- clock, on the client only: a server-rendered time is the server's ---- */
@@ -593,7 +601,6 @@ export function ControlTower(p: Props) {
 
           {/* ------------------------------------------------ measured */}
           {failed && <Empty>อ่านตัวชี้วัดจากเซิร์ฟเวอร์ไม่สำเร็จ — การ์ดหกใบด้านล่างจึงยังว่าง ส่วนแผงอื่นนับจากงานที่โหลดไว้ตามปกติ</Empty>}
-          {p.dimensionsActive && <Empty>การ์ดที่วัดจากเซิร์ฟเวอร์ (หกใบด้านล่างและ On-Time Delivery) เป็นภาพรวมตามช่วงเวลา ไม่ได้กรองตาม CUSTOMER / TRUCKER</Empty>}
           <div className="ct-kpis">
             {cards.map((card) => <KpiCard key={card.label} card={card} />)}
           </div>

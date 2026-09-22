@@ -58,6 +58,17 @@ public static class ReportCheck
         failed += Say("the rule registry names the term for Lotus", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "LOTUS ASIA")?.ThresholdMinutes, 30);
         failed += Say("and nothing for a customer without one", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "L'OREAL") is null, true);
 
+        /* ---- the dashboard's CUSTOMER / TRUCKER on the measured cards (22 Sep 2026) ---- */
+        var scope = Scmos.Api.Services.KpiScope.Parse("TANATEX|LOTUS ASIA", "ALL");
+        failed += Say("the pickers' any-of values become a scope", scope.Customers.Count, 2);
+        failed += Say("ALL is no filter", scope.Truckers.Count, 0);
+        failed += Say("a customer is matched by spelling, whatever the case", scope.HasCustomer("lotus asia"), true);
+        failed += Say("and another customer is outside it", scope.HasCustomer("L'OREAL"), false);
+        failed += Say("no choice is every customer", Scmos.Api.Services.KpiScope.All.HasCustomer("anyone"), true);
+        failed += Say("the scope's key is stable whatever the order", Scmos.Api.Services.KpiScope.Parse("B|A", "").Key, Scmos.Api.Services.KpiScope.Parse("A|B", "").Key);
+        failed += Say("no scope adds nothing to the cache key", Scmos.Api.Services.KpiScope.All.Key, "");
+        failed += Say("a control character or an over-long choice is dropped", Scmos.Api.Services.KpiScope.Parse("OK|BAD|" + new string('x', 121), "").Customers.Count, 1);
+
         failed += Say("every trip is counted, measurable or not", line.Trips, 10);
         failed += Say("the base is the ones that could be judged", line.Measurable, 10);
         failed += Say("on time is counted", line.OnTime, 8);
