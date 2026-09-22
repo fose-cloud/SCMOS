@@ -79,7 +79,12 @@ public static class CorrectionCheck
         failed += Say("TROY delivered to KABIBURI (a slip) too", To(CorrectionRules.Customer("TROY", lists.Customers, "KABIBURI")), "TROY (Kabin Buri)");
         failed += Say("DANA delivered to SAHA AUTOPART is DANA (SAHA AUTO) — SAHA belongs to that site alone", To(CorrectionRules.Customer("DANA", lists.Customers, "SAHA AUTOPART")), "DANA (SAHA AUTO)");
         failed += Say("a container number in the destination is not evidence of a site", To(CorrectionRules.Customer("TROY", lists.Customers, "TCNU8067393")), null);
-        failed += Say("ALTEK to a warehouse naming neither variant is left alone", To(CorrectionRules.Customer("ALTEK", lists.Customers, "W/H Frasers Property")), null);
+        failed += Say("ALTEK on a 1X20' TK is the tank account — TK on the type says so", To(CorrectionRules.Customer("ALTEK", lists.Customers, "W/H Frasers Property 1X20' TK")), "ALTEK INTERNATIONAL : TANK");
+        failed += Say("ALTEK on a 1X40' is the plain account — no qualifier shown", To(CorrectionRules.Customer("ALTEK", lists.Customers, "W/H Frasers Property 1X40'")), "ALTEK INTERNATIONAL");
+        failed += Say("ALTEK with nothing at all is the plain account too", To(CorrectionRules.Customer("ALTEK", lists.Customers, "")), "ALTEK INTERNATIONAL");
+        failed += Say("the type is read with the destination and plant through Propose",
+            CorrectionRules.Propose("IMPORT", new Dictionary<string, string> { ["customer"] = "ALTEK", ["destination"] = "OPTIDUR", ["type"] = "1X20' TK" }, lists).Single().To, "ALTEK INTERNATIONAL : TANK");
+        failed += Say("the plain-name fallback never touches a customer whose sites are all different places (DANA)", To(CorrectionRules.Customer("DANA", lists.Customers, "1X40'")), null);
         failed += Say("the site is read from the job's own cells through Propose", CorrectionRules.Propose("IMPORT", new Dictionary<string, string> { ["customer"] = "DANA", ["destination"] = "XPO-RAYONG" }, lists).Single().To, "DANA (RAYONG)");
 
         /* ---- trucker ---- */

@@ -40,8 +40,13 @@ public static class CorrectionRules
     /// <summary>The dropdown columns, in the order the grid shows them.</summary>
     public static readonly string[] Fields = ["cat", "customer", "trucker", "type", "status"];
 
-    /// <summary>The cells a customer proposal may read as evidence of the site — DESTINATION and PLANT LOADING on the grid — never proposed themselves.</summary>
-    public static readonly string[] Evidence = ["destination", "plant"];
+    /// <summary>
+    /// The cells a customer proposal may read as evidence of the site —
+    /// DESTINATION and PLANT LOADING on the grid, and TYPE since the
+    /// department's word on ALTEK (22 Sep 2026: "หากเป็นคำว่า TK แสดงว่าเป็น
+    /// ALTEK TANK") — never proposed themselves by this rule.
+    /// </summary>
+    public static readonly string[] Evidence = ["destination", "plant", "type"];
 
     /// <summary>
     /// What a destination calls a site the rotation names another way — the
@@ -59,6 +64,9 @@ public static class CorrectionRules
         (["KABINBURI"], "KABIN BURI"),
         (["KABIBURI"], "KABIN BURI"),
         (["HAZHEM"], "HAZCHEM"),
+        // A tank container on the TYPE column (1X20' TK, ISO tank) is the rotation's ": TANK" account.
+        (["TK"], "TANK"),
+        (["ISOTANK"], "TANK"),
     ];
 
     public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -161,9 +169,26 @@ public static class CorrectionRules
             // or a bare number is not evidence of anything.
             var partial = candidates.Select(one => (one.Name, one.Site, Words: one.Site.Where(token => token.Length >= 3 && !token.All(char.IsDigit) && seen.Contains(token)).ToList()))
                 .Where(one => one.Words.Count > 0).ToList();
-            if (partial.Count != 1) return null;
-            best = (partial[0].Name, partial[0].Site);
-            said = string.Join(' ', partial[0].Words);
+            if (partial.Count > 1) return null;
+            if (partial.Count == 1)
+            {
+                best = (partial[0].Name, partial[0].Site);
+                said = string.Join(' ', partial[0].Words);
+            }
+            else
+            {
+                // Nothing named at all. When one candidate is the plain name and every other only adds a qualifier
+                // to it — ALTEK INTERNATIONAL beside ALTEK INTERNATIONAL : TANK — and the job shows none of the
+                // qualifiers, the plain name is what the job is: a tank account is told by TK on the type.
+                var plain = candidates.Where(one => candidates.All(other => other.Name == one.Name
+                    || (other.Site.Count > one.Site.Count && one.Site.All(other.Site.Contains)))).ToList();
+                if (plain.Count != 1) return null;
+                var qualifiers = candidates.Where(other => other.Name != plain[0].Name).SelectMany(other => other.Site.Except(plain[0].Site)).Distinct().ToList();
+                if (qualifiers.Count == 0 || qualifiers.Any(seen.Contains)) return null;
+                var (name, site) = plain[0];
+                return new("customer", value, name, "customer.rotation.site",
+                    $"ประเภทรถ/ปลายทางไม่ระบุ {string.Join(" / ", qualifiers)} จึงเป็นชื่อหลัก — ใน Job Rotation คือ {name}");
+            }
         }
         var used = via.Where(one => one.Site.Any(best.Site.Contains)).Select(one => $"{string.Join(' ', one.Alias)} = {string.Join(' ', one.Site)}").ToList();
         return new("customer", value, best.Name, "customer.rotation.site",
