@@ -54,6 +54,18 @@ test("both tabs and Excel use the same filtered data, drill preserves dimensions
   assert.match(endpoint, /KpiScope\.Parse\(customer, trucker\)/);
 });
 
+test("the tile beside the OTD gauge is the late arrivals of the measured base, not the delay-record count", () => {
+  // 22 Sep 2026: "Delayed 0" sat under a 45% gauge — it was the Delay measure (logged delay records and
+  // held statuses). The gauge's own measure now names its two halves, and the tile reads the late one.
+  const tower = readFileSync(new URL("../app/scmos/screens/ControlTower.tsx", import.meta.url), "utf8");
+  assert.match(tower, /otd\?\.breakdown\?\.find\(\(b\) => b\.label === "ถึงช้ากว่าแผน"\)\?\.value \?\? null/);
+  assert.match(tower, /\["ถึงช้ากว่าแผน", lateArrivals === null \? "—" : nf\(lateArrivals\), "Late Arrivals"/);
+  assert.doesNotMatch(tower, /const delay = measure\("Delay"\);/);
+  const engine = readFileSync(new URL("../server/Scmos.Api/Services/KpiEngine.cs", import.meta.url), "utf8");
+  assert.match(engine, /public const string LateArrivalLabel = "ถึงช้ากว่าแผน";/);
+  assert.match(engine, /\[new Counted\(OnTimeLabel, met\), new Counted\(LateArrivalLabel, measurable\.Count - met\)\]/);
+});
+
 /* --------------------------------------- one picker narrows the other */
 
 test("choosing a customer offers only the hauliers who carry for them", () => {

@@ -56,6 +56,7 @@ type Trend = { period: string; value: number | null; base: number };
 type Measure = {
   id: string; kind: string; value: number | null; base: number; unit: string; note: string;
   target: number | null; meetsTarget: boolean | null; trend: Trend[] | null;
+  breakdown?: { label: string; value: number }[];
 };
 type Supplier = { carrier: string; jobs: number; onTime: number | null; onTimeBase: number; score: number | null };
 type Report = { jobs: number; measures: Measure[]; suppliers: Supplier[] };
@@ -371,7 +372,14 @@ export function ControlTower(p: Props) {
     return counts;
   }, [p.allJobs]);
   const otd = measure("OnTimeDelivery");
-  const delay = measure("Delay");
+  /*
+   * How many of the measured trips arrived after plan — the other half of the
+   * percentage on the gauge. Read from the measure's own breakdown, never
+   * worked back from the rounded percent. Until 22 Sep 2026 the tile beside
+   * the gauge showed the Delay measure — logged delay records and held
+   * statuses, a different count — and read "0" under a 45% gauge.
+   */
+  const lateArrivals = otd?.breakdown?.find((b) => b.label === "ถึงช้ากว่าแผน")?.value ?? null;
   const months = (otd?.trend ?? []).map((t) => t.period);
   const tripTrend = months.length >= 2 ? months.map((m) => tripsByMonth[m] ?? 0) : [];
 
@@ -696,7 +704,7 @@ export function ControlTower(p: Props) {
                 <div style={css("flex:1;min-width:108px;display:flex;flex-direction:column;gap:9px")}>
                   {([
                     ["วัดได้", otd ? nf(otd.base) : "—", "Measured Trips", "rgba(45,209,138,.08)", "rgba(45,209,138,.3)", "#7fcfa8"],
-                    ["ล่าช้า", delay?.value === null || delay?.value === undefined ? "—" : nf(delay.value), "Delayed", "rgba(239,75,87,.08)", "rgba(239,75,87,.3)", "#ff9aa2"],
+                    ["ถึงช้ากว่าแผน", lateArrivals === null ? "—" : nf(lateArrivals), "Late Arrivals", "rgba(239,75,87,.08)", "rgba(239,75,87,.3)", "#ff9aa2"],
                     ["ทั้งหมด", report ? nf(report.jobs) : "—", "Total Trips", "rgba(56,158,230,.08)", "rgba(56,158,230,.3)", "#8ecdf7"],
                   ] as const).map(([key, value, label, bg, border, colour]) => (
                     <div key={key} style={css(`background:${bg};border:1px solid ${border};border-radius:7px;padding:8px 10px;display:flex;flex-direction:column;gap:1px`)}>

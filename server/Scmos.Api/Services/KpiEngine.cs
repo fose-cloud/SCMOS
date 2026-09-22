@@ -373,7 +373,10 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
                 ? "ไม่มีงานที่มีทั้งเวลาแผนและเวลาถึงที่อ่านได้"
                 : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง"
                   + (terms.Count > 0 ? " · " + string.Join(" · ", terms) : "")
-                  + " · ดูรายเจ้าได้ที่คอลัม On Time Delivery ในคะแนนตามสัญญา");
+                  + " · ดูรายเจ้าได้ที่คอลัม On Time Delivery ในคะแนนตามสัญญา",
+            // The two halves of the base, so the screen can show how many arrived after plan
+            // beside the percentage without working it back from a rounded figure (22 Sep 2026).
+            [new Counted(OnTimeLabel, met), new Counted(LateArrivalLabel, measurable.Count - met)]);
     }
 
     private static Measure Delay(List<DelayRecord> delays,
@@ -559,6 +562,10 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     }
 
     /* -------------------------------------------------------------- shared */
+
+    /// <summary>The on-time measure's two halves, by name, so the dashboard reads the late count rather than a rounded percent.</summary>
+    public const string OnTimeLabel = "ตรงเวลา";
+    public const string LateArrivalLabel = "ถึงช้ากว่าแผน";
 
     private static Measure Rate(MeasureId id, int met, int measured, string note,
         IReadOnlyList<Counted>? breakdown = null)
