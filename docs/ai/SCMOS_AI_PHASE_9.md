@@ -1,6 +1,6 @@
 # Phase 9 — production hardening
 
-Status: first read-only hardening increment implemented locally; not pushed or deployed by this change. Phase 8 was deployed to the API and web at `b7fdd1c` on 22 September 2026, and `AI__ManagementAgentEnabled=true` was verified on Production with the API healthy. An authenticated Management question has not yet been verified in Production.
+Status: the evidence-completeness increment below was written on 22 September 2026 and released with the second increment the same evening (v2.7.84). Every agent's flag is on in Production and every agent has answered an authenticated question there — the runs are in the table at the end.
 
 ## Evidence completeness
 
@@ -12,3 +12,65 @@ Status: first read-only hardening increment implemented locally; not pushed or d
 The existing specialist reads, user scope, per-step authorization, audit sequence and result contracts remain unchanged. No database change, migration, write permission, new model call or secret is introduced.
 
 Offline regression checks cover a job with more than 50 held files and missing checklist folders, plus a partial two-specialist intersection. Remaining Phase 9 gates include authenticated Production question/role checks, latency under working-hours load, audit reconciliation for real runs, and a reviewed rollback drill. The register-read redesign in `docs/REGISTER_READ_PLAN.md` follows Phase 9 rather than being folded into this patch.
+
+---
+
+# Phase 9, second increment — who may ask what, the switches that stop it, and what the audit holds
+
+Implemented 22 September 2026 · released as v2.7.84.
+
+## The access matrix (`tests/Scmos.Ai.Checks/AccessMatrixCheck.cs`)
+
+Every role SCMOS has, against every agent and every read it owns, with every adapter connected and the durable audit ready — the friendliest world the runtime can be in, so an "allowed" in that table is a permission that really exists. The expected matrix is written out as a literal table of 99 lines: a capability added to a role, a tool moved to another agent, or a gate removed shows up as a diff in the table rather than as a quiet yes. That is the bug this codebase has actually shipped (an operator seeing the team's history because a role name was tested instead of a capability), and the table is what makes it loud.
+
+The invariants the table protects, asserted separately so a failure names the rule rather than a line:
+
+- a carrier reaches no agent and no read, whatever a role map ever grants them;
+- the repository and the platform are the Administrator's alone;
+- with the durable audit unavailable, no read is allowed to anybody — not even an Administrator;
+- a read belongs to its own agent: no agent may run another's, however the model asks;
+- an account nobody put in the directory, and one with no id, reach nothing;
+- an account that may not see the team has no read scope without an owner id, and one that may reads the team's work;
+- the dispatch guard says the same as the table, including the audit gate.
+
+## The rollback is a setting, not a deploy
+
+`AI:Enabled=false`, `AI:ChatEnabled=false`, an agent's own flag off, and `AI:OperationsEmergencyDisabled=true` each stop a run at 503 with the code the Control Tower shows (`disabled`, `agent_disabled`) **before the provider is called** — checked by counting the fixture provider's calls across each switch. Mock mode outside Development is `configuration_invalid`, never a pretend answer over production data. The status the Control Tower draws agrees with the gate the run passes.
+
+The drill, in order, when an agent must be stopped in Production: turn its `AI__…AgentEnabled` off in the Portal (the App Service restarts, ~80 s, and the agent disappears from `/api/ai/status`); to stop all of it, `AI__ChatEnabled=false`; to stop the Operations pilot alone without a restart, the operations control switch in the Control Tower. Nothing needs a deploy or a rollback of code, and no data has to be put back — the platform writes nothing but its own audit.
+
+## Retention (`--report-ai-audit`, `aiAuditReport` on the API workflow)
+
+How many rows and runs the audit holds, how far back, by agent and by outcome, incomplete runs, tokens recorded, rows by month, and the size of the stored evidence identifiers. **It reads and prints; it never deletes an audit row** — a run that cannot be shown to have happened is the failure the platform is built to avoid, so what to keep and where the rest goes is the department's decision, taken on this report and carried out as its own reviewed change.
+
+## The gates, and where each stands
+
+| Gate | Where it stands |
+| --- | --- |
+| Security / role E2E | The matrix above, in CI with the AI checks (878 assertions). |
+| Release / rollback rehearsal | The switches above, checked; the drill written out. |
+| Schema compatibility | `AuditChecks`: the merged migration snapshot matches the runtime model, old rows and new rows both read, and a rollback cannot drop audit evidence. |
+| Monitoring | The SRE Agent (Phase 7): health, deployments, the platform's own failures, and the last hour's requests from the in-process ring. |
+| Retention | Measured by `--report-ai-audit`; the policy is the department's to set. |
+| Performance under working-hours load | Measured, not simulated: on 22 September the requests view read p50 198 ms / p95 6.6 s over 354 requests, with `GET /api/notifications` at p95 16.9 s — the whole-register read, which `docs/REGISTER_READ_PLAN.md` addresses after this phase. The AI's own budget (`AI__TimeoutSeconds=60`) and the one-run limiter are unchanged. |
+| Authenticated Production verification | Done, 22 September, every agent (below). |
+| No regression of normal SCMOS | The rule checks, the web tests and the AI checks run on every push; the workspace, KPI, monitor and audit screens are untouched by this phase. |
+
+## Verified in Production, 22 September 2026
+
+Signed in as the department lead, each question asked through `/api/ai/chat` against the live API:
+
+| Agent | Question | Answer |
+| --- | --- | --- |
+| SRE | ระบบเป็นอย่างไรบ้างตอนนี้ | 10 signals, 3.8 s, database 26 ms, two worth a look (TMS quiet, mail table empty) |
+| SRE | คำขอ API ชั่วโมงล่าสุดช้าตรงไหน | 354 requests, 0 failed, 27 slow, p95 6.6 s, slowest `GET /api/notifications` |
+| SRE | วันนี้มีข้อผิดพลาดอะไรบ้าง | zero in every kind |
+| Document | งานไหนเอกสารยังไม่ครบ | 1,066 jobs, 50 shown, 4.2 s |
+| Engineering | Commit ล่าสุดของ SCMOS | five, 1.5 s |
+| Engineering | กฎ on-time ของ Lotus อยู่ตรงไหน | read `Rules/JobRules.cs` and pointed at `IsOnTime → CustomerTerms.GraceMinutes`, 3 reads, 10.6 s |
+| Management | งานล่าช้างานไหนเอกสารยังไม่ครบ | two steps, 18 delayed, 1,066 short of paperwork, overlap named as a minimum |
+| Management | สรุปงาน 260800810520 | three steps, 7.3 s, the job with its paperwork and its messages |
+
+Two fixes came out of those runs and are in the same release: the job summary's search reaches completed jobs (server-set, never model-set), and a job is found by its ABS number and booking as the header search finds it.
+
+**Remaining after Phase 9** — the register-read redesign (`docs/REGISTER_READ_PLAN.md`), which the requests view now measures; a retention policy when the department decides one; and Always On for the API App Service, so the first request after a restart is not 80 seconds.

@@ -41,6 +41,10 @@ on:
         type: choice
         options: ["no", "report", "apply", "undo"]
         default: "no"
+      aiAuditReport:
+        description: "AI audit: how many runs it holds, how far back, by agent and outcome (reads only, deletes nothing)"
+        type: boolean
+        default: false
       proposeCorrections:
         description: "Dropdown cells off their lists: report what would be proposed, or queue the proposals for the jobs' owners to approve (writes no cell)"
         type: choice
@@ -289,6 +293,20 @@ jobs:
           esac
 
           dotnet publish/Scmos.Api.dll --merge-places $extra
+
+      # What the AI audit holds, for the retention decision (Phase 9). Reads only.
+      - name: AI audit report
+        if: github.event_name == 'workflow_dispatch' && inputs.aiAuditReport
+        env:
+          ConnectionStrings__ScmosDb: ${{ secrets.SCMOS_SQL_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: |
+          if [ -z "$ConnectionStrings__ScmosDb" ]; then
+            echo "::error::SCMOS_SQL_CONNECTION is not configured."
+            exit 1
+          fi
+
+          dotnet publish/Scmos.Api.dll --report-ai-audit
 
       # The dropdown columns judged against their own lists (22 Sep 2026).
       # "report" writes nothing; "queue" writes proposals, and a cell changes

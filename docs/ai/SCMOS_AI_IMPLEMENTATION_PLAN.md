@@ -83,6 +83,8 @@ Not yet present as a complete platform: six connected agents, general intent pla
 | 8 — collaboration | Bounded multi-step orchestration only over accepted adapters; independent authorization per step | Audit every step; bounded calls/time/tokens; partial failures cannot imply causal certainty | Reuse versioned audit/context design |
 | 9 — hardening | Performance/security/role E2E, schema compatibility, retention, monitoring, release/rollback rehearsal | Signed-off scoped pilot; deployment identity/health verified; no regression of normal SCMOS | Reviewed additive changes only |
 
+**Phase 9 delivered 22 September 2026** (v2.7.84) — see [the record](SCMOS_AI_PHASE_9.md): the access matrix and the kill switches in the AI checks, `--report-ai-audit` for retention, the rollback drill written out, and every agent verified against Production by an authenticated question. What the phase measured rather than fixed: the whole-register read, which `docs/REGISTER_READ_PLAN.md` addresses next.
+
 Implement in this order, not all agents simultaneously. Phase 1E enables governance infrastructure only. Financial approval/payment and autonomous production/infrastructure actions remain excluded from V1 even if a generic future approval framework exists.
 
 ## 3. First implementation package after review

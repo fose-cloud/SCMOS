@@ -365,6 +365,13 @@ if (args.Contains("--check-register-cache"))
     return await RegisterCacheCheck.RunAsync(app);
 }
 
+// What the AI execution audit holds and how far back — Phase 9's retention
+// gate. Reads and prints; it never deletes an audit row.
+if (args.Contains("--report-ai-audit"))
+{
+    return await AiAuditReport.RunAsync(app);
+}
+
 // Proposes the list spelling for dropdown cells that are off their lists —
 // reports by default; --queue puts the proposals in the owners' queues. No
 // --apply: a cell changes only when its owner approves, on the job.
