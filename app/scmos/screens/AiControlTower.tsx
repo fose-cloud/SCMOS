@@ -56,7 +56,7 @@ const DOCUMENT_STATE_LABEL: Record<string, string> = {
   expiring: "ใกล้หมดอายุ", expired: "หมดอายุแล้ว",
 };
 const DOCUMENT_WINDOW_LABEL: Record<string, string> = { all_dates_for_the_job: "ทุกวันที่ของงานนี้", expiry_within_60_days_or_expired: "หมดอายุภายใน 60 วัน หรือหมดแล้ว" };
-const SRE_PROMPTS = ["ระบบเป็นอย่างไรบ้างตอนนี้", "การ deploy ล่าสุดผ่านไหม", "วันนี้มีข้อผิดพลาดอะไรบ้าง", "ข้อผิดพลาด 7 วันที่ผ่านมา"];
+const SRE_PROMPTS = ["ระบบเป็นอย่างไรบ้างตอนนี้", "การ deploy ล่าสุดผ่านไหม", "วันนี้มีข้อผิดพลาดอะไรบ้าง", "คำขอ API ชั่วโมงล่าสุดช้าตรงไหน", "ข้อผิดพลาด 7 วันที่ผ่านมา"];
 const ENGINEERING_PROMPTS = ["GitHub มี issue ที่ยังเปิดอะไรบ้าง", "Pull request ที่ยังเปิดมีอะไรบ้าง", "Commit ล่าสุดของ SCMOS มีอะไรบ้าง",
   "อ่านโค้ดแล้วอธิบายว่ากฎ on-time ของ Lotus อยู่ตรงไหน", "ดูโฟลเดอร์ server/Scmos.Api/Rules มีไฟล์อะไรบ้าง", "อ่านโค้ดแล้ววิเคราะห์สาเหตุที่ "];
 const CHANNEL_LABEL: Record<string, string> = { line: "LINE", tms: "TMS", mail: "อีเมล" };
@@ -227,7 +227,7 @@ function SourceCard({ answer }: { answer: SourceAnswer }) {
 function PlatformCard({ answer }: { answer: PlatformAnswer }) {
   const tone = (state: string) => state === "ok" ? "green" : state === "warn" ? "amber" : state === "bad" ? "red" : "muted";
   const stateName = (state: string) => state === "ok" ? "ปกติ" : state === "warn" ? "ควรดู" : state === "bad" ? "ผิดปกติ" : "ไม่ทราบ";
-  const label = answer.view === "health" ? "สุขภาพระบบ" : answer.view === "deployments" ? "การ deploy ล่าสุด" : "ข้อผิดพลาด";
+  const label = answer.view === "health" ? "สุขภาพระบบ" : answer.view === "deployments" ? "การ deploy ล่าสุด" : answer.view === "requests" ? "คำขอ API ชั่วโมงล่าสุด" : "ข้อผิดพลาด";
   return <>
     <div className={s.meta}><span>{label} · {answer.window}</span><span>อ่านเมื่อ {stamp(answer.retrievedAt)}</span></div>
     <div className={s.risk}>

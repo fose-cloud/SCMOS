@@ -29,7 +29,7 @@ public static class AiAuditRules
     public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository", "read_source", "query_platform"];
 
     /// <summary>The platform tool's views (Phase 7).</summary>
-    public static readonly string[] PlatformViews = ["health", "deployments", "errors"];
+    public static readonly string[] PlatformViews = ["health", "deployments", "errors", "requests"];
 
     /// <summary>The source read's modes (Phase 6, second increment) — a step lists a directory or reads a file window.</summary>
     public static readonly string[] SourceViews = ["list", "file"];

@@ -1,6 +1,9 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Ai;
@@ -9,11 +12,12 @@ using Scmos.Api.Auth;
 using Scmos.Api.Rules;
 
 /// <summary>
-/// Phase 7 — the SRE Agent: three views over a stand-in platform (never the
+/// Phase 7 — the SRE Agent: four views over a stand-in platform (never the
 /// process, the database or GitHub), the states each signal takes, what the
 /// rows never carry, the audit vocabulary, the agent's run, and the
-/// orchestrator. Offline: a fixture platform, a fixture runs source, a
-/// fixture provider, a fixture HTTP handler.
+/// orchestrator; then the request ring and the middleware that fills it.
+/// Offline: a fixture platform, a fixture runs source, a fixture provider, a
+/// fixture HTTP handler, a bare HttpContext.
 /// </summary>
 static class SreChecks
 {
@@ -37,6 +41,19 @@ static class SreChecks
                 new("webhooks:failing", "Carrier webhooks failing or retired", 1, Now.AddDays(-2), "webhook:5 (active, 4 failed in a row)"),
             ],
             ProcessInfo = new(Now.AddDays(-1).AddHours(-2), ".NET 10", "Production", "3f9c1a80", true, true, true),
+            TelemetrySince = Now.AddDays(-1).AddHours(-2),
+            Samples =
+            [
+                new(Now.AddMinutes(-90), "GET", "/api/jobs", 200, 500, "", null),
+                new(Now.AddMinutes(-70), "POST", "/api/ai/chat", 500, 61000, "corr-ai-9", "TaskCanceledException"),
+                new(Now.AddMinutes(-50), "GET", "/api/jobs", 200, 1800, "", null),
+                new(Now.AddMinutes(-30), "GET", "/api/jobs", 200, 24000, "", null),
+                new(Now.AddMinutes(-20), "GET", "/api/kpi/measures", 200, 900, "", null),
+                new(Now.AddMinutes(-10), "GET", "/api/kpi/measures", 200, 1200, "", null),
+                new(Now.AddMinutes(-5), "POST", "/api/jobs/{key}", 500, 300, "corr-x1", "SqlException"),
+                new(Now.AddMinutes(-4), "GET", "/api/jobs/{key}", 404, 20, "", null),
+                new(Now.AddMinutes(-1), "GET", "/health", 200, 40, "", null),
+            ],
         };
         var runs = new DeploymentFixture(
         [
@@ -84,18 +101,51 @@ static class SreChecks
 
         /* ---- errors ---- */
         var errors = await service.ReadAsync(Args("errors", 1, 50), default);
-        check(errors is { View: "errors", Window: "last_1_days", Total: 4, Returned: 4 } && errors.Rows.Select(r => r.Id).SequenceEqual(["errors:ai:timeout", "errors:mail:failed", "errors:webhooks:failing", "errors:line:failed"])
+        check(errors is { View: "errors", Window: "last_1_days", Total: 7, Returned: 7 }
+            && errors.Rows.Select(r => r.Id).SequenceEqual(["errors:ai:timeout", "errors:mail:failed", "errors:webhooks:failing", "errors:line:failed",
+                "errors:api:SqlException:/api/jobs/{key}", "errors:api:TaskCanceledException:/api/ai/chat", "errors:api"])
             && errors.Rows[0].Value == "3" && errors.Rows[0].State == "warn" && errors.Rows[0].Detail.Contains("run 21f4fb50") && errors.Rows[3].State == "ok" && errors.Rows[3].Detail == "ไม่มีในช่วงนี้",
-            "7: failures are counted by kind, the most first, with a safe identifier for the newest and zero said plainly");
+            "7: failures are counted by kind, the most first, with a safe identifier for the newest and zero said plainly; then what the API itself threw");
+        check(errors.Rows[4] is { Label: "API threw SqlException", Value: "1", State: "bad", Source: "process" } && errors.Rows[4].Detail.StartsWith("POST /api/jobs/{key} · ล่าสุด") && errors.Rows[4].Detail.EndsWith("correlation corr-x1")
+            && errors.Rows[6] is { Label: "API exceptions remembered", Value: "2", State: "warn" } && errors.Rows[6].Detail.Contains("(9 คำขอ)"),
+            "7: an exception is named by its type and the route's pattern, with the correlation id of the newest — never the path or the message");
         check((await service.ReadAsync(Args("errors", 7, 50), default)).Window == "last_7_days" && platform.LastSince == Now.AddDays(-7), "7: the window reaches back the days asked");
+        var samples = platform.Samples;
+        platform.Samples = [];
+        var quietErrors = await service.ReadAsync(Args("errors", 1, 50), default);
+        check(quietErrors.Total == 5 && quietErrors.Rows[4] is { Id: "errors:api", Value: "0", State: "ok" } && quietErrors.Rows[4].Detail.EndsWith("(0 คำขอ) · ไม่มี"),
+            "7: with nothing thrown the errors view says so in one row");
+
+        /* ---- requests ---- */
+        platform.Samples = samples;
+        var requests = await service.ReadAsync(Args("requests", null, 50), default);
+        check(requests is { View: "requests", Window: "last_60_minutes", Total: 7, Returned: 7 } && requests.Rows.All(r => r.Kind == "health" && r.Source == "process"),
+            "7: the requests view is the last hour as the process remembers it");
+        check(requests.Rows.Select(r => r.Id).Take(2).SequenceEqual(["requests:volume", "requests:latency"])
+            && requests.Rows.Skip(2).Select(r => r.Id).SequenceEqual(["route:POST:/api/jobs/{key}", "route:GET:/api/jobs", "route:GET:/api/kpi/measures", "route:GET:/health", "route:GET:/api/jobs/{key}"]),
+            "7: the requests view is the volume, the response times, then the routes — the one that threw first, then the slowest by p95");
+        check(requests.Rows[0] is { Value: "7", State: "bad" } && requests.Rows[0].Detail.Contains("ล้มเหลว (5xx) 1 · ปฏิเสธ (4xx) 1 · ช้ากว่า 5 วิ 1") && requests.Rows[0].At == Now.AddMinutes(-1),
+            "7: the hour's volume counts the failed, the refused and the slow — only the last hour, so the two older samples are not in it");
+        check(requests.Rows[1] is { Value: "p50 900 ms · p95 24000 ms", State: "warn" } && requests.Rows[1].Detail == "ช้าสุด 24000 ms",
+            "7: the response time is the nearest-rank p50 and p95 over the hour, and a p95 past five seconds is worth a look");
+        check(requests.Rows[2] is { Label: "POST /api/jobs/{key}", Value: "1 · p95 300 ms", State: "bad" } && requests.Rows[3] is { Label: "GET /api/jobs", Value: "2 · p95 24000 ms", State: "warn" }
+            && requests.Rows[3].Detail == "ล้มเหลว 0 · ช้ากว่า 5 วิ 1" && requests.Rows[5] is { Label: "GET /health", State: "ok" } && requests.Rows[6] is { Label: "GET /api/jobs/{key}", Value: "1 · p95 20 ms", State: "ok" },
+            "7: each route is a pattern with its count, p95 and how many failed or were slow — a 404 is neither");
+        check(SreAgent.Summarise(requests).StartsWith("คำขอ API ชั่วโมงล่าสุด: 7 · ") && SreAgent.Summarise(requests).Contains("p50 900 ms · p95 24000 ms"), "7: the summary is the hour in one line");
+        platform.Samples = [];
+        var quiet = await service.ReadAsync(Args("requests", null, 50), default);
+        check(quiet is { Total: 1 } && quiet.Rows[0] is { Id: "requests:volume", Value: "0", State: "unknown" } && SreAgent.Summarise(quiet).StartsWith("คำขอ API ชั่วโมงล่าสุด: 0"),
+            "7: an hour with nothing remembered is unknown, not fine");
+        platform.Samples = samples;
         foreach (var bad in new[] { Args("metrics", null, 50), Args("errors", 0, 50), Args("errors", 31, 50), Args("health", null, 51) })
         {
             try { await service.ReadAsync(bad, default); check(false, "7: arguments"); }
             catch (InvalidOperationException) { check(true, "7: an unknown view, a window or a limit out of range is refused"); }
         }
-        var everything = JsonSerializer.Serialize(health) + JsonSerializer.Serialize(errors) + JsonSerializer.Serialize(deployments);
+        var everything = JsonSerializer.Serialize(health) + JsonSerializer.Serialize(errors) + JsonSerializer.Serialize(deployments) + JsonSerializer.Serialize(requests);
         check(!everything.Contains("Secret") && !everything.Contains("https://") && !System.Text.RegularExpressions.Regex.IsMatch(everything, @"\w@\w") && !everything.Contains("Password"),
             "7: no secret, address, URL or e-mail is in any platform row");
+        check(!everything.Contains("?") && !everything.Contains("JOB-") && health.Basis.Contains("no path"), "7: no query string or job key is in any platform row, and the basis says so");
         check(health.Basis.Contains("No Application Insights") && health.Basis.Contains("Nothing restarted, rolled back or changed"), "7: the basis says what does not exist and what was not done");
         check(!new PlatformReadService(null, runs, new OperationsClock(Now)).Connected, "7: without the platform the read is not connected");
 
@@ -117,7 +167,8 @@ static class SreChecks
             && tool.Policy is { Source: "platform", MaxEvidenceRows: 50 } && tool.Policy.OutputType == typeof(PlatformAnswer), "7: the platform tool is the SRE Agent's, Administrator only");
         check(tool.InputSchema.Valid("{\"view\":\"errors\",\"days\":7,\"limit\":50}") && tool.InputSchema.Valid("{\"view\":\"health\",\"days\":null,\"limit\":10}")
             && !tool.InputSchema.Valid("{\"view\":\"restart\",\"days\":null,\"limit\":10}") && !tool.InputSchema.Valid("{\"view\":\"errors\",\"days\":31,\"limit\":10}")
-            && !tool.InputSchema.Valid("{\"view\":\"health\",\"days\":null,\"limit\":10,\"resource\":\"scmos-api-3936\"}"), "7: the schema pins the three views and the window; no resource, action or command");
+            && tool.InputSchema.Valid("{\"view\":\"requests\",\"days\":null,\"limit\":50}")
+            && !tool.InputSchema.Valid("{\"view\":\"health\",\"days\":null,\"limit\":10,\"resource\":\"scmos-api-3936\"}"), "7: the schema pins the four views and the window; no resource, action or command");
         var agents = new AgentRegistry();
         var agent = agents.Find("sre-agent")!;
         check(agents.All.Count == 11 && agent.RequiredCapability == Capability.AdministerData && agents.Resolve(new("x", Context: new("health")))?.Id == "sre-agent"
@@ -129,8 +180,8 @@ static class SreChecks
             && !AiPermissionPolicy.CanUse(Supervisor, agent), "7: only the Administrator may read the platform through the agent — a supervisor runs jobs, not the service");
         var started = new AiExecutionEvent(Guid.NewGuid().ToString("N"), Admin.UserId, Admin.Role, "sre-agent", "tool_started", "query_platform", "running", Now,
             Scope: new(true, null), ToolCallId: Guid.NewGuid().ToString("N"), Model: "gpt-4.1", View: "errors", Limit: 50);
-        check(AiAuditRules.From(started) is { Source: "platform", View: "errors" } && AiAuditRules.From(started with { View = "health" }).View == "health",
-            "7: the audit knows the agent, its tool, its views and its source");
+        check(AiAuditRules.From(started) is { Source: "platform", View: "errors" } && AiAuditRules.From(started with { View = "health" }).View == "health"
+            && AiAuditRules.From(started with { View = "requests" }).View == "requests", "7: the audit knows the agent, its tool, its views and its source");
         foreach (var bad in new[] { started with { View = "open_prs" }, started with { Tool = "query_repository", View = "health" }, started with { View = "restart" } })
         {
             try { AiAuditRules.From(bad); check(false, "7: audit vocabulary"); }
@@ -178,6 +229,45 @@ static class SreChecks
         check((await orchestrator.RunAsync(new("x", Context: new("health")), Admin, default)).Response.AgentId == "sre-agent", "7: the health page routes to the agent");
         check((await orchestrator.RunAsync(new("x", AgentId: "sre-agent"), Supervisor, default)).Status == 403 && orchestrator.Status(Supervisor).Agents.All(a => a.Id != "sre-agent"),
             "7: a supervisor is refused before the agent and does not even see it");
+
+        /* ---- the request ring ---- */
+        var ring = new RequestTelemetry(new OperationsClock(Now));
+        check(ring.StartedAt == Now && ring.Recorded == 0 && ring.Since(Now.AddDays(-1)).Count == 0, "7: a new ring remembers nothing and knows when it started");
+        for (var i = 0; i < RequestTelemetry.Capacity + 10; i++)
+            ring.Record(new(Now.AddSeconds(i), "GET", "/api/jobs", 200, i, "", null));
+        var kept = ring.Since(Now);
+        check(ring.Recorded == RequestTelemetry.Capacity + 10 && kept.Count == RequestTelemetry.Capacity && kept[0].DurationMs == 10 && kept[^1].DurationMs == RequestTelemetry.Capacity + 9
+            && kept.Zip(kept.Skip(1)).All(pair => pair.First.At <= pair.Second.At), "7: the ring keeps the newest few thousand, oldest first, and forgets the rest");
+        check(ring.Since(Now.AddSeconds(RequestTelemetry.Capacity + 5)).Count == 5, "7: a moment picks the samples since it");
+
+        /* ---- the middleware ---- */
+        var recorder = new RequestTelemetry(new OperationsClock(Now));
+        var clock = new OperationsClock(Now.AddSeconds(1));
+        async Task<RequestSample?> Through(string path, string method, int status, string? pattern, Exception? throwing = null, string? correlation = null)
+        {
+            var context = new DefaultHttpContext();
+            context.Request.Path = path; context.Request.Method = method; context.Request.QueryString = new QueryString("?token=SECRET-1");
+            context.TraceIdentifier = "0HN7TRACE:00000001";
+            if (correlation is not null) context.Request.Headers["X-Correlation-Id"] = correlation;
+            if (pattern is not null) context.SetEndpoint(new RouteEndpoint(_ => Task.CompletedTask, RoutePatternFactory.Parse(pattern), 0, null, pattern));
+            var before = recorder.Recorded;
+            var middleware = new RequestTelemetryMiddleware(ctx => { ctx.Response.StatusCode = status; return throwing is null ? Task.CompletedTask : Task.FromException(throwing); }, recorder, clock);
+            try { await middleware.InvokeAsync(context); }
+            catch (Exception error) when (ReferenceEquals(error, throwing)) { }
+            return recorder.Recorded == before ? null : recorder.Since(Now)[^1];
+        }
+        var routed = await Through("/api/jobs/JOB-2609-0001", "GET", 200, "/api/jobs/{key}", correlation: "corr-mw-1");
+        check(routed is { Method: "GET", Route: "/api/jobs/{key}", Status: 200, Correlation: "corr-mw-1", Exception: null } && routed.DurationMs >= 0 && routed.At == Now.AddSeconds(1),
+            "7: a routed request is remembered by its pattern, status and correlation id");
+        check(!JsonSerializer.Serialize(routed).Contains("JOB-2609") && !JsonSerializer.Serialize(routed).Contains("SECRET"), "7: the path and the query string are never stored");
+        var thrown = await Through("/api/jobs/JOB-2609-0002", "POST", 200, "/api/jobs/{key}", new InvalidOperationException("the message names JOB-2609-0002"));
+        check(thrown is { Status: 500, Exception: "InvalidOperationException", Correlation: "0HN7TRACE:00000001" } && !JsonSerializer.Serialize(thrown).Contains("0002"),
+            "7: a request that threw is remembered as a 500 with the exception's type, never its message, and the trace id stands in for a missing correlation id");
+        var unrouted = await Through("/api/nothing/here/at/all", "GET", 404, null);
+        check(unrouted is { Route: "/api/nothing/(unrouted)", Status: 404 }, "7: an unrouted call is named by its first two segments only");
+        check(await Through("/health", "GET", 200, "/health") is { Route: "/health" } && await Through("/", "GET", 200, null) is null && await Through("/swagger/index.html", "GET", 200, null) is null,
+            "7: /health is remembered; the site's other paths are not the API's business");
+        check(await Through("/api/x", "GET", 200, "/api/x", correlation: "bad correlation with spaces") is { Correlation: "0HN7TRACE:00000001" }, "7: a malformed correlation header is not stored");
     }
 
     private static JsonElement Args(string view, int? days, int limit) => JsonSerializer.SerializeToElement(new { view, days, limit });
@@ -186,6 +276,9 @@ static class SreChecks
 sealed class PlatformFixture : IPlatformSource
 {
     public double? Ping { get; set; }
+    public IReadOnlyList<RequestSample> Samples { get; set; } = [];
+    public DateTimeOffset TelemetrySince { get; set; }
+    public IReadOnlyList<RequestSample> Requests(DateTimeOffset since) => Samples.Where(s => s.At >= since).OrderBy(s => s.At).ToList();
     public (int Rows, DateTimeOffset UpdatedAt)? Cached { get; set; }
     public PlatformActivity Activity { get; set; } = new(null, null, null, null, null);
     public IReadOnlyList<PlatformFailure> Failures { get; set; } = [];

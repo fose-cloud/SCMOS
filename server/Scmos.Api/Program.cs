@@ -67,6 +67,8 @@ builder.Services.AddHttpClient<Scmos.Api.Ai.Engineering.IEngineeringSource, Scmo
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 // The SRE Agent (Phase 7): the platform's own signals, and the repository's workflow runs from the same host.
 builder.Services.AddScoped<Scmos.Api.Ai.Sre.IPlatformSource, Scmos.Api.Ai.Sre.PlatformSource>();
+// The last few thousand API requests, remembered in the process for the SRE Agent's requests and errors views.
+builder.Services.AddSingleton<Scmos.Api.Ai.Sre.RequestTelemetry>();
 builder.Services.AddHttpClient<Scmos.Api.Ai.Sre.IDeploymentSource, Scmos.Api.Ai.Sre.GitHubDeploymentSource>(client =>
 {
     client.BaseAddress = new Uri("https://api.github.com/");
@@ -396,6 +398,8 @@ if (app.Environment.IsDevelopment())
 // Ahead of everything that writes a body, or there is nothing left to compress.
 app.UseResponseCompression();
 app.UseExceptionHandler();
+// Inside the exception handler: a request that throws is remembered with its exception's type on the way out, and the handler still answers it as before.
+app.UseMiddleware<Scmos.Api.Ai.Sre.RequestTelemetryMiddleware>();
 if (allowedOrigins.Length > 0) app.UseCors();
 app.UseRateLimiter();
 

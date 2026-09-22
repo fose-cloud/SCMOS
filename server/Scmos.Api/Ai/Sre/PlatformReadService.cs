@@ -29,6 +29,10 @@ public interface IPlatformSource
     Task<IReadOnlyList<PlatformFailure>> FailuresAsync(DateTimeOffset since, CancellationToken token);
     /// <summary>The process: when it started, the runtime, the environment, the instance's safe name; whether storage and the AI provider are configured.</summary>
     PlatformProcess Process();
+    /// <summary>The API requests the process remembers since a moment — route patterns, statuses, durations, exception types; nothing else.</summary>
+    IReadOnlyList<RequestSample> Requests(DateTimeOffset since);
+    /// <summary>When the request ring started remembering — the process's start.</summary>
+    DateTimeOffset TelemetrySince { get; }
 }
 
 public sealed record PlatformActivity(DateTimeOffset? LastLine, DateTimeOffset? LastMail, DateTimeOffset? LastTms, DateTimeOffset? LastEdit, DateTimeOffset? LastAiRun);
@@ -59,7 +63,9 @@ public interface IDeploymentSource
 public sealed class PlatformReadService(IPlatformSource? platform, IDeploymentSource? deployments, TimeProvider clock)
 {
     public const string Tool = "query_platform";
-    public static readonly string[] Views = ["health", "deployments", "errors"];
+    public static readonly string[] Views = ["health", "deployments", "errors", "requests"];
+    /// <summary>The requests view's window: the last hour, as the process remembers it.</summary>
+    public const int RequestMinutes = 60;
     public const int EvidenceLimit = 50;
     public const int MaxDays = 30;
     public const int DefaultDays = 1;
@@ -84,10 +90,11 @@ public sealed class PlatformReadService(IPlatformSource? platform, IDeploymentSo
         {
             "health" => await HealthAsync(now, token),
             "deployments" => await DeploymentsAsync(limit, token),
-            _ => await ErrorsAsync(now.AddDays(-days), token),
+            "requests" => Requests(now),
+            _ => await ErrorsAsync(now.AddDays(-days), now, token),
         };
         var shown = rows.Take(limit).ToList();
-        var window = view switch { "health" => "now", "deployments" => "latest_workflow_runs", _ => $"last_{days}_days" };
+        var window = view switch { "health" => "now", "deployments" => "latest_workflow_runs", "requests" => $"last_{RequestMinutes}_minutes", _ => $"last_{days}_days" };
         return new PlatformAnswer(view, window, rows.Count, shown.Count, rows.Count > shown.Count, now, Basis, shown);
     }
 
@@ -136,18 +143,78 @@ public sealed class PlatformReadService(IPlatformSource? platform, IDeploymentSo
             .ToList();
     }
 
-    private async Task<List<PlatformSignal>> ErrorsAsync(DateTimeOffset since, CancellationToken token)
+    private async Task<List<PlatformSignal>> ErrorsAsync(DateTimeOffset since, DateTimeOffset now, CancellationToken token)
     {
         var failures = await platform!.FailuresAsync(since, token);
-        return failures.OrderByDescending(f => f.Count).ThenBy(f => f.Kind, StringComparer.Ordinal)
+        var rows = failures.OrderByDescending(f => f.Count).ThenBy(f => f.Kind, StringComparer.Ordinal)
             .Select(f => new PlatformSignal($"errors:{f.Kind}", "error", f.Label, f.Count.ToString(),
                 f.Count == 0 ? "ไม่มีในช่วงนี้" : $"ล่าสุด {(f.Newest is { } at ? Stamp(at) : "—")} · {f.NewestId}", f.Newest, f.Count == 0 ? "ok" : "warn", "ledgers"))
             .ToList();
+        // What the API itself threw, by exception type and route pattern, as far back as the process remembers.
+        var remembered = platform.Requests(since);
+        var thrown = remembered.Where(r => r.Exception is not null)
+            .GroupBy(r => (r.Exception!, r.Route)).OrderByDescending(g => g.Count()).ThenBy(g => g.Key.Item1, StringComparer.Ordinal).Take(20).ToList();
+        foreach (var group in thrown)
+        {
+            var newest = group.MaxBy(r => r.At)!;
+            rows.Add(new($"errors:api:{Safe(group.Key.Item1)}:{Safe(group.Key.Item2)}", "error", $"API threw {group.Key.Item1}", group.Count().ToString(),
+                $"{newest.Method} {group.Key.Item2} · ล่าสุด {Stamp(newest.At)}" + (newest.Correlation.Length > 0 ? $" · correlation {newest.Correlation}" : ""),
+                newest.At, "bad", "process"));
+        }
+        var memorySince = platform.TelemetrySince > since ? platform.TelemetrySince : since;
+        rows.Add(new("errors:api", "error", "API exceptions remembered", thrown.Sum(g => g.Count()).ToString(),
+            $"จากคำขอที่โปรเซสจำได้ตั้งแต่ {Stamp(memorySince)} ({remembered.Count} คำขอ)" + (thrown.Count == 0 ? " · ไม่มี" : ""), null, thrown.Count == 0 ? "ok" : "warn", "process"));
+        return rows;
     }
 
-    private const string Basis = "The platform's own signals — process, database answer time, register cache, configuration, the ledgers' newest rows and failure counts — "
+    /// <summary>The last hour's requests: the volume, how many failed or were slow, how long they took, and the routes that were slowest.</summary>
+    private List<PlatformSignal> Requests(DateTimeOffset now)
+    {
+        var since = now.AddMinutes(-RequestMinutes);
+        var samples = platform!.Requests(since);
+        var memorySince = platform.TelemetrySince > since ? platform.TelemetrySince : since;
+        if (samples.Count == 0)
+            return [new("requests:volume", "health", "API requests", "0", $"ไม่มีคำขอที่จำได้ตั้งแต่ {Stamp(memorySince)}", null, "unknown", "process")];
+        var durations = samples.Select(s => s.DurationMs).OrderBy(d => d).ToList();
+        var failed = samples.Count(s => s.Status >= 500);
+        var refused = samples.Count(s => s.Status is >= 400 and < 500);
+        var slow = samples.Count(s => s.DurationMs > RequestTelemetry.SlowMs);
+        var rows = new List<PlatformSignal>
+        {
+            new("requests:volume", "health", "API requests", samples.Count.ToString(), $"ตั้งแต่ {Stamp(memorySince)} · ล้มเหลว (5xx) {failed} · ปฏิเสธ (4xx) {refused} · ช้ากว่า {RequestTelemetry.SlowMs / 1000} วิ {slow}",
+                samples[^1].At, failed > 0 ? "bad" : slow > 0 ? "warn" : "ok", "process"),
+            new("requests:latency", "health", "Response time", $"p50 {Percentile(durations, 0.5):0} ms · p95 {Percentile(durations, 0.95):0} ms", $"ช้าสุด {durations[^1]:0} ms", null,
+                Percentile(durations, 0.95) > RequestTelemetry.SlowMs ? "warn" : "ok", "process"),
+        };
+        // The routes that were slowest, by their p95 — each a pattern, never a path.
+        foreach (var group in samples.GroupBy(s => (s.Method, s.Route)).Select(g => new
+            {
+                g.Key.Method, g.Key.Route, Count = g.Count(), Errors = g.Count(s => s.Status >= 500), Slow = g.Count(s => s.DurationMs > RequestTelemetry.SlowMs),
+                P95 = Percentile(g.Select(s => s.DurationMs).OrderBy(d => d).ToList(), 0.95),
+                Newest = g.Max(s => s.At),
+            }).OrderByDescending(r => r.Errors).ThenByDescending(r => r.P95).Take(EvidenceLimit - 2))
+        {
+            rows.Add(new($"route:{Safe(group.Method)}:{Safe(group.Route)}", "health", $"{group.Method} {group.Route}", $"{group.Count} · p95 {group.P95:0} ms",
+                $"ล้มเหลว {group.Errors} · ช้ากว่า {RequestTelemetry.SlowMs / 1000} วิ {group.Slow}", group.Newest,
+                group.Errors > 0 ? "bad" : group.P95 > RequestTelemetry.SlowMs ? "warn" : "ok", "process"));
+        }
+        return rows;
+    }
+
+    /// <summary>The nearest-rank percentile of sorted durations: the value below which that share of requests finished.</summary>
+    private static double Percentile(List<double> sorted, double share) => sorted[Math.Clamp((int)Math.Ceiling(share * sorted.Count) - 1, 0, sorted.Count - 1)];
+
+    /// <summary>A route pattern or exception type as a piece of a row id: ASCII letters, digits and pattern punctuation only, short enough for the audit's key.</summary>
+    private static string Safe(string text)
+    {
+        var safe = new string(text.Where(c => char.IsAsciiLetterOrDigit(c) || c is '/' or '{' or '}' or '-' or '_' or '.').ToArray());
+        return safe.Length > 40 ? safe[..40] : safe;
+    }
+
+    private const string Basis = "The platform's own signals — process, database answer time, register cache, configuration, the ledgers' newest rows and failure counts, "
+        + "and the last few thousand API requests the process remembers (route patterns, statuses, durations, exception types; forgotten at restart) — "
         + "and GitHub's workflow-run metadata at the fixed repository. No Application Insights or Azure Monitor connector exists; no metric is claimed that was not measured. "
-        + "Safe identifiers only: no secret, address, message text or person's data. Nothing restarted, rolled back or changed.";
+        + "Safe identifiers only: no path, query, body, secret, address, message text or person's data. Nothing restarted, rolled back or changed.";
 
     public static string Uptime(TimeSpan span) => span.TotalDays >= 1 ? $"{(int)span.TotalDays} วัน {span.Hours} ชม." : span.TotalHours >= 1 ? $"{(int)span.TotalHours} ชม. {span.Minutes} นาที" : $"{Math.Max((int)span.TotalMinutes, 0)} นาที";
     private static string Stamp(DateTimeOffset at) => at.ToOffset(Formats.Zone).ToString("dd/MM/yyyy HH:mm");

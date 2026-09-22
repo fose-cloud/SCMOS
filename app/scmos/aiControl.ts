@@ -93,7 +93,7 @@ export type PlatformSignal = {
   state: "ok" | "warn" | "bad" | "unknown"; source: string;
 };
 export type PlatformAnswer = {
-  view: "health" | "deployments" | "errors"; window: string; total: number; returned: number; truncated: boolean;
+  view: "health" | "deployments" | "errors" | "requests"; window: string; total: number; returned: number; truncated: boolean;
   retrievedAt: string; basis: string; rows: PlatformSignal[];
 };
 export type AiReply = {
@@ -247,7 +247,7 @@ function sourceAnswer(v: unknown): boolean {
     && !Object.hasOwn(step, "diff") && !Object.hasOwn(step, "command"));
 }
 function platformAnswer(v: unknown): boolean {
-  return obj(v) && ["health", "deployments", "errors"].includes(v.view as string) && strings(v, ["window", "retrievedAt", "basis"])
+  return obj(v) && ["health", "deployments", "errors", "requests"].includes(v.view as string) && strings(v, ["window", "retrievedAt", "basis"])
     && count(v.total) && count(v.returned) && typeof v.truncated === "boolean" && (v.returned as number) <= (v.total as number)
     && Array.isArray(v.rows) && v.rows.length <= 50 && v.rows.length === v.returned
     && v.rows.every(r => obj(r) && strings(r, ["id", "label", "value", "detail", "source"]) && ["health", "deployment", "error"].includes(r.kind as string)

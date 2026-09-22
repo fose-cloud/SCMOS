@@ -15,8 +15,11 @@ namespace Scmos.Api.Ai.Sre;
 /// read wider than a count or a maximum, and no row's content leaves.
 /// </summary>
 public sealed class PlatformSource(ScmosDbContext db, JobRegisterCache register, IFileStore files, IOptions<OpenAiOptions> provider,
-    IOptions<AiOptions> ai, IHostEnvironment environment) : IPlatformSource
+    IOptions<AiOptions> ai, IHostEnvironment environment, RequestTelemetry telemetry) : IPlatformSource
 {
+    public IReadOnlyList<RequestSample> Requests(DateTimeOffset since) => telemetry.Since(since);
+    public DateTimeOffset TelemetrySince => telemetry.StartedAt;
+
     public const int PingTimeoutMs = 10000;
 
     public async Task<double?> PingDatabaseAsync(CancellationToken token)

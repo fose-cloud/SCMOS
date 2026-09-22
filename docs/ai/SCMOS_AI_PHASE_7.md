@@ -42,8 +42,55 @@ Every answer's basis says it: no Application Insights or Azure Monitor connector
 
 **Verified on LocalDB, 22 Sep** — the checks' fixtures stand in for the platform; a live question needs the provider and the flag, as the other agents' did. Production verification follows the department's word on `AI__SreAgentEnabled`.
 
-**Known risks** — the health view's ping is one query at one moment: a database that answered in 300 ms may take 40 s a minute later under a register read, and the view says so only if asked then. The `errors` view counts what SCMOS wrote down; an exception the API logged to App Service and nowhere else is not in it — that is the connector the department has not decided on. GitHub's unauthenticated rate limit (60 an hour per address) is shared with the Engineering Agent's reads.
+**Known risks** — the health view's ping is one query at one moment: a database that answered in 300 ms may take 40 s a minute later under a register read, and the view says so only if asked then. The `errors` view counts what SCMOS wrote down; an exception the API logged to App Service and nowhere else is not in it — that is the connector the department has not decided on (the second read below answers part of this from inside the process). GitHub's unauthenticated rate limit (60 an hour per address) is shared with the Engineering Agent's reads.
 
 **Remaining tasks** — Phase 8 (collaboration), 9 (hardening).
+
+**Recommended next phase** — 9.
+
+---
+
+# Phase 7 record, second read: the requests the process remembers
+
+Implemented 22 September 2026 · released as v2.7.78 · on the department's word "เริ่มทำ Phase 7 ต่อ" after the morning the dashboard would not load.
+
+## PHASE COMPLETED — 7 (second read)
+
+**What was missing.** That morning the department asked why the dashboard took minutes, and the answer had to be read off Portal charts and a log stream by hand: the API remembers nothing about its own requests, and the first read's `errors` view could only count what SCMOS had written to its ledgers. "What was slow at 09:41" and "what threw this morning" had no reader.
+
+**What it is.** A ring of the last 5,000 API requests, in the process's memory — `RequestTelemetry` — filled by one middleware that sits inside the exception handler. Each sample is the route's *pattern* (`/api/jobs/{key}`, never the path with the key filled in), the method, the status, how long it took, the correlation id it came with (or the trace id), and the *type* of an exception it threw (never its message). No query string, no body, no user, no message text, no path. It is forgotten past its capacity and at every restart; it is not telemetry storage and does not try to be. Only `/api*` and `/health` are remembered — the site's other paths are not the API's business.
+
+**What it answers.** A fourth view on the same tool, `query_platform` —
+
+| View | What it is |
+| --- | --- |
+| `requests` | the last 60 minutes as the process remembers them: the volume with the failed (5xx), the refused (4xx) and the slow (over five seconds) counted; the nearest-rank p50 and p95 response times and the slowest; then each route pattern with its count, p95, failed and slow — the routes that threw first, then the slowest. An hour with nothing remembered is `unknown`, not fine. |
+| `errors` (extended) | after the ledgers' counts, what the API itself threw as far back as the process remembers, within the days asked: one row per exception type and route pattern with the newest one's correlation id, and one row for the total that names how far back the memory reaches and how many requests it holds. |
+
+The basis now says so: the last few thousand requests the process remembers, forgotten at restart; no path, query, body, secret, address, message text or person's data.
+
+**Why inside the exception handler.** Ahead of it, the handler would answer the caller first and the middleware would only see a 500 with no type. Inside it, the middleware records the type on the way out and rethrows; the handler answers as it always did. The check proves the type is recorded and the exception still leaves the middleware; the local host proves the pipeline still answers `/health` 200, a routed call 401 and an unrouted one 404 through it.
+
+**Files created** — `server/Scmos.Api/Ai/Sre/RequestTelemetry.cs` (`RequestSample`, `RequestTelemetry` — the ring, `Since`, `StartedAt`, `Recorded`; `RequestTelemetryMiddleware` — `RouteOf` names an unrouted call by its first two segments only).
+
+**Files modified** — `Program.cs` (the singleton; the middleware after `UseExceptionHandler`); `Ai/Sre/PlatformReadService.cs` (`IPlatformSource.Requests` / `TelemetrySince`, the `requests` view, the API-exception rows in `errors`, `RequestMinutes`, the basis); `Ai/Sre/PlatformSource.cs` (reads the ring); `Ai/Sre/SreAgent.cs` (instructions, the summary of an hour); `Ai/ToolRegistry.cs` (description; the schema's choices follow `Views`); `Ai/AiAuditRules.cs` (`PlatformViews` += `requests`); web `aiControl.ts` (the parser's views), `AiControlTower.tsx` (the card's label; a prompt "คำขอ API ชั่วโมงล่าสุดช้าตรงไหน").
+
+**Existing components reused** — `AiAuditRules.IsCorrelation` (the header's shape), the audit's 80-character key (a row id is capped to fit it), `TimeProvider`.
+
+**APIs added** — none. **Changed** — `POST /api/ai/chat` may answer with `platform.view: "requests"`.
+
+**Tools added** — none. **Agents added** — none. **Database changes** — none. **Permissions added** — none.
+
+**Security changes** — none loosened. The ring holds nothing a path, a query string or an exception message could carry, by construction: the middleware stores the pattern and the type and nothing else, and a check serialises a sample made from a request whose path names a job and whose query string names a token and finds neither.
+
+**Tests added** — 19 checks in `SreChecks` ("7:"): the four views in the schema and the audit; the `requests` view's rows, order, states, the hour's window, the nearest-rank percentiles, a 404 that is neither failed nor slow, the quiet hour; the `errors` view's exception rows and the quiet case; no `?` or job key in any row; the ring's capacity, order and `Since`; the middleware on a bare `HttpContext` — a routed request by its pattern, a thrown one as a 500 with the type and the trace id, an unrouted one by two segments, `/health` remembered and `/` not, a malformed correlation header not stored. 808 offline, 922 with LocalDB.
+
+**Build result** — green (`-warnaserror` on the API; the checks project as CI builds it).
+
+**Verified on LocalDB, 22 Sep** — the checks; the host started in Development with the middleware in its pipeline and answered `/health`, `/api/jobs`, `/api/nothing/here` and `/api/kpi/measures` as before. The mock provider never selects a tool, so the live view waits, as the first read did, for the flag and the provider in production.
+
+**Known risks** — one process, one memory: on two App Service instances each answers for what it saw. A restart empties it — the first question after a deploy is answered "nothing remembered since {restart}", which is the truth. 5,000 samples is the busiest hour and a half of a working morning; a quieter day reaches back further. The p95 of a route seen once is that one request.
+
+**Remaining tasks** — Phase 8 (collaboration), 9 (hardening); then the register-read plan (`docs/REGISTER_READ_PLAN.md`), which this view will measure.
 
 **Recommended next phase** — 9.
