@@ -77,6 +77,10 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
     /// </summary>
     private const int MaxRetries = 3;
 
+    /// <summary>How often the queue is swept for messages the register has since answered — see <see cref="SweepAsync"/>.</summary>
+    private static readonly TimeSpan SweepEvery = TimeSpan.FromMinutes(30);
+    private DateTimeOffset _sweptAt = DateTimeOffset.MinValue;
+
     protected override async Task ExecuteAsync(CancellationToken stopping)
     {
         while (!stopping.IsCancellationRequested)
@@ -84,6 +88,11 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
             try
             {
                 await DrainAsync(stopping);
+                if (DateTimeOffset.UtcNow - _sweptAt >= SweepEvery)
+                {
+                    _sweptAt = DateTimeOffset.UtcNow;
+                    await SweepAsync(stopping);
+                }
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
             {
@@ -102,6 +111,53 @@ public class LineEventWorker(IServiceProvider services, ILogger<LineEventWorker>
                 await Task.Delay(Tick, stopping);
             }
             catch (OperationCanceledException) { break; }
+        }
+    }
+
+    /// <summary>
+    /// Files the messages already waiting that a person could no longer act
+    /// on: a message with nothing to write — no status, a closed job, a step
+    /// backwards — whose job has since come to hold every designated cell
+    /// (22 Sep 2026). The worker files such a message the moment it arrives;
+    /// this catches the ones that arrived before the rule, and the ones whose
+    /// job was filled in by hand afterwards. Every half hour, a few rows at a
+    /// time; a message the owner could still approve is not touched.
+    /// </summary>
+    private async Task SweepAsync(CancellationToken stopping)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ScmosDbContext>();
+        var waiting = await db.LineEvents
+            .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "" && one.ErrorCode != "ready-to-apply"
+                && (one.MessageType == "text" || one.MessageType == CarrierEvent.MessageType))
+            .OrderBy(one => one.Id).Take(200)
+            .ToListAsync(stopping);
+        if (waiting.Count == 0) return;
+        var keys = waiting.Select(one => one.JobKey).Distinct().ToList();
+        var jobs = await db.OperationJobs.AsNoTracking().Where(job => keys.Contains(job.Key))
+            .Select(job => new { job.Key, job.Cat, job.Trucker, job.Status, job.Data })
+            .ToDictionaryAsync(job => job.Key, stopping);
+        var filed = 0;
+        foreach (var row in waiting)
+        {
+            if (!jobs.TryGetValue(row.JobKey, out var pinned)) continue;
+            var candidate = LineMatching.Candidate(pinned.Key, pinned.Cat, pinned.Trucker, pinned.Status, pinned.Data);
+            // Judged again now, on the job as it is: a message that could be applied stays.
+            var read = LineReadings.Of(row);
+            var verdict = string.IsNullOrWhiteSpace(read.Status) && read.HasDetails
+                ? LineAuthority.Details(candidate, LineAuthority.FillsOf(read))
+                : LineAuthority.Move(candidate, read.Status, read.ArrivalTime is not null);
+            if (!verdict.Redundant(candidate) && verdict.Result != LineAuthority.Outcome.AlreadyThere) continue;
+            row.ProcessingStatus = LineProcessing.Ignored;
+            row.ErrorCode = LineAuthority.Outcome.AlreadyRecorded;
+            row.ErrorMessage = "งานมีข้อมูลในคอลัมน์ที่กำหนดครบแล้ว — ไม่ดึงจากไลน์ซ้ำ";
+            row.ProcessedAt = DateTimeOffset.UtcNow;
+            filed++;
+        }
+        if (filed > 0)
+        {
+            await db.SaveChangesAsync(stopping);
+            log.LogInformation("LINE sweep: {Count} waiting message(s) filed — their jobs already hold every designated cell", filed);
         }
     }
 
