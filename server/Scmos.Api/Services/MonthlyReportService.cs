@@ -56,7 +56,7 @@ public class MonthlyReportService(JobRegisterCache register, CarrierDirectory ca
 
     private async Task<List<MonthlyReport.Trip>> TripsAsync(CancellationToken token)
     {
-        var snapshot = await register.ReadAsync(token);
+        var snapshot = await register.ReadAsync(token, staleOk: true);
         var directory = await carriers.ReadAsync(token);
 
         return snapshot.Rows

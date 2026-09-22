@@ -60,7 +60,9 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
     /// </summary>
     public async Task<(string Json, int Count)> LoadAsync(CancellationToken token)
     {
-        var snapshot = await register.ReadAsync(token);
+        // The opening load may be a few minutes stale: the screen asks /api/jobs/changed
+        // for the difference a few times a minute and lays it over what it holds.
+        var snapshot = await register.ReadAsync(token, staleOk: true);
         return (snapshot.Json, snapshot.Count);
     }
 

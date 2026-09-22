@@ -352,6 +352,13 @@ if (args.Contains("--report-otd"))
     return await OtdCoverage.RunAsync(app, args);
 }
 
+// The register cache's stale-while-revalidate, on a development database.
+// Reads, drops a cache entry, reads again; writes nothing to the database.
+if (args.Contains("--check-register-cache"))
+{
+    return await RegisterCacheCheck.RunAsync(app);
+}
+
 // Reports by default; --apply writes; --undo puts the last run back. Merges the
 // spellings of one place into one, so a saved distance is findable from all of
 // them. See PlaceMerge for why the mapping is written out by hand.

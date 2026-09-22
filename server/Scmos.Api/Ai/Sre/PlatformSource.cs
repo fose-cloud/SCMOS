@@ -34,7 +34,9 @@ public sealed class PlatformSource(ScmosDbContext db, JobRegisterCache register,
     }
 
     public (int Rows, DateTimeOffset UpdatedAt)? CachedRegister()
-        => register.Peek() is { } snapshot ? (snapshot.Count, snapshot.UpdatedAt) : null;
+        => register.Peek() is { } snapshot ? (snapshot.Count, snapshot.UpdatedAt)
+            // A stale copy young enough to hand a summarising reader counts as "in hand": that reader will not wait.
+            : JobRegisterCache.Stale() is { } stale ? (stale.Count, stale.UpdatedAt) : null;
 
     public async Task<PlatformActivity> ActivityAsync(CancellationToken token)
     {

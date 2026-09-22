@@ -93,7 +93,7 @@ public class MonitorService(ScmosDbContext db, JobRegisterCache register)
     {
         var today = DateOnly.FromDateTime(Formats.Now.DateTime);
 
-        var snapshot = await register.ReadAsync(token);
+        var snapshot = await register.ReadAsync(token, staleOk: true);
         var jobs = new List<WorkspaceTabs.JobView>(snapshot.Rows.Count);
         foreach (var row in snapshot.Rows)
         {

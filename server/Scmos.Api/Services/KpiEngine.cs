@@ -183,7 +183,8 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
 
     public async Task<KpiEngineReport> BuildAsync(Period period, KpiScope scope, CancellationToken token)
     {
-        var snapshot = await register.ReadAsync(token);
+        // A figure over the whole register may stand on a snapshot a few minutes old.
+        var snapshot = await register.ReadAsync(token, staleOk: true);
 
         // The register says which company each spelling on a job means. Every
         // figure below is grouped by haulier, so merging two rows of the
@@ -339,7 +340,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     /// </summary>
     private async Task<List<string>> MonthsAsync(CancellationToken token)
     {
-        var snapshot = await register.ReadAsync(token);
+        var snapshot = await register.ReadAsync(token, staleOk: true);
 
         return snapshot.Rows
             .Select(row => Formats.PartsOf(row.Record?.Date ?? ""))

@@ -32,12 +32,33 @@ public sealed record JobRegisterSnapshot(
 /// into a burst of full-table reads. The cache is deliberately short lived and
 /// every application write invalidates it, so it removes duplicate work without
 /// becoming another source of operational truth.
+///
+/// <para>
+/// Since 22 Sep 2026 a reader may say it can take a stale answer
+/// (<c>staleOk</c>): when a write has just dropped the cache, such a reader is
+/// given the last snapshot built — never older than <see cref="MaxStale"/> —
+/// at once, and the fresh read runs behind it, once, for everyone. That
+/// morning every dashboard the department opened after 09:00 waited on the
+/// same whole-register read, one after another, because each write had
+/// dropped the one before. The readers that opt in are the ones that
+/// summarise the register — the dashboard's cards, the KPI, the
+/// notifications, the monitor, the reports — and the web app's opening load,
+/// which corrects itself from <c>/api/jobs/changed</c> a few times a minute
+/// anyway. The workspace's own page, and anything that writes from what it
+/// read, still reads fresh.
+/// </para>
 /// </summary>
 public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
-    ILogger<JobRegisterCache> log)
+    ILogger<JobRegisterCache> log, IServiceScopeFactory? scopes = null)
 {
     private const string CacheKey = "operation-register-snapshot-v1";
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+    /// <summary>The oldest snapshot a reader that can take a stale one is given; past this it waits for a fresh read like everyone else.</summary>
+    public static readonly TimeSpan MaxStale = TimeSpan.FromMinutes(3);
+    private static JobRegisterSnapshot? _last;
+    private static DateTimeOffset _lastBuiltAt;
+    private static int _refreshing;
+    private static int _again;
 
     /// <summary>
     /// Where a full-register read stops being cheap on this instance.
@@ -52,10 +73,24 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static long _version;
 
-    public async Task<JobRegisterSnapshot> ReadAsync(CancellationToken token)
+    public Task<JobRegisterSnapshot> ReadAsync(CancellationToken token) => ReadAsync(token, staleOk: false);
+
+    /// <param name="staleOk">
+    /// Whether the last snapshot built — at most <see cref="MaxStale"/> old — will do while a fresh one is read behind it.
+    /// A reader that summarises the register may say yes; one that writes from what it read, or shows a row somebody
+    /// just edited, must not.
+    /// </param>
+    public async Task<JobRegisterSnapshot> ReadAsync(CancellationToken token, bool staleOk)
     {
         if (cache.TryGetValue(CacheKey, out JobRegisterSnapshot? found) && found is not null)
             return found;
+
+        if (staleOk && Stale() is { } stale)
+        {
+            // Answer now with what was last read; read the register once, in the background, for the next reader.
+            ScheduleRefresh();
+            return stale;
+        }
 
         await Gate.WaitAsync(token);
         try
@@ -133,6 +168,9 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
             json.Append('}');
 
             var snapshot = new JobRegisterSnapshot(valid, json.ToString(), valid.Count, updatedAt);
+            // What the stale readers are given after the next write, dated by when it was built.
+            _last = snapshot;
+            _lastBuiltAt = DateTimeOffset.UtcNow;
 
             // If a write completed while the query was running, this answer is
             // valid for the request that started before it but must not be kept.
@@ -167,4 +205,50 @@ public sealed class JobRegisterCache(ScmosDbContext db, IMemoryCache cache,
     /// read; asking this method to load it would be that read.
     /// </summary>
     public JobRegisterSnapshot? Peek() => cache.TryGetValue(CacheKey, out JobRegisterSnapshot? found) ? found : null;
+
+    /// <summary>The last snapshot built, when it is still young enough to hand a stale reader; null otherwise.</summary>
+    public static JobRegisterSnapshot? Stale() =>
+        _last is { } last && DateTimeOffset.UtcNow - _lastBuiltAt <= MaxStale ? last : null;
+
+    /// <summary>How old the last snapshot built is, for the SRE Agent's health view; null when none was built since the process started.</summary>
+    public static TimeSpan? StaleAge() => _last is null ? null : DateTimeOffset.UtcNow - _lastBuiltAt;
+
+    /// <summary>Whether a background read is running now.</summary>
+    public static bool Refreshing => Volatile.Read(ref _refreshing) == 1;
+
+    /// <summary>
+    /// One background read of the register, for everyone: a second request
+    /// while it runs marks it to run once more, not once per request. A host
+    /// without a scope factory (a rule check) reads on demand and never here.
+    /// </summary>
+    private void ScheduleRefresh()
+    {
+        if (scopes is null) return;
+        if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0) { Volatile.Write(ref _again, 1); return; }
+        var factory = scopes;
+        var logger = log;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                do
+                {
+                    Volatile.Write(ref _again, 0);
+                    try
+                    {
+                        // A scope of its own: the request that asked has gone by the time this finishes.
+                        using var scope = factory.CreateScope();
+                        var register = scope.ServiceProvider.GetRequiredService<JobRegisterCache>();
+                        await register.ReadAsync(CancellationToken.None, staleOk: false);
+                    }
+                    catch (Exception error)
+                    {
+                        logger.LogWarning(error, "The background register read failed; the next reader reads it in the foreground.");
+                        break;
+                    }
+                } while (Volatile.Read(ref _again) == 1);
+            }
+            finally { Volatile.Write(ref _refreshing, 0); }
+        });
+    }
 }

@@ -81,7 +81,7 @@ public class KpiService(JobRegisterCache register, CarrierDirectory carriers) : 
         // parse hand-typed dates and times that SQL cannot be trusted to read
         // the same way — that difference is the entire reason the data standard
         // exists — so correctness wins over pushing the work down.
-        var snapshot = await register.ReadAsync(token);
+        var snapshot = await register.ReadAsync(token, staleOk: true);
         var directory = await carriers.ReadAsync(token);
 
         // A carrier filter is a company, not a spelling: "SJ" and "SANGJA" are

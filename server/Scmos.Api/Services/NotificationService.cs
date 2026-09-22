@@ -35,7 +35,7 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
         var alerts = new List<Alert>();
         var today = Formats.DateNumber(DateTimeOffset.Now.ToString("dd/MM/yyyy"));
 
-        var snapshot = await register.ReadAsync(token);
+        var snapshot = await register.ReadAsync(token, staleOk: true);
         var jobs = snapshot.Rows.Select(row => row.Record).OfType<JobRecord>().ToList();
 
         // Narrowed to one person's work when asked. A supervisor wants the
