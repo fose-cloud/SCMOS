@@ -83,7 +83,10 @@ public static partial class JobRules
     /// two things thirty-fold apart on two screens of the same app.
     /// </summary>
     public static bool WasDelayed(JobRecord job) =>
-        IsDelayed(job.Status) || Formats.Clean(job.Reason).Length > 0;
+        IsDelayed(job.Status) || Formats.Clean(job.Reason).Length > 0
+        // An export's reason lives in REMARK (22 Sep 2026) — but only a catalogue sentence there says
+        // "delayed"; a remark is otherwise a free note and never a delay by itself.
+        || (job.Cat.Trim().Equals("EXPORT", StringComparison.OrdinalIgnoreCase) && DelayReasonRule.IsCatalogued(job.Remark));
 
     public static bool IsDone(string status) =>
         JobStatus.IsControlled(Code(status)) ? JobStatus.IsDone(Code(status)) : Done().IsMatch(status);

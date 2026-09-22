@@ -50,4 +50,4 @@ On an IMPORT the reason goes into REASON / DELAY; on an EXPORT — whose layout 
 
 ## Verified
 
-`--check-corrections` (82 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.
+`--check-corrections` (86 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.

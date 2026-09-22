@@ -72,8 +72,10 @@ public static partial class DelayReasonRule
         var cat = job.Cat.Trim().ToUpperInvariant();
         if (cat is not ("IMPORT" or "EXPORT")) return false;
         if (string.Equals(job.Status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)) return false;
-        // The column the reason would go to must be blank: a person's own words stand.
-        if (Formats.Clean(cat == "EXPORT" ? job.Remark : job.Reason).Length > 0) return false;
+        // A reason already recorded — in the column it goes to, or in REASON / DELAY on an export
+        // from before the column moved — is an answer; a person's own words stand.
+        if (Formats.Clean(job.Reason).Length > 0) return false;
+        if (cat == "EXPORT" && Formats.Clean(job.Remark).Length > 0) return false;
         var late = JobRules.MinutesLate(job);
         if (late is null || late <= CustomerTerms.GraceMinutes(job.Customer)) return false;
         var day = Formats.ParseDay(job.Date);

@@ -103,16 +103,22 @@ public static class CorrectionProposer
             var proposals = CorrectionRules.Propose(job.Cat, cells, lists).ToList();
             var reason = DelayReasonRule.Propose(job, messages.GetValueOrDefault(row.Key, []), today);
             if (reason is not null) { lateAsked++; proposals.Add(reason); }
-            // A delay reason waiting under the wrong column for its category — the export rows queued into
-            // REASON before the department moved them to REMARK — is retired, so the drawer shows one.
-            if (queue && openByCell.TryGetValue((row.Key, DelayReasonRule.Field), out var misplaced)
-                && DelayReasonRule.IsReasonRule(misplaced.Rule) && DelayReasonRule.FieldFor(job.Cat) != DelayReasonRule.Field)
+            // A delay reason still waiting on a job that no longer asks for one — a reason typed since, an
+            // export answered under REASON before the column moved, a row queued under the wrong column —
+            // is retired, so the drawer shows only what is still a question.
+            if (queue)
             {
-                misplaced.State = CorrectionState.Stale;
-                misplaced.DecidedAt = clock.GetUtcNow();
-                misplaced.Note = $"ย้ายไปคอลัมน์ {DelayReasonRule.ExportField} (รอบ {batch})";
-                openByCell.Remove((row.Key, DelayReasonRule.Field));
-                superseded++;
+                foreach (var column in new[] { DelayReasonRule.Field, DelayReasonRule.ExportField })
+                {
+                    if (!openByCell.TryGetValue((row.Key, column), out var waiting) || !DelayReasonRule.IsReasonRule(waiting.Rule)) continue;
+                    var still = reason is not null && reason.Field == column;
+                    if (still) continue;
+                    waiting.State = CorrectionState.Stale;
+                    waiting.DecidedAt = clock.GetUtcNow();
+                    waiting.Note = reason is null ? $"งานมีเหตุผลแล้วหรือไม่เข้าเงื่อนไขแล้ว (รอบ {batch})" : $"ย้ายไปคอลัมน์ {reason.Field} (รอบ {batch})";
+                    openByCell.Remove((row.Key, column));
+                    superseded++;
+                }
             }
 
             foreach (var field in CorrectionRules.Fields)

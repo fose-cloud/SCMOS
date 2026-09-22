@@ -123,6 +123,10 @@ public static class CorrectionCheck
         failed += Say("and an export's reason goes into REMARK — the export layout has no REASON / DELAY", port?.Field, "remark");
         failed += Say("an import's goes into REASON / DELAY", breakdown?.Field, "reason");
         failed += Say("an export whose REMARK already says something is not proposed over", DelayReasonRule.Propose(new JobRecord { Key = "J", Cat = "EXPORT", Date = "21/09/2026", PlanTime = "09:00", ArrDate = "21/09/2026", ArrTime = "11:00", Customer = "OPTIDUR", Remark = "รอคิวโหลด", Status = "COMPLETED" }, [], today), null);
+        failed += Say("an export answered under REASON / DELAY before the column moved is not asked again", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", reason: "Delay due to Traffic Congestion"), [], today), null);
+        failed += Say("an export whose REMARK holds a catalogue reason was delayed, to the DELAY rule", JobRules.WasDelayed(new JobRecord { Cat = "EXPORT", Status = "COMPLETED", Remark = "Port Traffic Congestion" }), true);
+        failed += Say("but a free note in REMARK is not a delay by itself", JobRules.WasDelayed(new JobRecord { Cat = "EXPORT", Status = "COMPLETED", Remark = "ส่งเอกสารให้ CS แล้ว" }), false);
+        failed += Say("and on an import REMARK is not read for it at all", JobRules.WasDelayed(new JobRecord { Cat = "IMPORT", Status = "COMPLETED", Remark = "Port Traffic Congestion" }), false);
         failed += Say("a proposal is a delay reason by its rule, whichever column it goes to", DelayReasonRule.IsReasonRule("reason.route") && DelayReasonRule.IsReasonRule("reason.carrier") && !DelayReasonRule.IsReasonRule("customer.rotation"), true);
         var lcb = DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", destination: "LCB TERMINAL B"), ["สวัสดีครับ"], today);
         failed += Say("a late import off a port is proposed Port Traffic Congestion", lcb?.To, "Port Traffic Congestion");
