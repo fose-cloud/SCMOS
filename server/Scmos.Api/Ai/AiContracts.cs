@@ -4,6 +4,7 @@ using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Sre;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Engineering;
+using Scmos.Api.Ai.Management;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -47,7 +48,9 @@ public sealed record AiChatResponse(string RunId, string Code, string Summary, s
     /// <summary>The Engineering Agent's source read and the model's analysis of it (Phase 6, second increment); null for every other run.</summary>
     SourceAnswer? Source = null,
     /// <summary>The SRE Agent's platform signals (Phase 7); null for every other agent.</summary>
-    PlatformAnswer? Platform = null);
+    PlatformAnswer? Platform = null,
+    /// <summary>The Management Agent's plan, trail and findings (Phase 8); its steps' own answers travel in Evidence, Documents and Messages beside it. Null for every other agent.</summary>
+    CollaborationAnswer? Collaboration = null);
 public sealed record AiChatOutcome(int Status, AiChatResponse Response);
 public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,

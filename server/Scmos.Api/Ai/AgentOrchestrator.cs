@@ -6,6 +6,7 @@ using Scmos.Api.Ai.Documents;
 using Scmos.Api.Ai.Sre;
 using Scmos.Api.Ai.Data;
 using Scmos.Api.Ai.Engineering;
+using Scmos.Api.Ai.Management;
 using Scmos.Api.Ai.Operations;
 
 namespace Scmos.Api.Ai;
@@ -16,7 +17,8 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
     IAgentExecutor<OperationsExecution>? operations = null, IOperationsControl? control = null,
     IAgentExecutor<DataExecution>? data = null, IAgentExecutor<CommunicationExecution>? communication = null,
     IAgentExecutor<DocumentExecution>? documents = null,
-    IAgentExecutor<EngineeringExecution>? engineering = null, IAgentExecutor<SreExecution>? sre = null)
+    IAgentExecutor<EngineeringExecution>? engineering = null, IAgentExecutor<SreExecution>? sre = null,
+    IAgentExecutor<ManagementExecution>? management = null)
 {
     private readonly AiOptions _options = options.Value;
     private const string Instructions = "You are an SCMOS assistant. Approved SCMOS rules and source evidence are authoritative. "
@@ -35,9 +37,10 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
                     : a.Id == CommunicationAgent.Id ? communication?.Connected == true
                     : a.Id == DocumentAgent.Id ? documents?.Connected == true
                     : a.Id == EngineeringAgent.Id ? engineering?.Connected == true
-                    : a.Id == SreAgent.Id && sre?.Connected == true)).ToArray(),
+                    : a.Id == SreAgent.Id ? sre?.Connected == true
+                    : a.Id == ManagementAgent.Id && management?.Connected == true)).ToArray(),
         AuditReady: operations?.AuditReady == true || data?.AuditReady == true || communication?.AuditReady == true
-            || documents?.AuditReady == true || engineering?.AuditReady == true || sre?.AuditReady == true);
+            || documents?.AuditReady == true || engineering?.AuditReady == true || sre?.AuditReady == true || management?.AuditReady == true);
 
     public async Task<AiStatus> StatusAsync(AppUser user, CancellationToken token)
     {
@@ -82,8 +85,9 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         AgentDefinition? agent = null;
         AiChatOutcome Reply(int status, string code, string summary, bool mock = false, AiUsage? usage = null,
             OperationsAnswer? evidence = null, bool contextUsed = false, DataAnswer? kpi = null, MessagesAnswer? messages = null,
-            DocumentsAnswer? paperwork = null, EngineeringAnswer? repositoryEvidence = null, SourceAnswer? source = null, PlatformAnswer? platform = null)
-            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi, messages, paperwork, repositoryEvidence, source, platform));
+            DocumentsAnswer? paperwork = null, EngineeringAnswer? repositoryEvidence = null, SourceAnswer? source = null, PlatformAnswer? platform = null,
+            CollaborationAnswer? collaboration = null)
+            => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi, messages, paperwork, repositoryEvidence, source, platform, collaboration));
 
         if (!AiPermissionPolicy.Authenticated(user)) return Reply(401, "unauthenticated", "Sign in is required.");
         if (!AiPermissionPolicy.InternalUser(user!)) return Reply(403, "forbidden", "AI is not available for this account scope.");
@@ -106,6 +110,7 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         var isDocuments = agent.Id == DocumentAgent.Id;
         var isEngineering = agent.Id == EngineeringAgent.Id;
         var isSre = agent.Id == SreAgent.Id;
+        var isManagement = agent.Id == ManagementAgent.Id;
         if (!_options.MockMode)
         {
             var connected = isOperations ? operations?.Connected == true
@@ -113,7 +118,8 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
                 : isCommunication ? communication?.Connected == true
                 : isDocuments ? documents?.Connected == true
                 : isEngineering ? engineering?.Connected == true
-                : isSre && sre?.Connected == true;
+                : isSre ? sre?.Connected == true
+                : isManagement && management?.Connected == true;
             if (!connected) return Reply(503, "not_connected", "This specialist has no connected read tools.");
         }
         else if (!provider.IsMock || !provider.Configured)
@@ -166,6 +172,16 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
                     if (!sre.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
                     var measured = await sre.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
                     return Reply(StatusOf(measured.Code), measured.Code, measured.Summary, usage: measured.Usage, platform: measured.Evidence);
+                }
+                if (isManagement)
+                {
+                    if (!await management!.CheckAuditReadyAsync(timeout.Token))
+                        return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้อ่านข้อมูลใด");
+                    if (!management.Ready) return Reply(503, "provider_unavailable", "AI provider is unavailable.");
+                    // The plan's steps' own answers ride in the slots their specialists use; the plan itself beside them.
+                    var composed = await management.RunAsync(runId, request!, user!, agent, timeout.Token, correlation);
+                    return Reply(StatusOf(composed.Code), composed.Code, composed.Summary, usage: composed.Usage, evidence: composed.Operations,
+                        messages: composed.Messages, paperwork: composed.Documents, collaboration: composed.Evidence);
                 }
                 if (!await operations!.CheckAuditReadyAsync(timeout.Token))
                     return Reply(503, "audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้เรียก provider หรืออ่านข้อมูลงาน");

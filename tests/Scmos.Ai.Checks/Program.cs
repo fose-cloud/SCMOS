@@ -251,6 +251,7 @@ await DocumentChecks.RunAsync(Check);
 await EngineeringChecks.RunAsync(Check);
 await SourceChecks.RunAsync(Check);
 await SreChecks.RunAsync(Check);
+await ManagementChecks.RunAsync(Check);
 await OperationsChecks.RunAsync(Check);
 await OperationsControlChecks.RunAsync(Check);
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));

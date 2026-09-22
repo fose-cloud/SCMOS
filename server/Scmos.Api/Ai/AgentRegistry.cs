@@ -35,8 +35,11 @@ public sealed class AgentRegistry
             ["query_documents"], ["documents", "verification", "compliance", "billing"]),
         Define("compliance-agent", "Compliance Agent", "Training and qualification evidence", Capability.ManageTraining,
             [], ["compliance", "training"]),
-        Define("management-agent", "Management Agent", "Source-linked specialist summaries", Capability.ViewDashboard,
-            ["generate_report"], ["management", "dashboard"]),
+        // The specification's Management Agent (Phase 8): source-linked specialist
+        // summaries — a fixed plan of other specialists' reads, each authorised on
+        // its own, composed by the server. Its "tools" are the plans it may select.
+        Define("management-agent", "Management Agent", "Summaries across specialists by fixed plans — one job's standing, paperwork and messages; delayed jobs short of paperwork — each step read under its own specialist's authorisation, nothing concluded about cause", Capability.ViewDashboard,
+            [Management.ManagementPlans.JobPlan, Management.ManagementPlans.LatePaperworkPlan], ["management", "dashboard"]),
         // The specification's Communication Agent (Phase 4): what the carriers
         // said, as the LINE parser and the mail links already read it. Reading
         // the Communication Center is what it needs — never a carrier's account.

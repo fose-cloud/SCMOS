@@ -5,9 +5,9 @@ import { apiFetch } from "../api";
 import { ZoomBox } from "../TableFrame";
 import type { Screen } from "../nav";
 import {
-  askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, documentAvailability, engineeringAvailability, errorText, EVENT_LABEL, issueTarget, number, sreAvailability,
+  askBody, availability, communicationAvailability, controlRequest, ControlError, dataAvailability, documentAvailability, engineeringAvailability, errorText, EVENT_LABEL, issueTarget, managementAvailability, number, sreAvailability,
   parseAuditPage, parseAuditRun, parseBrief, parseReply, parseStatus, parseToday, stamp, STATUS_LABEL, WINDOW_LABEL,
-  type AgentChoice, type AiReply, type AuditRun, type DocumentsAnswer, type EngineeringAnswer, type Finding, type KpiAnswer, type MessagesAnswer, type PlatformAnswer, type SourceAnswer,
+  type AgentChoice, type AiReply, type AuditRun, type CollaborationAnswer, type DocumentsAnswer, type EngineeringAnswer, type Finding, type KpiAnswer, type MessagesAnswer, type PlatformAnswer, type SourceAnswer,
 } from "../aiControl";
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
@@ -59,6 +59,7 @@ const DOCUMENT_WINDOW_LABEL: Record<string, string> = { all_dates_for_the_job: "
 const SRE_PROMPTS = ["ระบบเป็นอย่างไรบ้างตอนนี้", "การ deploy ล่าสุดผ่านไหม", "วันนี้มีข้อผิดพลาดอะไรบ้าง", "คำขอ API ชั่วโมงล่าสุดช้าตรงไหน", "ข้อผิดพลาด 7 วันที่ผ่านมา"];
 const ENGINEERING_PROMPTS = ["GitHub มี issue ที่ยังเปิดอะไรบ้าง", "Pull request ที่ยังเปิดมีอะไรบ้าง", "Commit ล่าสุดของ SCMOS มีอะไรบ้าง",
   "อ่านโค้ดแล้วอธิบายว่ากฎ on-time ของ Lotus อยู่ตรงไหน", "ดูโฟลเดอร์ server/Scmos.Api/Rules มีไฟล์อะไรบ้าง", "อ่านโค้ดแล้ววิเคราะห์สาเหตุที่ "];
+const MANAGEMENT_PROMPTS = ["สรุปงานเลขที่ ", "งานล่าช้างานไหนเอกสารยังไม่ครบ"];
 const CHANNEL_LABEL: Record<string, string> = { line: "LINE", tms: "TMS", mail: "อีเมล" };
 const MESSAGE_STATE_LABEL: Record<string, string> = {
   applied: "นำเข้าแล้ว", waiting: "รออนุมัติ", unmatched: "จับคู่ไม่ได้", ignored: "ไม่เกี่ยวกับงาน", failed: "ไม่สำเร็จ", pending: "ยังไม่ได้อ่าน",
@@ -249,6 +250,22 @@ function PlatformCard({ answer }: { answer: PlatformAnswer }) {
   </>;
 }
 
+function CollaborationCard({ answer, onOpenJob }: { answer: CollaborationAnswer; onOpenJob: (key: string) => void }) {
+  return <div className={s.evidence} role="region" aria-label="แผนและหลักฐานข้ามผู้เชี่ยวชาญ">
+    <h3>{answer.title} · {number(answer.steps)} ขั้น</h3>
+    <p className={s.hint}>อ่านเมื่อ {stamp(answer.retrievedAt)} · สรุปนี้ประกอบจากข้อมูลที่แต่ละ Agent มีสิทธิ์อ่าน ไม่ใช่คำตอบที่โมเดลคำนวณเอง</p>
+    <ol className={s.timeline}>{answer.trail.map(step => <li key={step.step}>
+      ขั้น {step.step} · {step.agentId} · {step.purpose} · อ่าน {number(step.returned)} จาก {number(step.total)} รายการ{step.truncated ? " (บางส่วน)" : ""}
+    </li>)}</ol>
+    {answer.findings.map(finding => <div key={finding.id}>
+      <strong>{finding.label}: {finding.value}</strong><p className={s.hint}>{finding.detail}</p>
+      {!!finding.jobKeys.length && <div className={s.actions}>{finding.jobKeys.slice(0, 10).map(key => <button key={key} className={s.link} onClick={() => onOpenJob(key)}>{key} ↗</button>)}</div>}
+    </div>)}
+    <p className={s.hint}>{answer.basis}</p>
+    <p className={s.hint}>งานที่อยู่ในสองรายการไม่ได้ยืนยันว่าสิ่งหนึ่งเป็นสาเหตุของอีกสิ่งหนึ่ง</p>
+  </div>;
+}
+
 function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string) => void }) {
   return <>
     <h3>รายละเอียดรอบการทำงาน</h3>
@@ -273,10 +290,11 @@ function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string)
     </ol>
     {run.status === "incomplete" && <p className={s.error}>ไม่พบเหตุการณ์จบรอบ ห้ามถือว่ารอบนี้ทำงานสำเร็จ</p>}
     {!!run.sourceKeys.length && <>
-      <p className={s.hint}>{run.tool === "query_repository" ? "รหัสรายการ GitHub ที่อ่านไว้ · ไม่ใช่ Job key" : "งานอ้างอิงที่บันทึกไว้ · เปิดดูข้อมูลปัจจุบันตามสิทธิ์ ไม่ใช่ภาพข้อมูลย้อนหลัง"}</p>
-      <div className={s.actions}>{run.sourceKeys.map(key => run.tool === "query_repository"
-        ? <span key={key} className={s.hint}>{key}</span>
-        : <button key={key} className={s.button} onClick={() => onOpenJob(key)}>{key}</button>)}</div>
+      <p className={s.hint}>{["query_shipments", "search_shipment", "query_delays", "query_followup"].includes(run.tool || "")
+        ? "งานอ้างอิงที่บันทึกไว้ · เปิดดูข้อมูลปัจจุบันตามสิทธิ์ ไม่ใช่ภาพข้อมูลย้อนหลัง" : "รหัสหลักฐานของขั้นสุดท้าย · ไม่ใช่ Job key"}</p>
+      <div className={s.actions}>{run.sourceKeys.map(key => ["query_shipments", "search_shipment", "query_delays", "query_followup"].includes(run.tool || "")
+        ? <button key={key} className={s.button} onClick={() => onOpenJob(key)}>{key}</button>
+        : <span key={key} className={s.hint}>{key}</span>)}</div>
     </>}
   </>;
 }
@@ -307,14 +325,16 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const documentsReady = documentAvailability(status.data);
   const engineeringReady = engineeringAvailability(status.data);
   const sreReady = sreAvailability(status.data);
+  const managementReady = managementAvailability(status.data);
   // Which specialist the question goes to: Operations (the default) or, when
   // the account has one, the Data Agent (Phase 2), the Communication Agent
   // (Phase 4) or the Document & Invoice Agent (Phase 5). The server decides
   // what any may read; this only chooses the door.
   const [agent, setAgent] = useState<AgentChoice>("operations-agent");
   const asking = agent === "data-agent" ? dataReady : agent === "communication-agent" ? messagesReady
-    : agent === "document-agent" ? documentsReady : agent === "engineering-agent" ? engineeringReady : agent === "sre-agent" ? sreReady : ready;
-  const doors = (["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent"] as const)
+    : agent === "document-agent" ? documentsReady : agent === "engineering-agent" ? engineeringReady : agent === "sre-agent" ? sreReady
+    : agent === "management-agent" ? managementReady : ready;
+  const doors = (["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent", "management-agent"] as const)
     .filter(id => id === "operations-agent" || status.data?.agents.some(a => a.id === id));
   const input = useRef<HTMLTextAreaElement>(null);
   const askPanel = useRef<HTMLElement>(null);
@@ -534,6 +554,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             : agent === "document-agent" ? "Document & Invoice Agent · เอกสารตาม checklist ใบแจ้งหนี้เทียบกำหนดวางบิล และเอกสารใกล้หมดอายุ · ไม่เปิดไฟล์ ไม่อนุมัติ"
             : agent === "engineering-agent" ? "Engineering Agent · รายการ GitHub ของ SCMOS และอ่านซอร์สแบบจำกัด อ่านอย่างเดียว · ไม่รันคำสั่ง ไม่แก้ไฟล์ ไม่ deploy · Administrator เท่านั้น"
             : agent === "sre-agent" ? "SRE Agent · สุขภาพระบบ การ deploy และข้อผิดพลาด วัดโดยเซิร์ฟเวอร์เอง · ไม่รีสตาร์ต ไม่แก้ไข · Administrator เท่านั้น"
+            : agent === "management-agent" ? "Management Agent · แผนสรุปงาน/เอกสาร/ข้อความที่กำหนดไว้ · ตรวจสิทธิ์และ Audit ทุกขั้น · ไม่แก้ไขข้อมูล"
             : "Operations Agent · ใช้ขอบเขตงานที่เซิร์ฟเวอร์อนุญาตให้บัญชีนี้อ่าน"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
         <p className={s.hint}>AI ช่วยเลือกเครื่องมืออ่านข้อมูล ผลลัพธ์อาจไม่ครบหรือคลาดเคลื่อน ตรวจงานอ้างอิงก่อนตัดสินใจ ไม่ส่งข้อมูลลับหรือคีย์เข้ามาในคำถาม</p>
         <form className={s.form} onSubmit={submit}>
@@ -542,10 +563,10 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
               className={choice === agent ? s.primary : s.button} aria-pressed={choice === agent}
               onClick={() => { setAgent(choice); setReply(null); setAskError(""); }}>
               {choice === "data-agent" ? "ข้อมูล KPI" : choice === "communication-agent" ? "ข้อความ LINE · อีเมล"
-                : choice === "document-agent" ? "เอกสาร · ใบแจ้งหนี้" : choice === "engineering-agent" ? "Engineering" : choice === "sre-agent" ? "ระบบ · SRE" : "Operations"}</button>)}
+                : choice === "document-agent" ? "เอกสาร · ใบแจ้งหนี้" : choice === "engineering-agent" ? "Engineering" : choice === "sre-agent" ? "ระบบ · SRE" : choice === "management-agent" ? "สรุปข้าม Agent" : "Operations"}</button>)}
           </div>}
           <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : agent === "communication-agent" ? MESSAGE_PROMPTS
-            : agent === "document-agent" ? DOCUMENT_PROMPTS : agent === "engineering-agent" ? ENGINEERING_PROMPTS : agent === "sre-agent" ? SRE_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
+            : agent === "document-agent" ? DOCUMENT_PROMPTS : agent === "engineering-agent" ? ENGINEERING_PROMPTS : agent === "sre-agent" ? SRE_PROMPTS : agent === "management-agent" ? MANAGEMENT_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
             onClick={() => { setMessage(prompt); input.current?.focus(); }}>{prompt.trim()}</button>)}</div>
           <label htmlFor="ai-question">ต้องการตรวจสอบเรื่องอะไร?</label>
           <textarea id="ai-question" ref={input} className={s.textarea} maxLength={4000} value={message} disabled={busy}
@@ -559,7 +580,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <div className={s.formFooter}>
             <span className={s.hint} id="ai-question-help">{message.length.toLocaleString()} / 4,000 · Ctrl / ⌘ + Enter ส่งคำถาม</span>
             <div className={s.actions}>{busy && <button type="button" className={s.button} onClick={cancel}>หยุดรอ</button>}
-              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : agent === "communication-agent" ? "ถาม Communication Agent →" : agent === "document-agent" ? "ถาม Document Agent →" : agent === "engineering-agent" ? "ถาม Engineering Agent →" : agent === "sre-agent" ? "ถาม SRE Agent →" : "ถาม Operations AI →"}</button></div>
+              <button className={s.primary} type="submit" disabled={(!asking.ready && !(isChangeCommand(message) && agent === "operations-agent")) || changeBusy || busy || !message.trim()}>{busy ? "กำลังตรวจข้อมูล…" : isChangeCommand(message) && agent === "operations-agent" ? "เติมร่างแก้งาน →" : agent === "data-agent" ? "ถาม Data Agent →" : agent === "communication-agent" ? "ถาม Communication Agent →" : agent === "document-agent" ? "ถาม Document Agent →" : agent === "engineering-agent" ? "ถาม Engineering Agent →" : agent === "sre-agent" ? "ถาม SRE Agent →" : agent === "management-agent" ? "ถาม Management Agent →" : "ถาม Operations AI →"}</button></div>
           {agent === "operations-agent" && <p className={s.hint}>คำสั่งเติมร่าง (ยังไม่บันทึก): {CHANGE_EXAMPLE} · ผู้รับผิดชอบใช้รหัส เช่น OP-02</p>}
           </div>
           {!asking.ready && <p className={s.hint}>{asking.title}{asking.detail ? " · " + asking.detail : ""}</p>}
@@ -582,6 +603,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             {reply.engineering && <EngineeringCard answer={reply.engineering} />}
             {reply.source && <SourceCard answer={reply.source} />}
             {reply.platform && <PlatformCard answer={reply.platform} />}
+            {reply.collaboration && <CollaborationCard answer={reply.collaboration} onOpenJob={onOpenJob} />}
             {reply.evidence && <>
               <div className={s.meta}><span>วันที่อ้างอิง {reply.evidence.asOfDate} · {reply.evidence.timeZone}</span>
                 <span>ช่วงข้อมูล: {Object.hasOwn(WINDOW_LABEL, reply.evidence.window) ? WINDOW_LABEL[reply.evidence.window] : reply.evidence.window}</span>

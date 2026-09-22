@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, engineeringAvailability, errorText, issueTarget, number, sreAvailability,
+  askBody, availability, communicationAvailability, ControlError, controlRequest, dataAvailability, documentAvailability, engineeringAvailability, errorText, issueTarget, managementAvailability, number, sreAvailability,
   parseStatus, parseToday, parseBrief, parseReply, parseAuditPage, parseAuditRun, stamp,
 } from "../app/scmos/aiControl.ts";
 import { status, today, brief, reply, kpiReply, messagesReply, documentsReply, engineeringReply, sourceReply, platformReply, run, audit } from "./fixtures/ai-control.mjs";
@@ -198,6 +198,36 @@ test("the SRE Agent's platform signals are parsed strictly; a URL, an address or
   assert.equal(sreAvailability(withAgent).ready, true);
   assert.equal(sreAvailability({ ...withAgent, mock: true }).ready, false);
 });
+test("Phase 8 Management plans require the exact specialist trail and their own answer views", () => {
+  const jobPlan = {
+    plan: "summarise_job", title: "สรุปงานหนึ่งงาน", steps: 3, retrievedAt: "2026-09-22T05:00:00Z", basis: "FIXTURE ONLY · no cause inferred",
+    trail: [
+      { step: 1, agentId: "operations-agent", tool: "search_shipment", view: "search", purpose: "หางาน", total: 1, returned: 1, truncated: false, status: "succeeded" },
+      { step: 2, agentId: "document-agent", tool: "query_documents", view: "job", purpose: "เอกสาร", total: 2, returned: 2, truncated: false, status: "succeeded" },
+      { step: 3, agentId: "communication-agent", tool: "query_messages", view: "job", purpose: "ข้อความ", total: 2, returned: 2, truncated: false, status: "succeeded" },
+    ],
+    findings: [{ id: "job", label: "งาน", value: "TEST-JOB-001", detail: "FIXTURE ONLY", jobKeys: ["TEST-ONLY-001"] }],
+  };
+  const full = { ...reply, agentId: "management-agent", evidence: { ...reply.evidence, view: "search" },
+    documents: documentsReply.documents, messages: messagesReply.messages, collaboration: jobPlan };
+  assert.equal(parseReply(full), full);
+  for (const patch of [{ collaboration: null }, { evidence: reply.evidence }, { documents: null }, { messages: null },
+    { collaboration: { ...jobPlan, steps: 4 } }, { collaboration: { ...jobPlan, trail: [jobPlan.trail[1], jobPlan.trail[0], jobPlan.trail[2]] } },
+    { collaboration: { ...jobPlan, trail: [{ ...jobPlan.trail[0], tool: "execute_sql" }, ...jobPlan.trail.slice(1)] } }])
+    rejects(parseReply, { ...full, ...patch });
+  const latePlan = { ...jobPlan, plan: "summarise_late_paperwork", steps: 2,
+    trail: [{ ...jobPlan.trail[0], tool: "query_delays", view: "delays" }, { ...jobPlan.trail[1], view: "missing" }] };
+  const late = { ...full, evidence: { ...reply.evidence, view: "delays" }, documents: { ...documentsReply.documents, view: "missing" },
+    messages: null, collaboration: latePlan };
+  assert.equal(parseReply(late), late);
+  rejects(parseReply, { ...late, messages: messagesReply.messages });
+  rejects(parseReply, { ...reply, collaboration: jobPlan });
+  assert.equal(askBody("สรุปงาน", "management-agent").context.page, "management");
+  const withAgent = { ...status, agents: [...status.agents, { id: "management-agent", name: "Management Agent", enabled: true, connected: true }] };
+  assert.equal(managementAvailability(status).ready, false);
+  assert.equal(managementAvailability(withAgent).ready, true);
+  assert.equal(managementAvailability({ ...withAgent, auditReady: false }).ready, false);
+});
 test("requests preserve abort signal and use same-origin JSON without client secrets", async () => {
   const controller = new AbortController();
   let calls = 0;
@@ -255,7 +285,7 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
   // Only Operations may bypass question readiness for its separate change-draft path.
   assert.match(source, /!asking.ready && !\(agent === "operations-agent" && isChangeCommand\(message\)\)/);
-  assert.match(source, /agent === "document-agent" \? documentsReady : agent === "engineering-agent" \? engineeringReady : agent === "sre-agent" \? sreReady : ready;/);
+  assert.match(source, /agent === "document-agent" \? documentsReady : agent === "engineering-agent" \? engineeringReady : agent === "sre-agent" \? sreReady\s*: agent === "management-agent" \? managementReady : ready;/);
   assert.match(source, /operations-changes\/interpret/);
   assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);

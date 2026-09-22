@@ -74,6 +74,9 @@ public static class AiPermissions
         new("recommend_rate", SupplierAgent, AiPermission.Allow, "เสนอราคาที่ควรใช้ (ข้อเสนอ ไม่ใช่การเปลี่ยนราคา)"),
         new("query_incidents", Safety, AiPermission.Allow, "อ่านเหตุผิดปกติและ CAR/PAR"),
         new("generate_report", Management, AiPermission.Allow, "สร้างรายงานสรุปสำหรับผู้บริหาร"),
+        // Phase 8 (22 Sep 2026): the Management Agent's plans — fixed sequences of other specialists' reads, each step under its own authorisation; read-only.
+        new("summarise_job", Management, AiPermission.Allow, "สรุปงานหนึ่งงานข้ามผู้เชี่ยวชาญ: สถานะในทะเบียน เอกสาร และข้อความผู้ขนส่ง (อ่านอย่างเดียว)"),
+        new("summarise_late_paperwork", Management, AiPermission.Allow, "งานล่าช้าที่เอกสารยังไม่ครบ: เทียบกล่อง DELAY กับ checklist เอกสาร (อ่านอย่างเดียว ไม่สรุปสาเหตุ)"),
 
         // Draft — produces text for a person to use. Writes nothing.
         new("draft_carpar", Safety, AiPermission.Allow, "ร่างเนื้อหา CAR/PAR (ยังไม่บันทึก)"),

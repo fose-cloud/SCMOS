@@ -96,6 +96,14 @@ export type PlatformAnswer = {
   view: "health" | "deployments" | "errors" | "requests"; window: string; total: number; returned: number; truncated: boolean;
   retrievedAt: string; basis: string; rows: PlatformSignal[];
 };
+/** Phase 8: server-composed findings from fixed, independently authorised specialist reads. */
+export type CollaborationAnswer = {
+  plan: "summarise_job" | "summarise_late_paperwork"; title: string; steps: number;
+  trail: { step: number; agentId: string; tool: string; view: string; purpose: string;
+    total: number; returned: number; truncated: boolean; status: "succeeded" }[];
+  findings: { id: string; label: string; value: string; detail: string; jobKeys: string[] }[];
+  retrievedAt: string; basis: string;
+};
 export type AiReply = {
   runId: string; code: string; summary: string; agentId: string | null; mock: boolean; usage: Usage | null; evidence: OperationsAnswer | null;
   /** The API request's correlation id — the same one on every audit event of the run (1D). */
@@ -113,8 +121,9 @@ export type AiReply = {
   source?: SourceAnswer | null;
   /** The SRE Agent's platform signals (Phase 7); null or absent for every other agent. */
   platform?: PlatformAnswer | null;
+  collaboration?: CollaborationAnswer | null;
 };
-export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent" | "engineering-agent" | "sre-agent";
+export type AgentChoice = "operations-agent" | "data-agent" | "communication-agent" | "document-agent" | "engineering-agent" | "sre-agent" | "management-agent";
 export type AuditEvent = { event: string; status: string; at: string; total: number | null; returned: number | null; step?: number | null; tool?: string | null };
 export type AuditRun = {
   runId: string; userId: string; role: string; agentId: string; model: string;
@@ -254,6 +263,22 @@ function platformAnswer(v: unknown): boolean {
       && ["ok", "warn", "bad", "unknown"].includes(r.state as string) && nullableText(r.at)
       && !/https?:\/\//.test(String(r.detail)) && !/\w@\w/.test(String(r.detail)) && !Object.hasOwn(r, "secret") && !Object.hasOwn(r, "connectionString"));
 }
+function collaborationAnswer(v: unknown): boolean {
+  if (!obj(v) || !["summarise_job", "summarise_late_paperwork"].includes(String(v.plan))
+    || !text(v.title, 120) || !text(v.retrievedAt, 64) || !text(v.basis, 1600)
+    || !count(v.steps) || !Array.isArray(v.trail) || v.trail.length !== v.steps
+    || v.trail.length < 2 || v.trail.length > 3 || !Array.isArray(v.findings) || v.findings.length > 4) return false;
+  const expected = v.plan === "summarise_job"
+    ? [["operations-agent", "search_shipment", "search"], ["document-agent", "query_documents", "job"], ["communication-agent", "query_messages", "job"]]
+    : [["operations-agent", "query_delays", "delays"], ["document-agent", "query_documents", "missing"]];
+  return v.trail.length === expected.length && v.trail.every((step, index) => obj(step) && step.step === index + 1
+    && step.agentId === expected[index][0] && step.tool === expected[index][1] && step.view === expected[index][2]
+    && text(step.purpose, 160) && count(step.total) && count(step.returned) && (step.returned as number) <= (step.total as number)
+    && (step.returned as number) <= 50 && typeof step.truncated === "boolean" && step.truncated === (step.total !== step.returned)
+    && step.status === "succeeded")
+    && v.findings.every(f => obj(f) && strings(f, ["id", "label", "value", "detail"])
+      && Array.isArray(f.jobKeys) && f.jobKeys.length <= 50 && f.jobKeys.every(k => text(k, 80)));
+}
 export function parseReply(v: unknown): AiReply {
   return accept(v, obj(v) && id(v.runId) && v.code === "ok" && text(v.summary) && nullableText(v.agentId)
     && typeof v.mock === "boolean" && usage(v.usage)
@@ -266,6 +291,12 @@ export function parseReply(v: unknown): AiReply {
       : v.agentId === "engineering-agent" ? v.evidence === null
         && ((v.source === undefined || v.source === null) ? engineeringAnswer(v.engineering) : (v.engineering === undefined || v.engineering === null) && sourceAnswer(v.source))
       : v.agentId === "sre-agent" ? v.evidence === null && platformAnswer(v.platform)
+      : v.agentId === "management-agent" ? collaborationAnswer(v.collaboration) && evidence(v.evidence)
+        && documentsAnswer(v.documents) && ((v.collaboration as CollaborationAnswer).plan === "summarise_job"
+          ? (v.evidence as OperationsAnswer).view === "search" && (v.documents as DocumentsAnswer).view === "job"
+            && messagesAnswer(v.messages) && (v.messages as MessagesAnswer).view === "job"
+          : (v.evidence as OperationsAnswer).view === "delays" && (v.documents as DocumentsAnswer).view === "missing"
+            && v.messages === null)
       : evidence(v.evidence))
     && (v.kpi === undefined || v.kpi === null || kpiAnswer(v.kpi))
     && (v.messages === undefined || v.messages === null || messagesAnswer(v.messages))
@@ -273,6 +304,8 @@ export function parseReply(v: unknown): AiReply {
     && (v.engineering === undefined || v.engineering === null || engineeringAnswer(v.engineering))
     && (v.source === undefined || v.source === null || sourceAnswer(v.source))
     && (v.platform === undefined || v.platform === null || platformAnswer(v.platform))
+    && (v.collaboration === undefined || v.collaboration === null || collaborationAnswer(v.collaboration))
+    && (v.agentId === "management-agent" || v.collaboration == null)
     && (v.correlationId === undefined || text(v.correlationId, 64))
     && (v.contextUsed === undefined || typeof v.contextUsed === "boolean"));
 }
@@ -301,7 +334,22 @@ export function askBody(message: string, agent: AgentChoice = "operations-agent"
   const trimmed = message.trim();
   if (!trimmed || trimmed.length > 4000) throw new ControlError("invalid_request");
   return { message: trimmed, agentId: agent, context: { page: agent === "data-agent" ? "kpi" : agent === "communication-agent" ? "line"
-    : agent === "document-agent" ? "documents" : agent === "engineering-agent" ? "engineering" : agent === "sre-agent" ? "sre" : "operations" } };
+    : agent === "document-agent" ? "documents" : agent === "engineering-agent" ? "engineering" : agent === "sre-agent" ? "sre" : agent === "management-agent" ? "management" : "operations" } };
+}
+
+/** Management plans are available only with the server-side Phase 8 flag, provider and durable audit. */
+export function managementAvailability(status: AiStatus | null): { ready: boolean; title: string; detail: string; tone: string } {
+  const blocked = (title: string, detail: string, tone = "muted") => ({ ready: false, title, detail, tone });
+  if (!status) return blocked("ยังไม่ทราบสถานะ AI", "รีเฟรชสถานะก่อนส่งคำถาม");
+  const agent = status.agents.find(a => a.id === "management-agent");
+  if (!agent) return blocked("Management Agent ไม่มีในขอบเขตของบัญชีนี้", "");
+  if (!status.enabled || !status.chatEnabled) return blocked("SCMOS AI ยังปิดอยู่", "การเปิด AI ต้องตั้งค่าที่ฝั่งเซิร์ฟเวอร์");
+  if (!status.configurationValid) return blocked("การตั้งค่า AI ยังไม่พร้อม", "ให้ผู้ดูแลตรวจการตั้งค่าเซิร์ฟเวอร์", "red");
+  if (!agent.enabled || !agent.connected) return blocked("Management Agent ยังไม่เปิด", "เปิดด้วย AI:ManagementAgentEnabled และเปิด Agent ของทุกขั้นในแผน");
+  if (!status.providerConfigured) return blocked("ยังไม่ได้ตั้งค่า AI provider", "ให้ผู้ดูแลตรวจการตั้งค่าฝั่งเซิร์ฟเวอร์", "amber");
+  if (status.mock) return blocked("Development Mock", "Management Agent ไม่ทำงานในโหมดสาธิต", "amber");
+  if (!status.auditReady) return blocked("Audit ถาวรยังไม่พร้อม", "ยังส่งคำถามไม่ได้", "amber");
+  return { ready: true, title: "Management Agent พร้อมรับคำถาม", detail: "สรุปข้ามผู้เชี่ยวชาญตามแผนตายตัว · อนุญาตและบันทึก Audit ทุกขั้น · อ่านอย่างเดียว", tone: "green" };
 }
 
 /** Administrator-only Phase 6 reader; the server remains the authority for permission. */

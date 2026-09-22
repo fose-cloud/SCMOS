@@ -57,6 +57,9 @@ public static class AiServiceRegistration
         services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Sre.SreExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Sre.SreAgent>());
         services.AddScoped<Scmos.Api.Ai.Engineering.EngineeringAgent>();
         services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Engineering.EngineeringExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Engineering.EngineeringAgent>());
+        // Phase 8 — the Management Agent runs fixed plans over the specialists above; it owns no read of its own.
+        services.AddScoped<Scmos.Api.Ai.Management.ManagementAgent>();
+        services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Management.ManagementExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Management.ManagementAgent>());
         services.AddScoped<SqlAiExecutionAudit>();
         services.AddScoped<IAiExecutionAudit>(sp => sp.GetRequiredService<SqlAiExecutionAudit>());
         services.AddScoped<AiAuditReader>();

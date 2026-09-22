@@ -22,8 +22,8 @@ namespace Scmos.Api.Ai;
 /// </summary>
 public static class AiAuditRules
 {
-    /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. The Data Agent since Phase 2.</summary>
-    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent"];
+    /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. The Data Agent since Phase 2; the Management Agent since Phase 8.</summary>
+    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent", "management-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
     public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository", "read_source", "query_platform"];
@@ -152,6 +152,16 @@ public static class AiAuditRules
                 "sre-agent" => "platform",
                 "document-agent" => "documents",
                 "communication-agent" => "line_events+emails",
+                // A Management run's steps are other specialists' reads: each row names the source of the tool it ran (Phase 8).
+                "management-agent" => e.Tool switch
+                {
+                    "query_documents" => "documents",
+                    "query_messages" => "line_events+emails",
+                    "query_platform" => "platform",
+                    "query_repository" or "read_source" => "github_public_repo",
+                    null => "specialists",
+                    _ => "operation_jobs",
+                },
                 _ => "operation_jobs",
             },
             CorrelationId = e.CorrelationId, Step = toolEvent ? e.Step ?? 1 : e.Event == "run_completed" ? e.Step : null,
