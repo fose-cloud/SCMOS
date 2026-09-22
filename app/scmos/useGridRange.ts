@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { gridArrowTarget, gridEditIntent, gridTabTarget } from "./gridEditKey";
-import { planPaste, readClipboardGrid } from "./pasteBlock";
+import { clipboardBelongsToBrowser, planPaste, readClipboardGrid } from "./pasteBlock";
 
 /**
  * A spreadsheet's rectangle, and everything that hangs off it.
@@ -357,16 +357,13 @@ export function useGridRange<TRow, TField>(options: GridRangeOptions<TRow, TFiel
    * clipboard permissions API — they carry the data already and never prompt.
    *
    * Both are handed back to the browser while a cell is open: inside an input,
-   * Ctrl+C means the text in that box.
+   * Ctrl+C means the text in that box. A dropdown cell is not that — see
+   * clipboardBelongsToBrowser.
    */
   useEffect(() => {
     if (options.editing) return;
 
-    const typing = (target: EventTarget | null) => {
-      const el = target as HTMLElement | null;
-      const tag = el?.tagName;
-      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable;
-    };
+    const typing = (target: EventTarget | null) => clipboardBelongsToBrowser(target as HTMLElement | null);
 
     const onCopy = (event: ClipboardEvent) => {
       if (typing(event.target)) return;

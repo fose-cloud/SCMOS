@@ -45,6 +45,26 @@ export type PastePlan<TField> = {
 };
 
 /** The clipboard's text as a grid. Tab-separated, which is what a spreadsheet writes. */
+/**
+ * Whether a copy or a paste that landed on this element is the browser's to
+ * handle rather than the grid's.
+ *
+ * Inside a text box it is the browser's: Ctrl+C there means the text in that
+ * box. A dropdown is the exception. Its cell is a grid cell — clicking it put
+ * the rectangle on it — and a native select has no text of its own to copy
+ * or to paste into, so Ctrl+C on it is the cell's value and Ctrl+V a block
+ * landing there, the way the arrow keys already treat it. Before this
+ * (22 Sep 2026) the EXPORT layout could not be copied into or out of by
+ * keyboard at all: its first three data columns are dropdowns, a drag starts
+ * on one, and the select kept the focus and swallowed both keys.
+ */
+export function clipboardBelongsToBrowser(target: { tagName?: string; isContentEditable?: boolean; closest?: (selector: string) => unknown } | null): boolean {
+  if (!target) return false;
+  const tag = target.tagName;
+  if (tag === "SELECT") return !target.closest?.("td[data-grid-cell]");
+  return tag === "INPUT" || tag === "TEXTAREA" || !!target.isContentEditable;
+}
+
 export function readClipboardGrid(text: string): string[][] {
   // A spreadsheet ends its last row with a newline. That is punctuation, not
   // an empty row.

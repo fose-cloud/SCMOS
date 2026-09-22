@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isSingleValue, planPaste, readClipboardGrid } from "../app/scmos/pasteBlock.ts";
+import { clipboardBelongsToBrowser, isSingleValue, planPaste, readClipboardGrid } from "../app/scmos/pasteBlock.ts";
 
 /**
  * Pasting a block copied out of Excel.
@@ -177,4 +177,16 @@ test("a value with a newline in it cannot break the row it is on", () => {
 test("a tab inside a value cannot open a column either", () => {
   const { text } = copyBlockPayload([["a\tb", "c"]], null);
   assert.equal(text.split("\t").length, 2, "two cells, not three");
+});
+
+test("a dropdown cell's copy and paste belong to the grid; a text box's, and a select outside the grid, to the browser", () => {
+  const inGrid = { tagName: "SELECT", closest: (selector) => selector === "td[data-grid-cell]" ? {} : null };
+  const loose = { tagName: "SELECT", closest: () => null };
+  assert.equal(clipboardBelongsToBrowser(inGrid), false);
+  assert.equal(clipboardBelongsToBrowser(loose), true);
+  assert.equal(clipboardBelongsToBrowser({ tagName: "INPUT", closest: () => ({}) }), true);
+  assert.equal(clipboardBelongsToBrowser({ tagName: "TEXTAREA" }), true);
+  assert.equal(clipboardBelongsToBrowser({ tagName: "DIV", isContentEditable: true }), true);
+  assert.equal(clipboardBelongsToBrowser({ tagName: "TD", closest: () => ({}) }), false);
+  assert.equal(clipboardBelongsToBrowser(null), false);
 });
