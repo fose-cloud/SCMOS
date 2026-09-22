@@ -101,7 +101,7 @@ import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
 import { LineReview } from "./scmos/screens/LineReview";
 import { CarrierApiClients } from "./scmos/screens/CarrierApiClients";
 import { pendingByKey, pendingMarks, type LinePending } from "./scmos/linePending";
-import { correctionsByKey, mergeMarks, type Correction } from "./scmos/corrections";
+import { correctionsByKey, mergeMarks, type Correction, type ReasonChoice } from "./scmos/corrections";
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
@@ -309,6 +309,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   // messages, marked on the same rows, decided in the same drawer.
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [correctionsMine, setCorrectionsMine] = useState(0);
+  // The reasons an owner may pick for a late shipment — read once, from the rule.
+  const [reasonChoices, setReasonChoices] = useState<ReasonChoice[]>([]);
   /** The job whose date is being moved or which is being called off, and which of the two. */
   const [changing, setChanging] = useState<{ key: string; mode: "move" | "cancel" } | null>(null);
   /**
@@ -772,6 +774,19 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       // A mark on a row is a convenience; the register is not.
     }
   }, [touch]);
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await apiFetch("/api/corrections/reasons", { headers: { accept: "application/json" } });
+        if (!response.ok || cancelled) return;
+        const body = await response.json().catch(() => null) as { reasons?: ReasonChoice[] } | null;
+        if (!cancelled && Array.isArray(body?.reasons)) setReasonChoices(body.reasons);
+      } catch { /* the drawer falls back to the proposed reason alone */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isSignedIn]);
   const correctionsRef = useRef(loadCorrections);
   correctionsRef.current = loadCorrections;
 
@@ -1079,11 +1094,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * The owner's word on a proposal — one, every one on a job, or every one
    * on their own jobs. The API judges who may; this only asks and reports.
    */
-  const correctionAct = async (what: { id: number } | { jobKey: string } | { mine: true }, how: "apply" | "reject" = "apply") => {
+  const correctionAct = async (what: { id: number } | { jobKey: string } | { mine: true }, how: "apply" | "reject" = "apply", value?: string) => {
     const path = "id" in what ? `/api/corrections/${what.id}/${how}`
       : "jobKey" in what ? `/api/corrections/job/${encodeURIComponent(what.jobKey)}/apply` : "/api/corrections/apply-mine";
     try {
-      const response = await apiFetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "" }) });
+      const response = await apiFetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "", value: value ?? null }) });
       const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
       setToast(answer?.message ?? answer?.error ?? `ทำรายการไม่สำเร็จ (${response.status})`);
       // The card goes the moment the API has settled it — a 409 is settled too.
@@ -3437,6 +3452,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           line={linePendingByKey[drawerJob.key] ?? []}
           onLineAct={canEditJob(drawerJob) ? lineAct : undefined}
           corrections={correctionsByJob[drawerJob.key] ?? []}
+          reasonChoices={reasonChoices}
           onCorrectionAct={canEditJob(drawerJob) ? correctionAct : undefined}
           onClose={() => setDrawer(null)}
           onRaiseIssue={() => {

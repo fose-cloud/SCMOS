@@ -53,13 +53,26 @@ public sealed class CorrectionService(ScmosDbContext db, JobsRepository jobs, De
         return await db.JobCorrections.AsNoTracking().CountAsync(row => row.State == CorrectionState.Pending && keys.Contains(row.JobKey), token);
     }
 
-    public async Task<CorrectionOutcome> ApplyAsync(long id, AppUser user, CancellationToken token)
+    /// <param name="pick">
+    /// For a delay reason, the reason the owner chose instead of the one
+    /// proposed — one of <see cref="DelayReasonRule.Catalogue"/> and nothing
+    /// else ("กดเลือก หรือ Approve"). Ignored for a dropdown correction, whose
+    /// value is the list's and not anyone's to choose.
+    /// </param>
+    public async Task<CorrectionOutcome> ApplyAsync(long id, AppUser user, CancellationToken token, string? pick = null)
     {
         var row = await db.JobCorrections.FirstOrDefaultAsync(one => one.Id == id, token);
         if (row is null) return new(false, StatusCodes.Status404NotFound, "ไม่พบข้อเสนอนี้");
         if (row.State != CorrectionState.Pending) return new(false, StatusCodes.Status409Conflict, $"ข้อเสนอนี้ถูกจัดการไปแล้ว ({row.State})");
         if (!await MayActOnAsync(user, row.JobKey, token))
             return new(false, StatusCodes.Status403Forbidden, "อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่");
+        var chosen = (pick ?? "").Trim();
+        if (chosen.Length > 0 && row.Field == DelayReasonRule.Field && chosen != row.ToValue)
+        {
+            if (!DelayReasonRule.IsCatalogued(chosen)) return new(false, StatusCodes.Status400BadRequest, "เหตุผลต้องเป็นหนึ่งในรายการที่กำหนด");
+            row.Note = $"เจ้าของเลือก \"{chosen}\" แทนที่เสนอ \"{row.ToValue}\"";
+            row.ToValue = chosen;
+        }
         var outcome = await WriteAsync(row, user, token);
         await db.SaveChangesAsync(token);
         return outcome;

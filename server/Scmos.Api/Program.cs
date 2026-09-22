@@ -135,8 +135,9 @@ builder.Services.AddHttpClient(CarrierWebhookDispatcher.ClientName, client =>
 builder.Services.AddHostedService<CarrierWebhookDispatcher>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<DelegationService>();
-// Proposed dropdown corrections, decided by the job's owner (22 Sep 2026).
+// Proposed dropdown corrections and delay reasons, decided by the job's owner (22 Sep 2026).
 builder.Services.AddScoped<CorrectionService>();
+builder.Services.AddHostedService<CorrectionScheduler>();
 builder.Services.AddScoped<JobTransferService>();
 builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();

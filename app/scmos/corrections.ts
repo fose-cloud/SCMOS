@@ -30,6 +30,14 @@ export type Correction = {
 /** What the API answers on /api/corrections/pending. */
 export type CorrectionFeed = { items: Correction[]; count: number; mine: number };
 
+/** One reason an owner may pick for a late shipment — the catalogue as the rule holds it (/api/corrections/reasons). */
+export type ReasonChoice = { text: string; category: string; thai: string };
+
+/** The proposal is a delay reason: the owner may pick another from the catalogue before approving. */
+export function isReasonProposal(one: Pick<Correction, "field">): boolean {
+  return one.field === "reason";
+}
+
 /** The proposals waiting on each job, in the order the API sent them. */
 export function correctionsByKey(items: readonly Correction[] | null | undefined): Record<string, Correction[]> {
   const byKey: Record<string, Correction[]> = {};

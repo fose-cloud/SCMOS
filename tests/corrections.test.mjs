@@ -32,3 +32,9 @@ test("a proposal reads as the column, the value as typed and the list's spelling
   assert.equal(correctionText(items[1]), "ผู้ขนส่ง: SJ → Sangja Transport Co., Ltd.");
   assert.equal(correctionText({ ...items[0], from: "" }), "ประเภทรถ/ตู้: — → 1X40' RF");
 });
+
+test("a delay-reason proposal is the one the owner may pick another for", async () => {
+  const { isReasonProposal } = await import("../app/scmos/corrections.ts");
+  assert.equal(isReasonProposal({ field: "reason" }), true);
+  assert.equal(isReasonProposal({ field: "trucker" }), false);
+});

@@ -13,7 +13,9 @@ namespace Scmos.Api.Endpoints;
 /// </summary>
 public static class CorrectionEndpoints
 {
-    public record DecideBody(string? Note);
+    /// <param name="Note">Why, on a rejection — kept on the row.</param>
+    /// <param name="Value">On an approval of a delay reason: the reason the owner picked from the catalogue instead of the one proposed.</param>
+    public record DecideBody(string? Note, string? Value = null);
 
     public static void MapCorrections(this IEndpointRouteBuilder routes)
     {
@@ -31,11 +33,16 @@ public static class CorrectionEndpoints
             return Results.Json(new { items, count = items.Count, mine = await corrections.MineAsync(user, token) });
         });
 
-        group.MapPost("/{id:long}/apply", async (long id, HttpContext context, IUserAccessor users, CorrectionService corrections, CancellationToken token) =>
+        group.MapPost("/{id:long}/apply", async (long id, [FromBody] DecideBody? body, HttpContext context, IUserAccessor users, CorrectionService corrections, CancellationToken token) =>
         {
             if (Gate(context, users, out var user) is { } stop) return stop;
-            return Answer(await corrections.ApplyAsync(id, user!, token));
+            return Answer(await corrections.ApplyAsync(id, user!, token, body?.Value));
         });
+
+        // The reasons an owner may pick from, for the drawer's list — the catalogue as the rule holds it.
+        group.MapGet("/reasons", (HttpContext context, IUserAccessor users) =>
+            users.Current(context) is null ? ApiResults.SignInRequired
+                : Results.Json(new { reasons = DelayReasonRule.Catalogue.Select(one => new { text = one.Text, category = one.Category.ToString(), thai = DelayReasons.Thai(one.Category) }) }));
 
         group.MapPost("/{id:long}/reject", async (long id, [FromBody] DecideBody? body, HttpContext context, IUserAccessor users, CorrectionService corrections, CancellationToken token) =>
         {

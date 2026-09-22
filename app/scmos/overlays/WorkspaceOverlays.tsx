@@ -5,7 +5,7 @@ import { badge, css, opTone } from "../theme";
 import { isCancelled, MOVED_BY, wasMoved, type Job, type Masters } from "../ops";
 import { describe } from "../lineReview";
 import { pendingText, pendingWrites, sourceOf, sourcesOf, type LinePending } from "../linePending";
-import { correctionText, type Correction } from "../corrections";
+import { correctionText, isReasonProposal, type Correction, type ReasonChoice } from "../corrections";
 
 /* ---------------------------------------------------------- job drawer */
 
@@ -26,8 +26,10 @@ export function JobDrawer(p: {
   onLineAct?: (id: number, what: "apply" | "dismiss", jobKey: string) => Promise<void> | void;
   /** The dropdown corrections the rules propose on this job (22 Sep 2026), waiting for its owner. */
   corrections?: Correction[];
-  /** Approves or rejects one, or approves every one on this job; absent when this person may not act on the job. */
-  onCorrectionAct?: (what: { id: number } | { jobKey: string }, how?: "apply" | "reject") => Promise<void> | void;
+  /** Approves or rejects one, or approves every one on this job; absent when this person may not act on the job. A delay reason may carry the reason the owner picked instead. */
+  onCorrectionAct?: (what: { id: number } | { jobKey: string }, how?: "apply" | "reject", value?: string) => Promise<void> | void;
+  /** The reasons an owner may pick for a late shipment, from the rule's catalogue; empty until read. */
+  reasonChoices?: ReasonChoice[];
 }) {
   const { job: j } = p;
   // The message whose approval is out with the API. Its buttons are quiet
@@ -40,11 +42,13 @@ export function JobDrawer(p: {
     try { await p.onLineAct?.(id, what, j.key); } finally { setActing(null); }
   };
   // The same quiet buttons for a proposal: -1 stands for "all of this job's".
-  const decide = async (what: { id: number } | { jobKey: string }, how: "apply" | "reject") => {
+  const decide = async (what: { id: number } | { jobKey: string }, how: "apply" | "reject", value?: string) => {
     if (acting !== null) return;
     setActing("id" in what ? what.id : -1);
-    try { await p.onCorrectionAct?.(what, how); } finally { setActing(null); }
+    try { await p.onCorrectionAct?.(what, how, value); } finally { setActing(null); }
   };
+  // For a delay reason: what the owner picked from the list, when not the one proposed ("กดเลือก หรือ Approve").
+  const [picked, setPicked] = useState<Record<number, string>>({});
   const rows: [string, string | undefined][] =
     j.cat === "DELIVERY"
       ? [["Warehouse", j.wh], ["Job No.", j.jobNo], ["SID No.", j.sid], ["Pickup Date", j.date],
@@ -146,9 +150,20 @@ export function JobDrawer(p: {
               <div key={one.id} style={css("display:flex;flex-direction:column;gap:4px;padding-top:7px;border-top:1px solid #F5E3C7")}>
                 <span style={css("font-size:11.5px;font-weight:600;color:#B45309")}>{correctionText(one)}</span>
                 <span style={css("font-size:10.5px;color:#94A3B8")}>{one.reason}</span>
+                {isReasonProposal(one) && !!p.reasonChoices?.length && p.onCorrectionAct && (
+                  // The owner's pick: the proposed reason first, the rest of the catalogue after it. Approving writes what is chosen here.
+                  <select value={picked[one.id] ?? one.to} disabled={acting !== null} aria-label="เลือกเหตุผลความล่าช้า"
+                    onChange={(event) => setPicked((was) => ({ ...was, [one.id]: event.target.value }))}
+                    style={css("height:26px;border:1px solid #F0C36D;border-radius:4px;background:#fff;font-size:11.5px;color:#0A2240;font-family:inherit;padding:0 6px;max-width:100%")}>
+                    {[one.to, ...p.reasonChoices.map((choice) => choice.text).filter((text) => text !== one.to)].map((text) => {
+                      const choice = p.reasonChoices!.find((c) => c.text === text);
+                      return <option key={text} value={text}>{text}{choice ? ` · ${choice.thai}` : ""}</option>;
+                    })}
+                  </select>
+                )}
                 {p.onCorrectionAct && (
                   <div style={css("display:flex;gap:6px;margin-top:2px;align-items:center")}>
-                    <button onClick={() => void decide({ id: one.id }, "apply")} disabled={acting !== null}
+                    <button onClick={() => void decide({ id: one.id }, "apply", isReasonProposal(one) ? picked[one.id] : undefined)} disabled={acting !== null}
                       style={css(`height:26px;padding:0 12px;border-radius:4px;border:1px solid #16A34A;background:#16A34A;color:#fff;font-size:11.5px;font-family:inherit;cursor:${acting !== null ? "wait" : "pointer"}`)}>
                       {acting === one.id ? "กำลังบันทึก…" : "อนุมัติ"}
                     </button>

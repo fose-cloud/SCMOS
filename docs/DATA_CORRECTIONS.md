@@ -22,6 +22,18 @@ A site the destination calls by another word is read through `CorrectionRules.Si
 
 Nothing is guessed. What no rule can read is printed in the report's "left alone" list; that list is what the department reads to tell the rules what a spelling meant (as HC = HQ was decided on 28 Aug).
 
+## The sixth field: REASON / DELAY for a late shipment (`Rules/DelayReasonRule.cs`)
+
+"ให้ AI ช่วยใส่คำตอบในคอลัมน์ REASON/DELAY … ให้ AI เสนอเหตุผล แล้วให้ Operation กดเลือกหรือ Approve — ทำทั้ง IMPORT และ EXPORT" (22 Sep 2026). An IMPORT or EXPORT shipment that arrived late by the KPI's own rule (past its plan beyond the customer's grace — Lotus 30 minutes), within the last 90 days, with the column blank and the job not cancelled, is proposed one of eight catalogue sentences (one per `DelayCategory`, worded so `DelayReasons.Classify` files each under its own category):
+
+| Evidence | Proposal | Rule |
+| --- | --- | --- |
+| the haulier's LINE/TMS message on the job reads as a category (`รถเสียกลางทาง` → Truck) | that category's sentence, quoting the message | `reason.carrier` |
+| no message; a port or terminal on the leg (LCB, Laem Chabang, แหลมฉบัง, PAT, ICD, terminal, ท่าเรือ) | `Port Traffic Congestion` | `reason.route` |
+| no message, no port | `Delay due to Traffic Congestion` — the department's main reason | `reason.route` |
+
+The proposal says how late and which of the two defaults it took; the drawer shows the whole catalogue in a list with the proposal selected, and **approving writes what the owner picked** (`POST /api/corrections/{id}/apply` with `value`, catalogue only). A reason a person typed is never proposed over; a rejected reason proposal is not asked again. `CorrectionScheduler` runs the pass every 30 minutes (`Corrections:AutoMinutes`, 0 = off) so this morning's late arrival is asked about this morning.
+
 ## The flow
 
 1. **Report** — `api.yml` → Run workflow → `proposeCorrections: report` (or `dotnet run -- --propose-corrections` on a copy). Writes nothing. Prints the count by rule, by spelling, by owner, and the left-alone list.

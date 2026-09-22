@@ -64,6 +64,7 @@ public static class CorrectionRules
     public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["cat"] = "หมวด", ["customer"] = "ลูกค้า", ["trucker"] = "ผู้ขนส่ง", ["type"] = "ประเภทรถ/ตู้", ["status"] = "สถานะ",
+        [DelayReasonRule.Field] = DelayReasonRule.Label,
     };
 
     private static readonly string[] Categories = ["IMPORT", "EXPORT", "DELIVERY"];

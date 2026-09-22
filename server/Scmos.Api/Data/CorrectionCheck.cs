@@ -104,6 +104,30 @@ public static class CorrectionCheck
         failed += Say("a stage nobody can name is not re-filed as DRAFT", To(CorrectionRules.Status("xyz", "IMPORT")), null);
         failed += Say("COMPLETED stays COMPLETED", To(CorrectionRules.Status("COMPLETED", "EXPORT")), null);
 
+        /* ---- the delay reason ---- */
+        var today = new DateOnly(2026, 9, 22);
+        JobRecord Late(string cat, string date, string plan, string arrDate, string arrTime, string customer = "OPTIDUR", string reason = "", string destination = "", string plant = "", string status = "DELIVERED")
+            => new() { Key = "J", Cat = cat, Date = date, PlanTime = plan, ArrDate = arrDate, ArrTime = arrTime, Customer = customer, Reason = reason, Destination = destination, Plant = plant, Status = status, JobCode = "260900760079" };
+        failed += Say("every catalogue sentence files under its own category, so the KPI counts it",
+            string.Join(",", DelayReasonRule.Catalogue.Select(one => DelayReasons.Classify(one.Text).Category == one.Category ? "ok" : one.Text)), string.Join(",", DelayReasonRule.Catalogue.Select(_ => "ok")));
+        var breakdown = DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "10:15", destination: "WH ALLNEX"), ["รถเสียกลางทาง รอช่างครับ", "ออกจากท่าแล้ว"], today);
+        failed += Say("a late import whose haulier said the truck broke down is proposed Truck Breakdown", breakdown?.To, "Truck Breakdown");
+        failed += Say("by the carrier rule, quoting the message and the lateness", breakdown?.Rule == "reason.carrier" && breakdown.Reason.Contains("75 นาที") && breakdown.Reason.Contains("รถเสียกลางทาง"), true);
+        var port = DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", plant: "LOTUS ASIA", destination: "", status: "COMPLETED"), [], today);
+        failed += Say("a late export with no message and no port on the leg is proposed the department's main reason", port?.To, "Delay due to Traffic Congestion");
+        var lcb = DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", destination: "LCB TERMINAL B"), ["สวัสดีครับ"], today);
+        failed += Say("a late import off a port is proposed Port Traffic Congestion", lcb?.To, "Port Traffic Congestion");
+        failed += Say("by the route rule, naming the port and that another may be picked", lcb?.Rule == "reason.route" && lcb.Reason.Contains("LCB TERMINAL B") && lcb.Reason.Contains("เลือกเหตุผลอื่นได้"), true);
+        failed += Say("a shipment on time is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "09:00"), [], today), null);
+        failed += Say("Lotus twenty minutes late is on time by its own term — not asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:20", customer: "LOTUS"), [], today), null);
+        failed += Say("Lotus forty minutes late is asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:40", customer: "LOTUS"), [], today)?.To, "Delay due to Traffic Congestion");
+        failed += Say("a reason already typed is never proposed over", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", reason: "รถติดหน้าท่า"), [], today), null);
+        failed += Say("a cancelled job is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", status: "CANCELLED"), [], today), null);
+        failed += Say("a delivery job is not asked — IMPORT and EXPORT only", DelayReasonRule.Propose(Late("DELIVERY", "21/09/2026", "09:00", "21/09/2026", "11:00"), [], today), null);
+        failed += Say("a shipment older than the look-back is not asked", DelayReasonRule.Propose(Late("IMPORT", "01/06/2026", "09:00", "01/06/2026", "11:00"), [], today), null);
+        failed += Say("a shipment not yet arrived is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "", ""), [], today), null);
+        failed += Say("the catalogue knows its own texts and nothing else", DelayReasonRule.IsCatalogued("Port Traffic Congestion") && !DelayReasonRule.IsCatalogued("รถติด"), true);
+
         /* ---- a job's cells together ---- */
         var cells = new Dictionary<string, string>(StringComparer.Ordinal)
         {
