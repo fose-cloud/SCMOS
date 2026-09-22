@@ -56,6 +56,9 @@ public static class CorrectionRules
         (["LAD", "KRABANG"], "LKB"),
         (["LATKRABANG"], "LKB"),
         (["LAT", "KRABANG"], "LKB"),
+        (["KABINBURI"], "KABIN BURI"),
+        (["KABIBURI"], "KABIN BURI"),
+        (["HAZHEM"], "HAZCHEM"),
     ];
 
     public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -130,22 +133,40 @@ public static class CorrectionRules
         // Several sites: the job's own destination or plant has to name one of them, whole —
         // in the rotation's word, or in a word the department's synonyms say means it.
         var seen = Tokens(evidence).ToHashSet(StringComparer.Ordinal);
-        var via = new List<string>();
+        var via = new List<(string[] Alias, IReadOnlyList<string> Site)>();
         foreach (var (alias, site) in SiteSynonyms)
         {
-            if (!alias.All(seen.Contains) || seen.Contains(site)) continue;
-            seen.Add(site);
-            via.Add($"{string.Join(' ', alias)} = {site}");
+            if (!alias.All(seen.Contains)) continue;
+            var added = Tokens(site);
+            if (added.All(seen.Contains)) continue;
+            foreach (var token in added) seen.Add(token);
+            via.Add((alias, added));
         }
-        var named = sites.Select(name => (Name: name, Site: Tokens(name).Skip(words.Count).ToList()))
-            .Where(one => one.Site.All(seen.Contains)).OrderByDescending(one => one.Site.Count).ToList();
-        if (named.Count == 0) return null;
-        // BANGPOO and BANGPOO BKK both named: the site that says more, when it says everything the others say, is the one meant.
-        var best = named[0];
-        if (named.Count > 1 && (named[1].Site.Count == best.Site.Count || named.Skip(1).Any(other => !other.Site.All(best.Site.Contains)))) return null;
-        var used = via.Where(one => best.Site.Contains(one.Split(" = ")[1])).ToList();
+        var candidates = sites.Select(name => (Name: name, Site: Tokens(name).Skip(words.Count).ToList())).ToList();
+        var named = candidates.Where(one => one.Site.All(seen.Contains)).OrderByDescending(one => one.Site.Count).ToList();
+        (string Name, List<string> Site) best;
+        string said;
+        if (named.Count > 0)
+        {
+            // BANGPOO and BANGPOO BKK both named: the site that says more, when it says everything the others say, is the one meant.
+            best = named[0];
+            if (named.Count > 1 && (named[1].Site.Count == best.Site.Count || named.Skip(1).Any(other => !other.Site.All(best.Site.Contains)))) return null;
+            said = string.Join(' ', best.Site);
+        }
+        else
+        {
+            // No site named whole. A site named in part — TROY's "HAZCHEM" for HAZCHEM K.39, DANA's "SAHA AUTOPART" for SAHA
+            // AUTO — counts when it is the only candidate any word of the destination belongs to; a word of three letters
+            // or a bare number is not evidence of anything.
+            var partial = candidates.Select(one => (one.Name, one.Site, Words: one.Site.Where(token => token.Length >= 3 && !token.All(char.IsDigit) && seen.Contains(token)).ToList()))
+                .Where(one => one.Words.Count > 0).ToList();
+            if (partial.Count != 1) return null;
+            best = (partial[0].Name, partial[0].Site);
+            said = string.Join(' ', partial[0].Words);
+        }
+        var used = via.Where(one => one.Site.Any(best.Site.Contains)).Select(one => $"{string.Join(' ', one.Alias)} = {string.Join(' ', one.Site)}").ToList();
         return new("customer", value, best.Name, "customer.rotation.site",
-            $"ปลายทาง/โรงงานของงานระบุ {string.Join(' ', best.Site)}{(used.Count > 0 ? $" ({string.Join(", ", used)})" : "")} — ใน Job Rotation คือ {best.Name}");
+            $"ปลายทาง/โรงงานของงานระบุ {said}{(used.Count > 0 ? $" ({string.Join(", ", used)})" : "")} — ใน Job Rotation คือ {best.Name}");
     }
 
     /// <summary>The rotation names a bare customer name could mean — for the report's "left alone" list to say which sites.</summary>

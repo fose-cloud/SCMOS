@@ -18,7 +18,7 @@ The rules that know the lists propose the list's spelling. **Nothing is written 
 | cat | IMPORT · EXPORT · DELIVERY | case and padding | any other word |
 | status | the job's own ladder (`JobStatus.For(cat)`) | another case (`delivered`), the legacy words (`Truck Assigned`, `waiting truck`) | a stage nobody can name — never re-filed as DRAFT |
 
-A site the destination calls by another word is read through `CorrectionRules.SiteSynonyms` (`LADKRABANG` / `LAD KRABANG` = `LKB`), added only when a report showed the pair; the report prints, for every bare name with several sites, what the jobs' DESTINATION | PLANT LOADING actually say, so the next synonym is a fact and not a guess.
+A site the destination calls by another word is read through `CorrectionRules.SiteSynonyms` (`LADKRABANG` / `LAD KRABANG` = `LKB`, `KABINBURI` = `KABIN BURI`, `HAZHEM` = `HAZCHEM`), added only when a report showed the pair; a site named in part counts when it is the only candidate any word of the destination belongs to (`TROY` to `HAZCHEM → TROY (HAZCHEM K.39)`, `DANA` to `SAHA AUTOPART → DANA (SAHA AUTO)`), a word of under three letters or a bare number never being evidence; the report prints, for every bare name with several sites, what the jobs' DESTINATION | PLANT LOADING actually say, so the next synonym is a fact and not a guess.
 
 Nothing is guessed. What no rule can read is printed in the report's "left alone" list; that list is what the department reads to tell the rules what a spelling meant (as HC = HQ was decided on 28 Aug).
 
@@ -38,4 +38,4 @@ Nothing is guessed. What no rule can read is printed in the report's "left alone
 
 ## Verified
 
-`--check-corrections` (51 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.
+`--check-corrections` (59 cases, in CI), `tests/corrections.test.mjs`; on LocalDB 22 Sep: 1,235 proposals queued, an owner approved one from the drawer (cell written, audit row source AI), another operator refused (403), a rejection recorded, a cell edited since refused (409, row stale), a settled row refused again, `apply-mine` wrote 168 cells in 3 s.

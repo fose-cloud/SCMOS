@@ -30,7 +30,8 @@ public static class CorrectionCheck
         };
         var lists = new CorrectionLists(
             ["1X20'", "1X40'", "1X40' HQ", "1X20' RF", "1X40' RF", "1X6WH", "1X4WH", "COMBINE"],
-            ["LOTUS", "LOTUS ASIA", "L'OREAL", "The Chemours", "TERRATEC MACHINERY", "DANA (FREE ZONE)", "DANA (LKB)", "DANA (RAYONG)", "HENKEL (BANGPOO)", "HENKEL (BANGPOO) BKK", "TOA (Bangna)", "U.C."],
+            ["LOTUS", "LOTUS ASIA", "L'OREAL", "The Chemours", "TERRATEC MACHINERY", "DANA (FREE ZONE)", "DANA (LKB)", "DANA (RAYONG)", "DANA (SAHA AUTO)", "DANA SPICER",
+             "HENKEL (BANGPOO)", "HENKEL (BANGPOO) BKK", "HENKEL (HAZCHEM)", "TOA (Bangna)", "U.C.", "TROY (HAZCHEM K.39)", "TROY (Kabin Buri)", "ALTEK INTERNATIONAL", "ALTEK INTERNATIONAL : TANK"],
             spelling => carriers.TryGetValue(new string(spelling.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray()), out var name) ? name : null);
 
         /* ---- type ---- */
@@ -56,8 +57,8 @@ public static class CorrectionCheck
         var terratec = CorrectionRules.Customer("TERRATEC", lists.Customers);
         failed += Say("TERRATEC is the one rotation name that begins with it", To(terratec), "TERRATEC MACHINERY");
         failed += Say("and the reason says so", terratec?.Reason.Contains("ชื่อเดียวใน Job Rotation ที่ขึ้นต้นด้วย TERRATEC") == true, true);
-        failed += Say("DANA with three sites and no evidence is left for a person", To(CorrectionRules.Customer("DANA", lists.Customers)), null);
-        failed += Say("and the report can say it is three sites", CorrectionRules.Sites("DANA", lists.Customers), 3);
+        failed += Say("DANA with five sites and no evidence is left for a person", To(CorrectionRules.Customer("DANA", lists.Customers)), null);
+        failed += Say("and the report can say it is five sites", CorrectionRules.Sites("DANA", lists.Customers), 5);
         var rayong = CorrectionRules.Customer("DANA", lists.Customers, "XPO-RAYONG");
         failed += Say("DANA delivered to XPO-RAYONG is DANA (RAYONG)", To(rayong), "DANA (RAYONG)");
         failed += Say("by the site rule, and the reason names the evidence", rayong?.Rule == "customer.rotation.site" && rayong.Reason.Contains("ระบุ RAYONG"), true);
@@ -66,10 +67,19 @@ public static class CorrectionCheck
         failed += Say("and the reason shows the synonym it used", lkb?.Reason.Contains("LADKRABANG = LKB") == true, true);
         failed += Say("LAD KRABANG in two words is the same site", To(CorrectionRules.Customer("DANA", lists.Customers, "WH LAD KRABANG")), "DANA (LKB)");
         failed += Say("a destination naming no site and no synonym is still left alone", To(CorrectionRules.Customer("DANA", lists.Customers, "XPO CHONBURI")), null);
-        failed += Say("the report can name the sites a bare name could mean", string.Join(",", CorrectionRules.SiteNames("DANA", lists.Customers)), "DANA (FREE ZONE),DANA (LKB),DANA (RAYONG)");
+        failed += Say("the report can name the sites a bare name could mean", string.Join(",", CorrectionRules.SiteNames("DANA", lists.Customers)), "DANA (FREE ZONE),DANA (LKB),DANA (RAYONG),DANA (SAHA AUTO),DANA SPICER");
         failed += Say("HENKEL delivered to BANGPOO is HENKEL (BANGPOO), not the BKK one — every site word must be there", To(CorrectionRules.Customer("HENKEL", lists.Customers, "BANGPOO")), "HENKEL (BANGPOO)");
         failed += Say("HENKEL delivered to BANGPOO BKK is the BKK one", To(CorrectionRules.Customer("HENKEL", lists.Customers, "WH BANGPOO / BKK")), "HENKEL (BANGPOO) BKK");
-        failed += Say("HENKEL delivered to HAZCHEM names a site the rotation does not list — left alone", To(CorrectionRules.Customer("HENKEL", lists.Customers, "HAZCHEM")), null);
+        failed += Say("HENKEL delivered to HAZCHEM is HENKEL (HAZCHEM)", To(CorrectionRules.Customer("HENKEL", lists.Customers, "HAZCHEM")), "HENKEL (HAZCHEM)");
+        failed += Say("HENKEL delivered to HAZHEM (a slip) is read through the synonym", To(CorrectionRules.Customer("HENKEL", lists.Customers, "HAZHEM")), "HENKEL (HAZCHEM)");
+        var troy = CorrectionRules.Customer("TROY", lists.Customers, "HAZCHEM");
+        failed += Say("TROY delivered to HAZCHEM is TROY (HAZCHEM K.39) — the only TROY site that word belongs to", To(troy), "TROY (HAZCHEM K.39)");
+        failed += Say("and the reason names the word the destination gave", troy?.Reason.Contains("ระบุ HAZCHEM") == true, true);
+        failed += Say("TROY delivered to KABINBURI is TROY (Kabin Buri) through the synonym", To(CorrectionRules.Customer("TROY", lists.Customers, "KABINBURI")), "TROY (Kabin Buri)");
+        failed += Say("TROY delivered to KABIBURI (a slip) too", To(CorrectionRules.Customer("TROY", lists.Customers, "KABIBURI")), "TROY (Kabin Buri)");
+        failed += Say("DANA delivered to SAHA AUTOPART is DANA (SAHA AUTO) — SAHA belongs to that site alone", To(CorrectionRules.Customer("DANA", lists.Customers, "SAHA AUTOPART")), "DANA (SAHA AUTO)");
+        failed += Say("a container number in the destination is not evidence of a site", To(CorrectionRules.Customer("TROY", lists.Customers, "TCNU8067393")), null);
+        failed += Say("ALTEK to a warehouse naming neither variant is left alone", To(CorrectionRules.Customer("ALTEK", lists.Customers, "W/H Frasers Property")), null);
         failed += Say("the site is read from the job's own cells through Propose", CorrectionRules.Propose("IMPORT", new Dictionary<string, string> { ["customer"] = "DANA", ["destination"] = "XPO-RAYONG" }, lists).Single().To, "DANA (RAYONG)");
 
         /* ---- trucker ---- */
