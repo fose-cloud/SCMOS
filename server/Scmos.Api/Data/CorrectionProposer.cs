@@ -56,6 +56,7 @@ public static class CorrectionProposer
         var alreadyOpen = 0;
         var superseded = 0;
         var cancelledJobs = 0;
+        var typeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var job in jobs)
         {
@@ -67,6 +68,7 @@ public static class CorrectionProposer
             // A cancelled job is history; its spelling is nobody's to approve.
             if (string.Equals(cells["status"], JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase)) { cancelledJobs++; continue; }
 
+            if (cells["type"].Length > 0) typeCounts[cells["type"]] = typeCounts.GetValueOrDefault(cells["type"]) + 1;
             var proposals = CorrectionRules.Propose(job.Cat, cells, lists);
             foreach (var field in CorrectionRules.Fields)
             {
@@ -117,6 +119,19 @@ public static class CorrectionProposer
 
         Console.WriteLine();
         Console.WriteLine($"{(queue ? "Proposed" : "Would propose")} {proposed} cell(s) on {jobs.Count} jobs ({cancelledJobs} cancelled jobs skipped). Lists: {lists.TypeCodes.Count} types · {lists.Customers.Count} customers.");
+        // The list itself, when it holds a spelling the rule would write another way: a cell
+        // matching such a code is "on the list" and never proposed, so the duplicate has to be
+        // retired from the list first — said here, with the count of cells it is holding back.
+        var duplicates = lists.TypeCodes.Where(code => JobVehicleType.Canonical(code) != code && JobVehicleType.IsKnown(JobVehicleType.Canonical(code))).ToList();
+        if (duplicates.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Active vehicle types the rule spells another way — retire these from the list and the next run proposes the cells holding them:");
+            foreach (var code in duplicates)
+            {
+                Console.WriteLine($"   {typeCounts.GetValueOrDefault(code),5}  {Show(code)} → {JobVehicleType.Canonical(code)}");
+            }
+        }
         foreach (var (rule, count) in byRule.OrderByDescending(entry => entry.Value))
             Console.WriteLine($"   {count,5}  {rule}");
         Console.WriteLine();
