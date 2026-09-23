@@ -76,6 +76,7 @@ public static class CorrectionEndpoints
     }
 
     private static IResult Answer(CorrectionOutcome outcome) => outcome.Ok
-        ? Results.Json(new { message = outcome.Message, applied = outcome.Applied, stale = outcome.Stale, refused = outcome.Refused })
+        ? Results.Json(new { message = outcome.Message, applied = outcome.Applied, stale = outcome.Stale,
+            refused = outcome.Refused, review = outcome.Review })
         : ApiResults.Error(outcome.Message, outcome.Status);
 }

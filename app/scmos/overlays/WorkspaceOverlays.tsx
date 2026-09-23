@@ -5,7 +5,7 @@ import { badge, css, opTone } from "../theme";
 import { isCancelled, MOVED_BY, wasMoved, type Job, type Masters } from "../ops";
 import { describe } from "../lineReview";
 import { pendingText, pendingWrites, sourceOf, sourcesOf, type LinePending } from "../linePending";
-import { correctionText, isReasonProposal, type Correction, type ReasonChoice } from "../corrections";
+import { canApproveTogether, correctionText, isReasonProposal, type Correction, type ReasonChoice } from "../corrections";
 
 /* ---------------------------------------------------------- job drawer */
 
@@ -139,11 +139,14 @@ export function JobDrawer(p: {
             <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap")}>
               <span style={css(badge("AI", "amber"))}>AI</span>
               <span style={css("font-size:11px;color:#64748B")}>{p.corrections.length} รายการเสนอแก้ให้ตรงรายการ dropdown</span>
-              {p.onCorrectionAct && p.corrections.length > 1 && (
+              {p.onCorrectionAct && canApproveTogether(p.corrections) && (
                 <button onClick={() => void decide({ jobKey: j.key }, "apply")} disabled={acting !== null}
                   style={css(`margin-left:auto;height:24px;padding:0 10px;border-radius:4px;border:1px solid #16A34A;background:#16A34A;color:#fff;font-size:11px;font-family:inherit;cursor:${acting !== null ? "wait" : "pointer"}`)}>
                   {acting === -1 ? "กำลังบันทึก…" : "อนุมัติทั้งหมดของงานนี้"}
                 </button>
+              )}
+              {p.corrections.some(isReasonProposal) && (
+                <span style={css("font-size:10.5px;color:#B45309;flex-basis:100%")}>ข้อเสนอ Delay ต้องตรวจ Dropdown และอนุมัติหรือไม่แก้ทีละรายการ</span>
               )}
             </div>
             {p.corrections.map((one) => (
@@ -406,7 +409,7 @@ export function JobChangeModal(p: {
             <span style={css(label)}>{moving ? "เหตุผลที่เลื่อน" : "เหตุผลที่ยกเลิก"} · จำเป็น</span>
             <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
               placeholder={moving ? "เช่น ลูกค้าแจ้งเลื่อนโหลดสินค้า" : "เช่น ลูกค้ายกเลิกการจอง"}
-              style={css("width:100%;border:1px solid #D8E0E8;border-radius:4px;padding:8px 9px;font-size:12.5px;outline:none;font-family:inherit;resize:vertical")} />
+              style={css("width:100%;border:1px solid #D8E0E8;border-radius:4px;background:#fff;color:#0A2240;padding:8px 9px;font-size:12.5px;outline:none;font-family:inherit;resize:vertical")} />
           </div>
 
           <span style={css("font-size:11px;color:#94A3B8;line-height:1.5")}>

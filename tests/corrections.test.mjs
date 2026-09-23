@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { correctionsByKey, correctionText, mergeMarks } from "../app/scmos/corrections.ts";
+import { canApproveTogether, correctionsByKey, correctionText, isReasonProposal, mergeMarks } from "../app/scmos/corrections.ts";
 
 /**
  * The proposed corrections as the workspace folds them (22 Sep 2026): by
@@ -33,8 +33,14 @@ test("a proposal reads as the column, the value as typed and the list's spelling
   assert.equal(correctionText({ ...items[0], from: "" }), "ประเภทรถ/ตู้: — → 1X40' RF");
 });
 
-test("a delay-reason proposal is the one the owner may pick another for", async () => {
-  const { isReasonProposal } = await import("../app/scmos/corrections.ts");
-  assert.equal(isReasonProposal({ field: "reason" }), true);
-  assert.equal(isReasonProposal({ field: "trucker" }), false);
+test("delay suggestions are always reviewed one at a time before approval", () => {
+  const ordinary = { field: "trucker", rule: "trucker.directory" };
+  const importDelay = { field: "reason", rule: "reason.route" };
+  const exportDelay = { field: "remark", rule: "reason.carrier" };
+  assert.equal(isReasonProposal(importDelay), true);
+  assert.equal(isReasonProposal(exportDelay), true);
+  assert.equal(isReasonProposal(ordinary), false);
+  assert.equal(canApproveTogether([ordinary, { field: "type", rule: "type.canonical" }]), true);
+  assert.equal(canApproveTogether([ordinary, importDelay]), false);
+  assert.equal(canApproveTogether([ordinary, exportDelay]), false);
 });
