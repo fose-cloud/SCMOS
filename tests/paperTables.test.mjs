@@ -89,3 +89,11 @@ test("a field's default ink is light off the paper and dark on it", () => {
   const overlays = readFileSync(new URL("../app/scmos/overlays/Overlays.tsx", import.meta.url), "utf8");
   for (const field of overlays.match(/const (?:field|box) = "[^"]+"/g) ?? []) assert.doesNotMatch(field, /color:/);
 });
+
+test("the move-reason textarea keeps dark ink on its white background", () => {
+  const overlay = readFileSync(new URL("../app/scmos/overlays/WorkspaceOverlays.tsx", import.meta.url), "utf8");
+  const start = overlay.indexOf('placeholder={moving ? "เช่น ลูกค้าแจ้งเลื่อนโหลดสินค้า"');
+  assert.ok(start >= 0);
+  const field = overlay.slice(start, start + 420);
+  assert.match(field, /background:#fff;color:#0A2240/);
+});

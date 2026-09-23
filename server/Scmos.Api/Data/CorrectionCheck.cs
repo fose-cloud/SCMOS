@@ -1,4 +1,5 @@
 using Scmos.Api.Rules;
+using Scmos.Api.Services;
 
 namespace Scmos.Api.Data;
 
@@ -128,6 +129,10 @@ public static class CorrectionCheck
         failed += Say("but a free note in REMARK is not a delay by itself", JobRules.WasDelayed(new JobRecord { Cat = "EXPORT", Status = "COMPLETED", Remark = "ส่งเอกสารให้ CS แล้ว" }), false);
         failed += Say("and on an import REMARK is not read for it at all", JobRules.WasDelayed(new JobRecord { Cat = "IMPORT", Status = "COMPLETED", Remark = "Port Traffic Congestion" }), false);
         failed += Say("a proposal is a delay reason by its rule, whichever column it goes to", DelayReasonRule.IsReasonRule("reason.route") && DelayReasonRule.IsReasonRule("reason.carrier") && !DelayReasonRule.IsReasonRule("customer.rotation"), true);
+        failed += Say("batch approval leaves IMPORT reason.route and EXPORT remark reason.carrier for individual dropdown review",
+            CorrectionService.RequiresIndividualReview(new JobCorrection { Field = "reason", Rule = "reason.route" })
+            && CorrectionService.RequiresIndividualReview(new JobCorrection { Field = "remark", Rule = "reason.carrier" })
+            && !CorrectionService.RequiresIndividualReview(new JobCorrection { Field = "customer", Rule = "customer.rotation" }), true);
         var lcb = DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", destination: "LCB TERMINAL B"), ["สวัสดีครับ"], today);
         failed += Say("a late import off a port is proposed Port Traffic Congestion", lcb?.To, "Port Traffic Congestion");
         failed += Say("by the route rule, naming the port and that another may be picked", lcb?.Rule == "reason.route" && lcb.Reason.Contains("LCB TERMINAL B") && lcb.Reason.Contains("เลือกเหตุผลอื่นได้"), true);

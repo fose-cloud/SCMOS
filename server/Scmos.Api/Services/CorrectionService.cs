@@ -10,7 +10,8 @@ namespace Scmos.Api.Services;
 public sealed record CorrectionView(long Id, string JobKey, string JobCode, string Field, string Label, string From, string To, string Reason, DateTimeOffset ProposedAt, string Rule);
 
 /// <summary>What became of one decision — for the toast, and for the count a bulk approval reports.</summary>
-public sealed record CorrectionOutcome(bool Ok, int Status, string Message, int Applied = 0, int Stale = 0, int Refused = 0);
+public sealed record CorrectionOutcome(bool Ok, int Status, string Message, int Applied = 0, int Stale = 0,
+    int Refused = 0, int Review = 0);
 
 /// <summary>
 /// The owner's side of a proposed correction: see it on the job, approve it,
@@ -32,6 +33,14 @@ public sealed class CorrectionService(ScmosDbContext db, JobsRepository jobs, De
     public const string Source = "AI";
     /// <summary>The most proposals the workspace is told about at once — a mark per row is all it needs.</summary>
     public const int PendingLimit = 5000;
+
+    /// <summary>
+    /// A delay suggestion has more than one valid catalogue value. It must go
+    /// through the single-item approval so the operator sees the dropdown and
+    /// deliberately keeps or changes the proposed reason. The rule identifies
+    /// it for both IMPORT (reason) and EXPORT (remark).
+    /// </summary>
+    public static bool RequiresIndividualReview(JobCorrection row) => DelayReasonRule.IsReasonRule(row.Rule);
 
     /// <summary>Every open proposal, newest first, for the workspace to mark rows and the drawer to list.</summary>
     public async Task<IReadOnlyList<CorrectionView>> PendingAsync(CancellationToken token)
@@ -104,7 +113,7 @@ public sealed class CorrectionService(ScmosDbContext db, JobsRepository jobs, De
         if (!await MayActOnAsync(user, key, token))
             return new(false, StatusCodes.Status403Forbidden, "อนุมัติได้เฉพาะงานของตัวเอง หรืองานที่ดูแลแทนอยู่");
         var rows = await db.JobCorrections.Where(row => row.State == CorrectionState.Pending && row.JobKey == key).OrderBy(row => row.Id).ToListAsync(token);
-        return await WriteAllAsync(rows, user, token);
+        return await WriteAllAsync(rows, user, token, refuseIndividual: true);
     }
 
     /// <summary>
@@ -120,14 +129,20 @@ public sealed class CorrectionService(ScmosDbContext db, JobsRepository jobs, De
         if (owners.Count == 0) return new(false, StatusCodes.Status403Forbidden, "บัญชีนี้ไม่มีงานของตัวเอง");
         var keys = await db.OperationJobs.AsNoTracking().Where(job => owners.Contains(job.OwnerId)).Select(job => job.Key).ToListAsync(token);
         var rows = await db.JobCorrections.Where(row => row.State == CorrectionState.Pending && keys.Contains(row.JobKey)).OrderBy(row => row.JobKey).ThenBy(row => row.Id).ToListAsync(token);
-        return await WriteAllAsync(rows, user, token);
+        return await WriteAllAsync(rows, user, token, refuseIndividual: false);
     }
 
-    private async Task<CorrectionOutcome> WriteAllAsync(List<JobCorrection> rows, AppUser user, CancellationToken token)
+    private async Task<CorrectionOutcome> WriteAllAsync(List<JobCorrection> rows, AppUser user,
+        CancellationToken token, bool refuseIndividual)
     {
         if (rows.Count == 0) return new(true, StatusCodes.Status200OK, "ไม่มีข้อเสนอที่รออยู่");
+        var review = rows.Count(RequiresIndividualReview);
+        if (refuseIndividual && review > 0)
+            return new(false, StatusCodes.Status409Conflict,
+                $"มีข้อเสนอ Delay {review} รายการ กรุณาตรวจ Dropdown และอนุมัติหรือไม่แก้ทีละรายการ", Review: review);
+        var bulk = rows.Where(row => !RequiresIndividualReview(row)).ToList();
         int applied = 0, stale = 0, refused = 0;
-        foreach (var row in rows)
+        foreach (var row in bulk)
         {
             var one = await WriteAsync(row, user, token);
             if (one.Ok) applied++; else if (row.State == CorrectionState.Stale) stale++; else refused++;
@@ -135,8 +150,10 @@ public sealed class CorrectionService(ScmosDbContext db, JobsRepository jobs, De
         await db.SaveChangesAsync(token);
         var message = $"อนุมัติแล้ว {applied} รายการ"
             + (stale > 0 ? $" · {stale} รายการค่าเปลี่ยนไปแล้ว ไม่ได้เขียนทับ" : "")
-            + (refused > 0 ? $" · {refused} รายการบันทึกไม่สำเร็จ" : "");
-        return new(applied > 0 || (stale == 0 && refused == 0), StatusCodes.Status200OK, message, applied, stale, refused);
+            + (refused > 0 ? $" · {refused} รายการบันทึกไม่สำเร็จ" : "")
+            + (review > 0 ? $" · Delay {review} รายการรอตรวจ Dropdown และอนุมัติทีละรายการ" : "");
+        return new(applied > 0 || (stale == 0 && refused == 0), StatusCodes.Status200OK,
+            message, applied, stale, refused, review);
     }
 
     /// <summary>

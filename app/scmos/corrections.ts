@@ -40,6 +40,15 @@ export function isReasonProposal(one: Pick<Correction, "field" | "rule">): boole
   return typeof one.rule === "string" ? one.rule.startsWith("reason.") : one.field === "reason";
 }
 
+/**
+ * The job-level button is only safe when every proposal has one fixed value.
+ * A reason.* proposal deliberately has a dropdown choice, including EXPORT
+ * proposals whose target column is REMARK, so it must be decided on its own.
+ */
+export function canApproveTogether(items: readonly Pick<Correction, "field" | "rule">[]): boolean {
+  return items.length > 1 && !items.some(isReasonProposal);
+}
+
 /** The proposals waiting on each job, in the order the API sent them. */
 export function correctionsByKey(items: readonly Correction[] | null | undefined): Record<string, Correction[]> {
   const byKey: Record<string, Correction[]> = {};
