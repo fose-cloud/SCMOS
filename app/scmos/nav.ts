@@ -1,7 +1,7 @@
 export type Screen =
   | "dashboard" | "workspace" | "booking" | "monitoring" | "prerun" | "docverify"
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
-  | "audit" | "documents" | "reports" | "assistant" | "ai"
+  | "audit" | "documents" | "reports" | "ai"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
@@ -28,7 +28,6 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["documents", "Document Center", "ศูนย์เอกสาร", [[3, 2, 10, 12], [5, 5, 6, 1], [5, 8, 6, 1], [5, 11, 4, 1]]],
   ["reports", "Reports", "รายงาน", [[2, 2, 12, 2], [2, 6, 12, 1.5], [2, 9.5, 9, 1.5], [2, 13, 6, 1.5]]],
   ["ai", "AI Control Tower", "ศูนย์ควบคุมงานและ AI", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
-  ["assistant", "AI Assistant", "ผู้ช่วย AI", [[4, 3, 8, 8], [6, 12, 4, 2], [2, 5, 2, 2], [12, 5, 2, 2]]],
   // A heading, not a destination. ABS used to sit here on its own; three more
   // systems arrived and four flat entries would have pushed the process out of
   // its own menu — this list is the order the work happens, and talking to
@@ -160,12 +159,18 @@ export const NAV_GROUPS: { label: string; keys: Screen[] }[] = [
   { label: "SUPPLY NETWORK", keys: ["partners"] },
   { label: "COMMERCIAL", keys: ["commercial"] },
   { label: "QUALITY & COMPLIANCE", keys: ["quality", "kpi", "audit", "documents"] },
-  { label: "INTELLIGENCE", keys: ["reports", "ai", "assistant"] },
+  { label: "INTELLIGENCE", keys: ["reports", "ai"] },
   { label: "SYSTEM", keys: ["integrations", "admin"] },
 ];
 
-/** A tag drawn after the label — the design marks the assistant NEW. */
-export const NAV_TAGS: Partial<Record<Screen, string>> = { assistant: "NEW" };
+/**
+ * A tag drawn after the label.
+ *
+ * Empty since 23 Sep 2026: the assistant carried the only NEW mark, and its
+ * menu entry is gone — its panels are a section of the AI Control Tower now.
+ * Kept because the next thing worth marking will want it.
+ */
+export const NAV_TAGS: Partial<Record<Screen, string>> = {};
 
 /**
  * What a carrier's account is allowed to open.
@@ -226,7 +231,6 @@ export const META: Record<string, string> = {
   incident: "Incident & CAR / PAR",
   audit: "Audit Trail",
   ai: "SCMOS AI Control Tower",
-  assistant: "AI Assistant",
   vendor: "Add New Vendor",
   evaluation: "Annual Evaluation",
   quotation: "Rate Quotation",

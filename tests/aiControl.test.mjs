@@ -269,11 +269,18 @@ test("timestamps use Thai operational time and explicitly absent source timestam
   assert.equal(stamp(null), "—"); assert.equal(stamp("invalid-date"), "invalid-date");
   assert.match(stamp("2026-09-07T03:00:00Z"), /10:00:00/);
 });
-test("new route uses Home identity guard and keeps legacy Assistant/other menus", () => {
+test("the route keeps the Home identity guard, and the assistant is a section of the tower rather than a menu of its own", () => {
   const nav = readFileSync(new URL("../app/scmos/nav.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../app/ai-control-tower/page.tsx", import.meta.url), "utf8");
   const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
-  assert.match(nav, /\["ai", "AI Control Tower"/); assert.match(nav, /\["assistant", "AI Assistant"/);
+  const tower = readFileSync(new URL("../app/scmos/screens/AiControlTower.tsx", import.meta.url), "utf8");
+  assert.match(nav, /\["ai", "AI Control Tower"/);
+  // 23 Sep 2026: one place to look at the AI. The screen id is gone from the
+  // menu, the icons and the titles, and its panels are a section of the tower.
+  assert.doesNotMatch(nav, /"assistant"/);
+  assert.doesNotMatch(app, /screen === "assistant"/);
+  assert.match(tower, /import \{ Assistant \} from "\.\/Assistant"/);
+  assert.match(tower, /<Assistant canApprove=\{canApprove\}/);
   assert.match(route, /await getUser\(\)/); assert.match(route, /NODE_ENV !== "production"/); assert.match(route, /initialScreen="ai"/);
   assert.match(app, /initialScreen \?\? stored.landing/);
   assert.match(app, /screen === "ai" && !isCarrier/);

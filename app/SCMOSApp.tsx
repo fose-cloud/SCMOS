@@ -39,7 +39,6 @@ import { Monitoring } from "./scmos/screens/Monitoring";
 import { Audit, NotBuilt } from "./scmos/screens/Audit";
 import { Suppliers } from "./scmos/screens/Suppliers";
 import { Incidents } from "./scmos/screens/Incidents";
-import { Assistant } from "./scmos/screens/Assistant";
 import { AiControlTower } from "./scmos/screens/AiControlTower";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { Quotation } from "./scmos/screens/Quotation";
@@ -79,7 +78,7 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
  * lies about what it does, so listing them here suppresses it.
  */
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
-  subcontractors: true, carpar: true, incident: true, assistant: true, ai: true,
+  subcontractors: true, carpar: true, incident: true, ai: true,
   vendor: true, evaluation: true, quotation: true,
   // Reports offered the fallback Export Excel, which raises a toast and exports
   // nothing. Every report inside the catalogue carries its own export, next to
@@ -3324,13 +3323,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 onToast={setToast}
               />
             )}
-            {screen === "assistant" && (
-              <Assistant canApprove={isSupervisor} onToast={setToast}
-                onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
-            )}
             {screen === "ai" && !isCarrier && (
               <AiControlTower key={signedInAs + ":" + me.role + ":" + identity?.opId + ":" + able("ViewDashboard") + ":" + able("ViewAudit") + ":" + able("ViewTeam")}
                 canViewDashboard={able("ViewDashboard")} canViewAudit={able("ViewAudit")} canViewMonitor={isSupervisor}
+                canApprove={isSupervisor} onToast={setToast}
                 onNavigate={go}
                 // Typed on the dashboard's rail; cleared once it has been placed
                 // in the box, so coming back later does not re-seed it.

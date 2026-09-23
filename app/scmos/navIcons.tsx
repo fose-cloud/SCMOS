@@ -61,7 +61,6 @@ export const NAV_ICONS: Partial<Record<Screen, ReactNode>> = {
   documents: P("M3 2.2h6l4 4v7.6H3zM9 2.2v4h4M5.5 9h5M5.5 11.5h3.5"),
   reports: P("M2.6 1.8h10.8a1 1 0 0 1 1 1v10.4a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1zM4.5 10.5l2.3-2.6 1.8 1.5 2.9-3.4M4.5 12.5h7"),
   ai: P("M8 4.6V7M8 9v2.4M5.9 6.8 3.9 5.6M10.1 6.8l2-1.2M5.9 9.2l-2 1.2M10.1 9.2l2 1.2", <><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none" /><circle cx="8" cy="3" r="1.3" /><circle cx="8" cy="13" r="1.3" /><circle cx="3" cy="5" r="1.3" /><circle cx="13" cy="5" r="1.3" /><circle cx="3" cy="11" r="1.3" /><circle cx="13" cy="11" r="1.3" /></>),
-  assistant: P("M3.5 5.5h9a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zM8 5.5V3M6 14.5h4M1 8.5h1.5M13.5 8.5H15", <><circle cx="8" cy="2.4" r=".9" fill="currentColor" stroke="none" /><circle cx="6" cy="8.6" r=".9" fill="currentColor" stroke="none" /><circle cx="10" cy="8.6" r=".9" fill="currentColor" stroke="none" /><path d="M6.3 10.8h3.4" /></>),
   integrations: P("M5 2v3M11 2v3M3.5 5h9v2.5a4.5 4.5 0 0 1-9 0zM8 12v2.5"),
   abs: P("M6.5 9.5a2.5 2.5 0 0 0 3.5 0l2.5-2.5a2.5 2.5 0 0 0-3.5-3.5L8 4.5M9.5 6.5a2.5 2.5 0 0 0-3.5 0L3.5 9a2.5 2.5 0 0 0 3.5 3.5l1-1"),
   ccs: P("M2.5 4.5h11v7h-11zM2.5 7.5h11M5.5 10h2M10 10h1"),

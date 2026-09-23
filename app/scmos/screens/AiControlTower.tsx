@@ -12,6 +12,7 @@ import {
 import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
 import { agentReadiness } from "../agentReadiness";
+import { Assistant } from "./Assistant";
 import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, parseChangeClarification, type ChangeDraft } from "../operationsChangeCommand";
 
 /** Private, short-lived state only: no prompt/evidence in localStorage or shared page caches. */
@@ -301,7 +302,10 @@ function RunDetail({ run, onOpenJob }: { run: AuditRun; onOpenJob: (key: string)
 
 type Props = {
   canViewDashboard: boolean; canViewAudit: boolean; canViewMonitor: boolean;
+  /** Whether this person may decide the approval queue — a supervisor's act, as on the assistant's own screen before 23 Sep 2026. */
+  canApprove: boolean;
   onNavigate: (screen: Screen) => void; onOpenJob: (key: string) => void;
+  onToast: (message: string) => void;
   /**
    * A question brought from another screen — the dashboard's rail — placed in
    * the box and focused, not sent. Sending is still the person's click, so the
@@ -311,7 +315,7 @@ type Props = {
   onQuestionTaken?: () => void;
 };
 
-export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor, onNavigate, onOpenJob, initialQuestion, onQuestionTaken }: Props) {
+export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor, canApprove, onNavigate, onOpenJob, onToast, initialQuestion, onQuestionTaken }: Props) {
   const status = useRemote("/api/ai/status", parseStatus);
   const board = useRemote(canViewDashboard ? "/api/dashboard/today" : null, parseToday);
   const brief = useRemote(canViewDashboard ? "/api/dashboard/briefing" : null, parseBrief);
@@ -339,6 +343,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const input = useRef<HTMLTextAreaElement>(null);
   const askPanel = useRef<HTMLElement>(null);
   const activityPanel = useRef<HTMLElement>(null);
+  const permissionsPanel = useRef<HTMLElement>(null);
   const request = useRef<AbortController | null>(null);
   const mounted = useRef(false);
   const [message, setMessage] = useState("");
@@ -636,10 +641,21 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
               <Badge tone={readiness.ready ? "green" : "muted"}>{readiness.label}</Badge></li>;
           })}</ul>
           <p className={s.hint}>การตั้งค่า provider ไม่ใช่ผลตรวจการเชื่อมต่อจริง Phase นี้เปิดให้ถามเฉพาะ Operations Agent</p>
-          <button className={s.link} onClick={() => onNavigate("assistant")}>เปิดหน้า AI Assistant เดิม · สิทธิ์และคิวอนุมัติ</button>
+          <button className={s.link} onClick={() => permissionsPanel.current?.scrollIntoView({ block: "start" })}>ดูสิทธิ์และคิวอนุมัติด้านล่าง →</button>
         </details>
       </section>
     </div>
+
+    {/* What the assistant may do and what is waiting for a person — its own
+        screen until 23 Sep 2026 ("นำเมนู AI Assistant มารวมอยู่ใน AI Control Tower
+        และลบ AI Assistant ออก"). One place to look at the AI, not two: the
+        permission matrix is read from the API, where it is enforced, and the
+        approval queue is decided here rather than on a second menu entry. */}
+    <section ref={permissionsPanel} className={s.panel} aria-labelledby="ai-permissions">
+      <div className={s.sectionTitle}><div><h2 id="ai-permissions">สิทธิ์และคิวอนุมัติ</h2>
+        <p>สิ่งที่ผู้ช่วยทำได้เลย สิ่งที่ต้องให้คนอนุมัติ และสิ่งที่ห้ามเด็ดขาด · อ่านจาก API ที่บังคับใช้จริง</p></div></div>
+      <Assistant canApprove={canApprove} onToast={onToast} onOpenJob={onOpenJob} />
+    </section>
 
     <section ref={activityPanel} className={s.panel} aria-labelledby="ai-activity">
       <div className={s.sectionTitle}><div><h2 id="ai-activity">AI Activity</h2>
