@@ -454,7 +454,8 @@ public static class LineParserCheck
             ("a cancelled or finished job is not asked about", !whole.Contains("CANCELLED", StringComparison.Ordinal)),
             ("it says how to answer so the answer can be read — leading with the container, since a job number is several boxes",
                 whole.Contains("ตอบในกลุ่มนี้ทีละตู้", StringComparison.Ordinal)
-                && whole.Contains("TXGU8142057 70-1234 สมชาย ใจดี 081-2345678", StringComparison.Ordinal)),
+                && whole.Contains("<เลขตู้ หรือ Job No. / Booking> ทะเบียน 12-3456 ชื่อ นาย ก นามสกุล ข เบอร์ 08X-XXXXXXX", StringComparison.Ordinal)
+                && !whole.Contains("สมชาย ใจดี", StringComparison.Ordinal)),
             ("nothing missing, nothing sent", LineReminder.Compose("SHORE", day, [Line("F1", "IMPORT", "READY", "70-1234", "สมชาย", "081-2345678")]).Count == 0),
             // 20 Sep 2026: the room is asked nothing — no reminder unless an hour is set.
             ("no reminder hour unless one is set (20 Sep 2026)", LineReminder.Times(null).Count == 0),
@@ -475,7 +476,10 @@ public static class LineParserCheck
                     && summary.Contains("ยังขาด: ทะเบียนรถ, ชื่อ-สกุลคนขับ, เบอร์ติดต่อ", StringComparison.Ordinal)
                     && !summary.Contains("CANCELLED", StringComparison.Ordinal)
                     && summary.Split("ยังขาด:").Length == 2
-                    && summary.Contains("ถ้างานไหนรับไม่ได้", StringComparison.Ordinal)),
+                    && summary.Contains("รบกวนบริษัทขนส่งตรวจสอบรายละเอียดงานว่าถูกต้องตรงกันหรือไม่", StringComparison.Ordinal)
+                    && summary.Contains("หากข้อมูลไม่ตรงหรือไม่สามารถรับงานได้ กรุณาแจ้งกลับทีม Subcon", StringComparison.Ordinal)
+                    && summary.Contains("<เลขตู้ หรือ Booking> ทะเบียน 12-3456 ชื่อ นาย ก นามสกุล ข เบอร์ 08X-XXXXXXX", StringComparison.Ordinal)
+                    && !summary.Contains("สมชาย ใจดี", StringComparison.Ordinal)),
             ("a day with no open job sends no summary",
                 LineReminder.ComposeSummary("SHORE", new DateOnly(2026, 9, 18), [Line("C1", "IMPORT", "CANCELLED")]).Count == 0),
             // 20 Sep 2026: Friday's summary is the weekend's and Monday's, in one.
@@ -496,7 +500,7 @@ public static class LineParserCheck
                     && weekend.Contains("■ จันทร์ 28/09/2026 · 2 งาน", StringComparison.Ordinal)
                     && weekend.IndexOf("\n1) ", StringComparison.Ordinal) < weekend.IndexOf("\n2) ", StringComparison.Ordinal)
                     && weekend.Contains("\n3) ", StringComparison.Ordinal)
-                    && weekend.Split("ถ้างานไหนรับไม่ได้").Length == 2),
+                    && weekend.Split("รบกวนบริษัทขนส่งตรวจสอบรายละเอียดงาน").Length == 2),
             ("three days with nothing open send nothing",
                 LineReminder.ComposeSummary("SHORE", [
                     (new DateOnly(2026, 9, 26), []),
@@ -584,7 +588,8 @@ public static class LineParserCheck
             ("a round's ask says how long the plan time is gone, and asks for the truck's details on the same line when they are missing",
                 LineChase.Compose("SHORE", [(Planned("J", "IMPORT", "IN_TRANSIT", "08:30") with { Driver = "" }, LineChase.RoundStage(ten))], At("10:02")) is { } round
                     && round.Contains("แผน 08:30 — เลยมา 1 ชม. 32 นาที ยังไม่มีรายงานถึง · ขาด: ชื่อ-สกุลคนขับ", StringComparison.Ordinal)
-                    && round.Contains("ทะเบียนรถและคนขับ:", StringComparison.Ordinal)),
+                    && round.Contains("ทะเบียนรถและคนขับ: <เลขตู้ หรือ Job No.> ทะเบียน 12-3456 ชื่อ นาย ก นามสกุล ข เบอร์ 08X-XXXXXXX", StringComparison.Ordinal)
+                    && !round.Contains("สมชาย ใจดี", StringComparison.Ordinal)),
             ("nothing due, no message", LineChase.Compose("SHORE", [], At("13:40")).Length == 0),
         };
         foreach (var (why, ok) in chase)

@@ -157,8 +157,8 @@ public static class LineReminder
         // number — a booking is several containers — so the container is what
         // an answer should lead with; the job number alone would leave the
         // operator choosing between five rows.
-        var footer = "ตอบในกลุ่มนี้ทีละตู้: <เลขตู้ หรือ Job No. / Booking> ทะเบียน ชื่อ-สกุลคนขับ เบอร์\n"
-            + "เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678\n"
+        var footer = "ตอบในกลุ่มนี้ทีละตู้: <เลขตู้ หรือ Job No. / Booking> "
+            + "ทะเบียน 12-3456 ชื่อ นาย ก นามสกุล ข เบอร์ 08X-XXXXXXX\n"
             + "งาน Export ที่ยังไม่มีเลขตู้/ซีล: <Booking> ตู้ XXXU1234567 ซีล 123456";
 
         var messages = new List<string>();
@@ -266,8 +266,10 @@ public static class LineReminder
 
         var span = SpanLabel(perDay.Select(one => one.Day).ToList());
         var heading = $"สรุปงานวันที่ {span} — {supplier} · {total} งาน";
-        var footer = "ถ้างานไหนรับไม่ได้ หรือข้อมูลไม่ตรง แจ้งในกลุ่มนี้ครับ\n"
-            + "ทะเบียนรถและคนขับส่งได้เลย: <เลขตู้ หรือ Booking> ทะเบียน ชื่อ-สกุลคนขับ เบอร์ — เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678";
+        var footer = "รบกวนบริษัทขนส่งตรวจสอบรายละเอียดงานว่าถูกต้องตรงกันหรือไม่ "
+            + "หากข้อมูลไม่ตรงหรือไม่สามารถรับงานได้ กรุณาแจ้งกลับทีม Subcon ในกลุ่มนี้ครับ\n"
+            + "สามารถส่งทะเบียนรถและข้อมูลคนขับได้ในรูปแบบ: <เลขตู้ หรือ Booking> "
+            + "ทะเบียน 12-3456 ชื่อ นาย ก นามสกุล ข เบอร์ 08X-XXXXXXX";
 
         var messages = new List<string>();
         var text = new StringBuilder(heading);

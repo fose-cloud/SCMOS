@@ -217,7 +217,7 @@ public static class LineChase
             text.Append("\n\n").Append(Line(number, job, stage, now));
         }
         text.Append("\n\nตอบในกลุ่มนี้: <เลขตู้ หรือ Job No.> ถึงโรงงาน HH:MM — เช่น TXGU8142057 ถึงโรงงาน 12:40\nถ้ายังไม่ถึง: <เลขตู้> คาดถึง HH:MM");
-        if (details) text.Append("\nทะเบียนรถและคนขับ: <เลขตู้ หรือ Job No.> ทะเบียน ชื่อ-สกุลคนขับ เบอร์ — เช่น TXGU8142057 70-1234 สมชาย ใจดี 081-2345678");
+        if (details) text.Append("\nทะเบียนรถและคนขับ: <เลขตู้ หรือ Job No.> ทะเบียน 12-3456 ชื่อ นาย ก นามสกุล ข เบอร์ 08X-XXXXXXX");
         return text.ToString();
     }
 }
