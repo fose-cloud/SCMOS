@@ -40,7 +40,7 @@ Every answer's basis says it: no Application Insights or Azure Monitor connector
 
 **Build result** — green at the Phase 7 commit.
 
-**Verified on LocalDB, 22 Sep** — the checks' fixtures stand in for the platform; a live question needs the provider and the flag, as the other agents' did. Production verification follows the department's word on `AI__SreAgentEnabled`.
+**Verified in Production, 22 Sep 2026** — `AI__SreAgentEnabled` on; health, requests and errors all answered (the readings are in [the Phase 9 record](SCMOS_AI_PHASE_9.md)). Before that, on LocalDB — the checks' fixtures stand in for the platform; a live question needs the provider and the flag, as the other agents' did. Production verification follows the department's word on `AI__SreAgentEnabled`.
 
 **Known risks** — the health view's ping is one query at one moment: a database that answered in 300 ms may take 40 s a minute later under a register read, and the view says so only if asked then. The `errors` view counts what SCMOS wrote down; an exception the API logged to App Service and nowhere else is not in it — that is the connector the department has not decided on (the second read below answers part of this from inside the process). GitHub's unauthenticated rate limit (60 an hour per address) is shared with the Engineering Agent's reads.
 

@@ -1,6 +1,8 @@
 # Phase 8 — bounded specialist collaboration
 
-Status: implemented and checked locally on 22 September 2026. **Not enabled or deployed by this change.**
+Status: implemented and checked locally on 22 September 2026. Not enabled or deployed by that change —
+**deployed the same day at `b7fdd1c`, `AI__ManagementAgentEnabled` set by the department that afternoon, and both plans answered
+authenticated questions in Production that evening** (the runs are listed in [the Phase 9 record](SCMOS_AI_PHASE_9.md)).
 
 The Management Agent selects exactly one server-defined read-only plan. It cannot supply a tool sequence, reorder steps, or write data. The first increment has two plans:
 

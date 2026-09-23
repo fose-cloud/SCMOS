@@ -33,8 +33,13 @@ public sealed class AgentRegistry
         // exist, and the read says so where it would matter.
         Define("document-agent", "Document & Invoice Agent", "Paperwork held and owed per job, carrier invoices against the billing rule, compliance files near expiry — read, never approved", Capability.UploadDocuments,
             ["query_documents"], ["documents", "verification", "compliance", "billing"]),
+        // The compliance *page* is the Document & Invoice Agent's since Phase 5: it is the agent
+        // that answers there, because compliance files near expiry are paperwork. Claiming it here
+        // too did nothing but make the router's first-match rule decide silently between the two
+        // (22 Sep 2026 — found by the vocabulary check, not by a person). This one keeps training;
+        // whoever connects it can take the page back deliberately.
         Define("compliance-agent", "Compliance Agent", "Training and qualification evidence", Capability.ManageTraining,
-            [], ["compliance", "training"]),
+            [], ["training"]),
         // The specification's Management Agent (Phase 8): source-linked specialist
         // summaries — a fixed plan of other specialists' reads, each authorised on
         // its own, composed by the server. Its "tools" are the plans it may select.

@@ -74,3 +74,27 @@ Signed in as the department lead, each question asked through `/api/ai/chat` aga
 Two fixes came out of those runs and are in the same release: the job summary's search reaches completed jobs (server-set, never model-set), and a job is found by its ABS number and booking as the header search finds it.
 
 **Remaining after Phase 9** — the register-read redesign (`docs/REGISTER_READ_PLAN.md`), which the requests view now measures; a retention policy when the department decides one; and Always On for the API App Service, so the first request after a restart is not 80 seconds.
+
+---
+
+# Phase 9, third increment — reading Phases 0 to 9 back
+
+23 September 2026 · released as v2.7.85 · the department's word: "ตรวจเช็ค Phase 0 ถึง Phase 9 ว่าจุดความผิดพลาดตรงไหนหรือไม่ หากเจอแก้ไขให้หน่อย".
+
+## What the reading found
+
+**One live ambiguity.** Two agents claimed the page `compliance` — the Document & Invoice Agent, which has answered there since Phase 5 because compliance files near expiry are paperwork, and the never-connected Compliance Agent. `AgentRegistry.Resolve` takes the first match, so the router was deciding between them by array order and nobody would have known until somebody connected the second one and its own page did not reach it. The page now belongs to the agent that answers there; the Compliance Agent keeps `training`.
+
+**One that would have bitten in a few months.** The correction pass read *every* LINE and TMS message of the last ninety-seven days, with its text, on every half-hourly run — to use the handful belonging to shipments that are actually late and unanswered. It now collects the jobs that will be asked first and reads the messages of those jobs only, five hundred keys to a query. Same proposals, on a table that no longer grows into the pass.
+
+**One shape that would have read as a crash.** Two passes racing — two instances, or a hand-run beside the scheduler — end with the second failing the unique index that keeps one open proposal per cell. The pass now says so in one line and writes nothing, because the first pass wrote the same proposals.
+
+**Four stale claims in the records themselves**: Phase 8 still said "not enabled or deployed", Phases 5 and 7 still said Production verification was waiting on the department, and the assessment still said Phases 8–9 had not started. Each is corrected where it stood, dated, without rewriting what was true when it was written.
+
+## What now guards it
+
+`tests/Scmos.Ai.Checks/PlatformVocabularyCheck.cs` — the platform's four lists against each other. A read exists in the tool registry, the agent registry, the permission catalogue and the audit vocabulary, and all four were written by hand; this codebase's oldest lesson is that a rule written twice drifts. It pins: every tool owned by exactly one agent and by the agent it names; every tool known to the audit and permitted by the catalogue; every audit tool name a real tool (except `extract_document`, the Workspace's own extractor, audited without ever being offered to a model); every agent with a flag of its own that turns on nothing else, found by name rather than by a second list; no two agents claiming a page, and every page routing to its agent; every audit view vocabulary identical to the read's own and offered by its schema; and the Management plans never appearing as reads.
+
+1,016 assertions offline, 1,130 with LocalDB.
+
+**Not found**: no permission that should not exist (the Phase 9 matrix is unchanged by this reading), no audit vocabulary gap, no view a read can answer and the audit would refuse, no tool in the registry that is a write, and no phase whose code disagrees with its record beyond the four sentences corrected above.

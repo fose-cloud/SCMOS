@@ -58,7 +58,7 @@ Every answer carries the rule and its figures (`DocumentChecklist v1 · invoice 
 
 **Build result** — green at the Phase 5 commit.
 
-**Verified on LocalDB, 22 Sep** — the checks' fixtures stand in for the tables; a live question needs the provider and the flag, as the other agents' did. Production verification follows the department's word on `AI__DocumentAgentEnabled`.
+**Verified in Production, 22 Sep 2026** — `AI__DocumentAgentEnabled` on; "งานไหนเอกสารยังไม่ครบ" answered with 1,066 jobs in 4.2 s. Before that, on LocalDB — the checks' fixtures stand in for the tables; a live question needs the provider and the flag, as the other agents' did. Production verification follows the department's word on `AI__DocumentAgentEnabled`.
 
 **Known risks**
 

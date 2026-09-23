@@ -13,7 +13,7 @@ Originally Phase D, 2026-09-07; updated 21 September 2026. The currently connect
 | engineering-agent (Phase 6 — [record](SCMOS_AI_PHASE_6.md); tools `query_repository` (fixed public GitHub metadata) and, behind its own switch, `read_source` (a bounded, read-only read of the repository's source with the model's analysis labelled as its own); no run, edit, commit or deploy exists) | engineering | AdministerData (Administrator only) |
 | sre-agent (the specification's SRE Agent, connected in Phase 7 — [record](SCMOS_AI_PHASE_7.md); tool `query_platform`: the platform's own health, the repository's workflow runs, its own failure counts, the last hour's requests and the exceptions the process remembers; safe identifiers only; restarts nothing) | sre, health, system | AdministerData (Administrator only) |
 | incident-agent | incidents | ViewDashboard |
-| compliance-agent | compliance, training | ManageTraining |
+| compliance-agent (not connected; the compliance *page* is the Document & Invoice Agent's since Phase 5, so this claims only training — 22 Sep 2026) | training | ManageTraining |
 | management-agent | management, dashboard | ViewDashboard |
 
 All also require recognized server identity, a known internal role and a resolvable read scope. A carrier must wait for a separately reviewed carrier adapter. `ViewTeam` grants team scope; otherwise a nonblank server-resolved OperatorId is required. This is a conservative new-AI boundary, not a change to existing SCMOS role grants or screens. Future domain adapters may require stricter record/field projection.

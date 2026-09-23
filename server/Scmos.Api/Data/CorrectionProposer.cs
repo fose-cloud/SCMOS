@@ -79,7 +79,14 @@ public static class CorrectionProposer
             .Select(row => new { row.JobKey, row.Field, row.FromValue, row.ToValue, row.Rule }).ToListAsync(token);
         var declinedCells = declined.Where(row => DelayReasonRule.IsReasonRule(row.Rule)).Select(row => row.JobKey).ToHashSet(StringComparer.Ordinal);
         var declinedValues = declined.Where(row => !DelayReasonRule.IsReasonRule(row.Rule)).Select(row => (row.JobKey, row.Field, row.FromValue, row.ToValue)).ToHashSet();
-        var messages = await MessagesAsync(db, today, token);
+        // Which shipments will be asked for a reason at all — so the hauliers' messages are read for
+        // those jobs and no others. Reading every message of the last three months on every pass was
+        // a table scan that grows with the integration: 478 late shipments on 22 Sep 2026, against
+        // every message SCMOS has ever stored for a job.
+        var asking = snapshot.Rows
+            .Where(row => row.Record is { } job && DelayReasonRule.Asks(job, today))
+            .Select(row => row.Key).ToList();
+        var messages = await MessagesAsync(db, asking, today, token);
 
         var byRule = new Dictionary<string, int>(StringComparer.Ordinal);
         var mappings = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -172,7 +179,20 @@ public static class CorrectionProposer
         if (queue)
         {
             queued = proposed - alreadyOpen;
-            if (queued > 0 || superseded > 0) await db.SaveChangesAsync(token);
+            try
+            {
+                if (queued > 0 || superseded > 0) await db.SaveChangesAsync(token);
+            }
+            catch (DbUpdateException problem)
+            {
+                // One open proposal per cell is a unique index, so two passes racing — two App Service
+                // instances, or a hand-run beside the scheduler — end with the second writing nothing.
+                // Nothing is lost: the proposals the first pass wrote are the same ones, and the next
+                // pass half an hour later sees them as already waiting.
+                services.GetRequiredService<ILogger<CorrectionScheduler>>()
+                    .LogWarning(problem, "Correction pass {Batch} wrote nothing — another pass proposed the same cells first", batch);
+                queued = 0;
+            }
         }
         var summary = new ProposalSummary(batch, snapshot.Rows.Count, proposed, queued, alreadyOpen, superseded, skippedDeclined);
         if (output is not null) Report(output, summary, queue, lists, cancelledJobs, lateAsked, byRule, mappings, byOwner, leftAlone, ambiguous, typeCounts);
@@ -233,18 +253,29 @@ public static class CorrectionProposer
         return new CorrectionLists(types, customers, spelling => carriers.Knows(spelling) ? carriers.Company(spelling) : null);
     }
 
-    /// <summary>What the hauliers said about each job within the look-back, newest first — the text, never the room or the sender.</summary>
-    private static async Task<Dictionary<string, List<string>>> MessagesAsync(ScmosDbContext db, DateOnly today, CancellationToken token)
+    /// <summary>The most job keys named in one query — SQL Server takes about 2,100 parameters, and a chunk well under it leaves room for the rest of the query.</summary>
+    private const int KeysPerQuery = 500;
+
+    /// <summary>
+    /// What the hauliers said about the jobs that are being asked for a reason,
+    /// newest first — the text, never the room or the sender, and never a
+    /// message about a job nothing will be proposed for.
+    /// </summary>
+    private static async Task<Dictionary<string, List<string>>> MessagesAsync(ScmosDbContext db, IReadOnlyList<string> jobKeys, DateOnly today, CancellationToken token)
     {
-        var since = new DateTimeOffset(today.AddDays(-DelayReasonRule.LookbackDays - 7).ToDateTime(TimeOnly.MinValue), Formats.Zone);
-        var rows = await db.LineEvents.AsNoTracking()
-            .Where(one => one.JobKey != "" && one.RawText != "" && one.ReceivedAt >= since
-                && (one.ProcessingStatus == LineProcessing.Processed || one.ProcessingStatus == LineProcessing.NeedReview))
-            .OrderByDescending(one => one.ReceivedAt)
-            .Select(one => new { one.JobKey, one.RawText })
-            .ToListAsync(token);
         var byKey = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var one in rows) (byKey.TryGetValue(one.JobKey, out var list) ? list : byKey[one.JobKey] = []).Add(one.RawText);
+        if (jobKeys.Count == 0) return byKey;
+        var since = new DateTimeOffset(today.AddDays(-DelayReasonRule.LookbackDays - 7).ToDateTime(TimeOnly.MinValue), Formats.Zone);
+        foreach (var chunk in jobKeys.Chunk(KeysPerQuery))
+        {
+            var rows = await db.LineEvents.AsNoTracking()
+                .Where(one => chunk.Contains(one.JobKey) && one.RawText != "" && one.ReceivedAt >= since
+                    && (one.ProcessingStatus == LineProcessing.Processed || one.ProcessingStatus == LineProcessing.NeedReview))
+                .OrderByDescending(one => one.ReceivedAt)
+                .Select(one => new { one.JobKey, one.RawText })
+                .ToListAsync(token);
+            foreach (var one in rows) (byKey.TryGetValue(one.JobKey, out var list) ? list : byKey[one.JobKey] = []).Add(one.RawText);
+        }
         return byKey;
     }
 
