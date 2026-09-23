@@ -53,3 +53,23 @@ which are to be measured on a normal morning through the SRE Agent's `requests` 
 column is promoted. Until then: v2.7.77's stale-while-revalidate and the S2/B2 tiers carry
 the load, and [`--check-register-cache`](../server/Scmos.Api/Data/RegisterCacheCheck.cs) proves the
 cache's behaviour on a development database.
+
+## Measured on a working morning — and not done
+
+**23 September 2026, 08:54–09:38 Bangkok**, through the SRE Agent's `requests` view, on a
+morning with no deploy in it: **2,921 requests · 0 failed (5xx) · 13 refused (4xx) · 8 slower
+than five seconds · p50 108 ms · p95 783 ms.**
+
+The threshold agreed with the department before measuring was p95 above three seconds, or more
+than about ten requests an hour past five seconds. Neither is met — p95 is a quarter of the
+threshold, and the eight slow ones are consistent with the first readers after the 08:48
+restart. **So the column promotion in this plan is not being done.** What carries the load
+instead, all of it already in production: Standard S2 and the B2 plan (22 Sep), the register
+cache's stale-while-revalidate (v2.7.77), and `RegisterWarmup` building the snapshot at startup
+so a restart costs the process and not a person (v2.7.84+).
+
+The plan stays written because the shape of the problem has not changed — every summarising
+screen still reads the whole register — and because the measurement that would reopen it now
+exists and takes one question to repeat. Reopen when a working-hours reading shows p95 past
+three seconds, or when the register grows enough that the cold build (24–62 s at 4,000 jobs)
+stops fitting inside a restart nobody is waiting on.
