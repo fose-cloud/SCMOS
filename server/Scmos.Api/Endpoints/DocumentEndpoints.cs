@@ -17,6 +17,7 @@ public static class DocumentEndpoints
 {
     /// <param name="Extend">True to keep the document longer; false to approve its destruction.</param>
     public record RetentionDecision(bool? Extend, string? Reason);
+    public record ExpiryUpdate(string? ExpiryDate);
 
     public static void MapDocuments(this IEndpointRouteBuilder routes)
     {
@@ -88,6 +89,30 @@ public static class DocumentEndpoints
 
             return Results.Json(new { message = result.Message, document = result.Document });
         }).DisableAntiforgery();
+
+        group.MapPatch("/{id:long}/expiry", async (long id, ExpiryUpdate body, HttpContext context,
+            IUserAccessor users, DocumentService documents, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.UploadDocuments))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขข้อมูลเอกสาร",
+                    StatusCodes.Status403Forbidden);
+
+            var before = await documents.FindAsync(id, token);
+            if (before is null)
+                return ApiResults.Error("ไม่พบเอกสารนี้", StatusCodes.Status404NotFound);
+
+            var result = await documents.UpdateSupplierExpiryAsync(id, body.ExpiryDate, token);
+            if (!result.Ok)
+                return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+
+            await audit.RecordAsync(user, AuditActions.Update, "document", id.ToString(),
+                before.FileName, "expiryDate", before.ExpiryDate,
+                result.Document!.ExpiryDate, "", token);
+
+            return Results.Json(new { message = result.Message, document = result.Document });
+        });
 
         /// The ten-year retention review.
         ///

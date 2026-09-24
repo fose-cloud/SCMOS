@@ -314,6 +314,33 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     public async Task<StoredDocument?> FindAsync(long id, CancellationToken token) =>
         await db.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.Id == id, token);
 
+    /// <summary>
+    /// Changes only the expiry metadata of a supplier compliance file. The
+    /// blob stays untouched: correcting or extending a date must not require
+    /// uploading the same document again and must not create another copy.
+    /// </summary>
+    public async Task<DocumentResult> UpdateSupplierExpiryAsync(long id, string? expiryDate,
+        CancellationToken token)
+    {
+        var document = await db.Documents.FirstOrDefaultAsync(row => row.Id == id, token);
+        if (document is null || document.Scope != "supplier" || document.SupplierId is null)
+            return new DocumentResult(false, "ไม่พบเอกสารของผู้ขนส่งนี้");
+
+        var need = SupplierCompliance.Match(document.Kind);
+        if (need is null || !need.Expires)
+            return new DocumentResult(false, "เอกสารประเภทนี้ไม่มีวันหมดอายุให้แก้ไข");
+
+        var expiry = (expiryDate ?? "").Trim();
+        if (!need.ExpiryOptional && expiry.Length == 0)
+            return new DocumentResult(false, "ต้องระบุวันหมดอายุ");
+        if (expiry.Length > 0 && Formats.DateNumber(expiry) == 0)
+            return new DocumentResult(false, "วันหมดอายุต้องเป็นรูปแบบ DD/MM/YYYY");
+
+        document.ExpiryDate = expiry;
+        await db.SaveChangesAsync(token);
+        return new DocumentResult(true, "แก้ไขวันหมดอายุแล้ว", Describe(document));
+    }
+
     public Task<Stream?> OpenAsync(StoredDocument document, CancellationToken token) =>
         files.OpenAsync(document.ObjectKey, token);
 

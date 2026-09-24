@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const api = readFileSync("server/Scmos.Api/Endpoints/SupplierEndpoints.cs", "utf8");
+const documentApi = readFileSync("server/Scmos.Api/Endpoints/DocumentEndpoints.cs", "utf8");
 const ui = readFileSync("app/scmos/screens/Suppliers.tsx", "utf8");
 const service = readFileSync("server/Scmos.Api/Services/SupplierService.cs", "utf8");
+const documentService = readFileSync("server/Scmos.Api/Services/DocumentService.cs", "utf8");
 const compliance = readFileSync("app/scmos/supplierCompliance.ts", "utf8");
 const complianceRules = readFileSync("server/Scmos.Api/Rules/SupplierCompliance.cs", "utf8");
 const notifications = readFileSync("server/Scmos.Api/Services/NotificationService.cs", "utf8");
@@ -74,4 +76,16 @@ test("every supplier document column has a visible add-document button", () => {
   assert.match(ui, /title="เลือกเพิ่มได้หลายไฟล์ โดยไม่ลบไฟล์เดิม"/);
   assert.match(ui, />\s*\+ เพิ่มเอกสาร\s*<\/button>/);
   assert.doesNotMatch(ui, />\s*ต่ออายุ\s*<\/button>/);
+});
+
+test("the current supplier document expiry can be edited without another upload", () => {
+  assert.match(ui, />\s*แก้ไขวันหมดอายุ\s*<\/button>/);
+  assert.match(ui, /held\?\.documentId && need\.expires/);
+  assert.match(ui, /method: "PATCH"[\s\S]*?JSON\.stringify\(\{ expiryDate \}\)/);
+  assert.match(ui, /บันทึกวันหมดอายุ/);
+  assert.match(documentApi, /MapPatch\("\/\{id:long\}\/expiry"[\s\S]*?Capability\.UploadDocuments/);
+  assert.match(documentApi, /AuditActions\.Update[\s\S]*?"expiryDate"[\s\S]*?before\.ExpiryDate/);
+  assert.match(documentService, /UpdateSupplierExpiryAsync[\s\S]*?SupplierCompliance\.Match\(document\.Kind\)/);
+  assert.match(documentService, /!need\.ExpiryOptional && expiry\.Length == 0/);
+  assert.match(documentService, /document\.ExpiryDate = expiry[\s\S]*?SaveChangesAsync/);
 });

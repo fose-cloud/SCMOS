@@ -106,6 +106,9 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
   /* Which cell was clicked: whose document, and which of the five. Null when
      nothing is being attached. */
   const [attach, setAttach] = useState<{ row: Summary; code: string } | null>(null);
+  /* A date correction changes metadata on the current file; it never replaces
+     or re-uploads that file. */
+  const [editingExpiry, setEditingExpiry] = useState<{ row: Summary; code: string } | null>(null);
   /* The cleanup list: which unused suppliers are ticked for removal. */
   const [sweeping, setSweeping] = useState(false);
   const [doomed, setDoomed] = useState<Set<number>>(new Set());
@@ -205,6 +208,24 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
         const detail = failed.slice(0, 2).join(" · ");
         const more = failed.length > 2 ? ` และอีก ${failed.length - 2} ฉบับ` : "";
         onToast(`อัปโหลดสำเร็จ ${uploaded} ฉบับ · ไม่สำเร็จ ${failed.length} ฉบับ: ${detail}${more}`);
+      }
+    } finally { setBusy(false); }
+  }
+
+  async function updateExpiry(documentId: number, expiryDate: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/documents/${documentId}/expiry`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expiryDate }),
+      });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "แก้ไขวันหมดอายุไม่สำเร็จ");
+      if (response.ok) {
+        setEditingExpiry(null);
+        await load();
       }
     } finally { setBusy(false); }
   }
@@ -859,17 +880,32 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
                           // empty or already has a current file. The upload
                           // dialog keeps every existing copy and accepts more
                           // than one new file at a time.
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setAttach({ row, code: need.code }); }}
-                            disabled={busy}
-                            aria-label={`เพิ่มเอกสาร ${need.thai} สำหรับ ${row.legalName || row.name}`}
-                            title="เลือกเพิ่มได้หลายไฟล์ โดยไม่ลบไฟล์เดิม"
-                            style={css("display:block;margin-top:4px;height:23px;padding:0 8px;border-radius:3px;"
-                              + `font-size:10.5px;font-weight:600;font-family:inherit;border:1px solid ${busy ? "#D8E0E8" : "#B8CFE5"};`
-                              + `background:${busy ? "#F4F6F8" : "#F5FAFF"};color:${busy ? "#94A3B8" : "#0A5FA8"};`
-                              + `cursor:${busy ? "not-allowed" : "pointer"}`)}>
-                            + เพิ่มเอกสาร
-                          </button>
+                          <div style={css("display:flex;gap:4px;align-items:center;margin-top:4px") }>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setAttach({ row, code: need.code }); }}
+                              disabled={busy}
+                              aria-label={`เพิ่มเอกสาร ${need.thai} สำหรับ ${row.legalName || row.name}`}
+                              title="เลือกเพิ่มได้หลายไฟล์ โดยไม่ลบไฟล์เดิม"
+                              style={css("height:23px;padding:0 8px;border-radius:3px;"
+                                + `font-size:10.5px;font-weight:600;font-family:inherit;border:1px solid ${busy ? "#D8E0E8" : "#B8CFE5"};`
+                                + `background:${busy ? "#F4F6F8" : "#F5FAFF"};color:${busy ? "#94A3B8" : "#0A5FA8"};`
+                                + `cursor:${busy ? "not-allowed" : "pointer"}`)}>
+                              + เพิ่มเอกสาร
+                            </button>
+                            {held?.documentId && need.expires && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setEditingExpiry({ row, code: need.code }); }}
+                                disabled={busy}
+                                aria-label={`แก้ไขวันหมดอายุ ${need.thai} สำหรับ ${row.legalName || row.name}`}
+                                title="แก้เฉพาะวันหมดอายุของไฟล์ปัจจุบัน"
+                                style={css("height:23px;padding:0 8px;border-radius:3px;white-space:nowrap;"
+                                  + `font-size:10.5px;font-weight:600;font-family:inherit;border:1px solid ${busy ? "#D8E0E8" : "#D4B36A"};`
+                                  + `background:${busy ? "#F4F6F8" : "#FFFBEB"};color:${busy ? "#94A3B8" : "#8A5A12"};`
+                                  + `cursor:${busy ? "not-allowed" : "pointer"}`)}>
+                                แก้ไขวันหมดอายุ
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     );
@@ -917,6 +953,16 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
             setAttach(null);
             void upload(attach.row.id, files, need.folder, need.code, expiry);
           }}
+        />
+      )}
+
+      {editingExpiry && (
+        <ExpiryDialog
+          supplier={editingExpiry.row}
+          code={editingExpiry.code}
+          busy={busy}
+          onCancel={() => setEditingExpiry(null)}
+          onSave={(documentId, expiryDate) => void updateExpiry(documentId, expiryDate)}
         />
       )}
 
@@ -1552,6 +1598,106 @@ function AttachDialog({ supplier, code, busy, onCancel, onAttach }: {
               }} />
           </label>
           <button onClick={onCancel}
+            style={css("height:32px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;"
+              + "border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit")}>
+            ยกเลิก
+          </button>
+          {asksExpiry && !wellFormed && (
+            <span style={css("font-size:11px;color:#94A3B8")}>กรอกวันหมดอายุก่อน</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Edits expiry metadata without forcing the user to upload the file again. */
+function ExpiryDialog({ supplier, code, busy, onCancel, onSave }: {
+  supplier: Summary;
+  code: string;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (documentId: number, expiry: string) => void;
+}) {
+  const need = REQUIREMENTS.find((one) => one.code === code);
+  const held = supplier.compliance?.find((one) => one.code === code);
+  const [expiry, setExpiry] = useState(held?.expiryDate ?? "");
+  const [expiryReminder, setExpiryReminder] = useState(Boolean(held?.expiryDate));
+  const dateBox = useRef<HTMLInputElement | null>(null);
+  const expiryOptional = Boolean(need?.expiryOptional);
+  const asksExpiry = Boolean(need?.expires && (!expiryOptional || expiryReminder));
+
+  useEffect(() => { if (asksExpiry) dateBox.current?.focus(); }, [asksExpiry]);
+
+  if (!need || !need.expires || !held?.documentId) return null;
+
+  const wellFormed = /^\d{2}\/\d{2}\/\d{4}$/.test(expiry.trim());
+  const ready = !asksExpiry || wellFormed;
+
+  return (
+    <div role="presentation"
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
+      style={css("position:fixed;inset:0;z-index:80;background:rgba(10,34,64,.45);"
+        + "display:flex;align-items:center;justify-content:center;padding:20px")}>
+      <div role="dialog" aria-modal="true" aria-label={`แก้ไขวันหมดอายุ ${need.english} (${need.thai})`}
+        style={css("background:#fff;border-radius:6px;padding:20px 22px;max-width:430px;width:100%;"
+          + "box-shadow:0 18px 48px rgba(10,34,64,.3)")}>
+        <div style={css("font-size:14px;font-weight:700;color:#0A2240")}>แก้ไขวันหมดอายุ</div>
+        <div style={css("font-size:12px;color:#64748B;margin-top:3px")}>
+          {need.english} ({need.thai}) · {supplier.legalName || supplier.name}
+        </div>
+        <div style={css("font-size:11px;color:#7B8CA0;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}
+          title={held.fileName}>
+          ไฟล์: {held.fileName}
+        </div>
+
+        <div style={css("margin-top:14px")}>
+          {expiryOptional && (
+            <label style={css("display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#334155;"
+              + "line-height:1.5;cursor:pointer")}>
+              <input type="checkbox" checked={expiryReminder}
+                onChange={(e) => {
+                  setExpiryReminder(e.target.checked);
+                  if (!e.target.checked) setExpiry("");
+                }} style={css("margin-top:2px")} />
+              <span>
+                แจ้งเตือนเมื่อเอกสารจะหมดอายุภายใน {WARNING_DAYS} วัน
+                <span style={css("display:block;font-size:11px;color:#7B8CA0")}>
+                  ยกเลิกการเลือกเพื่อลบวันหมดอายุและหยุดการแจ้งเตือน
+                </span>
+              </span>
+            </label>
+          )}
+          {asksExpiry && (
+            <div style={css(expiryOptional ? "margin-top:10px" : "")}>
+              <div style={css("font-size:11px;color:#5A6B7D;margin-bottom:4px")}>
+                วันหมดอายุ <b>DD/MM/YYYY</b>
+              </div>
+              <input value={expiry} onChange={(e) => setExpiry(e.target.value)}
+                placeholder="31/12/2027" ref={dateBox}
+                style={css("width:150px;height:32px;border:1px solid "
+                  + (expiry.length > 0 && !wellFormed ? "#B42318" : "#C9D6E2")
+                  + ";border-radius:4px;padding:0 10px;font-size:13px;font-family:ui-monospace,monospace")} />
+              {expiry.length > 0 && !wellFormed && (
+                <div style={css("font-size:11px;color:#B42318;margin-top:4px")}>
+                  ต้องเป็นรูปแบบ DD/MM/YYYY เช่น 31/12/2027
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={css("display:flex;gap:8px;align-items:center;margin-top:18px")}>
+          <button disabled={!ready || busy}
+            onClick={() => onSave(held.documentId!, asksExpiry ? expiry.trim() : "")}
+            style={css("height:32px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;font-family:inherit;"
+              + (ready && !busy
+                ? "background:#16794C;color:#fff;border:1px solid #16794C;cursor:pointer"
+                : "background:#E6EBF1;color:#94A3B8;border:1px solid #DDE4EC;cursor:not-allowed"))}>
+            {busy ? "กำลังบันทึก…" : "บันทึกวันหมดอายุ"}
+          </button>
+          <button onClick={onCancel} disabled={busy}
             style={css("height:32px;padding:0 12px;border:1px solid #C9D6E2;background:#fff;color:#5A6B7D;"
               + "border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit")}>
             ยกเลิก
