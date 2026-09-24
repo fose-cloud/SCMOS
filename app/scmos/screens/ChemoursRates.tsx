@@ -341,6 +341,10 @@ export function ChemoursRates({
   });
 
   const draftBands = draft.kind === "SELL" ? sell?.bands ?? [] : card?.bands ?? [];
+  const carriers = useMemo(
+    () => [...new Set((card?.lanes ?? []).map((lane) => lane.carrier))].sort(),
+    [card],
+  );
 
   function blankPrices(width: number): Record<string, (number | null)[]> {
     return Object.fromEntries(VEHICLES.map((vehicle) => [vehicle, Array<number | null>(width).fill(null)]));
@@ -409,11 +413,6 @@ export function ChemoursRates({
   // than in an effect, which would draw the wrong page for a frame first.
   const [shown, setShown] = useState(carrier);
   if (shown !== carrier) { setShown(carrier); setPage(1); }
-  const carriers = useMemo(
-    () => [...new Set((card?.lanes ?? []).map((lane) => lane.carrier))].sort(),
-    [card],
-  );
-
   /**
    * The selling lanes by origin and destination postcode.
    *
