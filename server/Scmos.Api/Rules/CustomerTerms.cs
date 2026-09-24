@@ -31,7 +31,7 @@ public static class CustomerTerms
         new("LOTUS", 30, "21/09/2026", "all", "กำหนดโดยหัวหน้าแผนก 21/09/2026: รถถึงช้าไม่เกิน 30 นาทีไม่นับเป็นล่าช้าใน KPI และ Dashboard"),
         new("ALLNEX", 30, "24/09/2026", "all", "กำหนด 24/09/2026: รถถึงช้าไม่เกิน 30 นาทีไม่นับเป็นล่าช้าใน KPI และ Dashboard"),
         new("SYENSQO", 30, "24/09/2026", "all", "กำหนด 24/09/2026: รถถึงช้าไม่เกิน 30 นาทีไม่นับเป็นล่าช้าใน KPI และ Dashboard"),
-        new("EVONIK (THAILAND) LTD.", 180, "24/09/2026", "tank", "กำหนด 24/09/2026 เฉพาะงาน Tank: รถถึงช้าไม่เกิน 180 นาทีไม่นับเป็นล่าช้าใน KPI และ Dashboard"),
+        new("EVONIK", 180, "24/09/2026", "tank", "กำหนด 24/09/2026 เฉพาะงาน Tank: รถถึงช้าไม่เกิน 180 นาทีไม่นับเป็นล่าช้าใน KPI และ Dashboard"),
     ];
 
     private static bool CustomerMatches(Term term, string name) =>

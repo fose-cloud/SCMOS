@@ -40,11 +40,13 @@ test("Allnex and Syensqo keep OTD through minute 30", () => {
 });
 
 test("EVONIK gets 180 minutes only for Tank jobs", () => {
+  assert.equal(graceMinutes("EVONIK", "1X20' TK"), 180);
+  assert.equal(graceMinutes("EVONIK", "ISO Tank"), 180);
   assert.equal(graceMinutes("EVONIK (THAILAND) LTD.", "1X20' TK"), 180);
-  assert.equal(graceMinutes("EVONIK (THAILAND) LTD.", "ISO Tank"), 180);
-  assert.equal(graceMinutes("EVONIK (THAILAND) LTD.", "1X20'"), 0);
-  assert.equal(graceMinutes("EVONIK (THAILAND) LTD."), 0);
-  assert.equal(graceMinutes("EVONIK OTHER COMPANY", "1X20' TK"), 0);
+  assert.equal(graceMinutes("EVONIK", "1X20'"), 0);
+  assert.equal(graceMinutes("EVONIK"), 0);
+  assert.equal(graceMinutes("BLUE EVONIK", "1X20' TK"), 0);
+  assert.equal(graceMinutes("EVONIKLAND", "1X20' TK"), 0);
 });
 
 test("the dashboard's own count reads the same table and applies each boundary inclusively", () => {
@@ -63,8 +65,8 @@ test("the dashboard's own count reads the same table and applies each boundary i
   assert.equal(onTime("ALLNEX", "1X20'", "09:31"), false);
   assert.equal(onTime("SYENSQO", "1X20'", "09:30"), true);
   assert.equal(onTime("SYENSQO", "1X20'", "09:31"), false);
-  assert.equal(onTime("EVONIK (THAILAND) LTD.", "1X20' TK", "12:00"), true);
-  assert.equal(onTime("EVONIK (THAILAND) LTD.", "1X20' TK", "12:01"), false);
-  assert.equal(onTime("EVONIK (THAILAND) LTD.", "1X20'", "09:01"), false);
+  assert.equal(onTime("EVONIK", "1X20' TK", "12:00"), true);
+  assert.equal(onTime("EVONIK", "1X20' TK", "12:01"), false);
+  assert.equal(onTime("EVONIK", "1X20'", "09:01"), false);
   assert.equal(onTime("L'OREAL", "1X20'", "09:00"), true);
 });

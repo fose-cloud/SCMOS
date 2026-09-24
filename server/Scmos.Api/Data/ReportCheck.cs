@@ -59,11 +59,11 @@ public static class ReportCheck
         failed += Say("Allnex: thirty-one minutes is late", JobRules.IsOnTime(At("ALLNEX", "09:31")), false);
         failed += Say("Syensqo: thirty minutes exactly is on time", JobRules.IsOnTime(At("SYENSQO", "09:30")), true);
         failed += Say("Syensqo: thirty-one minutes is late", JobRules.IsOnTime(At("SYENSQO", "09:31")), false);
-        failed += Say("Evonik Tank: 180 minutes exactly is on time", JobRules.IsOnTime(At("EVONIK (THAILAND) LTD.", "12:00", "1X20' TK")), true);
-        failed += Say("Evonik Tank: 181 minutes is late", JobRules.IsOnTime(At("EVONIK (THAILAND) LTD.", "12:01", "ISO Tank")), false);
-        failed += Say("Evonik non-Tank has no Tank grace", JobRules.IsOnTime(At("EVONIK (THAILAND) LTD.", "09:01", "1X20'")), false);
+        failed += Say("Evonik Tank: 180 minutes exactly is on time", JobRules.IsOnTime(At("EVONIK", "12:00", "1X20' TK")), true);
+        failed += Say("Evonik Tank: 181 minutes is late", JobRules.IsOnTime(At("EVONIK", "12:01", "ISO Tank")), false);
+        failed += Say("Evonik non-Tank has no Tank grace", JobRules.IsOnTime(At("EVONIK", "09:01", "1X20'")), false);
         failed += Say("the rule registry names the term for Lotus", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "LOTUS ASIA")?.ThresholdMinutes, 30);
-        failed += Say("the rule registry scopes Evonik to Tank", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK (THAILAND) LTD.", "1X20' TK")?.ThresholdMinutes, 180);
+        failed += Say("the rule registry scopes Evonik to Tank", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK", "1X20' TK")?.ThresholdMinutes, 180);
         failed += Say("and nothing for a customer without one", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "L'OREAL") is null, true);
 
         /* ---- the dashboard's CUSTOMER / TRUCKER on the measured cards (22 Sep 2026) ---- */

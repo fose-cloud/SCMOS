@@ -26,9 +26,9 @@ static class SharedContractChecks
         check(lotus is { ThresholdMinutes: 30, Version: "4" } && lotus.Meaning.Contains("LOTUS") && lotus.SourceMember == "Rules/JobRules.cs:JobRules.IsOnTime"
             && Scmos.Api.Rules.CustomerTerms.GraceMinutes("lotus") == 30 && Scmos.Api.Rules.CustomerTerms.GraceMinutes("L'OREAL") == 0,
             "1C: a customer's registered term resolves for that customer with its grace, and the department's rule for everyone else");
-        var evonikTank = Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK (THAILAND) LTD.", "1X20' TK");
+        var evonikTank = Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK", "1X20' TK");
         check(evonikTank is { ThresholdMinutes: 180, Version: "4" } && evonikTank.Meaning.Contains("Tank-job")
-            && Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK (THAILAND) LTD.", "1X20'") is null,
+            && Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK", "1X20'") is null,
             "1C: a job-scoped term resolves only for the matching vehicle type");
         var budget = new AiDispatchBudget();
         check(budget.TryConsume() && !budget.TryConsume() && !budget.TryConsume() && budget.Allowed == 1,

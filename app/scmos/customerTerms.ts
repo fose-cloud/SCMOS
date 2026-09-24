@@ -19,7 +19,7 @@ export const CUSTOMER_TERMS: CustomerTerm[] = [
   { customer: "LOTUS", graceMinutes: 30, since: "21/09/2026", scope: "all" },
   { customer: "ALLNEX", graceMinutes: 30, since: "24/09/2026", scope: "all" },
   { customer: "SYENSQO", graceMinutes: 30, since: "24/09/2026", scope: "all" },
-  { customer: "EVONIK (THAILAND) LTD.", graceMinutes: 180, since: "24/09/2026", scope: "tank" },
+  { customer: "EVONIK", graceMinutes: 180, since: "24/09/2026", scope: "tank" },
 ];
 
 function isTank(jobType: string | undefined): boolean {
