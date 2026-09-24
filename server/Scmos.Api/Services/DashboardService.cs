@@ -140,8 +140,15 @@ public class DashboardService(ScmosDbContext db, KpiEngine kpi)
         /* ---------------------------------------------------- attention */
         var openCases = await db.IncidentCases.AsNoTracking()
             .Where(record => record.Stage != "closed").ToListAsync(token);
-        var documents = await db.Documents.AsNoTracking()
-            .Where(document => document.SupplierId != null && document.ExpiryDate != "").ToListAsync(token);
+        var documents = SupplierCompliance.CurrentSupplierDocuments(
+                await db.Documents.AsNoTracking()
+                    .Where(document => document.SupplierId != null).ToListAsync(token),
+                document => document.SupplierId,
+                document => document.Kind,
+                document => document.ExpiryDate,
+                document => document.Id)
+            .Where(document => document.ExpiryDate != "")
+            .ToList();
         var capacity = await db.SupplierCapacities.AsNoTracking().ToListAsync(token);
 
         var attention = new List<Figure>

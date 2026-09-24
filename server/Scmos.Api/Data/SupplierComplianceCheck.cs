@@ -56,6 +56,32 @@ public static class SupplierComplianceCheck
             "and a folder name is not a requirement — that was the bug");
         Check(SupplierCompliance.Match("") is null && SupplierCompliance.Match(null) is null,
             "nor is nothing at all");
+        Check(SupplierCompliance.Match("affidavit") is { Expires: true, ExpiryOptional: true },
+            "the company affidavit may opt into expiry monitoring without requiring a date");
+        Check(SupplierCompliance.Required.Count(one => one.ExpiryOptional) == 1,
+            "only the company affidavit makes expiry monitoring optional");
+        var affidavit = SupplierCompliance.Match("affidavit")!;
+        Check(!SupplierCompliance.MonitorsExpiry(affidavit, "")
+            && SupplierCompliance.MonitorsExpiry(affidavit, "30/04/2026"),
+            "the affidavit is monitored only when an expiry was supplied");
+
+        var versions = new[]
+        {
+            new { SupplierId = (int?)7, Kind = "affidavit", ExpiryDate = "31/12/2027", Id = 1L },
+            new { SupplierId = (int?)7, Kind = "affidavit", ExpiryDate = "", Id = 2L },
+            new { SupplierId = (int?)7, Kind = "insurance-vehicle", ExpiryDate = "31/12/2027", Id = 3L },
+            new { SupplierId = (int?)7, Kind = "insurance-vehicle", ExpiryDate = "31/12/2026", Id = 4L },
+        };
+        var current = SupplierCompliance.CurrentSupplierDocuments(
+            versions,
+            document => document.SupplierId,
+            document => document.Kind,
+            document => document.ExpiryDate,
+            document => document.Id);
+        Check(current.Single(document => document.Kind == "affidavit").Id == 2,
+            "a newer affidavit without expiry replaces the old monitored version");
+        Check(current.Single(document => document.Kind == "insurance-vehicle").Id == 3,
+            "mandatory certificates still keep the version with the furthest expiry");
 
         Console.WriteLine();
         Console.WriteLine("Where one document stands.");
@@ -82,6 +108,9 @@ public static class SupplierComplianceCheck
             "except where the document does not expire at all");
         Check(State(false, "", expires: false) == SupplierCompliance.State.Missing,
             "which still has to be held");
+        Check(State(true, "", SupplierCompliance.MonitorsExpiry(affidavit, ""))
+                == SupplierCompliance.State.Valid,
+            "an affidavit uploaded without expiry is valid, not a missing-date warning");
 
         Console.WriteLine();
         Console.WriteLine("The boundary of the warning window.");

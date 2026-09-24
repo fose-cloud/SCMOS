@@ -46,19 +46,25 @@ public static class SupplierCompliance
     /// same question.
     /// </param>
     /// <param name="Expires">
-    /// Whether a missing expiry date is a fault. The truck annex is a list of
-    /// vehicles rather than a certificate: it goes out of date when the fleet
-    /// changes, not on a date anybody can write down in advance.
+    /// Whether this document can carry an expiry date. The truck annex is a
+    /// list of vehicles rather than a certificate: it goes out of date when
+    /// the fleet changes, not on a date anybody can write down in advance.
+    /// </param>
+    /// <param name="ExpiryOptional">
+    /// Whether the document may be filed without monitoring an expiry. The
+    /// company affidavit has no mandatory expiry, but the uploader may opt in
+    /// to the same sixty-day warning used by the other certificates.
     /// </param>
     public sealed record Requirement(
-        string Code, string English, string Thai, string Folder, bool Expires);
+        string Code, string English, string Thai, string Folder, bool Expires,
+        bool ExpiryOptional = false);
 
     public static readonly Requirement[] Required =
     [
         new("insurance-vehicle", "Insurance expire", "รถยนต์", "Insurance", true),
         new("insurance-cargo", "Insurance expire", "สินค้า", "Insurance", true),
         new("transport-licence", "Transport Licence", "ใบอนุญาตขนส่ง", "License", true),
-        new("affidavit", "Affidavit Company", "หนังสือรับรองบริษัท", "Contract", true),
+        new("affidavit", "Affidavit Company", "หนังสือรับรองบริษัท", "Contract", true, true),
         new("truck-profile", "Truck Profile/Annex", "ทะเบียนรถในสัญญา", "Contract", false),
     ];
 
@@ -69,6 +75,57 @@ public static class SupplierCompliance
         if (text.Length == 0) return null;
         return Required.FirstOrDefault(one => one.Code.Equals(text, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// Keeps the document version that currently represents each known
+    /// requirement. An optional-expiry affidavit is selected by upload order,
+    /// because a newer file without a date deliberately turns monitoring off;
+    /// mandatory certificates keep the furthest expiry, then the newest upload.
+    /// Unclassified supplier files are retained because they may still have an
+    /// expiry of their own (for example an audit report).
+    /// </summary>
+    public static IReadOnlyList<T> CurrentSupplierDocuments<T>(
+        IEnumerable<T> documents,
+        Func<T, int?> supplierId,
+        Func<T, string?> kind,
+        Func<T, string?> expiryDate,
+        Func<T, long> id)
+    {
+        var candidates = documents
+            .Where(document => supplierId(document) is not null)
+            .Select(document => (
+                Doc: document,
+                Supplier: supplierId(document)!.Value,
+                Need: Match(kind(document))))
+            .ToList();
+
+        var currentRequired = candidates
+            .Where(pair => pair.Need is not null)
+            .GroupBy(pair => (pair.Supplier, pair.Need!.Code))
+            .Select(group =>
+            {
+                var need = group.First().Need!;
+                return (need.ExpiryOptional
+                        ? group.OrderByDescending(pair => id(pair.Doc))
+                        : group.OrderByDescending(pair => Formats.DateNumber(expiryDate(pair.Doc) ?? ""))
+                            .ThenByDescending(pair => id(pair.Doc)))
+                    .First().Doc;
+            });
+
+        return candidates.Where(pair => pair.Need is null).Select(pair => pair.Doc)
+            .Concat(currentRequired)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Whether this particular uploaded file is being monitored for expiry.
+    /// Required-date documents remain monitored even when somebody omitted the
+    /// date, so the missing date stays visible as a fault. An optional-date
+    /// affidavit is monitored only when the uploader supplied a date.
+    /// </summary>
+    public static bool MonitorsExpiry(Requirement requirement, string? expiryDate) =>
+        requirement.Expires
+        && (!requirement.ExpiryOptional || !string.IsNullOrWhiteSpace(expiryDate));
 
     /* ------------------------------------------------------------- states */
 

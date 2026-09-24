@@ -6,7 +6,7 @@ import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
-import { REQUIREMENTS, STATE_TONE, stateLabel } from "../supplierCompliance";
+import { REQUIREMENTS, STATE_TONE, stateLabel, WARNING_DAYS } from "../supplierCompliance";
 
 /**
  * The supplier register.
@@ -161,31 +161,51 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
   }
 
   /**
-   * Files a compliance document.
+   * Files one or more compliance documents.
    *
    * The screen sends the supplier and the folder; where the file lands —
    * SCMOS/Supplier/{code}/{folder} — is the API's to decide. The expiry is the
    * point of storing it at all: an insurance certificate with no expiry cannot
    * be watched, and a lapsed one is what the compliance count exists to catch.
    */
-  async function upload(supplierId: number, file: File, folder: string, kind: string, expiryDate: string) {
-    if (busy) return;
+  async function upload(supplierId: number, files: File[], folder: string, kind: string, expiryDate: string) {
+    if (busy || files.length === 0) return;
     setBusy(true);
+    let uploaded = 0;
+    const failed: string[] = [];
     try {
-      const body = new FormData();
-      body.append("supplierId", String(supplierId));
-      body.append("folder", folder);
-      // The kind is what decides which column the file lands under, so it is
-      // the requirement's code rather than the folder — two of the five share
-      // Insurance and two share Contract, and the folder cannot tell them
-      // apart. It was the folder here, which is why nothing ever matched.
-      body.append("kind", kind);
-      body.append("expiryDate", expiryDate);
-      body.append("file", file);
-      const response = await apiFetch("/api/documents", { method: "POST", body });
-      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
-      onToast(reply.message ?? reply.error ?? "อัปโหลดไม่สำเร็จ");
-      await load();
+      // The endpoint owns one blob per request. Sending the selected files one
+      // at a time preserves that contract while the screen keeps one busy
+      // state, one refresh and one result message for the whole selection.
+      for (const file of files) {
+        try {
+          const body = new FormData();
+          body.append("supplierId", String(supplierId));
+          body.append("folder", folder);
+          // The kind is what decides which column the file lands under, so it is
+          // the requirement's code rather than the folder — two of the five share
+          // Insurance and two share Contract, and the folder cannot tell them
+          // apart. It was the folder here, which is why nothing ever matched.
+          body.append("kind", kind);
+          body.append("expiryDate", expiryDate);
+          body.append("file", file);
+          const response = await apiFetch("/api/documents", { method: "POST", body });
+          const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+          if (response.ok) uploaded++;
+          else failed.push(`${file.name}: ${reply.error ?? reply.message ?? `HTTP ${response.status}`}`);
+        } catch {
+          failed.push(`${file.name}: เชื่อมต่อไม่สำเร็จ`);
+        }
+      }
+
+      if (uploaded > 0) await load();
+      if (failed.length === 0) {
+        onToast(`อัปโหลดเอกสารสำเร็จ ${uploaded} ฉบับ`);
+      } else {
+        const detail = failed.slice(0, 2).join(" · ");
+        const more = failed.length > 2 ? ` และอีก ${failed.length - 2} ฉบับ` : "";
+        onToast(`อัปโหลดสำเร็จ ${uploaded} ฉบับ · ไม่สำเร็จ ${failed.length} ฉบับ: ${detail}${more}`);
+      }
     } finally { setBusy(false); }
   }
 
@@ -896,11 +916,11 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
           code={attach.code}
           busy={busy}
           onCancel={() => setAttach(null)}
-          onAttach={(file, expiry) => {
+          onAttach={(files, expiry) => {
             const need = REQUIREMENTS.find((one) => one.code === attach.code);
             if (!need) return;
             setAttach(null);
-            void upload(attach.row.id, file, need.folder, need.code, expiry);
+            void upload(attach.row.id, files, need.folder, need.code, expiry);
           }}
         />
       )}
@@ -922,7 +942,7 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
           onStatus={(status) => void post(`${picked}/status`, { status })}
           onEvaluate={(period, safety, documents, note) =>
             void post(`${picked}/evaluate`, { period, safety, documents, note })}
-          onUpload={(file, folder, kind, expiryDate) => void upload(picked, file, folder, kind, expiryDate)} />
+          onUpload={(files, folder, kind, expiryDate) => void upload(picked, files, folder, kind, expiryDate)} />
       )}
     </div>
   );
@@ -1048,7 +1068,7 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
   onAlias: (alias: string) => void;
   onStatus: (status: string) => void;
   onEvaluate: (period: string, safety: number | null, documents: number | null, note: string) => void;
-  onUpload: (file: File, folder: string, kind: string, expiryDate: string) => void;
+  onUpload: (files: File[], folder: string, kind: string, expiryDate: string) => void;
 }) {
   const [alias, setAlias] = useState("");
   const [period, setPeriod] = useState(String(new Date().getFullYear()));
@@ -1057,6 +1077,12 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
   const [note, setNote] = useState("");
   const [folder, setFolder] = useState("Insurance");
   const [expiry, setExpiry] = useState("");
+  const [expiryReminder, setExpiryReminder] = useState(false);
+  const selectedNeed = REQUIREMENTS.find((one) => one.code === folder);
+  const expiryOptional = Boolean(selectedNeed?.expiryOptional);
+  const asksExpiry = selectedNeed
+    ? selectedNeed.expires && (!expiryOptional || expiryReminder)
+    : true;
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
@@ -1124,7 +1150,11 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
             one of the five — a rate card, a training record — which still has
             to go somewhere.
           */}
-          <select value={folder} onChange={(e) => setFolder(e.target.value)}
+          <select value={folder} onChange={(e) => {
+            setFolder(e.target.value);
+            setExpiry("");
+            setExpiryReminder(false);
+          }}
             style={css("height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;background:#fff;max-width:260px")}>
             <optgroup label="เอกสารที่ต้องมี">
               {REQUIREMENTS.map((need) => (
@@ -1137,20 +1167,36 @@ function Manage({ supplier, others, busy, onEdit, onRemove, onMerge, onAlias, on
               {SUPPLIER_FOLDERS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </optgroup>
           </select>
-          <input value={expiry} onChange={(e) => setExpiry(e.target.value)} placeholder="หมดอายุ DD/MM/YYYY"
-            style={css("width:150px;height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px")} />
+          {expiryOptional && (
+            <label style={css("display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:#334155")}>
+              <input type="checkbox" checked={expiryReminder}
+                onChange={(e) => {
+                  setExpiryReminder(e.target.checked);
+                  if (!e.target.checked) setExpiry("");
+                }} />
+              แจ้งเตือนเมื่อเอกสารจะหมดอายุภายใน {WARNING_DAYS} วัน
+            </label>
+          )}
+          {asksExpiry && (
+            <input value={expiry} onChange={(e) => setExpiry(e.target.value)} placeholder="หมดอายุ DD/MM/YYYY"
+              style={css("width:150px;height:29px;border:1px solid #C9D6E2;border-radius:4px;padding:0 9px;font-size:12px")} />
+          )}
+          {selectedNeed && !selectedNeed.expires && (
+            <span style={css("font-size:11px;color:#7B8CA0")}>เอกสารนี้ไม่มีวันหมดอายุ</span>
+          )}
           <label style={css(`height:29px;padding:0 13px;border:1px solid #0A2240;background:${busy ? "#C3CFDB" : "#0A2240"};color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center`)}>
-            แนบไฟล์
-            <input type="file" disabled={busy} style={css("display:none")}
+            แนบไฟล์หลายฉบับ
+            <input type="file" multiple disabled={busy} style={css("display:none")}
               onChange={(e) => {
-                const file = e.target.files?.[0];
+                const files = Array.from(e.target.files ?? []);
                 e.target.value = "";
-                if (!file) return;
+                if (files.length === 0) return;
                 // One of the five, or a loose folder. The requirement decides
                 // both where the file goes and what it is; a folder can only
                 // say where.
                 const need = REQUIREMENTS.find((one) => one.code === folder);
-                onUpload(file, need ? need.folder : folder, need ? need.code : folder, expiry);
+                onUpload(files, need ? need.folder : folder, need ? need.code : folder,
+                  asksExpiry ? expiry.trim() : "");
               }} />
           </label>
         </div>
@@ -1380,7 +1426,7 @@ function Tile({ label, value, note, colour }: { label: string; value: number; no
 }
 
 /**
- * Attaching one required document, from the cell that was clicked.
+ * Attaching one or more copies of a required document, from the cell that was clicked.
  *
  * A dialog rather than an inline control, because attaching needs two things:
  * the file, and the date it runs out. The expiry is the whole reason these
@@ -1393,17 +1439,20 @@ function AttachDialog({ supplier, code, busy, onCancel, onAttach }: {
   code: string;
   busy: boolean;
   onCancel: () => void;
-  onAttach: (file: File, expiry: string) => void;
+  onAttach: (files: File[], expiry: string) => void;
 }) {
   const need = REQUIREMENTS.find((one) => one.code === code);
   const held = supplier.compliance?.find((one) => one.code === code);
   const [expiry, setExpiry] = useState(held?.expiryDate ?? "");
+  const [expiryReminder, setExpiryReminder] = useState(Boolean(held?.expiryDate));
   const dateBox = useRef<HTMLInputElement | null>(null);
+  const expiryOptional = Boolean(need?.expiryOptional);
+  const asksExpiry = Boolean(need?.expires && (!expiryOptional || expiryReminder));
 
-  // The date is the first thing to fill in and the dialog was opened
-  // deliberately, so the caret starts there. Done on mount rather than with
-  // autoFocus, which fires before anybody can say they did not want it.
-  useEffect(() => { dateBox.current?.focus(); }, []);
+  // A required date, or an optional warning somebody has just enabled, starts
+  // with the caret in the date. An affidavit with monitoring left off never
+  // asks for a date at all.
+  useEffect(() => { if (asksExpiry) dateBox.current?.focus(); }, [asksExpiry]);
 
   if (!need) return null;
 
@@ -1411,7 +1460,7 @@ function AttachDialog({ supplier, code, busy, onCancel, onAttach }: {
   // here so a typo is caught in front of the person who made it rather than
   // becoming a document that silently never expires.
   const wellFormed = /^\d{2}\/\d{2}\/\d{4}$/.test(expiry.trim());
-  const ready = !need.expires || wellFormed;
+  const ready = !asksExpiry || wellFormed;
 
   return (
     /*
@@ -1441,26 +1490,49 @@ function AttachDialog({ supplier, code, busy, onCancel, onAttach }: {
           <div style={css("margin-top:10px;font-size:11.5px;color:#8A5A12;background:#FFF8F0;"
             + "border:1px solid #F0D8B8;border-radius:4px;padding:8px 10px;line-height:1.6")}>
             มีไฟล์อยู่แล้ว — การแนบใหม่จะเก็บเพิ่มอีกฉบับ ไม่ได้ลบของเดิม
-            ระบบจะใช้ฉบับที่วันหมดอายุใหม่กว่า
+            {need.expiryOptional
+              ? " ระบบจะใช้ฉบับล่าสุดเมื่อไม่ได้ติดตามวันหมดอายุ"
+              : " ระบบจะใช้ฉบับที่วันหมดอายุใหม่กว่า"}
           </div>
         )}
 
         {need.expires ? (
           <div style={css("margin-top:14px")}>
-            <div style={css("font-size:11px;color:#5A6B7D;margin-bottom:4px")}>
-              วันหมดอายุ <b>DD/MM/YYYY</b>
-            </div>
-            <input
-              value={expiry}
-              onChange={(e) => setExpiry(e.target.value)}
-              placeholder="31/12/2027"
-              ref={dateBox}
-              style={css("width:150px;height:32px;border:1px solid "
-                + (expiry.length > 0 && !wellFormed ? "#B42318" : "#C9D6E2")
-                + ";border-radius:4px;padding:0 10px;font-size:13px;font-family:ui-monospace,monospace")} />
-            {expiry.length > 0 && !wellFormed && (
-              <div style={css("font-size:11px;color:#B42318;margin-top:4px")}>
-                ต้องเป็นรูปแบบ DD/MM/YYYY เช่น 31/12/2027
+            {need.expiryOptional && (
+              <label style={css("display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#334155;"
+                + "line-height:1.5;cursor:pointer")}>
+                <input type="checkbox" checked={expiryReminder}
+                  onChange={(e) => {
+                    setExpiryReminder(e.target.checked);
+                    if (!e.target.checked) setExpiry("");
+                  }}
+                  style={css("margin-top:2px")} />
+                <span>
+                  แจ้งเตือนเมื่อเอกสารจะหมดอายุภายใน {WARNING_DAYS} วัน
+                  <span style={css("display:block;font-size:11px;color:#7B8CA0")}>
+                    ไม่เลือกก็สามารถแนบหนังสือรับรองได้โดยไม่ต้องระบุวันหมดอายุ
+                  </span>
+                </span>
+              </label>
+            )}
+            {asksExpiry && (
+              <div style={css(need.expiryOptional ? "margin-top:10px" : "")}>
+                <div style={css("font-size:11px;color:#5A6B7D;margin-bottom:4px")}>
+                  วันหมดอายุ <b>DD/MM/YYYY</b>
+                </div>
+                <input
+                  value={expiry}
+                  onChange={(e) => setExpiry(e.target.value)}
+                  placeholder="31/12/2027"
+                  ref={dateBox}
+                  style={css("width:150px;height:32px;border:1px solid "
+                    + (expiry.length > 0 && !wellFormed ? "#B42318" : "#C9D6E2")
+                    + ";border-radius:4px;padding:0 10px;font-size:13px;font-family:ui-monospace,monospace")} />
+                {expiry.length > 0 && !wellFormed && (
+                  <div style={css("font-size:11px;color:#B42318;margin-top:4px")}>
+                    ต้องเป็นรูปแบบ DD/MM/YYYY เช่น 31/12/2027
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1476,12 +1548,12 @@ function AttachDialog({ supplier, code, busy, onCancel, onAttach }: {
             + (ready && !busy
               ? "background:#16794C;color:#fff;border:1px solid #16794C;cursor:pointer"
               : "background:#E6EBF1;color:#94A3B8;border:1px solid #DDE4EC;cursor:not-allowed"))}>
-            {busy ? "กำลังอัปโหลด…" : "เลือกไฟล์และแนบ"}
-            <input type="file" disabled={!ready || busy} style={css("display:none")}
+            {busy ? "กำลังอัปโหลด…" : "เลือกไฟล์ (หลายฉบับ) และแนบ"}
+            <input type="file" multiple disabled={!ready || busy} style={css("display:none")}
               onChange={(e) => {
-                const file = e.target.files?.[0];
+                const files = Array.from(e.target.files ?? []);
                 e.target.value = "";
-                if (file) onAttach(file, need.expires ? expiry.trim() : "");
+                if (files.length > 0) onAttach(files, asksExpiry ? expiry.trim() : "");
               }} />
           </label>
           <button onClick={onCancel}
@@ -1489,7 +1561,7 @@ function AttachDialog({ supplier, code, busy, onCancel, onAttach }: {
               + "border-radius:4px;font-size:12.5px;cursor:pointer;font-family:inherit")}>
             ยกเลิก
           </button>
-          {need.expires && !wellFormed && (
+          {asksExpiry && !wellFormed && (
             <span style={css("font-size:11px;color:#94A3B8")}>กรอกวันหมดอายุก่อน</span>
           )}
         </div>

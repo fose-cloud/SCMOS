@@ -147,7 +147,14 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             $"{missingPod} งานที่เสร็จแล้วยังไม่มีใบรับของ", "ขอ POD ก่อนวางบิล", "", "document");
 
         /* ---- 8 & 9. supplier paperwork ---- */
-        var supplierDocs = documents.Where(d => d.SupplierId != null && d.ExpiryDate.Length > 0).ToList();
+        var supplierDocs = SupplierCompliance.CurrentSupplierDocuments(
+                documents,
+                document => document.SupplierId,
+                document => document.Kind,
+                document => document.ExpiryDate,
+                document => document.Id)
+            .Where(document => document.ExpiryDate.Length > 0)
+            .ToList();
         var expiring = supplierDocs.Count(d =>
             d.Folder != "Audit" && (DocumentService.IsExpiring(d.ExpiryDate) || DocumentService.IsExpired(d.ExpiryDate)));
         Add(alerts, AlertKind.SupplierDocumentExpiring, expiring,

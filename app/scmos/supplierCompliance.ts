@@ -24,13 +24,15 @@ export type Requirement = {
   folder: string;
   /** Whether this one carries an expiry date at all. */
   expires: boolean;
+  /** Whether the file may be uploaded without enabling expiry monitoring. */
+  expiryOptional?: boolean;
 };
 
 export const REQUIREMENTS: Requirement[] = [
   { code: "insurance-vehicle", english: "Insurance expire", thai: "รถยนต์", folder: "Insurance", expires: true },
   { code: "insurance-cargo", english: "Insurance expire", thai: "สินค้า", folder: "Insurance", expires: true },
   { code: "transport-licence", english: "Transport Licence", thai: "ใบอนุญาตขนส่ง", folder: "License", expires: true },
-  { code: "affidavit", english: "Affidavit Company", thai: "หนังสือรับรองบริษัท", folder: "Contract", expires: true },
+  { code: "affidavit", english: "Affidavit Company", thai: "หนังสือรับรองบริษัท", folder: "Contract", expires: true, expiryOptional: true },
   { code: "truck-profile", english: "Truck Profile/Annex", thai: "ทะเบียนรถในสัญญา", folder: "Contract", expires: false },
 ];
 
@@ -57,7 +59,7 @@ export const STATE_TONE: Record<string, { bg: string; ink: string; label: string
 export function stateLabel(state: string, daysLeft: number | null): string {
   const tone = STATE_TONE[state];
   if (!tone) return state;
-  if (state === "expiring" && daysLeft !== null) return `เหลือ ${daysLeft} วัน`;
+  if ((state === "valid" || state === "expiring") && daysLeft !== null) return `เหลือ ${daysLeft} วัน`;
   if (state === "expired" && daysLeft !== null) return `เกิน ${Math.abs(daysLeft)} วัน`;
   return tone.label;
 }

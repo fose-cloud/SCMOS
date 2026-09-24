@@ -194,10 +194,20 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
                 group => (IReadOnlyList<string>)group.Select(alias => alias.Alias)
                     .OrderBy(name => name, StringComparer.Ordinal).ToList());
 
+        // Keep one current version for each known requirement. This matters for
+        // an affidavit whose latest upload deliberately leaves expiry
+        // monitoring off: its older dated copy is history, not a live alert.
+        var currentSupplierDocuments = SupplierCompliance.CurrentSupplierDocuments(
+            documents,
+            document => document.SupplierId,
+            document => document.Kind,
+            document => document.ExpiryDate,
+            document => document.Id);
+
         // Expired counts as expiring: a certificate that lapsed last month is
         // more urgent than one lapsing next month, and dropping it off the
         // count would make it disappear at exactly the wrong moment.
-        var expiringBySupplier = documents
+        var expiringBySupplier = currentSupplierDocuments
             .Where(document => document.SupplierId is not null
                 && document.ExpiryDate.Length > 0
                 && (DocumentService.IsExpiring(document.ExpiryDate)
@@ -216,17 +226,12 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
          * is the new one that says whether they are covered.
          */
         var today = SupplierCompliance.Today();
-        var byRequirement = documents
-            .Where(document => document.SupplierId is not null)
+        var byRequirement = currentSupplierDocuments
             .Select(document => (Doc: document, Need: SupplierCompliance.Match(document.Kind)))
             .Where(pair => pair.Need is not null)
-            .GroupBy(pair => (Supplier: pair.Doc.SupplierId!.Value, pair.Need!.Code))
             .ToDictionary(
-                group => group.Key,
-                group => group
-                    .OrderByDescending(pair => Formats.DateNumber(pair.Doc.ExpiryDate))
-                    .ThenByDescending(pair => pair.Doc.Id)
-                    .First().Doc);
+                pair => (Supplier: pair.Doc.SupplierId!.Value, pair.Need!.Code),
+                pair => pair.Doc);
 
         IReadOnlyList<ComplianceItem> ComplianceFor(int supplierId)
         {
@@ -235,7 +240,8 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             {
                 byRequirement.TryGetValue((supplierId, need.Code), out var document);
                 var state = SupplierCompliance.StateOf(
-                    document is not null, document?.ExpiryDate ?? "", today, need.Expires);
+                    document is not null, document?.ExpiryDate ?? "", today,
+                    SupplierCompliance.MonitorsExpiry(need, document?.ExpiryDate));
                 var due = Formats.DateNumber(document?.ExpiryDate ?? "");
                 found.Add(new ComplianceItem(
                     need.Code,
