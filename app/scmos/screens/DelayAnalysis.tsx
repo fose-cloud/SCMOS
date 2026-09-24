@@ -22,15 +22,15 @@ import { dnum, lateLabel, lateMinutes } from "../util";
  * planned for when, arrived when, and what the person who logged it said about
  * why — which is what this puts on one page for one customer over one period.
  *
- * The grace period is the customer's, not the KPI's. The figure reported upward
- * counts a truck late the minute it is late; a service level may allow thirty
- * minutes before it counts. Both are the same subtraction — `lateMinutes` — and
- * this one says on screen which threshold it used, because a delay report that
+ * The department KPI uses 30 minutes by default, while a customer/job term can
+ * allow more. This analysis also lets a reviewer choose a threshold explicitly.
+ * Every view uses the same subtraction — `lateMinutes` — and this one says on
+ * screen which threshold it used, because a delay report that
  * does not say what it counted as late is an argument waiting to happen.
  */
 
 /** What management's own table asks for, in its order. */
-const COLUMNS: { head: string; read: (job: Job, late: number) => string; wide?: boolean }[] = [
+const COLUMNS: { head: string; read: (job: Job, late: number, grace: number) => string; wide?: boolean }[] = [
   { head: "TRUCK", read: (j) => j.trucker || "—" },
   { head: "BOOKING", read: (j) => j.booking || j.jobCode || j.abs || "—" },
   { head: "PLANT LOADING", read: (j) => j.plant || "—" },
@@ -40,12 +40,12 @@ const COLUMNS: { head: string; read: (job: Job, late: number) => string; wide?: 
   { head: "ARRIVAL DATE", read: (j) => j.arrDate || "—" },
   { head: "ARRIVAL TIME", read: (j) => j.arrTime || "—" },
   { head: "KPI", read: (_j, late) => (late > 0 ? "Late " + lateLabel(late) : "Early " + lateLabel(late)) },
-  { head: "Result", read: (_j, late) => (late > 0 ? "Late" : "On time") },
+  { head: "Result", read: (_j, late, grace) => (late > grace ? "Late" : "On time") },
   { head: "Remark", read: (j) => j.reason || j.remark || "", wide: true },
 ];
 
 /** Grace periods a customer's service level might allow, in minutes. */
-const GRACE = [0, 15, 30, 60];
+const GRACE = [0, 15, 30, 60, 180];
 
 export function DelayAnalysis({ jobs, onToast, onBack }: {
   jobs: Job[];
@@ -137,7 +137,7 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
     const book = delayReportWorkbook(report);
     appendTripDetail(
       book,
-      rows.map(({ job, late: minutes }) => COLUMNS.map((column) => column.read(job, minutes))),
+      rows.map(({ job, late: minutes }) => COLUMNS.map((column) => column.read(job, minutes, grace))),
       COLUMNS.map((column) => column.head),
     );
 
@@ -172,7 +172,13 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
           <select value={grace} onChange={(e) => setGrace(Number(e.target.value))} style={SELECT}>
             {GRACE.map((minutes) => (
               <option key={minutes} value={minutes}>
-                {minutes === 0 ? "ไม่ผ่อนผัน (KPI)" : `เกิน ${minutes} นาที`}
+                {minutes === 0
+                  ? "ไม่ผ่อนผัน"
+                  : minutes === 30
+                    ? "เกิน 30 นาที (KPI มาตรฐาน)"
+                    : minutes === 180
+                      ? "เกิน 180 นาที (EVONIK Tank)"
+                      : `เกิน ${minutes} นาที`}
               </option>
             ))}
           </select>
@@ -265,7 +271,7 @@ export function DelayAnalysis({ jobs, onToast, onBack }: {
                         + (column.head === "Result" && minutes <= grace ? ";color:#2E7D5B;font-weight:600" : ""))}>
                         {column.head === "Result"
                           ? (minutes > grace ? "Late" : "On time")
-                          : column.read(job, minutes) || "—"}
+                          : column.read(job, minutes, grace) || "—"}
                       </td>
                     ))}
                   </tr>

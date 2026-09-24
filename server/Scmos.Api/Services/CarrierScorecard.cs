@@ -64,6 +64,18 @@ public record CarrierScore(
 /// </summary>
 public static class CarrierScorecard
 {
+    // The customer's agreed weights. Public names keep the KPI headline,
+    // detail table and Excel export from growing separate copies of the same
+    // contract.
+    public const double MinorAccidentWeight = 15;
+    public const double MajorAccidentWeight = 35;
+    public const double DamageReportingWeight = 20;
+    public const double VehicleReadinessWeight = 10;
+    public const double OnTimeWeight = 10;
+    public const double SatisfactionWeight = 10;
+    public const double TotalWeight = MinorAccidentWeight + MajorAccidentWeight
+        + DamageReportingWeight + VehicleReadinessWeight + OnTimeWeight + SatisfactionWeight;
+
     /// <summary>The category an accident is logged under in the issue register.</summary>
     private const string AccidentCategory = "ความปลอดภัย/อุบัติเหตุ";
 
@@ -90,15 +102,6 @@ public static class CarrierScorecard
     /// <summary>Minutes allowed to report: five for an accident, thirty otherwise.</summary>
     private const int AccidentReportMinutes = 5;
     private const int ReportMinutes = 30;
-
-    /// <summary>
-    /// Late by more than this and the shipment is not on time.
-    ///
-    /// Kept as a name here because the sentence below reads with it, but the
-    /// figure is JobRules': the supervisor monitor asks the same question and
-    /// must get the same answer.
-    /// </summary>
-    private const int LateMinutes = JobRules.LateMinutes;
 
     public static IReadOnlyList<CarrierScore> Build(
         IReadOnlyList<(string Key, string Carrier, JobRecord Record)> jobs,
@@ -189,8 +192,11 @@ public static class CarrierScorecard
             var onTimeReports = reports.Count(ReportedInTime);
 
             // Late, full stop — read off the job register, the same rows My Job
-            // shows. Whether anybody complained is not part of it.
-            var late = group.Count(job => JobRules.LateBeyond(job.Record, LateMinutes));
+            // shows. Whether anybody complained is not part of it. The
+            // threshold is the same customer/job-specific allowance used by
+            // Dashboard and KPI: 30 minutes by default, 180 for EVONIK Tank.
+            var late = group.Count(job => JobRules.LateBeyond(job.Record,
+                CustomerTerms.GraceMinutes(job.Record.Customer, job.Record.Type)));
 
             var lines = new List<ScoreLine>
             {
@@ -205,17 +211,17 @@ public static class CarrierScorecard
                 // nobody has yet said what it costs. Say which kind it was in
                 // Operational Issues and both criteria come back, scored.
                 Rate("accident-minor", "Transport Accident (Minor)", "อุบัติเหตุระหว่างขนส่ง (เล็กน้อย)",
-                    15, minor, ungraded > 0 ? 0 : shipments, 100,
+                    MinorAccidentWeight, minor, ungraded > 0 ? 0 : shipments, 100,
                     ungraded > 0 ? $"มีอุบัติเหตุ {ungraded} เคสที่ยังไม่ระบุชนิด — เกณฑ์นี้ยังคิดคะแนนไม่ได้" : ""),
 
                 Rate("accident-major", "Transport Accident (Major)", "อุบัติเหตุระหว่างขนส่ง (ใหญ่)",
-                    35, major, ungraded > 0 ? 0 : shipments, 100,
+                    MajorAccidentWeight, major, ungraded > 0 ? 0 : shipments, 100,
                     ungraded > 0 ? $"มีอุบัติเหตุ {ungraded} เคสที่ยังไม่ระบุชนิด — เกณฑ์นี้ยังคิดคะแนนไม่ได้" : ""),
 
                 // Already a score rather than a failure rate: reports made
                 // inside the deadline, over reports that were due.
                 new("damage-reporting", "Cargo damage & Discrepancy Reporting",
-                    "รายงานความเสียหายภายในเวลา", 20,
+                    "รายงานความเสียหายภายในเวลา", DamageReportingWeight,
                     reports.Count == 0 ? null : Round(onTimeReports * 100.0 / reports.Count),
                     onTimeReports, reports.Count, 100,
                     reports.Count == 0
@@ -228,17 +234,18 @@ public static class CarrierScorecard
                 // inspection. Scoring one as the other would put ten percent of
                 // a carrier's mark on a measurement nobody took.
                 new("vehicle-readiness", "Safety readiness of transport vehicles",
-                    "ความพร้อมด้านความปลอดภัยของรถ", 10,
+                    "ความพร้อมด้านความปลอดภัยของรถ", VehicleReadinessWeight,
                     null, 0, preRuns.Count(check => Same(check.Carrier, carrier)), 100,
                     "ยังไม่มีบันทึกผลตรวจความพร้อมรถ (ผ่าน/ไม่ผ่าน) ในระบบ — เกณฑ์นี้ยังคิดคะแนนไม่ได้"),
 
                 // On time delivery (Standard, normal & emergency orders).
                 //
-                // Every shipment that reached the customer more than thirty
-                // minutes after the time agreed in the delivery plan, against
-                // every shipment that month. Target 95%, weight 10%. Read from
-                // the job register — the rows My Job shows — and from nothing
-                // else.
+                // Every shipment that reached the customer after its allowed
+                // grace beyond the delivery plan, against every shipment that
+                // month. Target 95%, weight 10%. The standard grace is thirty
+                // minutes and registered customer/job exceptions apply here as
+                // they do everywhere else. Read from the job register — the
+                // rows My Job shows — and from nothing else.
                 //
                 // <b>This departs from the agreement's wording on purpose.</b>
                 // The text reads "…เกิน 30 นาที และมีข้อร้องเรียนจากลูกค้าใน
@@ -263,13 +270,13 @@ public static class CarrierScorecard
                 // the score is a hundred less that rate — the same reading
                 // every other rate criterion here gets.
                 Rate("on-time", "On time delivery", "ส่งมอบตรงเวลา (มาตรฐานปกติและเหตุฉุกเฉิน)",
-                    10, late, shipments, 95,
-                    $"สายเกิน {LateMinutes} นาทีจาก Delivery Plan · {late} จาก {shipments} shipment"
+                    OnTimeWeight, late, shipments, 95,
+                    $"สายเกินเกณฑ์ OTD · {late} จาก {shipments} shipment · {CustomerTerms.Describe()}"
                     + " · ไม่นับเงื่อนไขข้อร้องเรียน"),
 
-                Rate("satisfaction", "Complaint (Internal & external)", "ข้อร้องเรียน (ภายใน/ภายนอก)",
-                    10, complaints, shipments, 95,
-                    "ข้อร้องเรียนจากลูกค้า และจากภายใน (CS · Shipping · Billing · คลัง)"),
+                Rate("satisfaction", "Customer satisfaction", "ความพึงพอใจของลูกค้า",
+                    SatisfactionWeight, complaints, shipments, 95,
+                    "วัดจากการไม่มีข้อร้องเรียนจากลูกค้าและภายใน (CS · Shipping · Billing · คลัง)"),
             };
 
             var measured = lines.Where(line => line.Percent is not null).ToList();

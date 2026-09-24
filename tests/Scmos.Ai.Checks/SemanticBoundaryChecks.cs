@@ -10,15 +10,15 @@ static class SemanticBoundaryChecks
         var today = new DateOnly(2026, 9, 15);
         JobRecord Arrival(string date, string planned, string arrivedDate, string arrived) =>
             new() { Date = date, PlanTime = planned, ArrDate = arrivedDate, ArrTime = arrived };
-        foreach (var item in new[] { ("09:00", true, false), ("09:01", false, false),
-            ("09:30", false, false), ("09:31", false, true), ("08:59", true, false) })
+        foreach (var item in new[] { ("09:00", true, false), ("09:01", true, false),
+            ("09:30", true, false), ("09:31", false, true), ("08:59", true, false) })
         {
             var job = Arrival("15/09/2026", "09:00", "15/09/2026", item.Item1);
             check(JobRules.IsOnTime(job) == item.Item2 && JobRules.LateBeyond(job) == item.Item3,
-                "1C: zero-grace vs 30-minute boundary " + item.Item1);
+                "1C: shared 30-minute OTD and lateness boundary " + item.Item1);
         }
         var midnight = Arrival("15/09/2026", "23:50", "16/09/2026", "00:20");
-        check(JobRules.MinutesLate(midnight) == 30 && !JobRules.IsOnTime(midnight) && !JobRules.LateBeyond(midnight),
+        check(JobRules.MinutesLate(midnight) == 30 && JobRules.IsOnTime(midnight) && !JobRules.LateBeyond(midnight),
             "1C: midnight preserves exactly 30 minutes");
         check(JobRules.MinutesLate(Arrival("28/02/2028", "23:50", "29/02/2028", "00:21")) == 31,
             "1C: leap-day arrival is measurable");

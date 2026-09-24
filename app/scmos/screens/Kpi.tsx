@@ -91,6 +91,9 @@ type CarrierScore = {
   tally?: CarrierTally;
 };
 
+const SCORECARD_FORMULA = "น้ำหนักคะแนน: อุบัติเหตุเล็กน้อย 15% · อุบัติเหตุใหญ่ 35% · "
+  + "รายงานความเสียหาย 20% · ความพร้อมรถ 10% · ส่งมอบตรงเวลา 10% · ความพึงพอใจลูกค้า 10%";
+
 /** The columns of that report, in its order and its words. */
 const TALLY_COLUMNS: [string, (t: CarrierTally) => number][] = [
   ["Transport Accident (Major)", (t) => t.transportAccidentMajor],
@@ -341,15 +344,16 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
             // Says how much it counted, not only how it counted. A card of
             // straight hundreds is either a clean month or a broken link, and
             // the reader is owed the difference.
-            engine.issuesInPeriod === 0
-              ? "ไม่มีรายการใน Operational Issues ในช่วงเวลานี้ — ทุกเกณฑ์จึงเป็น 100% เพราะไม่มีเหตุให้หัก ไม่ใช่เพราะระบบนับไม่เจอ"
+            (engine.issuesInPeriod === 0
+              ? "ไม่มีรายการใน Operational Issues ในช่วงเวลานี้ — เกณฑ์อุบัติเหตุและความพึงพอใจจึงไม่มีเหตุให้หัก ส่วนเกณฑ์ที่ไม่มีข้อมูลจะยังแสดงว่าวัดไม่ได้"
               : `จำนวนงานนับจากทะเบียนงานเดียวกับ My Job · เหตุการณ์คิดจาก ${engine.issuesInPeriod} รายการใน Operational Issues ในช่วงนี้`
                 + (engine.unattributedIssues
                   ? ` · ${engine.unattributedIssues} รายการเลขงานจับคู่ไม่ได้ จึงไม่เข้าคะแนนของใคร`
                   : " · ผูกกับงานได้ทั้งหมด")
                 + (engine.scorecard.some((row) => row.ungradedAccidents > 0)
                   ? " · มีอุบัติเหตุที่ยังไม่ระบุชนิด คะแนนของเจ้านั้นจึงยังไม่สรุป"
-                  : "")
+                  : ""))
+              + ` · ${SCORECARD_FORMULA}`
           }
         >
           <ZoomBox zoomable={false} capped={false}>
@@ -420,8 +424,8 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                       target of ninety-five, so a column showing a different
                       number under the same heading would be this page
                       disagreeing with its own total. Under the percentage is
-                      what it was made of: shipments late beyond half an hour
-                      that drew a complaint, over every shipment that month.
+                      what it was made of: shipments late beyond the applicable
+                      OTD allowance, over every shipment that month.
                     */}
                     {(() => {
                       const line = row.lines.find((l) => l.id === "on-time");
@@ -441,7 +445,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                             {line.percent.toFixed(1)}%
                           </div>
                           <div style={css("font-size:10.5px;color:#94A3B8;font-weight:400")}>
-                            สายเกิน 30 นาที {line.count.toLocaleString()} / {line.base.toLocaleString()}
+                            สายเกินเกณฑ์ OTD {line.count.toLocaleString()} / {line.base.toLocaleString()}
                           </div>
                           {line.percent < target && (
                             <div style={css("font-size:10.5px;color:#B45309;font-weight:600")}>
@@ -481,11 +485,12 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
             รถเสียนับเฉพาะครั้งที่<b>ไม่มี</b>ข้อร้องเรียนจากลูกค้าในงานเดียวกัน จะได้ไม่ถูกนับซ้ำสองช่อง
             <div style={css("margin-top:5px")}>
               <b>On Time Delivery (Standard, normal &amp; emergency orders)</b> —
-              นับ Shipment ที่ถึงลูกค้าช้ากว่าเวลานัดตาม Delivery Plan <b>เกิน 30 นาที</b>
+              นับ Shipment ที่ถึงลูกค้าช้ากว่าเกณฑ์ OTD ตาม Delivery Plan
+              (ลูกค้าทั่วไป <b>30 นาที</b> · EVONIK งาน Tank <b>180 นาที</b>)
               เทียบกับ Shipment ทั้งหมดในเดือน ดึงจากทะเบียนงานเดียวกับ My Job ·
               เป้า <b>≥ 95%</b> · น้ำหนัก <b>10%</b> ในคะแนนรวม
               <div style={css("margin-top:3px;color:#B45309")}>
-                <b>ต่างจากข้อความในสัญญาโดยตั้งใจ</b> — สัญญาเขียนว่า &ldquo;เกิน 30 นาที
+                <b>ต่างจากข้อความในสัญญาโดยตั้งใจ</b> — สัญญาเดิมเขียนว่า &ldquo;เกินเกณฑ์เวลา
                 <b>และมีข้อร้องเรียนจากลูกค้าในรายการนั้น</b>&rdquo; คือหักเฉพาะครั้งที่ลูกค้าโทรมา
                 LESCHACO ขอให้ตัดเงื่อนไขข้อร้องเรียนออก เพราะงานที่สายก็คือสายไม่ว่าจะมีคนโทรมาหรือไม่
                 และการผูกไว้กับข้อร้องเรียนทำให้ลูกค้าที่ไม่บ่นดูเหมือนบริการดี ·

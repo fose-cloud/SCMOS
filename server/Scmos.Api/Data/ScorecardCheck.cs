@@ -118,6 +118,19 @@ public static class ScorecardCheck
         var kot = scores.First(score => score.Carrier == "THAIKOT");
         var jtc = scores.First(score => score.Carrier == "JTC");
 
+        // The scorecard's OTD line must use the same customer/job allowance as
+        // the KPI headline and Reason/Delay. Two hours late is still OTD for an
+        // EVONIK Tank job; three hours and one minute is not. A general job is
+        // late after the standard thirty minutes.
+        var termScores = CarrierScorecard.Build(
+        [
+            Job("T1", "EVONIK-CARRIER", "09/08/2026", "08:00", "09/08/2026", "10:00", "EVONIK", "1X20' TK"),
+            Job("T2", "EVONIK-CARRIER", "10/08/2026", "08:00", "10/08/2026", "11:01", "EVONIK", "1X20' TK"),
+            Job("T3", "GENERAL-CARRIER", "11/08/2026", "08:00", "11/08/2026", "08:31", "OTHER", "1X20'"),
+        ], [], []);
+        var evonik = termScores.First(score => score.Carrier == "EVONIK-CARRIER");
+        var general = termScores.First(score => score.Carrier == "GENERAL-CARRIER");
+
         var checks = new (string What, object? Got, object? Want)[]
         {
             // Two more minor accidents than the base run: one named on the case
@@ -138,6 +151,19 @@ public static class ScorecardCheck
             ("SSL complaints (internal + external)", ssl.Tally.Complaints, 2),
             ("SSL breakdown with no complaint", ssl.Tally.BreakdownNoComplaint, 1),
             ("SSL ungraded accidents", ssl.UngradedAccidents, 0),
+
+            ("six agreed weights total one hundred",
+                ssl.Lines.Sum(line => line.Weight), CarrierScorecard.TotalWeight),
+            ("minor accident weight", Line(ssl, "accident-minor").Weight, 15.0),
+            ("major accident weight", Line(ssl, "accident-major").Weight, 35.0),
+            ("damage reporting weight", Line(ssl, "damage-reporting").Weight, 20.0),
+            ("vehicle readiness weight", Line(ssl, "vehicle-readiness").Weight, 10.0),
+            ("on-time weight", Line(ssl, "on-time").Weight, 10.0),
+            ("customer satisfaction weight", Line(ssl, "satisfaction").Weight, 10.0),
+
+            ("EVONIK Tank: only beyond 180 minutes is late", Line(evonik, "on-time").Count, 1),
+            ("EVONIK Tank OTD score", Line(evonik, "on-time").Percent, 50.0),
+            ("general customer: beyond 30 minutes is late", Line(general, "on-time").Count, 1),
 
             // One of three reports went in inside its window: the major accident
             // at four minutes. The loading accident took twenty against five.
@@ -249,11 +275,12 @@ public static class ScorecardCheck
     private static string Show(object? value) => value?.ToString() ?? "—";
 
     private static (string, string, JobRecord) Job(
-        string key, string carrier, string date, string planTime, string arrDate, string arrTime) =>
+        string key, string carrier, string date, string planTime, string arrDate, string arrTime,
+        string customer = "", string type = "") =>
         (key, carrier, new JobRecord
         {
             Key = key, Trucker = carrier, Date = date, PlanTime = planTime,
-            ArrDate = arrDate, ArrTime = arrTime,
+            ArrDate = arrDate, ArrTime = arrTime, Customer = customer, Type = type,
         });
 
     /// <summary>An issue whose scorecard column somebody set by hand.</summary>

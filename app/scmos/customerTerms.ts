@@ -4,8 +4,9 @@
  * dashboard's own on-time count (`opsStats`), which is worked out in the
  * browser from the jobs on screen.
  *
- * The on-time KPI is zero grace unless a customer's registered agreement says
- * otherwise. A term can also be limited to one kind of job (currently Tank).
+ * The department-wide on-time allowance is 30 minutes unless a customer's
+ * registered agreement says otherwise. A term can also be limited to one kind
+ * of job (currently EVONIK Tank at 180 minutes).
  * `tests/customerTerms.test.mjs` fails if this table and the API's ever differ.
  */
 export type CustomerTerm = {
@@ -22,6 +23,9 @@ export const CUSTOMER_TERMS: CustomerTerm[] = [
   { customer: "EVONIK", graceMinutes: 180, since: "24/09/2026", scope: "tank" },
 ];
 
+/** Department rule for every customer/job combination without a more specific term. */
+export const DEFAULT_GRACE_MINUTES = 30;
+
 function isTank(jobType: string | undefined): boolean {
   const value = (jobType ?? "").toUpperCase().replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
   return /\b(TK|TANK|ISOTANK|ISO\s+TANK)\b/.test(value);
@@ -36,7 +40,7 @@ export function customerTerm(customer: string | undefined, jobType?: string): Cu
     && (term.scope === "all" || term.scope === "tank" && isTank(jobType))) ?? null;
 }
 
-/** Minutes after plan an arrival still counts on time. Zero is the department default. */
+/** Minutes after plan an arrival still counts on time. Thirty is the department default. */
 export function graceMinutes(customer: string | undefined, jobType?: string): number {
-  return customerTerm(customer, jobType)?.graceMinutes ?? 0;
+  return customerTerm(customer, jobType)?.graceMinutes ?? DEFAULT_GRACE_MINUTES;
 }

@@ -171,10 +171,10 @@ public sealed class DataAgent(ToolRegistry tools, IAiExecutionAudit audit, IAiPr
         return $"งวด {e.PeriodLabel}{scope}: งานทั้งหมด {e.Total} · {onTime} · วัดไม่ได้ {e.NotAssessable}"
             + (e.Undated > 0 ? $" · ไม่มีวันที่ {e.Undated}" : "")
             + (e.FormatErrors > 0 ? $" · ข้อมูลผิดรูปแบบ {e.FormatErrors}" : "")
-            // The term named on the answer when the question named a customer that has one; the
-            // department's zero-grace rule, and "unknown", for everyone else — never the one dressed as the other.
+            // The specific term when one applies; otherwise the department-wide
+            // 30-minute rule. "unknown" is retained only for older stored answers.
             + (e.CustomerContract == "unknown"
-                ? $" · กฎ {e.Rule.Id} v{e.Rule.Version} (ไม่มี grace เว้นแต่ลูกค้ามีเงื่อนไขที่ลงทะเบียน) · สัญญาลูกค้า: ไม่ทราบ"
+                ? $" · กฎ {e.Rule.Id} v{e.Rule.Version} (ค่ามาตรฐาน {CustomerTerms.DefaultGraceMinutes} นาที) · สัญญาลูกค้า: ไม่ทราบ"
                 : $" · กฎ {e.Rule.Id} v{e.Rule.Version} · เงื่อนไขลูกค้า: {e.CustomerContract}");
     }
 

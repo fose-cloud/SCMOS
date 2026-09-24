@@ -4,9 +4,8 @@ namespace Scmos.Api.Rules;
 /// The terms a customer's own agreement sets on the department's measures,
 /// written once.
 ///
-/// The on-time KPI has always been zero grace — a truck is late the minute it
-/// is late — and that is still the department's rule. A customer's agreement
-/// can say otherwise for that customer, and may apply only to one kind of job.
+/// The department-wide on-time allowance is 30 minutes. A customer's agreement
+/// can set a different allowance and may apply only to one kind of job.
 /// The term lives here, beside nothing else, and <see cref="JobRules.IsOnTime"/>
 /// reads it, so the KPI engine, the monthly report, the Data Agent and the
 /// dashboard all apply the one reading. The web's dashboard keeps its own copy
@@ -20,6 +19,8 @@ namespace Scmos.Api.Rules;
 /// </summary>
 public static class CustomerTerms
 {
+    public const int DefaultGraceMinutes = 30;
+
     /// <param name="Customer">The name's first word(s), upper-case, as the register spells them.</param>
     /// <param name="GraceMinutes">Minutes after plan an arrival still counts on time.</param>
     /// <param name="Since">When the term took effect in SCMOS.</param>
@@ -55,8 +56,8 @@ public static class CustomerTerms
         return name.Length == 0 ? [] : All.Where(term => CustomerMatches(term, name));
     }
 
-    /// <summary>Minutes after plan an arrival still counts on time — zero unless a matching term says otherwise.</summary>
-    public static int GraceMinutes(string? customer, string? jobType = null) => Of(customer, jobType)?.GraceMinutes ?? 0;
+    /// <summary>Minutes after plan an arrival still counts on time — 30 unless a matching term says otherwise.</summary>
+    public static int GraceMinutes(string? customer, string? jobType = null) => Of(customer, jobType)?.GraceMinutes ?? DefaultGraceMinutes;
 
     public static string Label(Term term) =>
         $"{term.Customer}{(term.Scope == "tank" ? " (เฉพาะงาน Tank)" : "")} นับตรงเวลาภายใน {term.GraceMinutes} นาที";
@@ -67,5 +68,5 @@ public static class CustomerTerms
 
     /// <summary>The terms in force, in one line for a figure's note — "LOTUS ภายใน 30 นาที".</summary>
     public static string Describe() =>
-        string.Join(" · ", All.Select(Label));
+        $"ลูกค้าทั่วไปภายใน {DefaultGraceMinutes} นาที · " + string.Join(" · ", All.Where(term => term.GraceMinutes != DefaultGraceMinutes).Select(Label));
 }

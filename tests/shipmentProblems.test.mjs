@@ -48,8 +48,8 @@ test("there is one reading of late, and the screen quotes it rather than its own
   // in their supervisor's morning, which is the shape of bug this codebase
   // keeps finding.
   assert.match(jobRules, /public const int LateMinutes = 30;/);
-  assert.match(scorecard, /private const int LateMinutes = JobRules\.LateMinutes;/);
-  assert.doesNotMatch(scorecard, /LateMinutes = 30;\s*$/m);
+  assert.match(scorecard, /CustomerTerms\.GraceMinutes\(job\.Record\.Customer, job\.Record\.Type\)/);
+  assert.doesNotMatch(scorecard, /private const int LateMinutes/);
   assert.match(rules, /late > JobRules\.OperationalDelayMinutes\(job\)/);
   assert.match(jobRules, /Math\.Max\(LateMinutes, CustomerTerms\.GraceMinutes\(job\.Customer, job\.Type\)\)/);
   // The threshold varies by customer and job type, so the screen must not

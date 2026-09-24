@@ -267,9 +267,8 @@ public static partial class JobRules
 
     /// <summary>
     /// Whether the shipment arrived on time: at or before its plan, or within
-    /// the grace its customer's own agreement allows — zero for everyone
-    /// unless <see cref="CustomerTerms"/> says otherwise for the customer and
-    /// job type. False when it cannot be measured, which
+    /// the department's 30-minute allowance, or a larger customer/job-specific
+    /// allowance from <see cref="CustomerTerms"/>. False when it cannot be measured, which
     /// is not the same as on time. One subtraction, <see cref="MinutesLate"/>,
     /// serves this, the thirty-minute problem threshold and the scorecard.
     /// </summary>

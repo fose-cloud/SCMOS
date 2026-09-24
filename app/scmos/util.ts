@@ -75,12 +75,10 @@ function dayNumber(d: string | undefined): number | null {
  * Minutes between the plan and the arrival. Negative is early, null when
  * either half is missing.
  *
- * One calculation, because there is more than one threshold. The KPI on the
- * dashboard counts a truck late the minute it is late — that is the figure
- * reported upward. A customer's own service level may allow a grace period;
- * Syensqo's is thirty minutes. Both are real, and they are the same subtraction
- * judged against different numbers, so the subtraction lives here and the
- * threshold is the caller's.
+ * One calculation, because there is more than one threshold. The KPI and
+ * Reason / Delay validation apply the department's 30-minute allowance, while
+ * a specific customer/job term may allow more. They share this subtraction and
+ * the customerTerms threshold so they cannot disagree about the same row.
  *
  * The day difference is a real difference in days, not two yyyymmdd numbers
  * subtracted: an arrival at 00:30 on the 1st against a plan at 23:00 on the

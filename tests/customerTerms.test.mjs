@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { CUSTOMER_TERMS, customerTerm, graceMinutes } from "../app/scmos/customerTerms.ts";
+import { CUSTOMER_TERMS, DEFAULT_GRACE_MINUTES, customerTerm, graceMinutes } from "../app/scmos/customerTerms.ts";
 
 /*
  * Customer/job-specific on-time terms are deliberately kept in their own
@@ -16,6 +16,8 @@ test("the web's table of customer terms is the API's", () => {
     .map((m) => ({ customer: m[1], graceMinutes: Number(m[2]), since: m[3], scope: m[4] }));
   assert.ok(api.length > 0, "the API's table was found");
   assert.deepEqual(CUSTOMER_TERMS, api);
+  assert.match(source, /public const int DefaultGraceMinutes = 30;/);
+  assert.equal(DEFAULT_GRACE_MINUTES, 30);
   // The API matches a name the same way: equal to the term, or starting with it and a space.
   assert.match(source, /name == term\.Customer \|\| name\.StartsWith\(term\.Customer \+ " ", StringComparison\.Ordinal\)/);
   assert.match(readFileSync(new URL("../server/Scmos.Api/Rules/JobRules.cs", import.meta.url), "utf8"),
@@ -27,10 +29,13 @@ test("Lotus is Lotus however the register spells it; a name that merely contains
   assert.equal(graceMinutes("LOTUS ASIA"), 30);
   assert.equal(graceMinutes(" lotus asia "), 30);
   assert.equal(customerTerm("LOTUS ASIA")?.since, "21/09/2026");
-  assert.equal(graceMinutes("L'OREAL"), 0);
-  assert.equal(graceMinutes("BLUE LOTUS TRADING"), 0);
-  assert.equal(graceMinutes("LOTUSLAND"), 0);
-  assert.equal(graceMinutes(undefined), 0);
+  assert.equal(DEFAULT_GRACE_MINUTES, 30);
+  assert.equal(graceMinutes("L'OREAL"), 30);
+  assert.equal(graceMinutes("BLUE LOTUS TRADING"), 30);
+  assert.equal(graceMinutes("LOTUSLAND"), 30);
+  assert.equal(graceMinutes(undefined), 30);
+  assert.equal(customerTerm("BLUE LOTUS TRADING"), null);
+  assert.equal(customerTerm("LOTUSLAND"), null);
 });
 
 test("Allnex and Syensqo keep OTD through minute 30", () => {
@@ -43,10 +48,10 @@ test("EVONIK gets 180 minutes only for Tank jobs", () => {
   assert.equal(graceMinutes("EVONIK", "1X20' TK"), 180);
   assert.equal(graceMinutes("EVONIK", "ISO Tank"), 180);
   assert.equal(graceMinutes("EVONIK (THAILAND) LTD.", "1X20' TK"), 180);
-  assert.equal(graceMinutes("EVONIK", "1X20'"), 0);
-  assert.equal(graceMinutes("EVONIK"), 0);
-  assert.equal(graceMinutes("BLUE EVONIK", "1X20' TK"), 0);
-  assert.equal(graceMinutes("EVONIKLAND", "1X20' TK"), 0);
+  assert.equal(graceMinutes("EVONIK", "1X20'"), 30);
+  assert.equal(graceMinutes("EVONIK"), 30);
+  assert.equal(graceMinutes("BLUE EVONIK", "1X20' TK"), 30);
+  assert.equal(graceMinutes("EVONIKLAND", "1X20' TK"), 30);
 });
 
 test("the dashboard's own count reads the same table and applies each boundary inclusively", () => {
@@ -67,8 +72,10 @@ test("the dashboard's own count reads the same table and applies each boundary i
   assert.equal(onTime("SYENSQO", "1X20'", "09:31"), false);
   assert.equal(onTime("EVONIK", "1X20' TK", "12:00"), true);
   assert.equal(onTime("EVONIK", "1X20' TK", "12:01"), false);
-  assert.equal(onTime("EVONIK", "1X20'", "09:01"), false);
-  assert.equal(onTime("L'OREAL", "1X20'", "09:00"), true);
+  assert.equal(onTime("EVONIK", "1X20'", "09:30"), true);
+  assert.equal(onTime("EVONIK", "1X20'", "09:31"), false);
+  assert.equal(onTime("L'OREAL", "1X20'", "09:30"), true);
+  assert.equal(onTime("L'OREAL", "1X20'", "09:31"), false);
 });
 
 test("Reason / Delay validation uses the same customer grace period as OTD", () => {
@@ -77,4 +84,12 @@ test("Reason / Delay validation uses the same customer grace period as OTD", () 
   assert.match(standard, /const grace = graceMinutes\(clean\(job\.customer\), clean\(job\.type\)\);/);
   assert.match(standard, /if \(late !== null && late > grace\)/);
   assert.doesNotMatch(standard, /if \(late !== null && late > 0\)/);
+});
+
+test("Delay Analysis table and Excel result use the selected threshold", () => {
+  const analysis = readFileSync(new URL("../app/scmos/screens/DelayAnalysis.tsx", import.meta.url), "utf8");
+  assert.match(analysis, /late > grace \? "Late" : "On time"/);
+  assert.match(analysis, /column\.read\(job, minutes, grace\)/);
+  assert.match(analysis, /เกิน 30 นาที \(KPI มาตรฐาน\)/);
+  assert.match(analysis, /เกิน 180 นาที \(EVONIK Tank\)/);
 });

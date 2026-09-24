@@ -113,10 +113,11 @@ public sealed class DataReadService(IKpiReports? kpi, TimeProvider clock)
             report.ByCategory, carriers, report.Carriers.Count, carriers.Count, report.Carriers.Count > carriers.Count,
             new(rule.Id, rule.Version, rule.SourceMember, rule.Meaning, rule.MissingData),
             // The customer's registered term when the question named one that has one; otherwise the
-            // department's rule is what was applied, and the answer says so.
-            CustomerTerms.ForCustomer(customer).Select(CustomerTerms.ContractLabel).FirstOrDefault() ?? "unknown",
+            // department-wide 30-minute rule is what was applied, and the answer says so.
+            CustomerTerms.ForCustomer(customer).Select(CustomerTerms.ContractLabel).FirstOrDefault()
+                ?? $"department default: on time within {CustomerTerms.DefaultGraceMinutes} minutes of plan",
             context.AsOf ?? clock.GetUtcNow(), report.SourceUpdatedAt,
-            "SCMOS KpiService over JobRules.IsMeasurable / IsOnTime (zero grace unless a registered customer/job-type term matches — "
+            $"SCMOS KpiService over JobRules.IsMeasurable / IsOnTime ({CustomerTerms.DefaultGraceMinutes}-minute department default unless a registered customer/job-type term matches — "
             + CustomerTerms.Describe() + "); figures calculated from scoped records, not model-generated");
     }
 

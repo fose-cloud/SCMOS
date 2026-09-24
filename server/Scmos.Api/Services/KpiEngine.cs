@@ -87,11 +87,9 @@ public record KpiEngineReport(
     /// <summary>
     /// The contract scorecard, one line per carrier.
     ///
-    /// Beside the older supplier score rather than replacing it: that one is
-    /// this system's own reading of how a carrier is doing, and this one is the
-    /// customer's agreement scored to its own weights. They answer different
-    /// questions and will disagree, which is fine as long as nobody has to
-    /// guess which is which.
+    /// This is also the source of the Supplier Performance headline. Keeping
+    /// the detail beside it lets a reader reconcile the average without a
+    /// second, competing score formula.
     /// </summary>
     IReadOnlyList<CarrierScore>? Scorecard = null,
     /// <summary>Issues in the period that name no job, so belong to nobody's score.</summary>
@@ -247,6 +245,12 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         preRuns = preRuns.Where(p => keys.Contains(p.JobKey)).ToList();
         delays = delays.Where(d => keys.Contains(d.JobKey)).ToList();
 
+        // The legacy supplier array is retained for the control tower and the
+        // supplier profile, which still show its component rates. Its Score is
+        // now the contract scorecard total, so no API consumer receives the old
+        // 50/30/20 formula under the same Supplier Performance name.
+        var scores = SupplierStatistics(jobs, requests, delays, scorecard);
+
         var measures = new List<Measure>
         {
             OnTimeDelivery(jobs),
@@ -254,7 +258,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
             Accident(cases),
             CarPar(cases),
             Billing(),
-            SupplierPerformance(jobs, requests, delays, out var scores),
+            SupplierPerformance(scorecard),
         };
         if (!scope.IsAll)
         {
@@ -367,13 +371,15 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         var met = measurable.Count(job => JobRules.IsOnTime(job.Record));
         // A customer's own term, named on the figure when a job of theirs is in the base.
         var terms = measurable.Select(job => CustomerTerms.Of(job.Record.Customer, job.Record.Type)).OfType<CustomerTerms.Term>()
+            .Where(term => term.GraceMinutes != CustomerTerms.DefaultGraceMinutes)
             .DistinctBy(term => (term.Customer, term.Scope)).Select(CustomerTerms.Label).ToList();
 
         return Rate(MeasureId.OnTimeDelivery, met, measurable.Count,
             measurable.Count == 0
                 ? "ไม่มีงานที่มีทั้งเวลาแผนและเวลาถึงที่อ่านได้"
                 : $"วัดได้ {measurable.Count} จาก {jobs.Count} งาน — ที่เหลือขาดเวลาแผนหรือเวลาถึง"
-                  + (terms.Count > 0 ? " · " + string.Join(" · ", terms) : "")
+                  + $" · กฎมาตรฐานภายใน {CustomerTerms.DefaultGraceMinutes} นาที"
+                  + (terms.Count > 0 ? " · ข้อยกเว้น: " + string.Join(" · ", terms) : "")
                   + " · ดูรายเจ้าได้ที่คอลัม On Time Delivery ในคะแนนตามสัญญา",
             // The two halves of the base, so the screen can show how many arrived after plan
             // beside the percentage without working it back from a rounded figure (22 Sep 2026).
@@ -480,12 +486,18 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
             $"ยังวัดไม่ได้ — ระบบยังไม่มีตารางใบแจ้งหนี้ผู้รับเหมา จึงไม่มีอะไรให้นับเทียบกับกำหนด {DocumentChecklist.InvoiceDays} วัน",
             []);
 
-    private Measure SupplierPerformance(
+    /// <summary>
+    /// Compatibility data used by the control tower and supplier profile.
+    /// On-time, confirmation and delay-free remain inspectable components, but
+    /// the score itself comes from the contract scorecard.
+    /// </summary>
+    private IReadOnlyList<SupplierScore> SupplierStatistics(
         List<(string Key, string Carrier, JobRecord Record)> jobs,
         List<SupplierRequest> requests,
         List<DelayRecord> delays,
-        out IReadOnlyList<SupplierScore> scores)
+        IReadOnlyList<CarrierScore> scorecard)
     {
+        var contractScores = scorecard.ToDictionary(row => row.Carrier, StringComparer.OrdinalIgnoreCase);
         var delayByJob = delays.Where(d => d.AgainstCarrier)
             .GroupBy(d => d.JobKey)
             .ToDictionary(group => group.Key, group => group.Count());
@@ -531,21 +543,35 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
                     ? null
                     : 1.0 - (double)delayed / jobKeys.Count;
 
+                contractScores.TryGetValue(group.Key, out var contract);
                 return new SupplierScore(
                     group.Key, group.Count(),
                     Percent(onTime), onTimeBase,
                     Percent(confirmation), answered.Count,
                     Percent(delayFree), delayed,
-                    KpiMeasures.Score(onTime, onTimeBase, confirmation, answered.Count, delayFree, jobKeys.Count));
+                    contract?.Weighted is { } weighted
+                        ? (int)Math.Round(weighted, MidpointRounding.AwayFromZero)
+                        : null);
             })
             .OrderByDescending(entry => entry.Score ?? -1)
             .ThenByDescending(entry => entry.Jobs)
             .ToList();
 
-        scores = built;
+        return built;
+    }
 
-        var scored = built.Where(entry => entry.Score is not null).ToList();
-        var average = scored.Count == 0 ? (double?)null : scored.Average(entry => entry.Score!.Value);
+    /// <summary>
+    /// The KPI headline is the average of the same weighted carrier totals the
+    /// detail table shows. There is deliberately no second supplier formula.
+    /// </summary>
+    private static Measure SupplierPerformance(IReadOnlyList<CarrierScore> scorecard)
+    {
+        var scored = scorecard.Where(entry => entry.Weighted is not null).ToList();
+        var average = scored.Count == 0 ? (double?)null : scored.Average(entry => entry.Weighted!.Value);
+        var partial = scored.Count(entry => entry.WeightAvailable < CarrierScorecard.TotalWeight);
+
+        const string weights = "อุบัติเหตุเล็กน้อย 15% · อุบัติเหตุใหญ่ 35% · "
+            + "รายงานความเสียหาย 20% · ความพร้อมรถ 10% · ส่งมอบตรงเวลา 10% · ความพึงพอใจลูกค้า 10%";
 
         return new Measure(
             MeasureId.SupplierPerformance.ToString(),
@@ -558,8 +584,14 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
             "คะแนน",
             scored.Count == 0
                 ? "ยังไม่มีผู้ขนส่งที่มีข้อมูลพอให้คะแนน"
-                : $"คะแนนเฉลี่ยจาก {scored.Count} ผู้ขนส่ง · ถ่วงน้ำหนัก ตรงเวลา {KpiMeasures.WeightOnTime:P0} · ตอบยืนยัน {KpiMeasures.WeightConfirmation:P0} · ไม่มีความล่าช้า {KpiMeasures.WeightDelayFree:P0}",
-            built.Take(12).Select(entry => new Counted(entry.Carrier, entry.Score ?? 0)).ToList());
+                : $"คะแนนเฉลี่ยจาก {scored.Count} ผู้ขนส่ง · {weights}"
+                  + (partial > 0 ? $" · {partial} รายยังมีเกณฑ์ที่วัดไม่ได้ จึงแสดงคะแนนจากน้ำหนักที่มีข้อมูล" : ""),
+            scored.OrderByDescending(entry => entry.Weighted)
+                .ThenByDescending(entry => entry.Shipments)
+                .Take(12)
+                .Select(entry => new Counted(entry.Carrier,
+                    (int)Math.Round(entry.Weighted!.Value, MidpointRounding.AwayFromZero)))
+                .ToList());
     }
 
     /* -------------------------------------------------------------- shared */

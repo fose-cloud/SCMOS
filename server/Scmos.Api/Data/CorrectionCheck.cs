@@ -137,11 +137,14 @@ public static class CorrectionCheck
         failed += Say("a late import off a port is proposed Port Traffic Congestion", lcb?.To, "Port Traffic Congestion");
         failed += Say("by the route rule, naming the port and that another may be picked", lcb?.Rule == "reason.route" && lcb.Reason.Contains("LCB TERMINAL B") && lcb.Reason.Contains("เลือกเหตุผลอื่นได้"), true);
         failed += Say("a shipment on time is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "09:00"), [], today), null);
+        failed += Say("a remaining customer at thirty minutes is OTD — Reason / Delay is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "09:30", customer: "L'OREAL"), [], today), null);
+        failed += Say("a remaining customer after thirty minutes is Delay — Reason / Delay is asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "09:31", customer: "L'OREAL"), [], today)?.To, "Delay due to Traffic Congestion");
         failed += Say("Lotus twenty minutes late is on time by its own term — not asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:20", customer: "LOTUS"), [], today), null);
         failed += Say("Lotus forty minutes late is asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:40", customer: "LOTUS"), [], today)?.To, "Delay due to Traffic Congestion");
         failed += Say("Evonik Tank at 180 minutes is not asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "12:00", customer: "EVONIK", type: "1X20' TK"), [], today), null);
         failed += Say("Evonik Tank after 180 minutes is asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "12:01", customer: "EVONIK", type: "1X20' TK"), [], today)?.To, "Delay due to Traffic Congestion");
-        failed += Say("Evonik non-Tank has no Tank grace", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:01", customer: "EVONIK", type: "1X20'"), [], today)?.To, "Delay due to Traffic Congestion");
+        failed += Say("Evonik non-Tank uses the 30-minute default", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:30", customer: "EVONIK", type: "1X20'"), [], today), null);
+        failed += Say("Evonik non-Tank after 30 minutes is asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:31", customer: "EVONIK", type: "1X20'"), [], today)?.To, "Delay due to Traffic Congestion");
         failed += Say("a reason already typed is never proposed over", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", reason: "รถติดหน้าท่า"), [], today), null);
         failed += Say("a cancelled job is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", status: "CANCELLED"), [], today), null);
         failed += Say("a delivery job is not asked — IMPORT and EXPORT only", DelayReasonRule.Propose(Late("DELIVERY", "21/09/2026", "09:00", "21/09/2026", "11:00"), [], today), null);

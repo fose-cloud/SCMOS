@@ -84,8 +84,9 @@ public static class KpiWorkbook
     {
         var head = new[]
         {
-            "ผู้ขนส่ง", "งาน", "ตรงเวลา %", "ฐานตรงเวลา", "ตอบยืนยัน %", "ฐานตอบยืนยัน",
-            "ไม่มีความล่าช้า %", "งานที่ล่าช้า", "คะแนนรวม",
+            "ผู้ขนส่ง", "Shipment", "Accident Minor (15%)", "Accident Major (35%)",
+            "Damage Reporting (20%)", "Vehicle Readiness (10%)", "On Time Delivery (10%)",
+            "Customer Satisfaction (10%)", "น้ำหนักที่วัดได้", "คะแนนรวม",
         };
         for (var c = 0; c < head.Length; c++)
         {
@@ -96,21 +97,27 @@ public static class KpiWorkbook
         }
 
         var row = 2;
-        foreach (var supplier in report.Suppliers)
+        foreach (var supplier in report.Scorecard ?? [])
         {
+            ScoreLine? Line(string id) => supplier.Lines.FirstOrDefault(line => line.Id == id);
+
             sheet.Cell(row, 1).Value = supplier.Carrier;
-            sheet.Cell(row, 2).Value = supplier.Jobs;
-            Put(sheet.Cell(row, 3), supplier.OnTime);
-            sheet.Cell(row, 4).Value = supplier.OnTimeBase;
-            Put(sheet.Cell(row, 5), supplier.Confirmation);
-            sheet.Cell(row, 6).Value = supplier.ConfirmationBase;
-            Put(sheet.Cell(row, 7), supplier.DelayFree);
-            sheet.Cell(row, 8).Value = supplier.DelayCount;
-            Put(sheet.Cell(row, 9), supplier.Score);
+            sheet.Cell(row, 2).Value = supplier.Shipments;
+            Put(sheet.Cell(row, 3), Line("accident-minor")?.Percent);
+            Put(sheet.Cell(row, 4), Line("accident-major")?.Percent);
+            Put(sheet.Cell(row, 5), Line("damage-reporting")?.Percent);
+            Put(sheet.Cell(row, 6), Line("vehicle-readiness")?.Percent);
+            Put(sheet.Cell(row, 7), Line("on-time")?.Percent);
+            Put(sheet.Cell(row, 8), Line("satisfaction")?.Percent);
+            sheet.Cell(row, 9).Value = supplier.WeightAvailable;
+            Put(sheet.Cell(row, 10), supplier.Weighted);
             row++;
         }
 
-        sheet.Columns(1, 9).AdjustToContents();
+        if (row == 2)
+            sheet.Cell(2, 1).Value = "ยังไม่มีผู้ขนส่งที่มีข้อมูลให้คำนวณ";
+
+        sheet.Columns(1, 10).AdjustToContents();
         sheet.SheetView.FreezeRows(1);
     }
 
