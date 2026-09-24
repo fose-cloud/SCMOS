@@ -70,3 +70,11 @@ test("the dashboard's own count reads the same table and applies each boundary i
   assert.equal(onTime("EVONIK", "1X20'", "09:01"), false);
   assert.equal(onTime("L'OREAL", "1X20'", "09:00"), true);
 });
+
+test("Reason / Delay validation uses the same customer grace period as OTD", () => {
+  const standard = readFileSync(new URL("../app/scmos/standard.ts", import.meta.url), "utf8");
+  assert.match(standard, /import \{ graceMinutes \} from "\.\/customerTerms";/);
+  assert.match(standard, /const grace = graceMinutes\(clean\(job\.customer\), clean\(job\.type\)\);/);
+  assert.match(standard, /if \(late !== null && late > grace\)/);
+  assert.doesNotMatch(standard, /if \(late !== null && late > 0\)/);
+});

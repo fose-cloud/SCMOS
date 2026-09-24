@@ -1,5 +1,6 @@
 import { STATUS_LADDER } from "./theme";
 import { lateLabel, lateMinutes } from "./util";
+import { graceMinutes } from "./customerTerms";
 
 /**
  * The SCMOS operational data standard.
@@ -703,9 +704,9 @@ export function validateJob(job: Record<string, unknown>): Issue[] {
   //
   // Late is the plan against the arrival — the planned loading date and time
   // against the date and time the truck actually got there — which is the same
-  // subtraction the KPI uses, so a job the dashboard counts as late is exactly a
-  // job this asks about. No grace period: the figure reported upward has none,
-  // and somebody will later be asked to explain every minute of it.
+  // subtraction the KPI uses. Customer agreements can allow a grace period, so
+  // the reason becomes required only after that same allowance is exceeded. This
+  // keeps the red cell and the dashboard's OTD/Delay result in agreement.
   //
   // It is an error rather than one of the missing-value flags because those are
   // cleared once a job is done, and this is the one question that only gets
@@ -717,7 +718,8 @@ export function validateJob(job: Record<string, unknown>): Issue[] {
     arrDate: clean(job.arrDate),
     arrTime: clean(job.arrTime),
   });
-  if (late !== null && late > 0) {
+  const grace = graceMinutes(clean(job.customer), clean(job.type));
+  if (late !== null && late > grace) {
     const [field, label, column] = DELAY_REASON_FIELD[cat] ?? DELAY_REASON_FIELD.IMPORT;
     if (!clean(job[field])) {
       issues.push({
