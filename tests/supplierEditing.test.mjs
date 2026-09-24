@@ -68,3 +68,10 @@ test("supplier documents can upload several selected files in one action", () =>
   assert.match(ui, /onAttach\(files, asksExpiry \? expiry\.trim\(\) : ""\)/);
   assert.match(ui, /อัปโหลดเอกสารสำเร็จ \$\{uploaded\} ฉบับ/);
 });
+
+test("every supplier document column has a visible add-document button", () => {
+  assert.match(ui, /aria-label=\{`เพิ่มเอกสาร \$\{need\.thai\} สำหรับ \$\{row\.legalName \|\| row\.name\}`\}/);
+  assert.match(ui, /title="เลือกเพิ่มได้หลายไฟล์ โดยไม่ลบไฟล์เดิม"/);
+  assert.match(ui, />\s*\+ เพิ่มเอกสาร\s*<\/button>/);
+  assert.doesNotMatch(ui, />\s*ต่ออายุ\s*<\/button>/);
+});

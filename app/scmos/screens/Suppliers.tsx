@@ -850,31 +850,26 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
                                 {stateLabel(state, held.daysLeft)}
                               </span>
                             )}
-                            {canUpload && (
-                              // A renewal is a new certificate beside the old
-                              // one, not an edit of it. The register keeps both
-                              // and reads the later expiry.
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setAttach({ row, code: need.code }); }}
-                                style={css("margin-left:8px;font-size:10.5px;color:#0A5FA8;background:none;"
-                                  + "border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline")}>
-                                ต่ออายุ
-                              </button>
-                            )}
                           </div>
-                        ) : canUpload ? (
-                          // The cell is the control. It said "ยังไม่แนบไฟล์" in
-                          // grey text, which looks like a button, is not one,
-                          // and left the only way to attach a document three
-                          // clicks away in the card below.
+                        ) : !canUpload ? (
+                          <div style={css("margin-top:2px;font-size:10.5px;color:#C3CFDB")}>ยังไม่แนบไฟล์</div>
+                        ) : null}
+                        {canUpload && (
+                          // Adding is always available, whether this column is
+                          // empty or already has a current file. The upload
+                          // dialog keeps every existing copy and accepts more
+                          // than one new file at a time.
                           <button
                             onClick={(e) => { e.stopPropagation(); setAttach({ row, code: need.code }); }}
-                            style={css("margin-top:2px;font-size:10.5px;color:#0A5FA8;background:none;"
-                              + "border:none;padding:0;cursor:pointer;font-family:inherit;text-decoration:underline")}>
-                            + แนบไฟล์
+                            disabled={busy}
+                            aria-label={`เพิ่มเอกสาร ${need.thai} สำหรับ ${row.legalName || row.name}`}
+                            title="เลือกเพิ่มได้หลายไฟล์ โดยไม่ลบไฟล์เดิม"
+                            style={css("display:block;margin-top:4px;height:23px;padding:0 8px;border-radius:3px;"
+                              + `font-size:10.5px;font-weight:600;font-family:inherit;border:1px solid ${busy ? "#D8E0E8" : "#B8CFE5"};`
+                              + `background:${busy ? "#F4F6F8" : "#F5FAFF"};color:${busy ? "#94A3B8" : "#0A5FA8"};`
+                              + `cursor:${busy ? "not-allowed" : "pointer"}`)}>
+                            + เพิ่มเอกสาร
                           </button>
-                        ) : (
-                          <div style={css("margin-top:2px;font-size:10.5px;color:#C3CFDB")}>ยังไม่แนบไฟล์</div>
                         )}
                       </td>
                     );
