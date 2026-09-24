@@ -63,3 +63,17 @@ test("the workspace re-reads its page after the write lands, lays its own edits 
   assert.match(repo, /public const int DeltaLimit = 400;/);
   assert.match(repo, /if \(changed\.Count > DeltaLimit\) return \("\[\]", count, newest, true\);/);
 });
+
+test("live workspace updates keep the toolbar size and the table viewport stable", () => {
+  const table = readFileSync(new URL("../app/scmos/DataTable.tsx", import.meta.url), "utf8");
+  const workspace = readFileSync(new URL("../app/scmos/screens/Workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(table, /const REMEMBERED_SCROLL = new Map/);
+  assert.match(table, /useLayoutEffect\(\(\) => \{[\s\S]*?node\.scrollLeft = held\.left;[\s\S]*?node\.scrollTop = held\.top/);
+  assert.match(table, /held\.anchorKey[\s\S]*?node\.scrollTop \+= moved/);
+  assert.match(table, /onScroll=\{rememberScroll\}/);
+  assert.match(table, /data-grid-row=\{r\.key\}/);
+  assert.match(workspace, /scrollKey: JSON\.stringify\(\[[\s\S]*?"workspace", section\.layout, ws\.tab, ws\.cat/);
+  assert.match(workspace, /width:250px;max-width:100%;flex:none/);
+  assert.match(workspace, /text-overflow:ellipsis;white-space:nowrap/);
+});

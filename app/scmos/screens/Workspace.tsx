@@ -1454,6 +1454,17 @@ export function Workspace(p: Props) {
    */
   const isMyJob = !p.lockedCat;
 
+  // Keep this text out of the layout calculation. Saving and saved are the
+  // same-sized status slot below, so the automatic refresh cannot make the
+  // toolbar wrap and push the grid up and down.
+  const syncText = p.sync.state === "stale" ? "แสดงข้อมูลที่บันทึกไว้ครั้งก่อน · กำลังดึงข้อมูลล่าสุด"
+    : p.sync.state === "waking" ? "กำลังปลุกฐานข้อมูล… รอสักครู่ อย่าเพิ่งคีย์งาน"
+      : p.sync.state === "saving" ? "กำลังบันทึกลงฐานข้อมูล…"
+        : p.sync.state === "error" ? "บันทึกไม่สำเร็จ — กดแก้ซ้ำอีกครั้ง"
+          : p.sync.state === "off" ? "ยังไม่ได้ต่อฐานข้อมูล — รีเฟรชหน้าเพื่อลองใหม่ · งานที่คีย์ไว้ตอนนี้จะหาย"
+            : p.sync.at ? "บันทึกลงฐานข้อมูลแล้ว " + p.sync.at
+              : "ต่อฐานข้อมูลแล้ว";
+
   // Export writes the whole filtered set, not just the page being viewed. A
   // split view exports every column, since it holds both kinds of job.
   const { onView } = p;
@@ -1966,9 +1977,10 @@ export function Workspace(p: Props) {
   
               {/* Whether what you type is actually being kept. */}
               <span
-                title={p.sync.message}
+                title={[syncText, p.sync.message].filter(Boolean).join(" — ")}
                 style={css(
-                  "display:flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:13px;font-size:11px;border:1px solid " +
+                  "display:flex;align-items:center;justify-content:center;gap:7px;width:250px;max-width:100%;flex:none;box-sizing:border-box;"
+                  + "height:26px;padding:0 11px;border-radius:13px;font-size:11px;border:1px solid " +
                   (p.sync.state === "error" ? "#7A2F2A" : p.sync.state === "off" ? "#7A5A2A" : "#24476E") +
                   ";background:" + (p.sync.state === "error" ? "#3A1E1C" : p.sync.state === "off" ? "#3A2E18" : "#0E2B4F") +
                   ";color:" + (p.sync.state === "error" ? "#FF9C8F" : p.sync.state === "off" ? "#FFC978" : "#9FD0FF"),
@@ -1978,13 +1990,9 @@ export function Workspace(p: Props) {
                   (p.sync.state === "error" ? "#FF6B5B" : p.sync.state === "off" ? "#FFC978"
                     : p.sync.state === "saving" || p.sync.state === "waking" || p.sync.state === "stale"
                       ? "#9FD0FF" : "#3CB371"))} />
-                {p.sync.state === "stale" ? "แสดงข้อมูลที่บันทึกไว้ครั้งก่อน · กำลังดึงข้อมูลล่าสุด"
-                  : p.sync.state === "waking" ? "กำลังปลุกฐานข้อมูล… รอสักครู่ อย่าเพิ่งคีย์งาน"
-                  : p.sync.state === "saving" ? "กำลังบันทึกลงฐานข้อมูล…"
-                  : p.sync.state === "error" ? "บันทึกไม่สำเร็จ — กดแก้ซ้ำอีกครั้ง"
-                    : p.sync.state === "off" ? "ยังไม่ได้ต่อฐานข้อมูล — รีเฟรชหน้าเพื่อลองใหม่ · งานที่คีย์ไว้ตอนนี้จะหาย"
-                      : p.sync.at ? "บันทึกลงฐานข้อมูลแล้ว " + p.sync.at
-                        : "ต่อฐานข้อมูลแล้ว"}
+                <span style={css("min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>
+                  {syncText}
+                </span>
               </span>
               {!!p.corrections?.total && (
                 // What the rules propose, waiting for the owners: the count,
@@ -2292,6 +2300,14 @@ export function Workspace(p: Props) {
       pageCount: pg.pageCount,
       page: pg.p,
       per: pg.per,
+      // Data refreshes reuse this key. A filter, sort or page change creates a
+      // different view, while a new answer for the same view keeps the table
+      // at the same row and horizontal column.
+      scrollKey: JSON.stringify([
+        "workspace", section.layout, ws.tab, ws.cat, ws.cust, ws.trucker, ws.type,
+        ws.status, ws.kpi, ws.assignee, ws.year, ws.month, ws.date, ws.q,
+        ws.sort?.key ?? "", ws.sort?.dir ?? "", ws.only ?? "", p.per, pg.p,
+      ]),
     };
     return { layout: section.layout, model };
   });

@@ -268,11 +268,19 @@ public static partial class JobRules
     /// <summary>
     /// Whether the shipment arrived on time: at or before its plan, or within
     /// the grace its customer's own agreement allows — zero for everyone
-    /// unless <see cref="CustomerTerms"/> says otherwise (Lotus, thirty
-    /// minutes, since 21 Sep 2026). False when it cannot be measured, which
+    /// unless <see cref="CustomerTerms"/> says otherwise for the customer and
+    /// job type. False when it cannot be measured, which
     /// is not the same as on time. One subtraction, <see cref="MinutesLate"/>,
     /// serves this, the thirty-minute problem threshold and the scorecard.
     /// </summary>
     public static bool IsOnTime(JobRecord job) =>
-        MinutesLate(job) is { } late && late <= CustomerTerms.GraceMinutes(job.Customer);
+        MinutesLate(job) is { } late && late <= CustomerTerms.GraceMinutes(job.Customer, job.Type);
+
+    /// <summary>
+    /// Threshold for the operational late-arrival problem flag. It keeps the
+    /// existing 30-minute noise floor, but never flags a job inside a larger
+    /// registered customer/job grace.
+    /// </summary>
+    public static int OperationalDelayMinutes(JobRecord job) =>
+        Math.Max(LateMinutes, CustomerTerms.GraceMinutes(job.Customer, job.Type));
 }

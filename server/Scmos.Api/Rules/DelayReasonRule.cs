@@ -77,7 +77,7 @@ public static partial class DelayReasonRule
         if (Formats.Clean(job.Reason).Length > 0) return false;
         if (cat == "EXPORT" && Formats.Clean(job.Remark).Length > 0) return false;
         var late = JobRules.MinutesLate(job);
-        if (late is null || late <= CustomerTerms.GraceMinutes(job.Customer)) return false;
+        if (late is null || late <= CustomerTerms.GraceMinutes(job.Customer, job.Type)) return false;
         var day = Formats.ParseDay(job.Date);
         return day is not null && day.Value >= today.AddDays(-LookbackDays) && day.Value <= today;
     }

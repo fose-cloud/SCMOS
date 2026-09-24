@@ -24,12 +24,12 @@ public static class ProblemCheck
         string key, string status = "IN_TRANSIT",
         string date = "10/09/2026", string planTime = "08:00",
         string arrDate = "10/09/2026", string arrTime = "08:00",
-        string reason = "", string incident = "") =>
+        string reason = "", string incident = "", string customer = "HENKEL", string type = "1X20'") =>
         new()
         {
             Key = key, Status = status, Date = date, PlanTime = planTime,
             ArrDate = arrDate, ArrTime = arrTime, Reason = reason, Incident = incident,
-            Customer = "HENKEL", Trucker = "SANGJA", Cat = "IMPORT",
+            Customer = customer, Type = type, Trucker = "SANGJA", Cat = "IMPORT",
         };
 
     private static readonly ProblemRules.Recorded Nothing = ProblemRules.Recorded.Nothing;
@@ -64,6 +64,10 @@ public static class ProblemCheck
         // minutes is inside it on both screens or on neither.
         ("twenty minutes is not what anybody means by late",
             Job("J", arrTime: "08:20"), Nothing, null),
+        ("Evonik Tank stays off the delay list through 180 minutes",
+            Job("J2", arrTime: "11:00", customer: "EVONIK (THAILAND) LTD.", type: "1X20' TK"), Nothing, null),
+        ("Evonik Tank enters the delay list after 180 minutes",
+            Job("J3", arrTime: "11:01", customer: "EVONIK (THAILAND) LTD.", type: "1X20' TK"), Nothing, ProblemRules.Problem.ArrivedLate),
         ("a finished job is history, not something to do this morning",
             Job("K", status: "COMPLETED", arrTime: "18:00", incident: "ตู้เสียหาย"), Nothing, null),
         ("nor is a cancelled one",
@@ -91,8 +95,8 @@ public static class ProblemCheck
         if (!args.Contains("--check-problems")) return null;
 
         var failed = 0;
-        Console.WriteLine($"Late means more than {JobRules.LateMinutes} minutes past the plan — "
-            + "JobRules', the same figure the carrier scorecard scores on.");
+        Console.WriteLine($"Operational late means more than the default {JobRules.LateMinutes} minutes past plan, "
+            + "or a larger registered customer/job-type grace when one applies.");
         Console.WriteLine();
 
         foreach (var (why, job, seen, expect) in Cases)

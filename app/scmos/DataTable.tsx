@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { css } from "./theme";
 import { StatGlyph } from "./StatCard";
 import { toolIconFor } from "./statIcons";
@@ -24,6 +24,15 @@ export type TableModel = {
   pageCount: number;
   page: number;
   per: number;
+  /**
+   * The view whose scroll belongs together.
+   *
+   * A live grid can receive fresh row objects every few seconds. Giving that
+   * view a stable key keeps its horizontal position and its visible row while
+   * those updates land; changing a filter or page gives it another key and
+   * starts that different view at its own position.
+   */
+  scrollKey?: string;
   /** Header buttons; pass [] on screens that carry their own controls. */
   tools?: string[];
   /** Suggestion lists shared by every combo cell in the grid, rendered once. */
@@ -74,6 +83,29 @@ export type TableModel = {
     placeholder?: string;
   };
 };
+
+type RememberedScroll = {
+  left: number;
+  top: number;
+  anchorKey: string;
+  anchorOffset: number;
+};
+
+/**
+ * Outside the component deliberately: a layout may briefly remount when the
+ * live register changes shape, and a ref inside that remount would forget the
+ * very position it exists to preserve.
+ */
+const REMEMBERED_SCROLL = new Map<string, RememberedScroll>();
+const MAX_REMEMBERED_VIEWS = 40;
+
+function storeScroll(key: string, value: RememberedScroll) {
+  REMEMBERED_SCROLL.delete(key);
+  REMEMBERED_SCROLL.set(key, value);
+  if (REMEMBERED_SCROLL.size <= MAX_REMEMBERED_VIEWS) return;
+  const oldest = REMEMBERED_SCROLL.keys().next().value as string | undefined;
+  if (oldest) REMEMBERED_SCROLL.delete(oldest);
+}
 
 type Props = {
   model: TableModel;
@@ -130,6 +162,55 @@ export function DataTable(p: Props) {
   const shell = useRef<HTMLDivElement | null>(null);
   const [native, setNative] = useState(false);
   const [zoom, changeZoom] = useTableZoom();
+  const scrollKey = model.scrollKey ?? "";
+  const shownScrollKey = useRef(scrollKey);
+
+  /** Remember both coordinates and the first visible row. The row anchor is
+   * what stops an inserted or re-sorted row above the viewport from moving the
+   * job somebody is currently reading. */
+  const rememberScroll = useCallback(() => {
+    const node = box.current;
+    if (!node || !scrollKey) return;
+    const boxTop = node.getBoundingClientRect().top;
+    const visible = Array.from(node.querySelectorAll<HTMLTableRowElement>("tbody tr[data-grid-row]"))
+      .find((row) => row.getBoundingClientRect().bottom > boxTop);
+    storeScroll(scrollKey, {
+      left: node.scrollLeft,
+      top: node.scrollTop,
+      anchorKey: visible?.dataset.gridRow ?? "",
+      anchorOffset: visible ? visible.getBoundingClientRect().top - boxTop : 0,
+    });
+  }, [scrollKey]);
+
+  // React keeps the scroll node, but replacing live rows can still trigger
+  // browser scroll anchoring or clamp a wide table back to the left. Restore
+  // before paint, so the person sees one stable frame rather than a jump and a
+  // correction. A genuinely different filter/page starts at its remembered
+  // position (or at the origin when it has never been opened).
+  useLayoutEffect(() => {
+    const node = box.current;
+    if (!node || !scrollKey) return;
+    const changedView = shownScrollKey.current !== scrollKey;
+    shownScrollKey.current = scrollKey;
+    const held = REMEMBERED_SCROLL.get(scrollKey);
+    if (!held) {
+      if (changedView) { node.scrollLeft = 0; node.scrollTop = 0; }
+      rememberScroll();
+      return;
+    }
+
+    node.scrollLeft = held.left;
+    node.scrollTop = held.top;
+    if (held.anchorKey) {
+      const anchor = Array.from(node.querySelectorAll<HTMLTableRowElement>("tbody tr[data-grid-row]"))
+        .find((row) => row.dataset.gridRow === held.anchorKey);
+      if (anchor) {
+        const moved = anchor.getBoundingClientRect().top - node.getBoundingClientRect().top - held.anchorOffset;
+        if (Math.abs(moved) >= 1) node.scrollTop += moved;
+      }
+    }
+    rememberScroll();
+  });
   const activeCell = model.rows
     .flatMap((row) => row.cells.map((cell, column) => cell.active ? row.key + ":" + column : ""))
     .find(Boolean) ?? "";
@@ -291,7 +372,7 @@ export function DataTable(p: Props) {
         </datalist>
       ))}
 
-      <div ref={box}
+      <div ref={box} onScroll={rememberScroll}
         style={css("overflow:auto;"
           + (full || model.fill ? "flex:1;min-height:0" : "max-height:calc(100vh - 340px)"))}>
         {/*
@@ -314,7 +395,7 @@ export function DataTable(p: Props) {
           </thead>
           <tbody>
             {model.rows.map((r) => (
-              <tr key={r.key} className="row-hover" onClick={r.go} title={r.title} style={css(r.style)}>
+              <tr key={r.key} data-grid-row={r.key} className="row-hover" onClick={r.go} title={r.title} style={css(r.style)}>
                 {r.cells.map((c, ci) => (
                   <td
                     key={ci}

@@ -46,7 +46,7 @@ public static class ReportCheck
         var line = MonthlyReport.Line("LOTUS ASIA", mixed);
 
         /* ---- a customer's own term (21 Sep 2026) ---- */
-        JobRecord At(string customer, string arrived) => new() { Customer = customer, Date = "07/07/2026", PlanTime = "09:00", ArrDate = "07/07/2026", ArrTime = arrived };
+        JobRecord At(string customer, string arrived, string type = "1X20'") => new() { Customer = customer, Type = type, Date = "07/07/2026", PlanTime = "09:00", ArrDate = "07/07/2026", ArrTime = arrived };
         failed += Say("Lotus: twenty minutes after plan is on time", JobRules.IsOnTime(At("LOTUS ASIA", "09:20")), true);
         failed += Say("Lotus: thirty minutes exactly is on time", JobRules.IsOnTime(At("LOTUS", "09:30")), true);
         failed += Say("Lotus: thirty-one minutes is late", JobRules.IsOnTime(At("LOTUS ASIA", "09:31")), false);
@@ -55,7 +55,15 @@ public static class ReportCheck
         failed += Say("a name that merely contains the word is not Lotus", JobRules.IsOnTime(At("BLUE LOTUS TRADING", "09:10")), false);
         failed += Say("no customer on the record: the department's rule", JobRules.IsOnTime(At("", "09:05")), false);
         failed += Say("the term is written once", CustomerTerms.GraceMinutes("LOTUS ASIA"), 30);
+        failed += Say("Allnex: thirty minutes exactly is on time", JobRules.IsOnTime(At("ALLNEX", "09:30")), true);
+        failed += Say("Allnex: thirty-one minutes is late", JobRules.IsOnTime(At("ALLNEX", "09:31")), false);
+        failed += Say("Syensqo: thirty minutes exactly is on time", JobRules.IsOnTime(At("SYENSQO", "09:30")), true);
+        failed += Say("Syensqo: thirty-one minutes is late", JobRules.IsOnTime(At("SYENSQO", "09:31")), false);
+        failed += Say("Evonik Tank: 180 minutes exactly is on time", JobRules.IsOnTime(At("EVONIK (THAILAND) LTD.", "12:00", "1X20' TK")), true);
+        failed += Say("Evonik Tank: 181 minutes is late", JobRules.IsOnTime(At("EVONIK (THAILAND) LTD.", "12:01", "ISO Tank")), false);
+        failed += Say("Evonik non-Tank has no Tank grace", JobRules.IsOnTime(At("EVONIK (THAILAND) LTD.", "09:01", "1X20'")), false);
         failed += Say("the rule registry names the term for Lotus", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "LOTUS ASIA")?.ThresholdMinutes, 30);
+        failed += Say("the rule registry scopes Evonik to Tank", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK (THAILAND) LTD.", "1X20' TK")?.ThresholdMinutes, 180);
         failed += Say("and nothing for a customer without one", Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "L'OREAL") is null, true);
 
         /* ---- the dashboard's CUSTOMER / TRUCKER on the measured cards (22 Sep 2026) ---- */

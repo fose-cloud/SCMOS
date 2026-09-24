@@ -112,8 +112,8 @@ public static class CorrectionCheck
 
         /* ---- the delay reason ---- */
         var today = new DateOnly(2026, 9, 22);
-        JobRecord Late(string cat, string date, string plan, string arrDate, string arrTime, string customer = "OPTIDUR", string reason = "", string destination = "", string plant = "", string status = "DELIVERED")
-            => new() { Key = "J", Cat = cat, Date = date, PlanTime = plan, ArrDate = arrDate, ArrTime = arrTime, Customer = customer, Reason = reason, Destination = destination, Plant = plant, Status = status, JobCode = "260900760079" };
+        JobRecord Late(string cat, string date, string plan, string arrDate, string arrTime, string customer = "OPTIDUR", string reason = "", string destination = "", string plant = "", string status = "DELIVERED", string type = "1X20'")
+            => new() { Key = "J", Cat = cat, Date = date, PlanTime = plan, ArrDate = arrDate, ArrTime = arrTime, Customer = customer, Reason = reason, Destination = destination, Plant = plant, Status = status, Type = type, JobCode = "260900760079" };
         failed += Say("every catalogue sentence files under its own category, so the KPI counts it",
             string.Join(",", DelayReasonRule.Catalogue.Select(one => DelayReasons.Classify(one.Text).Category == one.Category ? "ok" : one.Text)), string.Join(",", DelayReasonRule.Catalogue.Select(_ => "ok")));
         var breakdown = DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "10:15", destination: "WH ALLNEX"), ["รถเสียกลางทาง รอช่างครับ", "ออกจากท่าแล้ว"], today);
@@ -139,6 +139,9 @@ public static class CorrectionCheck
         failed += Say("a shipment on time is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "09:00"), [], today), null);
         failed += Say("Lotus twenty minutes late is on time by its own term — not asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:20", customer: "LOTUS"), [], today), null);
         failed += Say("Lotus forty minutes late is asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:40", customer: "LOTUS"), [], today)?.To, "Delay due to Traffic Congestion");
+        failed += Say("Evonik Tank at 180 minutes is not asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "12:00", customer: "EVONIK (THAILAND) LTD.", type: "1X20' TK"), [], today), null);
+        failed += Say("Evonik Tank after 180 minutes is asked", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "12:01", customer: "EVONIK (THAILAND) LTD.", type: "1X20' TK"), [], today)?.To, "Delay due to Traffic Congestion");
+        failed += Say("Evonik non-Tank has no Tank grace", DelayReasonRule.Propose(Late("EXPORT", "21/09/2026", "09:00", "21/09/2026", "09:01", customer: "EVONIK (THAILAND) LTD.", type: "1X20'"), [], today)?.To, "Delay due to Traffic Congestion");
         failed += Say("a reason already typed is never proposed over", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", reason: "รถติดหน้าท่า"), [], today), null);
         failed += Say("a cancelled job is not asked", DelayReasonRule.Propose(Late("IMPORT", "21/09/2026", "09:00", "21/09/2026", "11:00", status: "CANCELLED"), [], today), null);
         failed += Say("a delivery job is not asked — IMPORT and EXPORT only", DelayReasonRule.Propose(Late("DELIVERY", "21/09/2026", "09:00", "21/09/2026", "11:00"), [], today), null);

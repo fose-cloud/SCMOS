@@ -10,8 +10,8 @@ public static class BusinessRuleRegistry
 {
     public static IReadOnlyList<BusinessRuleDescriptor> All { get; } = Array.AsReadOnly(new[]
     {
-        new BusinessRuleDescriptor("arrival.on_time", "3", "Rules/JobRules.cs:JobRules.IsOnTime",
-            "Measurable arrival on or before planned date/time plus the customer's registered grace — zero for every customer without a term in Rules/CustomerTerms.cs (LOTUS: 30 minutes since 21 Sep 2026). KPI base must contain only measurable jobs.",
+        new BusinessRuleDescriptor("arrival.on_time", "4", "Rules/JobRules.cs:JobRules.IsOnTime",
+            "Measurable arrival on or before planned date/time plus the registered customer/job-type grace in Rules/CustomerTerms.cs; zero when no term matches. KPI base must contain only measurable jobs.",
             "Both dates must exist on the calendar; invalid or missing dates are excluded and an empty base is unknown. Times retain the existing parser.", 0),
         new BusinessRuleDescriptor("arrival.late_beyond", "1", "Rules/JobRules.cs:JobRules.LateBeyond",
             "Measured arrival minus planned moment is strictly greater than the supplied tolerance; default threshold is shown separately.",
@@ -30,12 +30,13 @@ public static class BusinessRuleRegistry
     /// its threshold. A customer without a term gets null, never the
     /// department's rule dressed as a customer SLA.
     /// </summary>
-    public static BusinessRuleDescriptor? Resolve(string id, string? customerContractId = null)
+    public static BusinessRuleDescriptor? Resolve(string id, string? customerContractId = null, string? jobType = null)
     {
         var rule = All.FirstOrDefault(rule => rule.Id == id);
         if (customerContractId is null) return rule;
-        if (rule is null || id != "arrival.on_time" || CustomerTerms.Of(customerContractId) is not { } term) return null;
+        if (rule is null || id != "arrival.on_time" || CustomerTerms.Of(customerContractId, jobType) is not { } term) return null;
         return rule with { ThresholdMinutes = term.GraceMinutes,
-            Meaning = $"Measurable arrival within {term.GraceMinutes} minutes of planned date/time — {term.Customer}'s registered term since {term.Since}. KPI base must contain only measurable jobs." };
+            Meaning = $"Measurable arrival within {term.GraceMinutes} minutes of planned date/time — {term.Customer}'s registered"
+                + (term.Scope == "tank" ? " Tank-job" : "") + $" term since {term.Since}. KPI base must contain only measurable jobs." };
     }
 }

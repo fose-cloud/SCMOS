@@ -50,10 +50,11 @@ test("there is one reading of late, and the screen quotes it rather than its own
   assert.match(jobRules, /public const int LateMinutes = 30;/);
   assert.match(scorecard, /private const int LateMinutes = JobRules\.LateMinutes;/);
   assert.doesNotMatch(scorecard, /LateMinutes = 30;\s*$/m);
-  assert.match(rules, /late > JobRules\.LateMinutes/);
-  // The threshold reaches the screen from the API, so the sentence under the
-  // heading cannot go on saying thirty after somebody changes it.
-  assert.match(board, /เกิน \$\{tally\.lateMinutes\} นาที/);
+  assert.match(rules, /late > JobRules\.OperationalDelayMinutes\(job\)/);
+  assert.match(jobRules, /Math\.Max\(LateMinutes, CustomerTerms\.GraceMinutes\(job\.Customer, job\.Type\)\)/);
+  // The threshold varies by customer and job type, so the screen must not
+  // claim that every late-arrival problem uses one fixed number.
+  assert.match(board, /ตามเกณฑ์ OTD ของลูกค้า\/ประเภทงาน/);
 });
 
 test("the words shown are the operator's, and the screen says whose column they were in", () => {

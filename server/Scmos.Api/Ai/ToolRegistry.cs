@@ -113,7 +113,7 @@ public sealed class ToolRegistry
                 new(new("view", false, Choices: OperationsReadService.FollowUpViews), new("limit", true, Max: OperationsEvidenceLimit))),
             // Phase 2 — the Data Agent's one read: SCMOS's own KPI for a period.
             new(DataReadService.Tool,
-                "Read the department's volumes and on-time KPI (SCMOS rule arrival.on_time, zero grace) for one period: a year YYYY, a month YYYY-MM or a day YYYY-MM-DD, optionally narrowed to one customer or one carrier by name. Returns totals, the measured base, on-time count and percent, unassessable/undated counts, and a per-carrier breakdown. Never calculates a figure outside SCMOS.",
+                "Read the department's volumes and on-time KPI (SCMOS rule arrival.on_time, including registered customer/job-type grace) for one period: a year YYYY, a month YYYY-MM or a day YYYY-MM-DD, optionally narrowed to one customer or one carrier by name. Returns totals, the measured base, on-time count and percent, unassessable/undated counts, and a per-carrier breakdown. Never calculates a figure outside SCMOS.",
                 DataAgent.Id, Capability.ViewDashboard, AiRisk.Low,
                 new(new("period", false, Max: 10), new("customer", false, Nullable: true), new("trucker", false, Nullable: true),
                     new("limit", true, Max: DataReadService.CarrierLimit)),

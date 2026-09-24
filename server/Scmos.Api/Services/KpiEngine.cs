@@ -366,8 +366,8 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         var measurable = jobs.Where(job => JobRules.IsMeasurable(job.Record)).ToList();
         var met = measurable.Count(job => JobRules.IsOnTime(job.Record));
         // A customer's own term, named on the figure when a job of theirs is in the base.
-        var terms = measurable.Select(job => CustomerTerms.Of(job.Record.Customer)).OfType<CustomerTerms.Term>().DistinctBy(term => term.Customer)
-            .Select(term => $"{term.Customer} นับตรงเวลาภายใน {term.GraceMinutes} นาที").ToList();
+        var terms = measurable.Select(job => CustomerTerms.Of(job.Record.Customer, job.Record.Type)).OfType<CustomerTerms.Term>()
+            .DistinctBy(term => (term.Customer, term.Scope)).Select(CustomerTerms.Label).ToList();
 
         return Rate(MeasureId.OnTimeDelivery, met, measurable.Count,
             measurable.Count == 0

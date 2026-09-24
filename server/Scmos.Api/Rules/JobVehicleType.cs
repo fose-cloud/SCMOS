@@ -90,6 +90,15 @@ public static class JobVehicleType
     /// <summary>Whether a value is already one of the sixteen.</summary>
     public static bool IsKnown(string? code) => Codes.Contains((code ?? "").Trim());
 
+    /// <summary>Whether the operational type is an ISO Tank, however the register spells it.</summary>
+    public static bool IsTank(string? raw)
+    {
+        var value = Canonical(raw);
+        if (value.EndsWith(" TK", StringComparison.OrdinalIgnoreCase)) return true;
+        var words = Regex.Replace((raw ?? "").ToUpperInvariant().Replace('-', ' ').Replace('_', ' '), @"\s+", " ").Trim();
+        return Regex.IsMatch(words, @"\b(TK|TANK|ISOTANK|ISO\s+TANK)\b", RegexOptions.IgnoreCase);
+    }
+
     // A lorry, by wheels: 6W, 1X6WH', 6 WHEEL, 1X6 Wheels, 1X10WH.
     private static readonly Regex Wheels =
         new(@"^(\d{1,2})\s*W(?:H|HEEL|HEELS|HEELER)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);

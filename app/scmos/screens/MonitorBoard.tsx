@@ -251,7 +251,7 @@ export function MonitorBoard({ onOpenJob }: { onOpenJob: (key: string) => void }
       {board && tab === "problem" && (
         <Card title="ปัญหาที่เกิดขึ้นกับงานที่กำลังวิ่ง"
           note={"เรียงจากร้ายแรงที่สุด — เหตุผิดปกติ · ความล่าช้าที่ยังไม่ปิด · ขั้นตอนล่าช้า"
-            + (tally ? ` · ถึงช้ากว่าแผนเกิน ${tally.lateMinutes} นาที` : "")
+            + (tally ? " · ประเมินตามเกณฑ์ OTD ของลูกค้า/ประเภทงาน" : "")
             + " · มีบันทึกความล่าช้า"}
           tools={
             <div style={css("display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px")}>
@@ -479,7 +479,7 @@ function Headline({ board, tally }: { board: Board; tally: Tally }) {
     ["มีปัญหา", tally.withProblem.toLocaleString(),
       tally.withProblem > 0 ? "#B42318" : "#16794C", "งานที่กำลังวิ่งและมีอย่างน้อย 1 ปัญหา", "warning"],
     ["ถึงช้ากว่าแผน", tally.arrivedLate.toLocaleString(),
-      tally.arrivedLate > 0 ? "#B45309" : "#16794C", `วัดจากแผนเทียบเวลาถึงจริง เกิน ${tally.lateMinutes} นาที`, "clock"],
+      tally.arrivedLate > 0 ? "#B45309" : "#16794C", "วัดจากแผนเทียบเวลาถึงจริง ตามเกณฑ์ OTD ของลูกค้า/ประเภทงาน", "clock"],
     ["ต้องจัดการวันนี้", board.risks.length.toLocaleString(),
       board.risks.length > 0 ? "#B45309" : "#16794C", "งานที่ยังขาดของก่อนออกวิ่ง", "flag"],
     ["ยังวัดไม่ได้", tally.unmeasurable.toLocaleString(), "#7B8CA0",

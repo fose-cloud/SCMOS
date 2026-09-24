@@ -10,8 +10,8 @@ static class SharedContractChecks
         var registry = new ToolRegistry();
         var rules = Scmos.Api.Ai.Semantic.BusinessRuleRegistry.All;
         check(rules.Count == 4 && rules.Select(r => r.Id).Distinct().Count() == rules.Count
-            // arrival.on_time is version 3 since 21 Sep 2026: a customer's registered grace (Lotus, 30 minutes) is part of the rule.
-            && rules.All(r => r.Version == (r.Id == "arrival.on_time" ? "3" : "1")
+            // arrival.on_time is version 4: registered grace can depend on both customer and job type.
+            && rules.All(r => r.Version == (r.Id == "arrival.on_time" ? "4" : "1")
                 && r.SourceMember.StartsWith("Rules/") && r.MissingData.Length > 0),
             "1C: versioned rule descriptors retain code provenance and missing-data meaning");
         check(Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time")?.ThresholdMinutes == 0
@@ -23,9 +23,13 @@ static class SharedContractChecks
             "1C: unknown rules and unverified customer contracts have no fallback");
         // A registered term (Rules/CustomerTerms.cs) resolves for that customer alone, carrying its grace.
         var lotus = Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "LOTUS ASIA");
-        check(lotus is { ThresholdMinutes: 30, Version: "3" } && lotus.Meaning.Contains("LOTUS") && lotus.SourceMember == "Rules/JobRules.cs:JobRules.IsOnTime"
+        check(lotus is { ThresholdMinutes: 30, Version: "4" } && lotus.Meaning.Contains("LOTUS") && lotus.SourceMember == "Rules/JobRules.cs:JobRules.IsOnTime"
             && Scmos.Api.Rules.CustomerTerms.GraceMinutes("lotus") == 30 && Scmos.Api.Rules.CustomerTerms.GraceMinutes("L'OREAL") == 0,
             "1C: a customer's registered term resolves for that customer with its grace, and the department's rule for everyone else");
+        var evonikTank = Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK (THAILAND) LTD.", "1X20' TK");
+        check(evonikTank is { ThresholdMinutes: 180, Version: "4" } && evonikTank.Meaning.Contains("Tank-job")
+            && Scmos.Api.Ai.Semantic.BusinessRuleRegistry.Resolve("arrival.on_time", "EVONIK (THAILAND) LTD.", "1X20'") is null,
+            "1C: a job-scoped term resolves only for the matching vehicle type");
         var budget = new AiDispatchBudget();
         check(budget.TryConsume() && !budget.TryConsume() && !budget.TryConsume() && budget.Allowed == 1,
             "1B: one call per request including failed attempts");

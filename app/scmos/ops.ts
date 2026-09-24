@@ -329,12 +329,9 @@ export function opsStats(jobs: Job[]) {
   const measurable = jobs.filter(
     (j) => tmin(j.planTime) !== null && tmin(j.arrTime) !== null && !!dnum(j.date) && !!dnum(j.arrDate),
   );
-  // Zero tolerance, which is what this KPI has always meant and what is
-  // reported upward — unless the customer's own agreement registers a grace
-  // (customerTerms.ts: Lotus, thirty minutes, since 21 Sep 2026), the same
-  // table the API reads in JobRules.IsOnTime. The delay report's grace is
-  // chosen on screen and is a different question; both use `lateMinutes`.
-  const onTime = measurable.filter((j) => (lateMinutes(j) ?? 1) <= graceMinutes(j.customer));
+  // Zero tolerance unless the customer's registered term grants a grace for
+  // this job type. The API reads the same table in JobRules.IsOnTime.
+  const onTime = measurable.filter((j) => (lateMinutes(j) ?? 1) <= graceMinutes(j.customer, j.type));
 
   const dateCount: Record<string, number> = {};
   jobs.forEach((j) => { if (j.date) dateCount[j.date] = (dateCount[j.date] || 0) + 1; });

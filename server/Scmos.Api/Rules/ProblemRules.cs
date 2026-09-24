@@ -52,8 +52,9 @@ public static class ProblemRules
         StageDelayed,
 
         /// <summary>
-        /// Measured: the lorry arrived more than <see cref="JobRules.LateMinutes"/>
-        /// minutes after the plan said it would.
+        /// Measured: the lorry arrived beyond the operational threshold, which
+        /// is never lower than <see cref="JobRules.LateMinutes"/> and respects
+        /// a larger registered customer/job-type grace.
         ///
         /// Plan date and time against arrival date and time, through
         /// <see cref="JobRules.MinutesLate"/> — the same reading the carrier
@@ -139,7 +140,7 @@ public static class ProblemRules
         // Measured once and read three times below. The threshold is JobRules'
         // own, so this cannot drift away from what the scorecard calls late.
         var late = JobRules.MinutesLate(job);
-        if (late > JobRules.LateMinutes) problems.Add(Problem.ArrivedLate);
+        if (late > JobRules.OperationalDelayMinutes(job)) problems.Add(Problem.ArrivedLate);
 
         // Last, and only when nothing better has already spoken for this job: a
         // delay with a record or a marked stage behind it is described far
