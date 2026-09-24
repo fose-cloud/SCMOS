@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import * as XLSX from "xlsx";
 import { css } from "../theme";
 import { DIESEL, DIESEL_DEFAULT } from "../diesel";
 import { cell, paginate } from "../util";
 import { DataTable, type TableModel } from "../DataTable";
+import { ZoomBox } from "../TableFrame";
+import type { ManualChemoursRate } from "../chemoursManualRate";
 import {
   bandForDiesel, chemoursLaneKey, chemoursLayout, chemoursMargin, chemoursSellIndex,
   parseChemoursSellSheet, parseChemoursSheet, priceFor, reconcileChemoursBands,
@@ -272,7 +274,7 @@ const LABEL = "font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;co
 const CONTROL = "height:30px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;background:#fff";
 
 export function ChemoursRates({
-  card, sell, haulers, onLoad, onLoadSell, onSave, onSaveSell, canSave, saving, savingSell, dieselDefault = null, onToast,
+  card, sell, haulers, onLoad, onLoadSell, onSave, onSaveSell, onCreate, canSave, saving, savingSell, dieselDefault = null, onToast,
 }: {
   card: RateCard | null;
   /** This month's average off the Oil Rate tab, which the diesel box opens on; null when none is keyed yet. */
@@ -295,6 +297,8 @@ export function ChemoursRates({
   savingSell: boolean;
   /** Writes one haulier's part of the card to the register. */
   onSave: (hauler: string) => void;
+  /** Adds or updates one lane and writes the affected card immediately. */
+  onCreate: (input: ManualChemoursRate) => Promise<boolean>;
   /** False for an account that may read the card but not change it. */
   canSave: boolean;
   saving: boolean;
@@ -329,6 +333,74 @@ export function ChemoursRates({
   const [full, setFull] = useState(false);
   /** Whether the lanes behind the unpriced summary are listed out. */
   const [showGaps, setShowGaps] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [draft, setDraft] = useState<ManualChemoursRate>({
+    kind: "COST", carrier: "", from: "", to: "", postalCode: "", cargoType: "",
+    prices: {},
+  });
+
+  const draftBands = draft.kind === "SELL" ? sell?.bands ?? [] : card?.bands ?? [];
+
+  function blankPrices(width: number): Record<string, (number | null)[]> {
+    return Object.fromEntries(VEHICLES.map((vehicle) => [vehicle, Array<number | null>(width).fill(null)]));
+  }
+
+  function openCreator() {
+    const kind = card ? "COST" : "SELL";
+    const bands = kind === "COST" ? card?.bands ?? [] : sell?.bands ?? [];
+    setDraft({
+      kind,
+      carrier: carrier !== "ALL" ? carrier : loading.trim() || carriers[0] || haulers[0] || "",
+      from: "",
+      to: "",
+      postalCode: "",
+      cargoType: "",
+      prices: blankPrices(bands.length),
+    });
+    setCreating(true);
+  }
+
+  function changeKind(kind: "COST" | "SELL") {
+    const bands = kind === "SELL" ? sell?.bands ?? [] : card?.bands ?? [];
+    setDraft((held) => ({
+      ...held,
+      kind,
+      carrier: kind === "SELL" ? SELLER : (carrier !== "ALL" ? carrier : loading.trim() || carriers[0] || haulers[0] || ""),
+      prices: blankPrices(bands.length),
+    }));
+  }
+
+  function setDraftPrice(vehicle: string, position: number, raw: string) {
+    const clean = raw.replace(/,/g, "").trim();
+    const value = clean === "" ? null : Number(clean);
+    setDraft((held) => ({
+      ...held,
+      prices: {
+        ...held.prices,
+        [vehicle]: (held.prices[vehicle] ?? Array<number | null>(draftBands.length).fill(null))
+          .map((price, index) => index === position ? (value !== null && Number.isFinite(value) ? Math.round(value) : null) : price),
+      },
+    }));
+  }
+
+  async function submitCreator(event: FormEvent) {
+    event.preventDefault();
+    if (draft.kind === "COST" && !draft.carrier.trim()) { onToast("กรุณาเลือกผู้ขนส่ง"); return; }
+    if (!draft.from.trim() || !draft.to.trim() || !draft.postalCode.trim()) {
+      onToast("กรุณากรอกต้นทาง ปลายทาง และ ZIP ให้ครบ");
+      return;
+    }
+    if (!draftBands.length) { onToast("ยังไม่มีช่วงราคาสำหรับสร้างรายการนี้"); return; }
+    const hasPrice = Object.values(draft.prices).some((prices) =>
+      prices.some((rate) => rate !== null && rate > 0));
+    if (!hasPrice) { onToast("กรุณากรอกราคาอย่างน้อย 1 ช่อง"); return; }
+
+    setSubmitting(true);
+    const saved = await onCreate(draft);
+    setSubmitting(false);
+    if (saved) setCreating(false);
+  }
 
   const rows = useMemo(() => (card ? laneRows(card, carrier) : []), [card, carrier]);
 
@@ -554,6 +626,17 @@ export function ChemoursRates({
             </div>
 
             <div style={css("display:flex;gap:8px;margin-left:auto")}>
+              <button
+                onClick={openCreator}
+                disabled={!canSave || saving || savingSell}
+                title={canSave ? "เพิ่มหรืออัปเดตราคาค่าขนส่งด้วยแบบฟอร์ม" : "ต้องใช้บัญชีระดับ Assistant Manager ขึ้นไปจึงจะสร้างราคาได้"}
+                style={css("height:32px;padding:0 15px;border-radius:4px;font-size:12.5px;font-weight:700;font-family:inherit;"
+                  + (!canSave || saving || savingSell
+                    ? "border:1px solid #E7ECF2;background:#FAFBFC;color:#B4C0CC;cursor:default"
+                    : "border:1px solid #137CBD;background:#137CBD;color:#fff;cursor:pointer"))}
+              >
+                + สร้างราคาค่าขนส่ง
+              </button>
               {/* Whatever is on screen is what gets saved, one haulier at a
                   time underneath. It says which, so nobody has to work out what
                   the button is about to write. */}
@@ -598,6 +681,110 @@ export function ChemoursRates({
           </>
         )}
       </div>
+
+      {creating && (
+        <div
+          role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) setCreating(false); }}
+          style={css("position:fixed;inset:0;z-index:1200;background:rgba(5,25,48,.48);display:flex;align-items:center;justify-content:center;padding:22px")}
+        >
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chemours-create-rate-title"
+            onSubmit={(event) => void submitCreator(event)}
+            style={css("width:min(920px,96vw);max-height:90vh;overflow:auto;background:#fff;border-radius:8px;box-shadow:0 24px 70px rgba(0,0,0,.24)")}
+          >
+            <div style={css("position:sticky;top:0;z-index:2;background:#fff;border-bottom:1px solid #E3E8EE;padding:15px 18px;display:flex;align-items:center;justify-content:space-between")}>
+              <div>
+                <div id="chemours-create-rate-title" style={css("font-size:16px;font-weight:700;color:#0A2240")}>สร้างราคาค่าขนส่ง</div>
+                <div style={css("font-size:11.5px;color:#7B8CA0;margin-top:3px")}>เพิ่มเส้นทางใหม่ หรืออัปเดตราคารถในเส้นทางเดิม</div>
+              </div>
+              <button type="button" onClick={() => setCreating(false)} disabled={submitting} aria-label="ปิด"
+                style={css("width:30px;height:30px;border:1px solid #D8E0E8;background:#fff;border-radius:4px;cursor:pointer;color:#5B6B7C;font-size:18px")}>×</button>
+            </div>
+
+            <div style={css("padding:16px 18px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px")}>
+              <label style={css("grid-column:span 3;display:flex;flex-direction:column;gap:4px")}>
+                <span style={css(LABEL)}>ประเภทราคา</span>
+                <select value={draft.kind} onChange={(e) => changeKind(e.target.value as "COST" | "SELL")} style={css(CONTROL)}>
+                  <option value="COST" disabled={!card}>ราคาทุนผู้ขนส่ง</option>
+                  <option value="SELL" disabled={!sell}>ราคาขายลูกค้า</option>
+                </select>
+              </label>
+              <label style={css("grid-column:span 3;display:flex;flex-direction:column;gap:4px")}>
+                <span style={css(LABEL)}>ผู้ขนส่ง</span>
+                <input list="chemours-create-haulers" value={draft.kind === "SELL" ? SELLER : draft.carrier}
+                  disabled={draft.kind === "SELL"}
+                  onChange={(e) => setDraft((held) => ({ ...held, carrier: e.target.value }))}
+                  style={css(CONTROL)} placeholder="เลือกหรือพิมพ์ชื่อผู้ขนส่ง" />
+                <datalist id="chemours-create-haulers">{haulers.map((name) => <option key={name} value={name} />)}</datalist>
+              </label>
+              <label style={css("grid-column:span 3;display:flex;flex-direction:column;gap:4px")}>
+                <span style={css(LABEL)}>ต้นทาง</span>
+                <input value={draft.from} onChange={(e) => setDraft((held) => ({ ...held, from: e.target.value }))}
+                  style={css(CONTROL)} placeholder="เช่น Unithai (Bangna KM. 23)" />
+              </label>
+              <label style={css("grid-column:span 3;display:flex;flex-direction:column;gap:4px")}>
+                <span style={css(LABEL)}>ปลายทาง</span>
+                <input value={draft.to} onChange={(e) => setDraft((held) => ({ ...held, to: e.target.value }))}
+                  style={css(CONTROL)} placeholder="จังหวัด / เขต / ลูกค้า" />
+              </label>
+              <label style={css("grid-column:span 3;display:flex;flex-direction:column;gap:4px")}>
+                <span style={css(LABEL)}>ZIP</span>
+                <input value={draft.postalCode} onChange={(e) => setDraft((held) => ({ ...held, postalCode: e.target.value }))}
+                  style={css(CONTROL)} inputMode="numeric" placeholder="เช่น 13160" />
+              </label>
+              <label style={css("grid-column:span 3;display:flex;flex-direction:column;gap:4px;opacity:" + (draft.kind === "SELL" ? "1" : ".5"))}>
+                <span style={css(LABEL)}>ประเภทสินค้า</span>
+                <select value={draft.cargoType} disabled={draft.kind !== "SELL"}
+                  onChange={(e) => setDraft((held) => ({ ...held, cargoType: e.target.value }))} style={css(CONTROL)}>
+                  <option value="">ไม่ระบุ</option>
+                  <option value="Non-DG">Non-DG</option>
+                  <option value="DG">DG</option>
+                </select>
+              </label>
+            </div>
+
+            <div style={css("padding:0 18px 16px")}>
+              <div style={css("font-size:12px;font-weight:700;color:#0A2240;margin-bottom:7px")}>ราคา (บาท/เที่ยว) แยกตามช่วงน้ำมัน</div>
+              <div style={css("border:1px solid #DDE5EC;border-radius:5px;overflow:hidden")}>
+                <ZoomBox height="330px" zoomable={false}>
+                <table style={css("width:100%;border-collapse:collapse;font-size:12px")}>
+                  <thead><tr>
+                    <th style={css("position:sticky;top:0;background:#F4F7FA;text-align:left;padding:8px 10px;border-bottom:1px solid #DDE5EC")}>ช่วงน้ำมัน</th>
+                    {VEHICLES.map((vehicle) => <th key={vehicle} style={css("position:sticky;top:0;background:#F4F7FA;text-align:right;padding:8px 10px;border-bottom:1px solid #DDE5EC")}>{vehicle}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {draftBands.map((one, position) => (
+                      <tr key={`${one.label}-${position}`}>
+                        <td style={css("padding:6px 10px;border-bottom:1px solid #EDF1F5;color:#5B6B7C")}>{one.label}</td>
+                        {VEHICLES.map((vehicle) => (
+                          <td key={vehicle} style={css("padding:5px 8px;border-bottom:1px solid #EDF1F5;text-align:right")}>
+                            <input type="number" min="0" step="1"
+                              value={draft.prices[vehicle]?.[position] ?? ""}
+                              onChange={(e) => setDraftPrice(vehicle, position, e.target.value)}
+                              aria-label={`${vehicle} ${one.label}`}
+                              style={css(CONTROL + ";width:120px;text-align:right;font-family:'IBM Plex Mono',monospace")} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </ZoomBox>
+              </div>
+            </div>
+
+            <div style={css("position:sticky;bottom:0;background:#F8FAFC;border-top:1px solid #E3E8EE;padding:12px 18px;display:flex;justify-content:flex-end;gap:8px")}>
+              <button type="button" onClick={() => setCreating(false)} disabled={submitting}
+                style={css("height:32px;padding:0 15px;border:1px solid #C9D3DD;background:#fff;color:#40566B;border-radius:4px;font-family:inherit;cursor:pointer")}>ยกเลิก</button>
+              <button type="submit" disabled={submitting}
+                style={css("height:32px;padding:0 17px;border:1px solid #137CBD;background:#137CBD;color:#fff;border-radius:4px;font-family:inherit;font-weight:700;cursor:pointer")}>{submitting ? "กำลังบันทึก…" : "สร้างและบันทึกราคา"}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {!card ? (
         <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:22px 20px;font-size:12px;color:#7B8CA0;line-height:1.8;max-width:72ch")}>

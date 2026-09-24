@@ -5,6 +5,7 @@ import type { Job } from "../ops";
 import { useRemembered } from "../pageCache";
 import { apiFetch } from "../api";
 import { averageFor, expand, type DieselChange } from "../dieselMonth";
+import { upsertManualChemoursRate, type ManualChemoursRate } from "../chemoursManualRate";
 import { sheetToday } from "../rateSheetDrafts";
 import { CargoForm, type FormTemplate } from "./CargoForm";
 import { ChemoursCheck } from "./ChemoursCheck";
@@ -56,6 +57,7 @@ type StoredCard = {
   lanes: {
     id: number; carrier: string; from: string; to: string; postalCode: string;
     prices: Record<string, (number | null)[]>;
+    cargoType?: string;
   }[];
 };
 
@@ -71,7 +73,7 @@ function fromStored(stored: StoredCard): RateCard {
       from: lane.from,
       to: lane.to,
       county: lane.postalCode,
-      remark: "",
+      remark: lane.cargoType ?? "",
       prices: lane.prices,
     })),
     issues: [],
@@ -378,6 +380,71 @@ export function Chemours({ jobs, tab, canEditRates, canRecordDiesel = false, onO
     }
   }, [card, onToast]);
 
+  /** Creates or updates one route and persists the complete affected card. */
+  const createRate = useCallback(async (input: ManualChemoursRate) => {
+    const current = input.kind === "SELL" ? sell : card;
+    if (!current?.bands.length) {
+      onToast(input.kind === "SELL"
+        ? "ยังไม่มีช่วงราคาขาย กรุณานำเข้าการ์ดราคาขายก่อน"
+        : "ยังไม่มีช่วงราคาทุน กรุณานำเข้าการ์ดราคาผู้ขนส่งก่อน");
+      return false;
+    }
+
+    // Keep the spelling already in the register when the user chose the same
+    // carrier with different casing. SaveCardAsync scopes replacement by this
+    // exact value, so changing only the case must not create a second card.
+    const requested = input.kind === "SELL" ? SELLER : input.carrier.trim();
+    const storedCarrier = current.lanes.find((lane) =>
+      lane.carrier.trim().localeCompare(requested, undefined, { sensitivity: "accent" }) === 0)?.carrier
+      ?? requested;
+    const clean = { ...input, carrier: storedCarrier };
+    const next = upsertManualChemoursRate(current, clean);
+    const mine = next.lanes.filter((lane) => lane.carrier === storedCarrier);
+    const setBusy = input.kind === "SELL" ? setSavingSell : setSaving;
+
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/customer-rates", {
+        method: "PUT",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          customer: "CHEMOURS",
+          carrier: storedCarrier,
+          kind: input.kind,
+          bands: current.bands.map((band) => ({
+            label: band.label,
+            min: Number.isFinite(band.min) ? band.min : 0,
+            max: Number.isFinite(band.max) ? band.max : 9999,
+          })),
+          lanes: mine.map((lane) => ({
+            carrier: storedCarrier,
+            from: lane.from,
+            to: lane.to,
+            postalCode: lane.county,
+            cargoType: input.kind === "SELL" ? lane.remark : "",
+            prices: lane.prices,
+          })),
+        }),
+      });
+      const answer = await response.json().catch(() => null) as
+        { lanes?: number; prices?: number; message?: string } | null;
+      if (!response.ok) {
+        onToast(answer?.message ?? `สร้างราคาไม่สำเร็จ (${response.status})`);
+        return false;
+      }
+
+      if (input.kind === "SELL") setSell(next);
+      else setCard(next);
+      onToast(`บันทึกราคาค่าขนส่งแล้ว · ${input.from.trim()} → ${input.to.trim()}`);
+      return true;
+    } catch (error) {
+      onToast("สร้างราคาไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [card, sell, onToast, setCard, setSell]);
+
   /** The whole set of receipt shapes, replaced together — see the note on the endpoint. */
   const saveTemplates = useCallback(async (rows: FormTemplate[]) => {
     const response = await apiFetch("/api/cargo-forms", {
@@ -416,6 +483,7 @@ export function Chemours({ jobs, tab, canEditRates, canRecordDiesel = false, onO
       onSaveSell={saveSelling}
       savingSell={savingSell}
       onSave={saveCard}
+      onCreate={createRate}
       canSave={canEditRates}
       saving={saving}
       dieselDefault={thisMonthAverage}
