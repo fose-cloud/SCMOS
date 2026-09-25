@@ -17,6 +17,8 @@ public static class CarrierEndpoints
 {
     public record AcceptBody(long? RequestId, string? Licence, string? Driver, string? Contact);
     public record DeclineBody(long? RequestId, string? ReasonCode, string? Remark, string? Reason = null);
+    public record ResourcesBody(int TruckId, int? TrailerId, int DriverId);
+    public record StatusBody(string? Type, DateTimeOffset? At, string? Remark);
 
     public static void MapCarrier(this IEndpointRouteBuilder routes)
     {
@@ -76,12 +78,37 @@ public static class CarrierEndpoints
 
             return Results.Json(new { message = result.Message, replayed = result.Replayed, assignmentId = result.AssignmentId });
         });
+
+        group.MapPut("/{jobKey}/resources", async (string jobKey, [FromBody] ResourcesBody body,
+            HttpContext context, IUserAccessor users, CarrierService carriers, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var result = await carriers.AssignResourcesAsync(user, jobKey,
+                body.TruckId, body.TrailerId, body.DriverId, token);
+            return result.Ok
+                ? Results.Json(new { message = result.Message, replayed = result.Replayed })
+                : ApiResults.Error(result.Message, Status(result.Code));
+        });
+
+        group.MapPost("/{jobKey}/status", async (string jobKey, [FromBody] StatusBody body,
+            HttpContext context, IUserAccessor users, CarrierService carriers, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var result = await carriers.AdvanceAsync(user, jobKey, body.Type ?? "",
+                body.At, body.Remark ?? "", token);
+            return result.Ok
+                ? Results.Json(new { message = result.Message, replayed = result.Replayed,
+                    status = result.Written?.GetValueOrDefault("status") })
+                : ApiResults.Error(result.Message, Status(result.Code));
+        });
     }
 
     private static int Status(string code) => code switch
     {
         CarrierService.ResultCode.NoCompany => StatusCodes.Status403Forbidden,
-        CarrierService.ResultCode.NotOffered => StatusCodes.Status404NotFound,
+        CarrierService.ResultCode.NotOffered or CarrierService.ResultCode.NotHeld => StatusCodes.Status404NotFound,
         CarrierService.ResultCode.Closed or CarrierService.ResultCode.Conflict => StatusCodes.Status409Conflict,
         _ => StatusCodes.Status400BadRequest,
     };

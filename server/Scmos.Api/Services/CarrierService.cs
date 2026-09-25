@@ -21,8 +21,13 @@ namespace Scmos.Api.Services;
 /// without one and a read-only account wrote to the register for a week.
 /// </summary>
 public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterCache register, CarrierTenantContext tenants,
-    ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
+    AuditService audit, ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
 {
+    public record FleetTruck(int Id, string Plate, string VehicleType, bool DgCapable, string RegistrationExpiry);
+    public record FleetDriver(int Id, string Name, string Phone, string LicenceNo, string LicenceExpiry, string TrainingExpiry);
+    public record CarrierOperationView(long Id, string Kind, string From, string To, string Note,
+        string By, DateTimeOffset RecordedAt, DateTimeOffset? EventAt);
+
     /// <param name="Category">IMPORT · EXPORT · DELIVERY — which ladder the status is on.</param>
     /// <param name="Booking">The booking, on an import or export.</param>
     /// <param name="PlanTime">The plan clock, beside <paramref name="Date"/>.</param>
@@ -35,13 +40,17 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         string Licence, string Driver, string Contact,
         string Category = "", string Booking = "", string PlanTime = "", string Plant = "", string ReturnLoc = "",
         string ArrDate = "", string ArrTime = "", string Seal = "", DateTimeOffset? RespondedAt = null,
-        string AssignmentOutcome = "", bool OperationalAvailable = false);
+        string AssignmentOutcome = "", bool OperationalAvailable = false,
+        IReadOnlyList<CarrierOperationView>? Operations = null,
+        IReadOnlyList<DocumentView>? Pods = null);
 
     public record Portal(
         int SupplierId, string SupplierName,
         IReadOnlyList<CarrierJob> Offered,
         IReadOnlyList<CarrierJob> Accepted,
-        IReadOnlyList<CarrierJob> Schedule);
+        IReadOnlyList<CarrierJob> Schedule,
+        IReadOnlyList<FleetTruck>? Trucks = null,
+        IReadOnlyList<FleetDriver>? Drivers = null);
 
     /// <param name="Before">
     /// What the job held before the change, so the caller can record it. The
@@ -153,7 +162,7 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
             || all.ValueKind != System.Text.Json.JsonValueKind.Array)
         {
             log.LogError("The register did not come back in the expected shape; showing this carrier nothing.");
-            return new Portal(company.Id, company.Name, [], [], []);
+            return new Portal(company.Id, company.Name, [], [], [], [], []);
         }
 
         var offered = new List<CarrierJob>();
@@ -185,11 +194,43 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
                 accepted.Add(Describe(row, key, null));
         }
 
+        var acceptedKeys = accepted.Select(job => job.Key).ToList();
+        var history = acceptedKeys.Count == 0
+            ? []
+            : await db.WorkflowEvents.AsNoTracking()
+                .Where(row => acceptedKeys.Contains(row.JobKey) && row.Kind.StartsWith("carrier-"))
+                .OrderBy(row => row.At).ToListAsync(token);
+        var pods = acceptedKeys.Count == 0
+            ? []
+            : await db.Documents.AsNoTracking()
+                .Where(row => acceptedKeys.Contains(row.JobKey) && row.Folder == "POD")
+                .OrderBy(row => row.UploadedAt).ToListAsync(token);
+        accepted = accepted.Select(job => job with
+        {
+            Operations = history.Where(row => row.JobKey == job.Key)
+                .Select(row => new CarrierOperationView(row.Id, row.Kind, row.FromStage, row.ToStage,
+                    row.Note, row.By, row.At, row.EventAt)).ToList(),
+            Pods = pods.Where(row => row.JobKey == job.Key).Select(DocumentService.Describe).ToList(),
+        }).ToList();
+
+        var trucks = await db.SupplierTrucks.AsNoTracking()
+            .Where(row => row.SupplierId == company.Id && row.Status == "active")
+            .OrderBy(row => row.Plate)
+            .Select(row => new FleetTruck(row.Id, row.Plate, row.VehicleType, row.DgCapable, row.RegistrationExpiry))
+            .ToListAsync(token);
+        var drivers = await db.SupplierDrivers.AsNoTracking()
+            .Where(row => row.SupplierId == company.Id && row.Status == "active")
+            .OrderBy(row => row.Name)
+            .Select(row => new FleetDriver(row.Id, row.Name, row.Phone, row.LicenceNo,
+                row.LicenceExpiry, row.TrainingExpiry)).ToListAsync(token);
+
         var schedule = accepted.OrderByDescending(job => job.Date).ToList();
         return new Portal(company.Id, company.Name,
             offered.OrderBy(job => job.RequestedAt ?? DateTimeOffset.MaxValue).ToList(),
             schedule,
-            schedule);
+            schedule,
+            trucks,
+            drivers);
     }
 
     /// <summary>
@@ -406,6 +447,149 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         job.UpdatedBy = by;
         job.UpdatedAt = DateTimeOffset.UtcNow;
         return true;
+    }
+
+    /// <summary>
+    /// Assigns registered resources owned by this carrier. Reassigning is
+    /// allowed while the job is open and appends another WorkflowEvent, so the
+    /// previous plate and driver remain explainable after the register changes.
+    /// </summary>
+    public async Task<Result> AssignResourcesAsync(AppUser user, string jobKey, int truckId,
+        int? trailerId, int driverId, CancellationToken token)
+    {
+        var company = await CompanyOfAsync(user, token);
+        if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", Code: ResultCode.NoCompany);
+        var names = await NamesOfAsync(company, token);
+        if (!await OwnsHeldJobAsync(company, names, jobKey, token))
+            return new Result(false, "งานนี้ไม่ได้อยู่กับบริษัทนี้", Code: ResultCode.NotHeld);
+        if (truckId <= 0 || driverId <= 0 || trailerId == truckId)
+            return new Result(false, "ต้องเลือกรถและคนขับจากทะเบียนของบริษัท", Code: ResultCode.Invalid);
+
+        var truck = await db.SupplierTrucks.AsNoTracking().FirstOrDefaultAsync(row =>
+            row.Id == truckId && row.SupplierId == company.Id && row.Status == "active", token);
+        var trailer = trailerId is null ? null : await db.SupplierTrucks.AsNoTracking().FirstOrDefaultAsync(row =>
+            row.Id == trailerId && row.SupplierId == company.Id && row.Status == "active", token);
+        var driver = await db.SupplierDrivers.AsNoTracking().FirstOrDefaultAsync(row =>
+            row.Id == driverId && row.SupplierId == company.Id && row.Status == "active", token);
+        if (truck is null || driver is null || (trailerId is not null && trailer is null))
+            return new Result(false, "รถหรือคนขับไม่ได้อยู่ในทะเบียนที่ใช้งานของบริษัทนี้", Code: ResultCode.NotHeld);
+
+        var before = await jobs.SnapshotAsync([jobKey], token);
+        if (!before.TryGetValue(jobKey, out var fields))
+            return new Result(false, "ไม่พบงานนี้", Code: ResultCode.NotHeld);
+        var status = fields.GetValueOrDefault("status", "");
+        if (string.Equals(status, JobStatus.Completed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, JobStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+            return new Result(false, $"งานนี้ปิดแล้ว ({status})", Code: ResultCode.Closed);
+
+        var licence = trailer is null ? truck.Plate : $"{truck.Plate} / {trailer.Plate}";
+        var ladder = JobStatus.For(fields.GetValueOrDefault("cat", ""));
+        var currentAt = Array.FindIndex(ladder, value => string.Equals(value, status, StringComparison.OrdinalIgnoreCase));
+        var assignedAt = Array.FindIndex(ladder, value => value == JobStatus.TruckAssigned);
+        var nextStatus = currentAt >= assignedAt ? status : JobStatus.TruckAssigned;
+        var writes = new Dictionary<string, string>
+        {
+            ["licence"] = licence,
+            ["driver"] = driver.Name,
+            ["contact"] = driver.Phone,
+            ["status"] = nextStatus,
+        };
+        var previous = new Dictionary<string, string>
+        {
+            ["licence"] = fields.GetValueOrDefault("licence", ""),
+            ["driver"] = fields.GetValueOrDefault("driver", ""),
+            ["contact"] = fields.GetValueOrDefault("contact", ""),
+            ["status"] = status,
+        };
+        if (writes.All(pair => string.Equals(pair.Value, previous.GetValueOrDefault(pair.Key),
+                StringComparison.OrdinalIgnoreCase)))
+            return new Result(true, "รถและคนขับชุดนี้ถูกจัดไว้แล้ว", Written: writes,
+                Previous: previous, Replayed: true);
+
+        if (!await ApplyJobFieldsAsync(jobKey, writes, user.Signature, token))
+            return new Result(false, "บันทึกข้อมูลรถไม่สำเร็จ", Code: ResultCode.Failed);
+
+        var stage = Workflow.FromStatus(status).ToString();
+        var note = $"truck:{truck.Id}:{truck.Plate};trailer:{trailer?.Id}:{trailer?.Plate};driver:{driver.Id}:{driver.Name}";
+        db.WorkflowEvents.Add(new WorkflowEvent
+        {
+            JobKey = jobKey, Kind = "carrier-resources", FromStage = stage, ToStage = Stage.SupplierAssigned.ToString(),
+            Note = note, By = user.Signature, At = DateTimeOffset.UtcNow, Source = "web",
+        });
+        audit.Stage(user, AuditActions.Assign, "job", jobKey, jobKey, "truck-driver",
+            $"{previous["licence"]} · {previous["driver"]}", $"{licence} · {driver.Name}",
+            "Carrier Portal");
+        await db.SaveChangesAsync(token);
+        register.Invalidate();
+        return new Result(true, $"จัดรถ {licence} · {driver.Name} แล้ว", Written: writes, Previous: previous);
+    }
+
+    /// <summary>Moves an accepted job forward on SCMOS's existing ladder.</summary>
+    public async Task<Result> AdvanceAsync(AppUser user, string jobKey, string type,
+        DateTimeOffset? eventAt, string remark, CancellationToken token)
+    {
+        var company = await CompanyOfAsync(user, token);
+        if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", Code: ResultCode.NoCompany);
+        var names = await NamesOfAsync(company, token);
+        if (!await OwnsHeldJobAsync(company, names, jobKey, token))
+            return new Result(false, "งานนี้ไม่ได้อยู่กับบริษัทนี้", Code: ResultCode.NotHeld);
+
+        var job = await db.OperationJobs.FirstOrDefaultAsync(row => row.Key == jobKey, token);
+        if (job is null) return new Result(false, "ไม่พบงานนี้", Code: ResultCode.NotHeld);
+        var decision = CarrierOperations.Decide(job.Cat, job.Status, type);
+        if (decision.Decision == CarrierOperationDecision.Replay)
+            return new Result(true, decision.Message, Replayed: true);
+        if (decision.Decision == CarrierOperationDecision.Refuse)
+            return new Result(false, decision.Message, Code: ResultCode.Conflict);
+
+        var at = eventAt ?? DateTimeOffset.UtcNow;
+        var (readAt, problem) = CarrierEvent.ReadAt(at.ToString("O"), DateTimeOffset.UtcNow);
+        if (readAt is null) return new Result(false, problem ?? "เวลาไม่ถูกต้อง", Code: ResultCode.Invalid);
+        var oldStatus = job.Status;
+        if (!await ApplyJobFieldsAsync(jobKey,
+                new Dictionary<string, string> { ["status"] = decision.TargetStatus }, user.Signature, token))
+            return new Result(false, "บันทึกสถานะไม่สำเร็จ", Code: ResultCode.Failed);
+
+        var stageName = decision.Stage.ToString();
+        var milestone = await db.ShipmentMilestones.FirstOrDefaultAsync(row =>
+            row.JobKey == jobKey && row.Stage == stageName, token);
+        if (milestone is null)
+        {
+            milestone = new ShipmentMilestone { JobKey = jobKey, Stage = stageName, Carrier = company.Name };
+            db.ShipmentMilestones.Add(milestone);
+        }
+        milestone.ActualAt = readAt;
+        milestone.Status = "done";
+        milestone.Remark = remark.Trim();
+        milestone.UpdatedBy = user.Signature;
+        milestone.UpdatedAt = DateTimeOffset.UtcNow;
+
+        db.WorkflowEvents.Add(new WorkflowEvent
+        {
+            JobKey = jobKey, Kind = "carrier-status", FromStage = Workflow.FromStatus(oldStatus).ToString(),
+            ToStage = stageName, Note = remark.Trim(), By = user.Signature, At = DateTimeOffset.UtcNow,
+            EventAt = readAt, Source = "web",
+        });
+        audit.Stage(user, AuditActions.StatusChange, "job", jobKey, job.JobCode, "status",
+            oldStatus, decision.TargetStatus, remark.Trim().Length > 0 ? remark.Trim() : "Carrier Portal");
+        await db.SaveChangesAsync(token);
+        register.Invalidate();
+        return new Result(true, $"บันทึกสถานะ {decision.TargetStatus} แล้ว",
+            Written: new Dictionary<string, string> { ["status"] = decision.TargetStatus },
+            Previous: new Dictionary<string, string> { ["status"] = oldStatus });
+    }
+
+    private async Task<bool> OwnsHeldJobAsync(Supplier company, IReadOnlySet<string> names,
+        string jobKey, CancellationToken token)
+    {
+        var assignments = await db.SupplierRequests.AsNoTracking()
+            .Where(row => row.JobKey == jobKey).ToListAsync(token);
+        if (assignments.Count > 0)
+            return assignments.Any(row => row.Outcome == CarrierAssignment.Confirmed
+                && CarrierAssignment.BelongsTo(row.SupplierId, row.Carrier, company.Id, names));
+        var carrier = await db.OperationJobs.AsNoTracking().Where(row => row.Key == jobKey)
+            .Select(row => row.Trucker).FirstOrDefaultAsync(token);
+        return carrier is not null && names.Contains(carrier.Trim());
     }
 
     /// <summary>

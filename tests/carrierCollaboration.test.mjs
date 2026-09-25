@@ -40,7 +40,7 @@ test("carrier answers name the exact assignment and stale assignments are refuse
   assert.match(portal, /requestId: job\.requestId/);
   assert.match(workflow, /accept\/reject ต้องมาจาก Carrier/);
   assert.doesNotMatch(panel, /label="ยืนยันรับงาน"/);
-  assert.match(carrierApi, /ResultCode\.NotOffered => StatusCodes\.Status404NotFound/);
+  assert.match(carrierApi, /ResultCode\.NotOffered(?: or CarrierService\.ResultCode\.NotHeld)? => StatusCodes\.Status404NotFound/);
 });
 
 test("accept and reject replay without a second audit side effect", () => {
@@ -57,7 +57,7 @@ test("stable supplier identity wins and aliases only support historical rows", (
 
 test("accepted work is a schedule projection of the original SCMOS Job", () => {
   assert.match(carrier, /IReadOnlyList<CarrierJob> Schedule/);
-  assert.match(carrier, /schedule,\s*schedule\);/);
+  assert.match(carrier, /schedule,\s*schedule,\s*trucks,\s*drivers\);/);
   assert.match(portal, /ตารางงาน/);
   assert.match(portal, /รอจัดรถและคนขับ/);
 });

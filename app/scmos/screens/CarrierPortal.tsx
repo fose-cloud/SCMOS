@@ -14,10 +14,9 @@ import { css } from "../theme";
  * `/api/carrier`, which answers for one supplier and refuses an account tied to
  * none. It never touches `/api/jobs`.
  *
- * Accepting is one action with three required fields. A carrier who confirms
- * without a plate has moved the job into a state that reads as arranged and
- * still cannot be dispatched — and somebody has to ring them again for the one
- * thing the operator was waiting for.
+ * Acceptance and operations are deliberately separate actions. After a carrier
+ * accepts work, resource assignment is restricted to its active fleet registry;
+ * every reassignment and operational transition is retained as history.
  */
 
 type CarrierJob = {
@@ -26,23 +25,55 @@ type CarrierJob = {
   status: string; requestId: number | null; quotedPrice: number | null;
   requestedAt: string | null; licence: string; driver: string; contact: string;
   assignmentOutcome?: string; operationalAvailable?: boolean;
+  operations?: Operation[]; pods?: Pod[];
 };
+
+type Operation = { id: number; kind: string; from: string; to: string; note: string; by: string; recordedAt: string; eventAt: string | null };
+type Pod = { id: number; fileName: string; uploadedAt: string };
+type FleetTruck = { id: number; plate: string; vehicleType: string; dgCapable: boolean; registrationExpiry: string };
+type FleetDriver = { id: number; name: string; phone: string; licenceNo: string; licenceExpiry: string; trainingExpiry: string };
 
 type Portal = {
   supplierId: number; supplierName: string;
   offered: CarrierJob[]; accepted: CarrierJob[]; schedule?: CarrierJob[];
+  trucks: FleetTruck[]; drivers: FleetDriver[];
 };
 
 type Draft = { licence: string; driver: string; contact: string };
+type ScheduleView = "today" | "tomorrow" | "week" | "calendar" | "unassigned" | "active" | "completed";
 const EMPTY: Draft = { licence: "", driver: "", contact: "" };
+
+function localDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function jobDateKey(value: string) {
+  const clean = value.trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(clean);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const local = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(clean);
+  if (!local) return "";
+  return `${local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
+}
 
 export function CarrierPortal({ onToast }: { onToast: (message: string) => void }) {
   const [portal, setPortal] = useRemembered<Portal>("carrier-portal");
   const [refused, setRefused] = useState("");
   const [tab, setTab] = useState<"new" | "schedule">("new");
+  const [scheduleView, setScheduleView] = useState<ScheduleView>("active");
+  const [calendarDate, setCalendarDate] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [operate, setOperate] = useState<string | null>(null);
+  const [truckId, setTruckId] = useState("");
+  const [trailerId, setTrailerId] = useState("");
+  const [driverId, setDriverId] = useState("");
+  const [nextStatus, setNextStatus] = useState("dispatched");
+  const [remark, setRemark] = useState("");
 
   const load = useCallback(async () => {
     const response = await apiFetch("/api/carrier", { headers: { accept: "application/json" } });
@@ -72,6 +103,47 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     } finally { setBusy(false); }
   }
 
+  async function saveResources(job: CarrierJob) {
+    if (busy || !truckId || !driverId) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier/${encodeURIComponent(job.key)}/resources`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ truckId: Number(truckId), trailerId: trailerId ? Number(trailerId) : null, driverId: Number(driverId) }),
+      });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "จัดรถไม่สำเร็จ");
+      if (response.ok) await load();
+    } finally { setBusy(false); }
+  }
+
+  async function saveStatus(job: CarrierJob) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier/${encodeURIComponent(job.key)}/status`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: nextStatus, remark }),
+      });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "บันทึกสถานะไม่สำเร็จ");
+      if (response.ok) { setRemark(""); await load(); }
+    } finally { setBusy(false); }
+  }
+
+  async function uploadPod(job: CarrierJob, file: File | null) {
+    if (!file || busy) return;
+    const body = new FormData();
+    body.append("jobKey", job.key); body.append("folder", "POD"); body.append("kind", "pod"); body.append("file", file);
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/documents", { method: "POST", body });
+      const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(reply.message ?? reply.error ?? "อัปโหลด POD ไม่สำเร็จ");
+      if (response.ok) await load();
+    } finally { setBusy(false); }
+  }
+
   if (refused) {
     return (
       <div style={css("background:#fff;border:1px solid #F0D8B8;border-left:3px solid #B45309;border-radius:6px;padding:20px 22px")}>
@@ -85,7 +157,25 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     return <div style={css("padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>กำลังโหลด…</div>;
   }
 
-  const rows = tab === "new" ? portal.offered : (portal.schedule ?? portal.accepted);
+  const schedule = portal.schedule ?? portal.accepted;
+  const now = new Date();
+  const today = localDateKey(now);
+  const tomorrowAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const tomorrow = localDateKey(tomorrowAt);
+  const weekEndAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 6);
+  const weekEnd = localDateKey(weekEndAt);
+  const scheduleRows = schedule.filter((job) => {
+    const date = jobDateKey(job.date);
+    const status = job.status.trim().toUpperCase();
+    if (scheduleView === "today") return date === today;
+    if (scheduleView === "tomorrow") return date === tomorrow;
+    if (scheduleView === "week") return date >= today && date <= weekEnd;
+    if (scheduleView === "calendar") return date === calendarDate;
+    if (scheduleView === "unassigned") return !job.licence.trim();
+    if (scheduleView === "completed") return status === "COMPLETED";
+    return status !== "COMPLETED" && status !== "CANCELLED";
+  });
+  const rows = tab === "new" ? portal.offered : scheduleRows;
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
@@ -112,9 +202,31 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
           })}
       </div>
 
+      {tab === "schedule" && (
+        <div style={css("display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:9px 10px")}>
+          {([
+            ["today", "วันนี้"], ["tomorrow", "พรุ่งนี้"], ["week", "7 วัน"],
+            ["calendar", "ปฏิทิน"], ["unassigned", "รอจัดรถ"], ["active", "กำลังดำเนินการ"], ["completed", "เสร็จแล้ว"],
+          ] as const).map(([id, label]) => {
+            const on = scheduleView === id;
+            return <button key={id} onClick={() => {
+                setScheduleView(id);
+                if (id === "calendar" && !calendarDate) setCalendarDate(today);
+              }}
+              style={css("height:29px;padding:0 11px;border:1px solid " + (on ? "#0A5C97" : "#D3DBE3") +
+                ";background:" + (on ? "#EAF4FC" : "#fff") + ";color:" + (on ? "#0A5C97" : "#5A6B7D") +
+                ";border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit")}>{label}</button>;
+          })}
+          {scheduleView === "calendar" && <input type="date" value={calendarDate}
+            onChange={(event) => setCalendarDate(event.target.value)}
+            style={css("height:29px;padding:0 8px;border:1px solid #9CC2E8;border-radius:4px;font-size:11.5px;font-family:inherit")} />}
+          <span style={css("margin-left:auto;font-size:11.5px;color:#7B8CA0")}>{scheduleRows.length} งาน</span>
+        </div>
+      )}
+
       {rows.length === 0 && (
         <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>
-          {tab === "new" ? "ยังไม่มีงานใหม่ส่งเข้ามา" : "ยังไม่มีงานที่รับไว้"}
+          {tab === "new" ? "ยังไม่มีงานใหม่ส่งเข้ามา" : "ไม่พบงานในมุมมองนี้"}
         </div>
       )}
 
@@ -152,6 +264,79 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
                 </div>
               )}
             </div>
+
+            {tab === "schedule" && (
+              <div style={css("margin-top:11px")}>
+                <button onClick={() => {
+                    const opening = operate !== job.key;
+                    setOperate(opening ? job.key : null);
+                    if (opening) { setTruckId(""); setTrailerId(""); setDriverId(""); setRemark(""); }
+                  }}
+                  style={css("height:30px;padding:0 13px;border:1px solid #9CC2E8;background:#F4F8FC;color:#0A5C97;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer")}>
+                  {operate === job.key ? "ปิดการจัดการงาน" : "จัดรถ · อัปเดตสถานะ · POD"}
+                </button>
+              </div>
+            )}
+
+            {tab === "schedule" && operate === job.key && (
+              <div style={css("margin-top:12px;padding-top:12px;border-top:1px solid #E9EFF5;display:flex;flex-direction:column;gap:13px")}>
+                <div>
+                  <div style={css("font-size:12px;font-weight:650;color:#0F2B46;margin-bottom:7px")}>จัดรถและคนขับจากทะเบียนบริษัท</div>
+                  <div style={css("display:flex;gap:8px;flex-wrap:wrap;align-items:end")}>
+                    <Pick label="รถ" value={truckId} onChange={setTruckId}>
+                      <option value="">เลือกรถ</option>
+                      {portal.trucks.map((one) => <option key={one.id} value={one.id}>{one.plate} · {one.vehicleType}</option>)}
+                    </Pick>
+                    <Pick label="หาง (ถ้ามี)" value={trailerId} onChange={setTrailerId}>
+                      <option value="">ไม่ระบุ</option>
+                      {portal.trucks.filter((one) => String(one.id) !== truckId).map((one) => <option key={one.id} value={one.id}>{one.plate} · {one.vehicleType}</option>)}
+                    </Pick>
+                    <Pick label="คนขับ" value={driverId} onChange={setDriverId}>
+                      <option value="">เลือกคนขับ</option>
+                      {portal.drivers.map((one) => <option key={one.id} value={one.id}>{one.name} · {one.phone || "ไม่มีเบอร์"}</option>)}
+                    </Pick>
+                    <button disabled={busy || !truckId || !driverId} onClick={() => void saveResources(job)}
+                      style={css("height:31px;padding:0 14px;border:0;background:#16794C;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;opacity:" + (busy || !truckId || !driverId ? ".55" : "1"))}>
+                      บันทึกการจัดรถ
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={css("font-size:12px;font-weight:650;color:#0F2B46;margin-bottom:7px")}>สถานะการขนส่ง</div>
+                  <div style={css("display:flex;gap:8px;flex-wrap:wrap;align-items:end")}>
+                    <Pick label="สถานะถัดไป" value={nextStatus} onChange={setNextStatus}>
+                      <option value="dispatched">รถออกแล้ว</option><option value="picked_up">รับตู้/สินค้าแล้ว</option>
+                      <option value="loading">กำลังขนถ่าย</option><option value="in_transit">ระหว่างขนส่ง</option>
+                      <option value="delivered">ส่งมอบแล้ว</option><option value="container_returned">คืนตู้แล้ว</option>
+                      <option value="delivery_complete">Delivery Complete</option>
+                    </Pick>
+                    <Field label="หมายเหตุ" width="260px" value={remark} onChange={setRemark} placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)" />
+                    <button disabled={busy} onClick={() => void saveStatus(job)}
+                      style={css("height:31px;padding:0 14px;border:0;background:#0A5C97;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>
+                      บันทึกสถานะ
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={css("font-size:12px;font-weight:650;color:#0F2B46;margin-bottom:7px")}>POD / หลักฐานส่งมอบ</div>
+                  <input type="file" disabled={busy} onChange={(event) => void uploadPod(job, event.target.files?.[0] ?? null)} />
+                  {(job.pods?.length ?? 0) > 0 && <div style={css("font-size:11.5px;color:#5A6B7D;margin-top:6px")}>
+                    {job.pods!.map((one) => <a key={one.id} href={`/api/documents/${one.id}/content`} target="_blank" rel="noreferrer"
+                      style={css("color:#0A5C97;margin-right:10px")}>{one.fileName}</a>)}
+                  </div>}
+                </div>
+
+                {(job.operations?.length ?? 0) > 0 && <div>
+                  <div style={css("font-size:12px;font-weight:650;color:#0F2B46;margin-bottom:6px")}>ประวัติการปฏิบัติงาน</div>
+                  {job.operations!.slice().reverse().map((one) => <div key={one.id}
+                    style={css("font-size:11.5px;color:#5A6B7D;padding:4px 0;border-top:1px solid #EFF3F7")}>
+                    {one.to} · {one.note || "—"} · {new Date(one.eventAt ?? one.recordedAt).toLocaleString("th-TH")}
+                  </div>)}
+                </div>}
+              </div>
+            )}
 
             {tab === "new" && !editing && (
               <div style={css("display:flex;gap:8px;margin-top:12px;flex-wrap:wrap")}>
@@ -214,6 +399,20 @@ function Field({ label, width, value, onChange, placeholder }: {
       <span style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</span>
       <input value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)}
         style={css("height:31px;padding:0 9px;border:1px solid #D3DBE3;border-radius:4px;font-size:12.5px;font-family:inherit;width:100%")} />
+    </label>
+  );
+}
+
+function Pick({ label, value, onChange, children }: {
+  label: string; value: string; onChange: (value: string) => void; children: React.ReactNode;
+}) {
+  return (
+    <label style={css("display:flex;flex-direction:column;gap:4px;min-width:190px")}>
+      <span style={css("font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}
+        style={css("height:31px;padding:0 8px;border:1px solid #D3DBE3;border-radius:4px;background:#fff;font-size:12px;font-family:inherit")}>
+        {children}
+      </select>
     </label>
   );
 }

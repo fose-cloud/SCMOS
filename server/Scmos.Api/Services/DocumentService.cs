@@ -312,9 +312,17 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
         CancellationToken token)
     {
         var names = carrier.Names.ToList();
-        var jobKeys = await db.OperationJobs.AsNoTracking()
-            .Where(row => names.Contains(row.Trucker.Trim()))
+        var assignmentKeys = await db.SupplierRequests.AsNoTracking()
+            .Where(row => row.Outcome == CarrierAssignment.Confirmed
+                && (row.SupplierId == carrier.SupplierId
+                    || (row.SupplierId == null && names.Contains(row.Carrier))))
+            .Select(row => row.JobKey).ToListAsync(token);
+        var jobsWithHistory = await db.SupplierRequests.AsNoTracking()
+            .Select(row => row.JobKey).Distinct().ToListAsync(token);
+        var legacyKeys = await db.OperationJobs.AsNoTracking()
+            .Where(row => names.Contains(row.Trucker.Trim()) && !jobsWithHistory.Contains(row.Key))
             .Select(row => row.Key).ToListAsync(token);
+        var jobKeys = assignmentKeys.Concat(legacyKeys).Distinct(StringComparer.Ordinal).ToList();
         var driverIds = await db.Drivers.AsNoTracking()
             .Where(row => row.SupplierId == carrier.SupplierId)
             .Select(row => row.Id).ToListAsync(token);

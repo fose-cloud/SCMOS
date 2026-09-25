@@ -321,6 +321,7 @@ if (SupplierComplianceCheck.Run(args) is int complianceExit) return complianceEx
 if (JobTransferCheck.Run(args) is int jobTransferExit) return jobTransferExit;
 if (CarrierBillingFoundationCheck.Run(args) is int carrierBillingFoundationExit) return carrierBillingFoundationExit;
 if (CarrierCollaborationCheck.Run(args) is int carrierCollaborationExit) return carrierCollaborationExit;
+if (CarrierOperationsCheck.Run(args) is int carrierOperationsExit) return carrierOperationsExit;
 
 if (args.Contains("--seed"))
 {

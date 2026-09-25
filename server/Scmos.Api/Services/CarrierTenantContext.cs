@@ -95,6 +95,15 @@ public class CarrierDocumentAccess(ScmosDbContext db, CarrierTenantContext tenan
         var tenant = await tenants.ResolveAsync(user, token);
         if (tenant is null || string.IsNullOrWhiteSpace(jobKey)) return false;
 
+        var assignments = await db.SupplierRequests.AsNoTracking()
+            .Where(row => row.JobKey == jobKey).ToListAsync(token);
+        if (assignments.Count > 0)
+            return assignments.Any(row => row.Outcome == CarrierAssignment.Confirmed
+                && CarrierAssignment.BelongsTo(row.SupplierId, row.Carrier,
+                    tenant.SupplierId, tenant.Names));
+
+        // Alias fallback is only for historical jobs created before assignment
+        // rows existed. Once history exists, the stable SupplierId decides.
         var carrier = await db.OperationJobs.AsNoTracking()
             .Where(row => row.Key == jobKey)
             .Select(row => row.Trucker)
