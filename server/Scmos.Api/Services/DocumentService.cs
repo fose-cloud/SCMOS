@@ -298,7 +298,37 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     public async Task<IReadOnlyList<DocumentView>> ListAsync(string? jobKey, int? supplierId,
         long? caseId, long? issueId, string? folder, CancellationToken token)
     {
-        var query = db.Documents.AsNoTracking();
+        var query = FilterList(db.Documents.AsNoTracking(), jobKey, supplierId, caseId, issueId, folder);
+        return await ReadListAsync(query, token);
+    }
+
+    /// <summary>
+    /// Lists only this carrier's records before applying the 500-row bound. A
+    /// post-query filter would be secure but could hide an older owned file
+    /// behind newer files belonging to other suppliers.
+    /// </summary>
+    public async Task<IReadOnlyList<DocumentView>> ListForCarrierAsync(CarrierTenant carrier,
+        string? jobKey, int? supplierId, long? caseId, long? issueId, string? folder,
+        CancellationToken token)
+    {
+        var names = carrier.Names.ToList();
+        var jobKeys = await db.OperationJobs.AsNoTracking()
+            .Where(row => names.Contains(row.Trucker.Trim()))
+            .Select(row => row.Key).ToListAsync(token);
+        var driverIds = await db.Drivers.AsNoTracking()
+            .Where(row => row.SupplierId == carrier.SupplierId)
+            .Select(row => row.Id).ToListAsync(token);
+
+        var query = FilterList(db.Documents.AsNoTracking(), jobKey, supplierId, caseId, issueId, folder)
+            .Where(row => row.SupplierId == carrier.SupplierId
+                || (row.JobKey != "" && jobKeys.Contains(row.JobKey))
+                || (row.DriverId != null && driverIds.Contains(row.DriverId.Value)));
+        return await ReadListAsync(query, token);
+    }
+
+    private static IQueryable<StoredDocument> FilterList(IQueryable<StoredDocument> query,
+        string? jobKey, int? supplierId, long? caseId, long? issueId, string? folder)
+    {
 
         if (!string.IsNullOrWhiteSpace(jobKey)) query = query.Where(d => d.JobKey == jobKey);
         if (supplierId is not null) query = query.Where(d => d.SupplierId == supplierId);
@@ -307,6 +337,12 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
         if (!string.IsNullOrWhiteSpace(folder) && folder != "All")
             query = query.Where(d => d.Folder == folder);
 
+        return query;
+    }
+
+    private static async Task<IReadOnlyList<DocumentView>> ReadListAsync(
+        IQueryable<StoredDocument> query, CancellationToken token)
+    {
         var rows = await query.OrderByDescending(d => d.Id).Take(500).ToListAsync(token);
         return rows.Select(Describe).ToList();
     }

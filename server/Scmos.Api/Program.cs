@@ -120,6 +120,9 @@ builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
+builder.Services.AddScoped<CarrierTenantContext>();
+builder.Services.AddScoped<CarrierDocumentAccess>();
+builder.Services.AddScoped<BusinessCalendarService>();
 // The Carrier TMS API's door: the key in the header, resolved to one supplier.
 builder.Services.AddScoped<CarrierApiAuth>();
 // What SCMOS tells a carrier's system unasked (phase 4): queued where the
@@ -316,6 +319,7 @@ if (MailAttachmentsCheck.Run(args) is int attachmentsExit) return attachmentsExi
 if (SupplierRegisterCheck.Run(args) is int registerExit) return registerExit;
 if (SupplierComplianceCheck.Run(args) is int complianceExit) return complianceExit;
 if (JobTransferCheck.Run(args) is int jobTransferExit) return jobTransferExit;
+if (CarrierBillingFoundationCheck.Run(args) is int carrierBillingFoundationExit) return carrierBillingFoundationExit;
 
 if (args.Contains("--seed"))
 {
@@ -443,6 +447,7 @@ app.MapCorrections();
 app.MapVehicleTypes();
 app.MapCarrier();
 app.MapCarrierApi();
+app.MapCarrierBillingFoundation();
 app.MapTraining();
 app.MapDelegations();
 app.MapRateInquiries();

@@ -7,6 +7,7 @@ import type { Job } from "../ops";
 import { clearOwnerJobs } from "../store";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
+import { CarrierBillingFoundation } from "./CarrierBillingFoundation";
 
 /**
  * Who may sign in, and what each of them may do.
@@ -254,6 +255,8 @@ export function Administration({ jobs, me, onToast }: {
           ? " — คุณมีสิทธิ์แก้ไขทะเบียนนี้"
           : " — คุณดูได้อย่างเดียว เพิ่มหรือแก้ผู้ใช้ได้เฉพาะผู้ดูแลระบบ"}
       </div>
+
+      <CarrierBillingFoundation canManage={dir.canManage} onToast={onToast} />
 
       {/* ------------------------------------------------------------ people */}
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>

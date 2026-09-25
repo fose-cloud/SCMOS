@@ -27,6 +27,8 @@ public static class AuditActions
     public const string Delete = "delete";
     /// <summary>A credential retired — a Carrier API key — kept as a row, no longer honoured.</summary>
     public const string Revoke = "revoke";
+    /// <summary>An effective-dated business rule or calendar exception changed.</summary>
+    public const string Configure = "configure";
 
     /// <summary>
     /// Changes a person must justify.

@@ -31,14 +31,16 @@ public static class DocumentEndpoints
                 : Results.Json(new { job = BlobPaths.JobFolders, supplier = BlobPaths.SupplierFolders }));
 
         group.MapGet("", async (string? jobKey, int? supplierId, long? caseId, long? issueId, string? folder,
-            HttpContext context, IUserAccessor users, DocumentService documents, CancellationToken token) =>
+            HttpContext context, IUserAccessor users, CarrierDocumentAccess access,
+            CancellationToken token) =>
         {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
-            return Results.Json(await documents.ListAsync(jobKey, supplierId, caseId, issueId, folder, token));
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            return Results.Json(await access.ListAsync(user, jobKey, supplierId, caseId, issueId, folder, token));
         });
 
         group.MapPost("", async (HttpContext context, IUserAccessor users, DocumentService documents,
-            AuditService audit, CancellationToken token) =>
+            CarrierDocumentAccess access, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
@@ -68,6 +70,17 @@ public static class DocumentEndpoints
                 return ApiResults.Error("ระบุอย่างใดอย่างหนึ่ง: jobKey, supplierId, caseId หรือ issueId",
                     StatusCodes.Status400BadRequest);
 
+            var allowed = caseId > 0
+                ? await access.CanUseCaseAsync(user, caseId, token)
+                : issueId > 0
+                    ? await access.CanUseIssueAsync(user, issueId, token)
+                    : supplierId > 0
+                        ? await access.CanUseSupplierAsync(user, (int)supplierId, token)
+                        : await access.CanUseJobAsync(user, jobKey, token);
+            if (!allowed)
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์เข้าถึงเอกสารของงานหรือผู้ขนส่งนี้",
+                    StatusCodes.Status403Forbidden);
+
             var result = caseId > 0
                 ? await documents.AddToCaseAsync(caseId, kind, note, file, user, token)
                 : issueId > 0
@@ -91,7 +104,8 @@ public static class DocumentEndpoints
         }).DisableAntiforgery();
 
         group.MapPatch("/{id:long}/expiry", async (long id, ExpiryUpdate body, HttpContext context,
-            IUserAccessor users, DocumentService documents, AuditService audit, CancellationToken token) =>
+            IUserAccessor users, DocumentService documents, CarrierDocumentAccess access,
+            AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
@@ -102,6 +116,8 @@ public static class DocumentEndpoints
             var before = await documents.FindAsync(id, token);
             if (before is null)
                 return ApiResults.Error("ไม่พบเอกสารนี้", StatusCodes.Status404NotFound);
+            if (!await access.CanReadAsync(user, before, token))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขเอกสารนี้", StatusCodes.Status403Forbidden);
 
             var result = await documents.UpdateSupplierExpiryAsync(id, body.ExpiryDate, token);
             if (!result.Ok)
@@ -185,12 +201,16 @@ public static class DocumentEndpoints
         // uploader's — see that file for why the stored content type is no part
         // of it.
         group.MapGet("/{id:long}/content", async (long id, string? inline, HttpContext context,
-            IUserAccessor users, DocumentService documents, CancellationToken token) =>
+            IUserAccessor users, DocumentService documents, CarrierDocumentAccess access,
+            CancellationToken token) =>
         {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
 
             var document = await documents.FindAsync(id, token);
             if (document is null) return ApiResults.Error("ไม่พบไฟล์นี้", StatusCodes.Status404NotFound);
+            if (!await access.CanReadAsync(user, document, token))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์เปิดเอกสารนี้", StatusCodes.Status403Forbidden);
             if (!documents.StorageReady)
                 return ApiResults.Error("ยังไม่ได้ตั้งค่าที่เก็บไฟล์", StatusCodes.Status503ServiceUnavailable);
 

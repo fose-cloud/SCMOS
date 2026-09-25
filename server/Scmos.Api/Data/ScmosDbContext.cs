@@ -67,6 +67,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<CarrierApiRequest> CarrierApiRequests => Set<CarrierApiRequest>();
     public DbSet<CarrierWebhook> CarrierWebhooks => Set<CarrierWebhook>();
     public DbSet<CarrierWebhookDelivery> CarrierWebhookDeliveries => Set<CarrierWebhookDelivery>();
+    public DbSet<BusinessCalendarDay> BusinessCalendarDays => Set<BusinessCalendarDay>();
+    public DbSet<BillingSlaRule> BillingSlaRules => Set<BillingSlaRule>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
@@ -116,6 +118,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
         CarrierApiRequest.Configure(model);
         CarrierWebhook.Configure(model);
         CarrierWebhookDelivery.Configure(model);
+        CarrierBillingFoundationModel.Configure(model);
         model.Entity<OperationJob>(job =>
         {
             job.ToTable("operation_jobs");

@@ -20,7 +20,8 @@ namespace Scmos.Api.Services;
 /// time a permission check lived in the endpoints, two of them were written
 /// without one and a read-only account wrote to the register for a week.
 /// </summary>
-public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
+public class CarrierService(ScmosDbContext db, JobsRepository jobs, CarrierTenantContext tenants,
+    ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
 {
     /// <param name="Category">IMPORT · EXPORT · DELIVERY — which ladder the status is on.</param>
     /// <param name="Booking">The booking, on an import or export.</param>
@@ -84,19 +85,10 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, ILogger<Carr
     /// </summary>
     public async Task<Supplier?> CompanyOfAsync(AppUser user, CancellationToken token)
     {
-        if (!string.Equals(user.Role, Roles.Subcontractor, StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        var person = await db.Staff.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == user.OperatorId && p.Active, token);
-        if (person?.SupplierId is not { } id)
-        {
-            log.LogWarning("Carrier account {Id} has no supplier_id; it will be shown nothing.",
-                user.OperatorId);
-            return null;
-        }
-
-        return await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id, token);
+        var tenant = await tenants.ResolveAsync(user, token);
+        return tenant is null
+            ? null
+            : await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(s => s.Id == tenant.SupplierId, token);
     }
 
     /// <summary>
