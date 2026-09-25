@@ -85,6 +85,7 @@ const OWN_SCREEN: Partial<Record<Screen, true>> = {
   // the period and filters that decide what should be in it.
   reports: true,
   capacity: true, documents: true, admin: true, docverify: true, loreal: true, carrier: true, training: true,
+  billing: true,
   // The integration screens are not listed here by name. They are read off
   // externalSystems.ts below, so adding a fifth system cannot quietly put the
   // lying Export button back on it — which is what happened to CCS, LINE and
@@ -92,7 +93,8 @@ const OWN_SCREEN: Partial<Record<Screen, true>> = {
 };
 import type { RateBook } from "./scmos/rates";
 import { Detail, type AuditEntry } from "./scmos/screens/Detail";
-import { BillingAging, Reports } from "./scmos/screens/Panels";
+import { Reports } from "./scmos/screens/Panels";
+import { BillingControl } from "./scmos/screens/BillingControl";
 import { Booking } from "./scmos/screens/Booking";
 import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
 
@@ -3269,24 +3271,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "docverify" && (
               <Verification canUpload={able("UploadDocuments")} onToast={setToast} />
             )}
-            {screen === "billing" && (
-              <>
-                {/* The register holds no billing. This screen is still drawn
-                    from the generated sample, and says so where somebody
-                    reading the numbers will see it — the dashboard's billing
-                    panels already carry the same badge. It comes off the day
-                    there is an invoice table behind it. */}
-                <div style={css("border:1px solid #F5E3C7;background:#FFFAEF;border-radius:5px;padding:11px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
-                  <span style={css("font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.06em;color:#B45309;background:#FDF2DF;border-radius:3px;padding:3px 7px")}>
-                    DEMO DATA
-                  </span>
-                  <span style={css("font-size:11.5px;color:#B45309")}>
-                    ตัวเลขในหน้านี้เป็นข้อมูลตัวอย่าง ยังไม่ได้ต่อกับข้อมูลการวางบิลจริง — ใช้ตัดสินใจไม่ได้
-                  </span>
-                </div>
-                <BillingAging filtered={filtered} />
-              </>
-            )}
+            {screen === "billing" && <BillingControl onToast={setToast} />}
             {screen === "reports" && <Reports jobs={ops?.jobs ?? []} toast={setToast} />}
 
             {/* Screens the new menu introduces. Each says what the backend can

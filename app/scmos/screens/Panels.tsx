@@ -4,7 +4,7 @@ import { useState } from "react";
 import { badge, css } from "../theme";
 import type { Db, Ship } from "../demo";
 import type { Job } from "../ops";
-import { money, pad, rng } from "../util";
+import { pad, rng } from "../util";
 import { DelayAnalysis } from "./DelayAnalysis";
 import { ReportCentre } from "./ReportCentre";
 import { VolumeReport } from "./VolumeReport";
@@ -141,48 +141,6 @@ export function Capacity({ db }: { db: Db }) {
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-/* --------------------------------------------------------- billing aging */
-
-export function BillingAging({ filtered }: { filtered: Ship[] }) {
-  const done = filtered.filter((s) => s.status === "Completed");
-  const bucket = (lo: number, hi: number) =>
-    done.filter((s) => s.invDays !== null && s.invDays >= lo && s.invDays <= hi);
-
-  const defs: [string, string, Ship[], string, "green" | "amber" | "red" | "blue"][] = [
-    ["0–2 Days", "ภายใน 2 วัน", bucket(0, 2), "Within KPI", "green"],
-    ["3 Days", "3 วัน", bucket(3, 3), "Due Soon", "amber"],
-    ["4 Days", "4 วัน", bucket(4, 4), "KPI Limit", "amber"],
-    ["> 4 Days", "เกิน 4 วัน", bucket(5, 99), "Overdue", "red"],
-    ["Advance Receipts", "รับล่วงหน้า", done.slice(0, 9), "Received", "blue"],
-  ];
-
-  return (
-    <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px")}>
-      {defs.map((d) => (
-        <div
-          key={d[0]}
-          style={css(
-            "background:#fff;border-top:3px solid " +
-            (d[4] === "red" ? "#B42318" : d[4] === "amber" ? "#D89614" : d[4] === "green" ? "#16794C" : "#2E7DD1") +
-            ";border-right:1px solid #D8E0E8;border-bottom:1px solid #D8E0E8;border-left:1px solid #D8E0E8" +
-            ";border-radius:5px;padding:14px 16px",
-          )}
-        >
-          <div style={css("display:flex;justify-content:space-between;align-items:baseline")}>
-            <span style={css("font-size:12px;font-weight:600;color:#0A2240")}>{d[0]}</span>
-            <span style={css(badge(d[3], d[4]))}>{d[3]}</span>
-          </div>
-          <div style={css("font-size:10.5px;color:#94A3B8")}>{d[1]}</div>
-          <div style={css("display:flex;align-items:baseline;gap:8px;margin-top:10px")}>
-            <span style={css("font-size:28px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:#0A2240")}>{d[2].length}</span>
-            <span style={css("font-size:12px;color:#64748B")}>{money(d[2].reduce((sum, s) => sum + s.cost, 0))}</span>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

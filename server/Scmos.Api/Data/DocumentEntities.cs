@@ -30,6 +30,12 @@ public class StoredDocument
     /// <summary>The CAR/PAR case, when this file is evidence on one.</summary>
     public long? CaseId { get; set; }
 
+    /// <summary>The carrier billing lifecycle this file supports, when it is billing evidence.</summary>
+    public long? BillingCaseId { get; set; }
+
+    /// <summary>The online invoice draft this file was uploaded against, when one exists.</summary>
+    public long? BillingInvoiceId { get; set; }
+
     /// <summary>
     /// The operational issue, when the file was attached while logging one.
     ///

@@ -290,7 +290,6 @@ export const TAB_DEFS: Record<string, string[]> = {
   // Then the diesel prices the card is read at, and the runs checked
   // against the card — both moved in beside it on 15 September 2026.
   chemours: ["งาน Domestic", "ค่าขนส่ง", "Oil Rate", "ตรวจสอบค่าขนส่ง", "Cargo Receipt"],
-  billing: ["Aging", "Invoices", "Advance Receipts"],
   // Capacity, Document Center, Administration and Reports carry their own
   // controls now that they read the API; tabs that narrowed a demo table would
   // do nothing.
@@ -305,9 +304,7 @@ export const TAB_DEFS: Record<string, string[]> = {
 // and its own tiles and pipeline rows are how you narrow it. Rates is off it for
 // the same reason — it reads the real quotations and carries its own controls,
 // including the diesel price every figure on it depends on.
-export const SCREENS_WITH_FILTERS = [
-  "billing",
-];
+export const SCREENS_WITH_FILTERS: Screen[] = [];
 
 export type Account = {
   user: string; name: string; full: string; role: string; id: string; init: string;

@@ -43,6 +43,8 @@ public static class CarrierOperationsCheck
         Check(finish.Decision == CarrierOperationDecision.Apply, "a delivered job can become Delivery Complete");
         Check(finish.TargetStatus == JobStatus.Completed, "Delivery Complete reuses COMPLETED");
         Check(finish.Stage == Stage.Closed, "Delivery Complete records the existing Closed milestone");
+        Check(CarrierOperations.IsDeliveryComplete("delivery-complete"),
+            "hyphenated Delivery Complete reaches the same idempotent billing trigger");
 
         var unknown = CarrierOperations.Decide("IMPORT", JobStatus.InTransit, "teleported");
         Check(unknown.Decision == CarrierOperationDecision.Refuse, "an unknown status is refused");

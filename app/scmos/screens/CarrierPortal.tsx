@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
+import type { BillingCase } from "./BillingControl";
 
 /**
  * The carrier's own screen.
@@ -62,7 +63,8 @@ function jobDateKey(value: string) {
 export function CarrierPortal({ onToast }: { onToast: (message: string) => void }) {
   const [portal, setPortal] = useRemembered<Portal>("carrier-portal");
   const [refused, setRefused] = useState("");
-  const [tab, setTab] = useState<"new" | "schedule">("new");
+  const [tab, setTab] = useState<"new" | "schedule" | "billing">("new");
+  const [billing, setBilling] = useState<BillingCase[]>([]);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("active");
   const [calendarDate, setCalendarDate] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -76,11 +78,21 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
   const [remark, setRemark] = useState("");
 
   const load = useCallback(async () => {
-    const response = await apiFetch("/api/carrier", { headers: { accept: "application/json" } });
-    if (response.ok) { setPortal(await response.json() as Portal); setRefused(""); return; }
-    const body = await response.json().catch(() => ({})) as { error?: string };
-    setRefused(body.error || `เปิดหน้างานไม่ได้ (${response.status})`);
-  }, [setPortal]);
+    const [response, billingResponse] = await Promise.all([
+      apiFetch("/api/carrier", { headers: { accept: "application/json" } }),
+      apiFetch("/api/carrier-billing/cases", { headers: { accept: "application/json" } }),
+    ]);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      setRefused(body.error || `เปิดหน้างานไม่ได้ (${response.status})`);
+      return;
+    }
+    setPortal(await response.json() as Portal);
+    setRefused("");
+    const billingBody = await billingResponse.json().catch(() => ({})) as { items?: BillingCase[]; error?: string };
+    if (billingResponse.ok) setBilling(billingBody.items ?? []);
+    else onToast(billingBody.error ?? `เปิดรายการวางบิลไม่สำเร็จ (${billingResponse.status})`);
+  }, [onToast, setPortal]);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
   // in a microtask rather than while this body does — the rule cannot see
@@ -175,7 +187,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     if (scheduleView === "completed") return status === "COMPLETED";
     return status !== "COMPLETED" && status !== "CANCELLED";
   });
-  const rows = tab === "new" ? portal.offered : scheduleRows;
+  const rows = tab === "new" ? portal.offered : tab === "schedule" ? scheduleRows : [];
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
@@ -188,7 +200,8 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
       </div>
 
       <div style={css("display:flex;gap:7px")}>
-        {([["new", "งานใหม่", portal.offered.length], ["schedule", "ตารางงาน", (portal.schedule ?? portal.accepted).length]] as const)
+        {([["new", "งานใหม่", portal.offered.length], ["schedule", "ตารางงาน", (portal.schedule ?? portal.accepted).length],
+          ["billing", "วางบิล", billing.length]] as const)
           .map(([id, label, count]) => {
             const on = tab === id;
             return (
@@ -224,7 +237,10 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
         </div>
       )}
 
-      {rows.length === 0 && (
+      {tab === "billing" && <CarrierBilling items={billing} busy={busy} setBusy={setBusy}
+        onToast={onToast} onRefresh={load} />}
+
+      {tab !== "billing" && rows.length === 0 && (
         <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>
           {tab === "new" ? "ยังไม่มีงานใหม่ส่งเข้ามา" : "ไม่พบงานในมุมมองนี้"}
         </div>
@@ -415,4 +431,119 @@ function Pick({ label, value, onChange, children }: {
       </select>
     </label>
   );
+}
+
+function CarrierBilling({ items, busy, setBusy, onToast, onRefresh }: {
+  items: BillingCase[]; busy: boolean; setBusy: (value: boolean) => void;
+  onToast: (message: string) => void; onRefresh: () => Promise<void>;
+}) {
+  async function createDraft(caseId: number) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/cases/${caseId}/draft`, { method: "POST" });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? "สร้าง Invoice Draft ไม่สำเร็จ");
+      if (response.ok) await onRefresh();
+    } finally { setBusy(false); }
+  }
+
+  async function saveDraft(event: React.FormEvent<HTMLFormElement>, invoiceId: number) {
+    event.preventDefault();
+    if (busy) return;
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/invoices/${invoiceId}`, {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          invoiceNumber: String(data.get("invoiceNumber") ?? ""),
+          invoiceDate: String(data.get("invoiceDate") ?? ""),
+          currency: String(data.get("currency") ?? "THB"),
+          subtotal: Number(data.get("subtotal") ?? 0), taxAmount: Number(data.get("taxAmount") ?? 0),
+        }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? "บันทึก Invoice Draft ไม่สำเร็จ");
+      if (response.ok) await onRefresh();
+    } finally { setBusy(false); }
+  }
+
+  async function upload(invoiceId: number, file: File | null) {
+    if (!file || busy) return;
+    const data = new FormData();
+    data.append("file", file); data.append("kind", "invoice"); data.append("note", "Carrier Portal");
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/invoices/${invoiceId}/documents`, { method: "POST", body: data });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? "อัปโหลดเอกสารไม่สำเร็จ");
+      if (response.ok) await onRefresh();
+    } finally { setBusy(false); }
+  }
+
+  if (items.length === 0) return <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>
+    ยังไม่มีงานที่ Delivery Complete และพร้อมวางบิล
+  </div>;
+
+  return <div style={css("display:flex;flex-direction:column;gap:10px")}>
+    <div style={css("background:#EAF4FC;border:1px solid #B8D8F2;border-radius:5px;padding:10px 12px;font-size:11.5px;color:#0A5C97;line-height:1.6")}>
+      ระบบสร้าง Billing Case อัตโนมัติเมื่องานเป็น Delivery Complete · กดสร้าง Draft แล้วบันทึกข้อมูลและแนบเอกสารได้หลายฉบับ
+    </div>
+    {items.map((item) => <div key={item.id} style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:14px 16px")}>
+      <div style={css("display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap")}>
+        <div><div style={css("font-size:13.5px;font-weight:700;color:#0F2B46")}>{item.jobCode || item.jobKey} · {item.customer}</div>
+          <div style={css("font-size:11.5px;color:#64748B;margin-top:4px")}>Delivery Complete {readDate(item.deliveryCompletedAt)} · กำหนด {item.slaDueDate || "ยังไม่ตั้ง SLA"}</div>
+          <div style={css("font-size:11px;color:" + (item.daysRemaining != null && item.daysRemaining < 0 ? "#B42318" : "#16794C") + ";margin-top:3px;font-weight:650")}>{slaText(item)}</div>
+          {item.slaIssue && <div style={css("font-size:11px;color:#B42318;margin-top:3px")}>{item.slaIssue}</div>}</div>
+        {!item.invoice && <button disabled={busy} onClick={() => void createDraft(item.id)}
+          style={css("height:31px;padding:0 14px;border:0;background:#0A5C97;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>สร้าง Invoice Draft</button>}
+      </div>
+
+      {item.invoice && <form onSubmit={(event) => void saveDraft(event, item.invoice!.id)}
+        style={css("margin-top:12px;padding-top:12px;border-top:1px solid #E9EFF5;display:flex;flex-direction:column;gap:10px")}>
+        <div style={css("display:grid;grid-template-columns:minmax(180px,1.5fr) minmax(145px,1fr) 90px minmax(130px,1fr) minmax(130px,1fr);gap:8px") }>
+          <BillingInput name="invoiceNumber" label="เลขที่ใบแจ้งหนี้" defaultValue={item.invoice.invoiceNumber} />
+          <BillingInput name="invoiceDate" label="วันที่ใบแจ้งหนี้" type="date" defaultValue={item.invoice.invoiceDate} />
+          <BillingInput name="currency" label="สกุลเงิน" defaultValue={item.invoice.currency || "THB"} />
+          <BillingInput name="subtotal" label="ยอดก่อนภาษี" type="number" defaultValue={String(item.invoice.subtotal)} />
+          <BillingInput name="taxAmount" label="ภาษี" type="number" defaultValue={String(item.invoice.taxAmount)} />
+        </div>
+        <div style={css("display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
+          <button type="submit" disabled={busy} style={css("height:31px;padding:0 14px;border:0;background:#16794C;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>บันทึก Draft</button>
+          <label style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;color:#0A5C97;border-radius:4px;font-size:12px;font-weight:650;display:flex;align-items:center;cursor:pointer")}>+ เพิ่มเอกสาร
+            <input type="file" disabled={busy} style={css("display:none")} onChange={(event) => {
+              void upload(item.invoice!.id, event.target.files?.[0] ?? null); event.currentTarget.value = "";
+            }} />
+          </label>
+          <span style={css("font-size:11px;color:#64748B")}>ยอดรวม {item.invoice.currency} {item.invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+        </div>
+        {item.documents.length > 0 && <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>{item.documents.map((document) =>
+          <a key={document.id} href={`/api/documents/${document.id}/content`} target="_blank" rel="noreferrer"
+            style={css("font-size:11px;color:#0A5C97;background:#F4F8FC;border:1px solid #C8DEF0;border-radius:3px;padding:4px 7px")}>{document.fileName}</a>)}</div>}
+      </form>}
+    </div>)}
+  </div>;
+}
+
+function BillingInput({ name, label, defaultValue, type = "text" }: {
+  name: string; label: string; defaultValue: string; type?: string;
+}) {
+  return <label style={css("display:flex;flex-direction:column;gap:4px;min-width:0")}>
+    <span style={css("font-size:10px;color:#7B8CA0;font-weight:650")}>{label}</span>
+    <input name={name} type={type} min={type === "number" ? "0" : undefined} step={type === "number" ? "0.01" : undefined}
+      defaultValue={defaultValue} style={css("height:31px;min-width:0;width:100%;padding:0 8px;border:1px solid #CAD5E0;border-radius:4px;font:inherit;font-size:11.5px")} />
+  </label>;
+}
+
+function readDate(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
+}
+
+function slaText(item: BillingCase) {
+  if (item.daysRemaining == null) return "ยังไม่มีกำหนด SLA";
+  if (item.daysRemaining < 0) return `เกินกำหนด ${Math.abs(item.daysRemaining)} วัน`;
+  if (item.daysRemaining === 0) return "ครบกำหนดวันนี้";
+  return `เหลือ ${item.daysRemaining} วัน`;
 }

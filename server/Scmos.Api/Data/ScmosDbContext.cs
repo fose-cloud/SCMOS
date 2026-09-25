@@ -69,6 +69,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<CarrierWebhookDelivery> CarrierWebhookDeliveries => Set<CarrierWebhookDelivery>();
     public DbSet<BusinessCalendarDay> BusinessCalendarDays => Set<BusinessCalendarDay>();
     public DbSet<BillingSlaRule> BillingSlaRules => Set<BillingSlaRule>();
+    public DbSet<BillingCase> BillingCases => Set<BillingCase>();
+    public DbSet<BillingInvoice> BillingInvoices => Set<BillingInvoice>();
+    public DbSet<BillingInvoiceJobLink> BillingInvoiceJobLinks => Set<BillingInvoiceJobLink>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
@@ -119,6 +122,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
         CarrierWebhook.Configure(model);
         CarrierWebhookDelivery.Configure(model);
         CarrierBillingFoundationModel.Configure(model);
+        CarrierBillingModel.Configure(model);
         model.Entity<OperationJob>(job =>
         {
             job.ToTable("operation_jobs");
@@ -940,6 +944,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(120).HasDefaultValue("");
             entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
             entry.Property(e => e.CaseId).HasColumnName("case_id");
+            entry.Property(e => e.BillingCaseId).HasColumnName("billing_case_id");
+            entry.Property(e => e.BillingInvoiceId).HasColumnName("billing_invoice_id");
             entry.Property(e => e.IssueId).HasColumnName("issue_id");
             entry.Property(e => e.DriverId).HasColumnName("driver_id");
             entry.Property(e => e.Folder).HasColumnName("folder").HasMaxLength(30);
@@ -960,7 +966,13 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => new { e.JobKey, e.Folder }).HasDatabaseName("document_job_idx");
             entry.HasIndex(e => e.SupplierId).HasDatabaseName("document_supplier_idx");
             entry.HasIndex(e => e.CaseId).HasDatabaseName("document_case_idx");
+            entry.HasIndex(e => e.BillingCaseId).HasDatabaseName("document_billing_case_idx");
+            entry.HasIndex(e => e.BillingInvoiceId).HasDatabaseName("document_billing_invoice_idx");
             entry.HasIndex(e => e.IssueId).HasDatabaseName("document_issue_idx");
+            entry.HasOne<BillingCase>().WithMany().HasForeignKey(e => e.BillingCaseId)
+                .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_documents_billing_cases_billing_case_id");
+            entry.HasOne<BillingInvoice>().WithMany().HasForeignKey(e => e.BillingInvoiceId)
+                .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_documents_billing_invoices_billing_invoice_id");
         });
 
         // The indexes are the three questions an audit asks: what happened to

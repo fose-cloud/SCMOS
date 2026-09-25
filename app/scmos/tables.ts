@@ -1,6 +1,6 @@
 import type { TableModel, TableRow } from "./DataTable";
 import type { Db, Ship } from "./demo";
-import { cell, cols, fdate, money, pad, paginate, searched } from "./util";
+import { cell, cols, pad, paginate, searched } from "./util";
 
 export type Filters = {
   dir: string; cust: string; sub: string; truck: string; status: string; month: string;
@@ -46,40 +46,6 @@ export function buildTable(a: Args): TableModel | null {
   // Transportation Rates has its own screen now — it reads the subcontractors'
   // real quotations, which price in diesel bands and cannot be shown as one
   // number per lane. See screens/Rates.tsx.
-
-  if (screen === "billing") {
-    let list = a.filtered.filter((s) => s.status === "Completed");
-    if (tab === "Advance Receipts") list = list.slice(0, 14);
-    list = searched(list, ["abs", "cust", "sub", "bill"], q);
-
-    const pg = paginate(list, page, a.per);
-    const rows: TableRow[] = pg.slice.map((s) => {
-      const add = Math.round((s.cost * 0.06) / 10) * 10;
-      const tone = s.bill === "Overdue" ? "red" : s.bill === "Due Soon" ? "amber" : s.bill === "Completed" ? "gray" : "green";
-      return {
-        key: String(s.id),
-        go: () => a.selectShip(s.id),
-        style: "cursor:pointer;background:#fff",
-        cells: [
-          cell(s.abs, { mono: true, bold: true }), cell(s.job, { mono: true }), cell(s.cust), cell(s.sub, { bold: true }),
-          cell(fdate(s.plan), { mono: true }),
-          cell(s.invDays === null ? "—" : fdate(new Date(s.plan.getTime() + s.invDays * 86400000)), { mono: true }),
-          cell(s.invDays === null ? "—" : s.invDays + " d", {
-            mono: true, align: "right",
-            color: s.invDays !== null && s.invDays > 4 ? "#B42318" : s.invDays === 3 ? "#B45309" : "#16794C",
-          }),
-          cell(money(s.cost), { mono: true, align: "right" }), cell(money(add), { mono: true, align: "right" }),
-          cell(s.id % 4 === 0 ? money(s.cost * 0.3) : "—", { mono: true, align: "right", mute: true }),
-          cell(money(s.cost + add), { mono: true, align: "right", bold: true }),
-          cell(s.bill, { tone }),
-        ],
-      };
-    });
-    return wrap("Billing Monitor", (t) => t + " completed jobs · KPI: supplier invoice within 4 calendar days",
-      [["ABS No."], ["Job No."], ["Customer"], ["Subcontractor"], ["Completion Date"], ["Invoice Received"],
-        ["Days After"], ["Trucking Charge"], ["Additional"], ["Advance Receipt"], ["Total"], ["Billing Status"]],
-      rows, pg.total, pg.pageCount, pg.p, pg.per);
-  }
 
   if (screen === "documents") {
     const kinds: [string, string][] = [

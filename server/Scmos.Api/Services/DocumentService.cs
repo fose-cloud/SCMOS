@@ -9,7 +9,7 @@ public record DocumentView(
     long Id, string Scope, string Folder, string Kind,
     string FileName, string ContentType, long SizeBytes,
     string ObjectKey, string BlobUrl, string ExpiryDate, string Note,
-    string JobKey, int? SupplierId, long? CaseId,
+    string JobKey, int? SupplierId, long? CaseId, long? BillingCaseId, long? BillingInvoiceId,
     string Year, string Customer, string JobRef,
     string UploadedBy, DateTimeOffset UploadedAt, bool Expiring, bool Expired,
     /// <summary>Whether a screen may offer to open this rather than download it.</summary>
@@ -67,6 +67,38 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
             document.JobKey = job.Key;
             document.Folder = BlobPaths.JobFolder(folder);
             document.Kind = kind.Trim();
+            document.Note = note.Trim();
+            document.Year = year;
+            document.Customer = job.Customer;
+            document.JobRef = reference;
+        });
+    }
+
+    /// <summary>
+    /// Stores online billing evidence in the original job's Invoice folder and
+    /// links the metadata to both the Billing Case and its current Draft.
+    /// </summary>
+    public async Task<DocumentResult> AddToBillingAsync(BillingCase billingCase,
+        BillingInvoice invoice, string kind, string note, IFormFile file,
+        AppUser user, CancellationToken token)
+    {
+        var job = await db.OperationJobs.AsNoTracking()
+            .FirstOrDefaultAsync(row => row.Key == billingCase.JobKey, token);
+        if (job is null) return new DocumentResult(false, "ไม่พบงานของรายการวางบิลนี้");
+        if (billingCase.SupplierId != invoice.SupplierId)
+            return new DocumentResult(false, "ใบวางบิลไม่ตรงกับผู้ขนส่งของงาน");
+
+        var year = BlobPaths.YearOf(job.WorkDate);
+        var reference = FirstFilled(job.JobCode, job.Container, job.Key);
+        var key = BlobPaths.ForJob(year, job.Customer, reference, "Invoice", file.FileName);
+        return await StoreAsync(key, file, user, token, document =>
+        {
+            document.Scope = "job";
+            document.JobKey = job.Key;
+            document.BillingCaseId = billingCase.Id;
+            document.BillingInvoiceId = invoice.Id;
+            document.Folder = "Invoice";
+            document.Kind = kind.Trim().Length > 0 ? kind.Trim() : "invoice";
             document.Note = note.Trim();
             document.Year = year;
             document.Customer = job.Customer;
@@ -431,7 +463,8 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     public static DocumentView Describe(StoredDocument d) => new(
         d.Id, d.Scope, d.Folder, d.Kind, d.FileName, d.ContentType, d.SizeBytes,
         d.ObjectKey, d.BlobUrl, d.ExpiryDate, d.Note,
-        d.JobKey, d.SupplierId, d.CaseId, d.Year, d.Customer, d.JobRef,
+        d.JobKey, d.SupplierId, d.CaseId, d.BillingCaseId, d.BillingInvoiceId,
+        d.Year, d.Customer, d.JobRef,
         d.UploadedBy, d.UploadedAt, IsExpiring(d.ExpiryDate), IsExpired(d.ExpiryDate),
         // Decided here, from the same rule the content route serves by, so the
         // screen never offers to open something the API would refuse to show.

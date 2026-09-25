@@ -28,9 +28,14 @@ public static class CarrierOperations
     public static readonly string[] Types =
         [Dispatched, PickedUp, Loading, InTransit, Delivered, ContainerReturned, DeliveryComplete];
 
+    public static string Normalize(string? type) =>
+        (type ?? "").Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_');
+
+    public static bool IsDeliveryComplete(string? type) => Normalize(type) == DeliveryComplete;
+
     public static CarrierStatusDecision Decide(string category, string current, string? type)
     {
-        var wanted = (type ?? "").Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_');
+        var wanted = Normalize(type);
         var target = wanted switch
         {
             Dispatched => (JobStatus.Dispatched, Stage.Dispatched),

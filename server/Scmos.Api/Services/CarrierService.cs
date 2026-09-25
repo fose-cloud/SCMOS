@@ -21,7 +21,7 @@ namespace Scmos.Api.Services;
 /// without one and a read-only account wrote to the register for a week.
 /// </summary>
 public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterCache register, CarrierTenantContext tenants,
-    AuditService audit, ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
+    AuditService audit, CarrierBillingService billing, ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
 {
     public record FleetTruck(int Id, string Plate, string VehicleType, bool DgCapable, string RegistrationExpiry);
     public record FleetDriver(int Id, string Name, string Phone, string LicenceNo, string LicenceExpiry, string TrainingExpiry);
@@ -538,7 +538,21 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         if (job is null) return new Result(false, "ไม่พบงานนี้", Code: ResultCode.NotHeld);
         var decision = CarrierOperations.Decide(job.Cat, job.Status, type);
         if (decision.Decision == CarrierOperationDecision.Replay)
+        {
+            if (CarrierOperations.IsDeliveryComplete(type))
+            {
+                var completedAt = await db.WorkflowEvents.AsNoTracking()
+                    .Where(row => row.JobKey == jobKey && row.Kind == "carrier-status"
+                        && row.ToStage == Stage.Closed.ToString())
+                    .OrderByDescending(row => row.Id)
+                    .Select(row => row.EventAt ?? row.At)
+                    .FirstOrDefaultAsync(token);
+                await billing.EnsureForDeliveryAsync(user, company, job,
+                    completedAt == default ? job.UpdatedAt : completedAt, token);
+                await db.SaveChangesAsync(token);
+            }
             return new Result(true, decision.Message, Replayed: true);
+        }
         if (decision.Decision == CarrierOperationDecision.Refuse)
             return new Result(false, decision.Message, Code: ResultCode.Conflict);
 
@@ -572,6 +586,8 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         });
         audit.Stage(user, AuditActions.StatusChange, "job", jobKey, job.JobCode, "status",
             oldStatus, decision.TargetStatus, remark.Trim().Length > 0 ? remark.Trim() : "Carrier Portal");
+        if (CarrierOperations.IsDeliveryComplete(type))
+            await billing.EnsureForDeliveryAsync(user, company, job, readAt.Value, token);
         await db.SaveChangesAsync(token);
         register.Invalidate();
         return new Result(true, $"บันทึกสถานะ {decision.TargetStatus} แล้ว",
