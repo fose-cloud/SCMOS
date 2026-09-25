@@ -40,16 +40,57 @@ public record CarrierPriority(int Rank, string Carrier, int? Price, string Basis
 /// <summary>What has already been asked, in the shape the rules need to judge it.</summary>
 public record Attempt(string Carrier, string Outcome, int Rank);
 
+public enum AssignmentAnswerDecision
+{
+    Apply,
+    Replay,
+    Refuse,
+}
+
 public static class CarrierAssignment
 {
     public const string Pending = "pending";
     public const string Confirmed = "confirmed";
+    public const string Rejected = "rejected";
+    public const string Cancelled = "cancelled";
+    public const string Expired = "expired";
+    public const string Superseded = "superseded";
+    public const string LegacyNoResponse = "no-response";
 
-    public static readonly string[] Outcomes = [Pending, Confirmed, "rejected", "cancelled", "no-response"];
+    public static readonly string[] Outcomes =
+        [Pending, Confirmed, Rejected, Cancelled, Expired, Superseded, LegacyNoResponse];
+
+    public static bool IsActive(string outcome) => outcome is Pending or Confirmed;
 
     /// <summary>An outcome that closes a request, so the next carrier may be asked.</summary>
     public static bool IsClosed(string outcome) =>
-        outcome is not Pending && Outcomes.Contains(outcome);
+        !IsActive(outcome) && Outcomes.Contains(outcome);
+
+    /// <summary>
+    /// A repeated identical answer is a successful replay, while a different
+    /// answer against a closed/superseded assignment is stale and must fail.
+    /// </summary>
+    public static bool IsIdempotentAnswer(string current, string wanted) =>
+        string.Equals(current, wanted, StringComparison.OrdinalIgnoreCase);
+
+    public static AssignmentAnswerDecision DecideAnswer(string current, string wanted)
+    {
+        if (IsIdempotentAnswer(current, wanted)
+            || (current == LegacyNoResponse && wanted == Expired))
+            return AssignmentAnswerDecision.Replay;
+        return current == Pending && wanted is Confirmed or Rejected or Cancelled or Expired
+            ? AssignmentAnswerDecision.Apply
+            : AssignmentAnswerDecision.Refuse;
+    }
+
+    /// <summary>
+    /// Stable supplier identity is authoritative. Alias matching exists only
+    /// for rows created before Phase 2, whose supplier id is null.
+    /// </summary>
+    public static bool BelongsTo(int? assignmentSupplierId, string carrier, int supplierId,
+        IReadOnlySet<string> tenantNames) =>
+        assignmentSupplierId == supplierId
+        || (assignmentSupplierId is null && tenantNames.Contains(carrier.Trim()));
 
     /// <summary>
     /// Whether this carrier may be asked now.

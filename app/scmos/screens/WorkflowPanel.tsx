@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  advance, assignCarrier, readWorkflow, release, requestSupplier, respondSupplier,
+  advance, readWorkflow, reassignCarrier, release, requestSupplier, respondSupplier,
   type CarrierPriority, type JobWorkflow,
 } from "../flow";
 import { css } from "../theme";
@@ -39,11 +39,13 @@ const OUTCOME_LABELS: Record<string, string> = {
   rejected: "ปฏิเสธ",
   cancelled: "ยกเลิก",
   "no-response": "ไม่ตอบ",
+  expired: "หมดเวลาตอบ",
+  superseded: "ถูกเปลี่ยนแล้ว",
 };
 
 const OUTCOME_TONE: Record<string, string> = {
   pending: "#B45309", confirmed: "#16794C", rejected: "#B42318",
-  cancelled: "#7B8CA0", "no-response": "#7B8CA0",
+  cancelled: "#7B8CA0", "no-response": "#7B8CA0", expired: "#7B8CA0", superseded: "#475569",
 };
 
 export function WorkflowPanel({ jobKey, canEdit, onToast, onChanged }: Props) {
@@ -152,7 +154,7 @@ export function WorkflowPanel({ jobKey, canEdit, onToast, onChanged }: Props) {
         skipReason={skipReason} onSkipReason={setSkipReason}
         onAsk={(carrier, price, skip) => void run(() => requestSupplier(jobKey, carrier, price, skip))}
         onRespond={(id, outcome, reason) => void run(() => respondSupplier(jobKey, id, outcome, reason))}
-        onAssign={(carrier) => void run(() => assignCarrier(jobKey, carrier))}
+        onReassign={(carrier, price, reason) => void run(() => reassignCarrier(jobKey, carrier, price, "OTHER", reason))}
       />
 
       <button
@@ -184,7 +186,7 @@ export function WorkflowPanel({ jobKey, canEdit, onToast, onChanged }: Props) {
 
 /* ------------------------------------------------------------------ pieces */
 
-function Suppliers({ state, open, confirmed, canEdit, busy, skipReason, onSkipReason, onAsk, onRespond, onAssign }: {
+function Suppliers({ state, open, confirmed, canEdit, busy, skipReason, onSkipReason, onAsk, onRespond, onReassign }: {
   state: JobWorkflow;
   open: JobWorkflow["suppliers"][number] | undefined;
   confirmed: JobWorkflow["suppliers"][number] | undefined;
@@ -192,7 +194,7 @@ function Suppliers({ state, open, confirmed, canEdit, busy, skipReason, onSkipRe
   skipReason: string; onSkipReason: (v: string) => void;
   onAsk: (carrier: string, price: number | null, skipReason: string) => void;
   onRespond: (id: number, outcome: string, reason: string) => void;
-  onAssign: (carrier: string) => void;
+  onReassign: (carrier: string, price: number | null, reason: string) => void;
 }) {
   const [reason, setReason] = useState("");
   const next: CarrierPriority | null = state.nextToAsk;
@@ -232,23 +234,35 @@ function Suppliers({ state, open, confirmed, canEdit, busy, skipReason, onSkipRe
               <input
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="เหตุผลที่ปฏิเสธ (ถ้าปฏิเสธ)"
+                placeholder="เหตุผลที่ยกเลิก / หมดเวลาตอบ"
                 style={css("width:100%;height:27px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12px;margin-bottom:6px")}
               />
               <div style={css("display:flex;gap:6px;flex-wrap:wrap")}>
-                <Small label="ยืนยันรับงาน" tone="#16794C" busy={busy} onClick={() => onRespond(attempt.id, "confirmed", "")} />
-                <Small label="ปฏิเสธ" tone="#B42318" busy={busy} onClick={() => onRespond(attempt.id, "rejected", reason)} />
-                <Small label="ไม่ตอบ" tone="#7B8CA0" busy={busy} onClick={() => onRespond(attempt.id, "no-response", reason)} />
+                <Small label="หมดเวลาตอบ" tone="#7B8CA0" busy={busy} onClick={() => onRespond(attempt.id, "expired", reason)} />
                 <Small label="ยกเลิกคำขอ" tone="#7B8CA0" busy={busy} onClick={() => onRespond(attempt.id, "cancelled", reason)} />
               </div>
+              <div style={css("font-size:10.5px;color:#94A3B8;margin-top:5px")}>รับหรือปฏิเสธงานต้องทำจากบัญชี Carrier หรือ Carrier TMS</div>
             </div>
           )}
         </div>
       ))}
 
       {confirmed && canEdit && (
-        <Action label={`มอบหมายงานให้ ${confirmed.carrier}`} tone="#0A2240" busy={busy}
-          onClick={() => onAssign(confirmed.carrier)} />
+        <div style={css("margin-top:8px;padding:9px 10px;border:1px solid #B9DEC9;border-radius:4px;background:#F2FBF6") }>
+          <div style={css("font-size:12px;color:#16794C;font-weight:650")}>งานอยู่ในตารางงานของ {confirmed.carrier} แล้ว</div>
+          <button
+            disabled={busy}
+            onClick={() => {
+              const suggested = next?.carrier ?? "";
+              const carrier = window.prompt("ผู้ขนส่งรายใหม่", suggested);
+              if (!carrier?.trim()) return;
+              const reason = window.prompt("เหตุผลที่เปลี่ยนผู้ขนส่ง (จำเป็น)");
+              if (!reason?.trim()) return;
+              onReassign(carrier.trim(), next?.carrier === carrier.trim() ? next.price : null, reason.trim());
+            }}
+            style={css("height:28px;margin-top:7px;padding:0 11px;border:1px solid #B45309;background:#fff;color:#B45309;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer")}
+          >เปลี่ยนผู้ขนส่ง</button>
+        </div>
       )}
 
       {!confirmed && !open && canEdit && (

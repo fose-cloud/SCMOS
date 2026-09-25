@@ -92,7 +92,7 @@ jobs:
       # need nothing but the binary.
       - name: Rule checks
         run: |
-          for check in monitor delegation types corrections duplicates scorecard capability signin report problems route briefing line carrier-api carrier-billing-foundation audit-revert email graph messages subscriptions notifications queue links review; do
+          for check in monitor delegation types corrections duplicates scorecard capability signin report problems route briefing line carrier-api carrier-billing-foundation carrier-collaboration audit-revert email graph messages subscriptions notifications queue links review; do
             echo "::group::--check-$check"
             dotnet run --project ${{ env.PROJECT }} --configuration Release --no-build               --no-launch-profile -- "--check-$check"
             echo "::endgroup::"

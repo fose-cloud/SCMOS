@@ -320,6 +320,7 @@ if (SupplierRegisterCheck.Run(args) is int registerExit) return registerExit;
 if (SupplierComplianceCheck.Run(args) is int complianceExit) return complianceExit;
 if (JobTransferCheck.Run(args) is int jobTransferExit) return jobTransferExit;
 if (CarrierBillingFoundationCheck.Run(args) is int carrierBillingFoundationExit) return carrierBillingFoundationExit;
+if (CarrierCollaborationCheck.Run(args) is int carrierCollaborationExit) return carrierCollaborationExit;
 
 if (args.Contains("--seed"))
 {

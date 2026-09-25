@@ -15,8 +15,8 @@ namespace Scmos.Api.Endpoints;
 /// </summary>
 public static class CarrierEndpoints
 {
-    public record AcceptBody(string? Licence, string? Driver, string? Contact);
-    public record DeclineBody(string? Reason);
+    public record AcceptBody(long? RequestId, string? Licence, string? Driver, string? Contact);
+    public record DeclineBody(long? RequestId, string? ReasonCode, string? Remark, string? Reason = null);
 
     public static void MapCarrier(this IEndpointRouteBuilder routes)
     {
@@ -43,16 +43,17 @@ public static class CarrierEndpoints
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
 
-            var result = await carriers.AcceptAsync(user, jobKey, body.Licence ?? "",
+            var result = await carriers.AcceptAsync(user, jobKey, body.RequestId, body.Licence ?? "",
                 body.Driver ?? "", body.Contact ?? "", token);
-            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+            if (!result.Ok) return ApiResults.Error(result.Message, Status(result.Code));
 
-            await audit.RecordAsync(user, AuditActions.Update, "job", jobKey, jobKey,
-                "trucker, licence, driver, contact", result.Before,
-                $"{body.Licence} · {body.Driver} · {body.Contact}",
-                "ผู้รับเหมายืนยันรับงานและแจ้งรถ", token);
+            if (!result.Replayed)
+                await audit.RecordAsync(user, AuditActions.Update, "carrier-assignment",
+                    (result.AssignmentId ?? body.RequestId)?.ToString() ?? jobKey, jobKey,
+                    "outcome", CarrierAssignment.Pending, CarrierAssignment.Confirmed,
+                    "ผู้รับเหมายืนยันรับงาน", token);
 
-            return Results.Json(new { message = result.Message });
+            return Results.Json(new { message = result.Message, replayed = result.Replayed, assignmentId = result.AssignmentId });
         });
 
         group.MapPost("/{jobKey}/decline", async (string jobKey, [FromBody] DeclineBody body,
@@ -62,13 +63,26 @@ public static class CarrierEndpoints
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
 
-            var result = await carriers.DeclineAsync(user, jobKey, body.Reason ?? "", token);
-            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+            var remark = body.Remark ?? body.Reason ?? "";
+            var result = await carriers.DeclineAsync(user, jobKey, body.RequestId,
+                body.ReasonCode ?? "OTHER", remark, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, Status(result.Code));
 
-            await audit.RecordAsync(user, AuditActions.Update, "job", jobKey, jobKey,
-                "supplier-response", "pending", "rejected", body.Reason ?? "", token);
+            if (!result.Replayed)
+                await audit.RecordAsync(user, AuditActions.Update, "carrier-assignment",
+                    (result.AssignmentId ?? body.RequestId)?.ToString() ?? jobKey, jobKey,
+                    "outcome", CarrierAssignment.Pending, CarrierAssignment.Rejected,
+                    $"{body.ReasonCode ?? "OTHER"} · {remark}", token);
 
-            return Results.Json(new { message = result.Message });
+            return Results.Json(new { message = result.Message, replayed = result.Replayed, assignmentId = result.AssignmentId });
         });
     }
+
+    private static int Status(string code) => code switch
+    {
+        CarrierService.ResultCode.NoCompany => StatusCodes.Status403Forbidden,
+        CarrierService.ResultCode.NotOffered => StatusCodes.Status404NotFound,
+        CarrierService.ResultCode.Closed or CarrierService.ResultCode.Conflict => StatusCodes.Status409Conflict,
+        _ => StatusCodes.Status400BadRequest,
+    };
 }

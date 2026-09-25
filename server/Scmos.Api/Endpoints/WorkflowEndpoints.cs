@@ -19,8 +19,11 @@ public static class WorkflowEndpoints
     public record HoldRequest(string? Reason, string? Note);
     public record ReleaseRequest(string? Note);
     public record SupplierRequestBody(string? Carrier, int? QuotedPrice, string? SkipReason);
-    public record SupplierResponseBody(long RequestId, string? Outcome, string? Reason);
+    public record SupplierResponseBody(
+        long RequestId, string? Outcome, string? Reason, string? ReasonCode = null, string? Remark = null);
     public record AssignCarrierBody(string? Carrier);
+    public record ReassignCarrierBody(
+        string? Carrier, int? QuotedPrice, string? ReasonCode, string? Remark);
 
     public static void MapWorkflow(this IEndpointRouteBuilder routes)
     {
@@ -83,18 +86,25 @@ public static class WorkflowEndpoints
             HttpContext context, IUserAccessor users, WorkflowService workflow, CancellationToken token) =>
             await Drive(context, users, jobKey, workflow,
                 (user) => workflow.RequestSupplierAsync(jobKey, body.Carrier ?? "", body.QuotedPrice,
-                    body.SkipReason, user.Signature, token), token));
+                    body.SkipReason, user, token), token));
 
         // The only route that puts a carrier on a job. Nothing else may.
         group.MapPost("/{jobKey}/assign-carrier", async (string jobKey, [FromBody] AssignCarrierBody body,
             HttpContext context, IUserAccessor users, WorkflowService workflow, CancellationToken token) =>
             await Drive(context, users, jobKey, workflow,
-                (user) => workflow.AssignCarrierAsync(jobKey, body.Carrier ?? "", user.Signature, token), token));
+                (user) => workflow.AssignCarrierAsync(jobKey, body.Carrier ?? "", user, token), token));
+
+        group.MapPost("/{jobKey}/reassign-carrier", async (string jobKey, [FromBody] ReassignCarrierBody body,
+            HttpContext context, IUserAccessor users, WorkflowService workflow, CancellationToken token) =>
+            await Drive(context, users, jobKey, workflow,
+                (user) => workflow.ReassignSupplierAsync(jobKey, body.Carrier ?? "", body.QuotedPrice,
+                    body.ReasonCode ?? "", body.Remark ?? "", user, token), token));
 
         group.MapPost("/{jobKey}/supplier-response", async (string jobKey, [FromBody] SupplierResponseBody body,
             HttpContext context, IUserAccessor users, WorkflowService workflow, CancellationToken token) =>
             await Drive(context, users, jobKey, workflow,
-                (user) => workflow.RespondSupplierAsync(jobKey, body.RequestId, body.Outcome ?? "", body.Reason ?? "", user.Signature, token), token));
+                (user) => workflow.RespondSupplierAsync(jobKey, body.RequestId, body.Outcome ?? "",
+                    body.Reason ?? "", body.ReasonCode ?? "", body.Remark ?? "", user, token), token));
     }
 
     /// <summary>

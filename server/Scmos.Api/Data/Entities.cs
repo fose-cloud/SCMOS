@@ -102,6 +102,13 @@ public class SupplierRequest
     public long Id { get; set; }
     public string JobKey { get; set; } = "";
 
+    /// <summary>
+    /// Stable tenant identity for the carrier. Null only on historical rows
+    /// created before carrier collaboration Phase 2; those continue to use the
+    /// registered-name/alias fallback.
+    /// </summary>
+    public int? SupplierId { get; set; }
+
     /// <summary>1 for the first carrier asked, 2 for the next, and so on.</summary>
     public int Rank { get; set; }
 
@@ -110,15 +117,33 @@ public class SupplierRequest
     /// <summary>What this carrier quoted when asked, if a rate was known.</summary>
     public int? QuotedPrice { get; set; }
 
-    /// <summary>pending · confirmed · rejected · cancelled · no-response</summary>
+    /// <summary>pending · confirmed · rejected · cancelled · expired · superseded (plus legacy no-response).</summary>
     public string Outcome { get; set; } = "pending";
 
-    /// <summary>Why they declined — "no trailer", "driver shortage".</summary>
+    /// <summary>Backward-compatible display reason retained for existing readers.</summary>
     public string Reason { get; set; } = "";
+
+    /// <summary>Structured reason for reject, expire, cancel or reassign.</summary>
+    public string ReasonCode { get; set; } = "";
+
+    /// <summary>Free-form evidence accompanying <see cref="ReasonCode"/>.</summary>
+    public string Remark { get; set; } = "";
 
     public string RequestedBy { get; set; } = "";
     public DateTimeOffset RequestedAt { get; set; }
     public DateTimeOffset? RespondedAt { get; set; }
+
+    /// <summary>The authenticated person or API credential that answered.</summary>
+    public string RespondedBy { get; set; } = "";
+
+    /// <summary>
+    /// The assignment this one replaced. History is a chain; reassignment
+    /// never deletes or overwrites the previous record.
+    /// </summary>
+    public long? PreviousRequestId { get; set; }
+
+    /// <summary>Optimistic concurrency token for simultaneous accept/reject attempts.</summary>
+    public byte[] RowVersion { get; set; } = [];
 
     /// <summary>Minutes taken to answer. Null while the request is still open.</summary>
     public int? ResponseMinutes => RespondedAt is null

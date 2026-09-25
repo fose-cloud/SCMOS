@@ -25,11 +25,12 @@ type CarrierJob = {
   cyYard: string; weight: string; container: string; date: string; pickupPlan: string;
   status: string; requestId: number | null; quotedPrice: number | null;
   requestedAt: string | null; licence: string; driver: string; contact: string;
+  assignmentOutcome?: string; operationalAvailable?: boolean;
 };
 
 type Portal = {
   supplierId: number; supplierName: string;
-  offered: CarrierJob[]; accepted: CarrierJob[];
+  offered: CarrierJob[]; accepted: CarrierJob[]; schedule?: CarrierJob[];
 };
 
 type Draft = { licence: string; driver: string; contact: string };
@@ -38,7 +39,7 @@ const EMPTY: Draft = { licence: "", driver: "", contact: "" };
 export function CarrierPortal({ onToast }: { onToast: (message: string) => void }) {
   const [portal, setPortal] = useRemembered<Portal>("carrier-portal");
   const [refused, setRefused] = useState("");
-  const [tab, setTab] = useState<"new" | "accepted">("new");
+  const [tab, setTab] = useState<"new" | "schedule">("new");
   const [open, setOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [busy, setBusy] = useState(false);
@@ -57,12 +58,13 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
 
-  async function answer(job: CarrierJob, path: "accept" | "decline", body: unknown) {
+  async function answer(job: CarrierJob, path: "accept" | "decline", body: Record<string, unknown>) {
     if (busy) return;
     setBusy(true);
     try {
       const response = await apiFetch(`/api/carrier/${encodeURIComponent(job.key)}/${path}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: job.requestId, ...body }),
       });
       const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
       onToast(reply.message ?? reply.error ?? "ทำรายการไม่สำเร็จ");
@@ -83,7 +85,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     return <div style={css("padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>กำลังโหลด…</div>;
   }
 
-  const rows = tab === "new" ? portal.offered : portal.accepted;
+  const rows = tab === "new" ? portal.offered : (portal.schedule ?? portal.accepted);
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
@@ -96,7 +98,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
       </div>
 
       <div style={css("display:flex;gap:7px")}>
-        {([["new", "งานใหม่", portal.offered.length], ["accepted", "งานที่รับแล้ว", portal.accepted.length]] as const)
+        {([["new", "งานใหม่", portal.offered.length], ["schedule", "ตารางงาน", (portal.schedule ?? portal.accepted).length]] as const)
           .map(([id, label, count]) => {
             const on = tab === id;
             return (
@@ -131,10 +133,13 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
                   ตู้ {job.container || "—"} · น้ำหนัก {job.weight || "—"}
                   {job.pickupPlan ? <> · {job.pickupPlan}</> : null}
                 </div>
-                {tab === "accepted" && (job.licence || job.driver) && (
+                {tab === "schedule" && (job.licence || job.driver) && (
                   <div style={css("font-size:12.5px;color:#16794C;margin-top:5px;font-weight:600")}>
                     {job.licence || "—"} · {job.driver || "—"} · {job.contact || "—"}
                   </div>
+                )}
+                {tab === "schedule" && !job.licence && !job.driver && (
+                  <div style={css("font-size:12px;color:#B45309;margin-top:5px;font-weight:600")}>รอจัดรถและคนขับ</div>
                 )}
               </div>
 
@@ -156,7 +161,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
                 </button>
                 <button onClick={() => {
                     const reason = window.prompt("รับงานนี้ไม่ได้เพราะอะไร?");
-                    if (reason && reason.trim()) void answer(job, "decline", { reason });
+                    if (reason && reason.trim()) void answer(job, "decline", { reasonCode: "OTHER", remark: reason.trim() });
                   }}
                   style={css("height:31px;padding:0 15px;border:1px solid #D3DBE3;background:#fff;color:#5A6B7D;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
                   รับไม่ได้
@@ -167,22 +172,22 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
             {editing && (
               <div style={css("margin-top:13px;padding-top:13px;border-top:1px solid #E9EFF5")}>
                 <div style={css("font-size:12px;color:#5A6B7D;margin-bottom:9px;line-height:1.6")}>
-                  กรอกรถและคนขับที่จะวิ่งงานนี้ — ข้อมูลนี้จะขึ้นที่หน้างานของเจ้าของงานทันที
+                  ยืนยันรับงานได้ทันที หรือกรอกรถและคนขับไว้พร้อมกันก็ได้ งานที่รับแล้วจะเข้าตารางงานอัตโนมัติ
                 </div>
                 <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>
-                  <Field label="ทะเบียนรถ *" width="180px" value={draft.licence}
+                  <Field label="ทะเบียนรถ (ถ้ามี)" width="180px" value={draft.licence}
                     onChange={(v) => setDraft({ ...draft, licence: v })} placeholder="70-1234 กรุงเทพฯ" />
-                  <Field label="ชื่อ-สกุลพนักงานขับรถ *" width="230px" value={draft.driver}
+                  <Field label="ชื่อ-สกุลพนักงานขับรถ (ถ้ามี)" width="230px" value={draft.driver}
                     onChange={(v) => setDraft({ ...draft, driver: v })} placeholder="นายสมชาย ใจดี" />
-                  <Field label="เบอร์โทร *" width="160px" value={draft.contact}
+                  <Field label="เบอร์โทร (ถ้ามี)" width="160px" value={draft.contact}
                     onChange={(v) => setDraft({ ...draft, contact: v })} placeholder="081-234-5678" />
                 </div>
                 <div style={css("display:flex;gap:8px;margin-top:11px;flex-wrap:wrap")}>
                   <button
                     onClick={() => void answer(job, "accept", draft)}
-                    disabled={busy || !draft.licence.trim() || !draft.driver.trim() || !draft.contact.trim()}
+                    disabled={busy}
                     style={css("height:31px;padding:0 16px;border:1px solid #16794C;background:" +
-                      (busy || !draft.licence.trim() || !draft.driver.trim() || !draft.contact.trim() ? "#C3CFDB" : "#16794C") +
+                      (busy ? "#C3CFDB" : "#16794C") +
                       ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
                     ยืนยันรับงาน
                   </button>

@@ -423,17 +423,32 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasKey(e => e.Id);
             entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entry.Property(e => e.JobKey).HasColumnName("job_key").HasMaxLength(80);
+            entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
             entry.Property(e => e.Rank).HasColumnName("rank");
             entry.Property(e => e.Carrier).HasColumnName("carrier").HasMaxLength(120);
             entry.Property(e => e.QuotedPrice).HasColumnName("quoted_price");
             entry.Property(e => e.Outcome).HasColumnName("outcome").HasMaxLength(20).HasDefaultValue("pending");
             entry.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(e => e.ReasonCode).HasColumnName("reason_code").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.Remark).HasColumnName("remark").HasMaxLength(500).HasDefaultValue("");
             entry.Property(e => e.RequestedBy).HasColumnName("requested_by").HasMaxLength(120);
             entry.Property(e => e.RequestedAt).HasColumnName("requested_at");
             entry.Property(e => e.RespondedAt).HasColumnName("responded_at");
+            entry.Property(e => e.RespondedBy).HasColumnName("responded_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(e => e.PreviousRequestId).HasColumnName("previous_request_id");
+            entry.Property(e => e.RowVersion).HasColumnName("row_version").IsRowVersion();
             entry.Ignore(e => e.ResponseMinutes);
             entry.HasIndex(e => new { e.JobKey, e.Rank }).HasDatabaseName("supplier_requests_job_idx");
             entry.HasIndex(e => new { e.Carrier, e.Outcome }).HasDatabaseName("supplier_requests_carrier_idx");
+            entry.HasIndex(e => e.JobKey).IsUnique()
+                .HasFilter("[outcome] IN ('pending','confirmed')")
+                .HasDatabaseName("supplier_requests_one_active_job_idx");
+            entry.HasIndex(e => new { e.SupplierId, e.Outcome })
+                .HasDatabaseName("supplier_requests_supplier_outcome_idx");
+            entry.HasOne<Supplier>().WithMany().HasForeignKey(e => e.SupplierId)
+                .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_supplier_requests_suppliers_supplier_id");
+            entry.HasOne<SupplierRequest>().WithMany().HasForeignKey(e => e.PreviousRequestId)
+                .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_supplier_requests_previous_request");
         });
 
         model.Entity<PreRunCheck>(entry =>

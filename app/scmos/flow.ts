@@ -15,8 +15,9 @@ export type StageView = {
 };
 
 export type SupplierAttempt = {
-  id: number; rank: number; carrier: string; quotedPrice: number | null;
-  outcome: string; reason: string;
+  id: number; supplierId: number | null; rank: number; carrier: string; quotedPrice: number | null;
+  outcome: string; reason: string; reasonCode: string; remark: string;
+  requestedBy: string; respondedBy: string; previousRequestId: number | null; active: boolean;
   requestedAt: string; respondedAt: string | null; responseMinutes: number | null;
 };
 
@@ -130,12 +131,19 @@ export const requestSupplier = (key: string, carrier: string, quotedPrice: numbe
   call<JobWorkflow>(`/api/workflow/${encodeURIComponent(key)}/supplier-request`,
     json({ carrier, quotedPrice, skipReason }));
 
-export const respondSupplier = (key: string, requestId: number, outcome: string, reason = "") =>
+export const respondSupplier = (
+  key: string, requestId: number, outcome: string, reason = "", reasonCode = "", remark = "",
+) =>
   call<JobWorkflow>(`/api/workflow/${encodeURIComponent(key)}/supplier-response`,
-    json({ requestId, outcome, reason }));
+    json({ requestId, outcome, reason, reasonCode, remark }));
 
 export const assignCarrier = (key: string, carrier: string) =>
   call<JobWorkflow>(`/api/workflow/${encodeURIComponent(key)}/assign-carrier`, json({ carrier }));
+
+export const reassignCarrier = (
+  key: string, carrier: string, quotedPrice: number | null, reasonCode: string, remark: string,
+) => call<JobWorkflow>(`/api/workflow/${encodeURIComponent(key)}/reassign-carrier`,
+  json({ carrier, quotedPrice, reasonCode, remark }));
 
 /* ------------------------------------------------------------- monitoring */
 

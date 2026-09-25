@@ -110,7 +110,7 @@ public static class CarrierApiCheck
         var accepted = new CarrierService.CarrierJob("K2", "260900800317", "L'OREAL", "WANGNOI", "1X40'", "", "", "TEMU5246902",
             "WAIT", "", "DELIVERED", null, null, null, "70-1234", "สมชาย ใจดี", "081-2345678",
             Category: "IMPORT", ArrDate: "20/09/2026", ArrTime: "10:20");
-        var portal = new CarrierService.Portal(19, "SHORE", [offered], [accepted]);
+        var portal = new CarrierService.Portal(19, "SHORE", [offered], [accepted], [accepted]);
         var rows = CarrierApiEndpoints.Assignments(portal).ToList();
         failed += Say("the portal's two lists are one contract, each row saying which group it is in",
             rows.Count == 2 && rows[0].Group == CarrierApi.Offered && rows[1].Group == CarrierApi.Accepted, true);

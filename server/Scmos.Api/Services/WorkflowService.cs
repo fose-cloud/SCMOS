@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Scmos.Api.Auth;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
 
@@ -7,8 +8,9 @@ namespace Scmos.Api.Services;
 public record StageView(string Id, string English, string Thai, int Position, string? Gate, string? GateThai);
 
 public record SupplierAttempt(
-    long Id, int Rank, string Carrier, int? QuotedPrice, string Outcome, string Reason,
-    DateTimeOffset RequestedAt, DateTimeOffset? RespondedAt, int? ResponseMinutes);
+    long Id, int? SupplierId, int Rank, string Carrier, int? QuotedPrice, string Outcome, string Reason,
+    string ReasonCode, string Remark, string RequestedBy, string RespondedBy, long? PreviousRequestId,
+    DateTimeOffset RequestedAt, DateTimeOffset? RespondedAt, int? ResponseMinutes, bool Active);
 
 public record WorkflowEventView(
     long Id, string Kind, string From, string To, string Hold, string Note, string By, DateTimeOffset At);
@@ -42,7 +44,8 @@ public record WorkflowOutcome(bool Ok, string Message, JobWorkflow? State);
 /// this existed — the plan's own status decides the starting position, so the
 /// workflow begins from where the work really got to.
 /// </summary>
-public class WorkflowService(ScmosDbContext db, JobRegisterCache register, CarrierWebhookQueue webhooks)
+public class WorkflowService(ScmosDbContext db, JobRegisterCache register, CarrierWebhookQueue webhooks,
+    AuditService audit)
 {
     /// <summary>
     /// How many measured runs a carrier needs before their on-time rate is
@@ -231,8 +234,9 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
     /// what has happened, not an input.
     /// </summary>
     public async Task<WorkflowOutcome> RequestSupplierAsync(
-        string jobKey, string carrier, int? quotedPrice, string? skipReason, string by, CancellationToken token)
+        string jobKey, string carrier, int? quotedPrice, string? skipReason, AppUser user, CancellationToken token)
     {
+        var by = user.Signature;
         var state = await ReadAsync(jobKey, token);
         if (state is null) return new WorkflowOutcome(false, "ไม่พบงานนี้", null);
 
@@ -242,9 +246,13 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
         if (breach is not null) return new WorkflowOutcome(false, breach.Message, state);
 
         var rank = state.Suppliers.Count + 1;
+        var supplierId = await ResolveSupplierIdAsync(name, token);
+        if (supplierId is null)
+            return new WorkflowOutcome(false,
+                $"ไม่พบ {name} ใน Supplier Register — ต้องผูกบริษัทหรือ alias ก่อนส่งงาน", state);
         var request = new SupplierRequest
         {
-            JobKey = jobKey, Rank = rank, Carrier = name, QuotedPrice = quotedPrice,
+            JobKey = jobKey, SupplierId = supplierId, Rank = rank, Carrier = name, QuotedPrice = quotedPrice,
             Outcome = CarrierAssignment.Pending, RequestedBy = by, RequestedAt = DateTimeOffset.UtcNow,
         };
         db.SupplierRequests.Add(request);
@@ -258,10 +266,102 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
             + (string.IsNullOrWhiteSpace(skipReason) ? "" : $" · ข้ามลำดับ: {skipReason.Trim()}");
 
         await Record(jobKey, "supplier-request", stage, moveTo, "", note, by, token);
+        audit.Stage(user, AuditActions.Update, "carrier-assignment", jobKey, jobKey,
+            "outcome", "", CarrierAssignment.Pending, note);
         await db.SaveChangesAsync(token);
         // The carrier's own system hears of the ask, when it asked to (Carrier TMS API phase 4).
         await webhooks.OfferedAsync(jobKey, name, request.Id, quotedPrice, request.RequestedAt, "", token);
         return new WorkflowOutcome(true, $"ขอรถจาก {name} แล้ว (ลำดับที่ {rank})", await ReadAsync(jobKey, token));
+    }
+
+    /// <summary>
+    /// Closes the current assignment and creates the next offer in one
+    /// transaction. The old row remains in history and is linked from the new
+    /// row; its carrier loses portal access immediately because it is no longer
+    /// the confirmed assignment.
+    /// </summary>
+    public async Task<WorkflowOutcome> ReassignSupplierAsync(
+        string jobKey, string carrier, int? quotedPrice, string reasonCode, string remark,
+        AppUser user, CancellationToken token)
+    {
+        var by = user.Signature;
+        var state = await ReadAsync(jobKey, token);
+        if (state is null) return new WorkflowOutcome(false, "ไม่พบงานนี้", null);
+
+        var code = reasonCode.Trim().ToUpperInvariant();
+        var note = remark.Trim();
+        if (code.Length == 0) return new WorkflowOutcome(false, "ต้องระบุรหัสเหตุผลที่เปลี่ยนผู้ขนส่ง", state);
+        if (code == "OTHER" && note.Length == 0)
+            return new WorkflowOutcome(false, "เหตุผล OTHER ต้องระบุรายละเอียด", state);
+
+        var name = carrier.Trim();
+        if (name.Length == 0) return new WorkflowOutcome(false, "ต้องระบุผู้ขนส่งรายใหม่", state);
+
+        var active = await db.SupplierRequests
+            .Where(row => row.JobKey == jobKey
+                && (row.Outcome == CarrierAssignment.Pending || row.Outcome == CarrierAssignment.Confirmed))
+            .OrderByDescending(row => row.Rank).ThenByDescending(row => row.Id)
+            .FirstOrDefaultAsync(token);
+        if (active is null)
+            return new WorkflowOutcome(false, "ไม่มี assignment ที่ active ให้เปลี่ยนผู้ขนส่ง", state);
+        if (string.Equals(active.Carrier.Trim(), name, StringComparison.OrdinalIgnoreCase))
+            return new WorkflowOutcome(false, "ผู้ขนส่งรายใหม่ต้องไม่ใช่รายเดิม", state);
+        if (state.Suppliers.Any(row => string.Equals(row.Carrier.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+            return new WorkflowOutcome(false, $"เคยส่งงานนี้ให้ {name} แล้ว — ต้องเลือกผู้ขนส่งรายใหม่", state);
+
+        var supplierId = await ResolveSupplierIdAsync(name, token);
+        if (supplierId is null)
+            return new WorkflowOutcome(false,
+                $"ไม่พบ {name} ใน Supplier Register — ต้องผูกบริษัทหรือ alias ก่อนส่งงาน", state);
+        var previousOutcome = active.Outcome;
+        var now = DateTimeOffset.UtcNow;
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
+
+        active.Outcome = CarrierAssignment.Superseded;
+        active.Reason = note.Length > 0 ? note : code;
+        active.ReasonCode = code;
+        active.Remark = note;
+        active.RespondedAt = now;
+        active.RespondedBy = by;
+        await db.SaveChangesAsync(token);
+
+        var next = new SupplierRequest
+        {
+            JobKey = jobKey,
+            SupplierId = supplierId,
+            Rank = state.Suppliers.Count + 1,
+            Carrier = name,
+            QuotedPrice = quotedPrice,
+            Outcome = CarrierAssignment.Pending,
+            RequestedBy = by,
+            RequestedAt = now,
+            PreviousRequestId = active.Id,
+        };
+        db.SupplierRequests.Add(next);
+
+        var job = await db.OperationJobs.FirstOrDefaultAsync(row => row.Key == jobKey, token);
+        if (job is null)
+        {
+            await transaction.RollbackAsync(token);
+            return new WorkflowOutcome(false, "ไม่พบงานนี้", state);
+        }
+        ResetAssignment(job, by, now);
+
+        var stage = Enum.Parse<Stage>(state.Stage);
+        await Record(jobKey, "reassign-carrier", stage, Stage.CapacityRequested, "",
+            $"#{active.Rank} {active.Carrier} → #{next.Rank} {name} · {code}" +
+            (note.Length > 0 ? $" · {note}" : ""), by, token);
+        audit.Stage(user, AuditActions.Update, "carrier-assignment", active.Id.ToString(), jobKey,
+            "outcome", previousOutcome,
+            CarrierAssignment.Superseded, $"{code} · {note} · next #{next.Rank} {name}");
+        await db.SaveChangesAsync(token);
+        await transaction.CommitAsync(token);
+        register.Invalidate();
+
+        await webhooks.CancelledAsync(jobKey, active.Carrier, active.Id,
+            note.Length > 0 ? note : code, "", token);
+        await webhooks.OfferedAsync(jobKey, name, next.Id, quotedPrice, next.RequestedAt, "", token);
+        return new WorkflowOutcome(true, $"เปลี่ยนผู้ขนส่งและส่งงานให้ {name} แล้ว", await ReadAsync(jobKey, token));
     }
 
     /// <summary>
@@ -271,8 +371,9 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
     /// screen used to write it directly, which made it possible to have a job
     /// assigned to a company that had never been asked.
     /// </summary>
-    public async Task<WorkflowOutcome> AssignCarrierAsync(string jobKey, string carrier, string by, CancellationToken token)
+    public async Task<WorkflowOutcome> AssignCarrierAsync(string jobKey, string carrier, AppUser user, CancellationToken token)
     {
+        var by = user.Signature;
         var state = await ReadAsync(jobKey, token);
         if (state is null) return new WorkflowOutcome(false, "ไม่พบงานนี้", null);
 
@@ -296,6 +397,8 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
         var stage = Enum.Parse<Stage>(state.Stage);
         await Record(jobKey, "assign-carrier", stage, stage, "",
             $"{(previous.Length > 0 ? previous + " → " : "")}{name}", by, token);
+        audit.Stage(user, AuditActions.Update, "job", jobKey, state.Reference,
+            "trucker", previous, name, "มอบหมายผู้ขนส่งจาก assignment ที่ยืนยันแล้ว");
 
         await db.SaveChangesAsync(token);
         register.Invalidate();
@@ -307,23 +410,38 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
 
     /// <summary>Records what the carrier said, and how long they took to say it.</summary>
     public async Task<WorkflowOutcome> RespondSupplierAsync(
-        string jobKey, long requestId, string outcome, string reason, string by, CancellationToken token)
+        string jobKey, long requestId, string outcome, string reason, string reasonCode,
+        string remark, AppUser user, CancellationToken token)
     {
+        var by = user.Signature;
         var request = await db.SupplierRequests
             .FirstOrDefaultAsync(s => s.Id == requestId && s.JobKey == jobKey, token);
         if (request is null) return new WorkflowOutcome(false, "ไม่พบคำขอนี้", await ReadAsync(jobKey, token));
-        if (request.Outcome != "pending")
-            return new WorkflowOutcome(false, "คำขอนี้บันทึกผลไปแล้ว", await ReadAsync(jobKey, token));
-
-        var allowed = new[] { "confirmed", "rejected", "cancelled", "no-response" };
         var value = outcome.Trim().ToLowerInvariant();
+        if (value == CarrierAssignment.LegacyNoResponse) value = CarrierAssignment.Expired;
+        var allowed = new[]
+        {
+            CarrierAssignment.Cancelled, CarrierAssignment.Expired,
+        };
         if (!allowed.Contains(value))
-            return new WorkflowOutcome(false, "ผลที่บันทึกได้: confirmed, rejected, cancelled, no-response",
+            return new WorkflowOutcome(false,
+                "LESCHACO บันทึกได้เฉพาะ cancelled หรือ expired — accept/reject ต้องมาจาก Carrier",
                 await ReadAsync(jobKey, token));
 
+        var decision = CarrierAssignment.DecideAnswer(request.Outcome, value);
+        if (decision == AssignmentAnswerDecision.Replay)
+            return new WorkflowOutcome(true, $"บันทึกผลจาก {request.Carrier} ไว้แล้ว", await ReadAsync(jobKey, token));
+        if (decision == AssignmentAnswerDecision.Refuse)
+            return new WorkflowOutcome(false, "assignment นี้ปิดหรือถูกแทนที่แล้ว", await ReadAsync(jobKey, token));
+
+        var code = reasonCode.Trim().ToUpperInvariant();
+        var detail = remark.Trim().Length > 0 ? remark.Trim() : reason.Trim();
         request.Outcome = value;
-        request.Reason = reason.Trim();
+        request.Reason = detail;
+        request.ReasonCode = code;
+        request.Remark = detail;
         request.RespondedAt = DateTimeOffset.UtcNow;
+        request.RespondedBy = by;
 
         var state = await ReadAsync(jobKey, token);
         var stage = state is null ? Stage.CapacityRequested : Enum.Parse<Stage>(state.Stage);
@@ -331,14 +449,19 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
 
         await Record(jobKey, "supplier-response", stage, stage, "",
             $"#{request.Rank} {request.Carrier} → {value}" +
-            (request.Reason.Length > 0 ? $" · {request.Reason}" : "") +
+            (request.ReasonCode.Length > 0 ? $" · {request.ReasonCode}" : "") +
+            (request.Remark.Length > 0 ? $" · {request.Remark}" : "") +
             (minutes is not null ? $" · {minutes} นาที" : ""), by, token);
+        audit.Stage(user, AuditActions.Update, "carrier-assignment", request.Id.ToString(), jobKey,
+            "outcome", CarrierAssignment.Pending, value,
+            $"{request.ReasonCode} · {request.Remark}".Trim(' ', '·'));
 
         await db.SaveChangesAsync(token);
         // An ask the operator withdrew, or closed as unanswered, is one the
         // carrier's system should stop waiting on.
-        if (value is "cancelled" or "no-response")
-            await webhooks.CancelledAsync(jobKey, request.Carrier, request.Id, value == "cancelled" ? request.Reason : "no-response", "", token);
+        if (value is CarrierAssignment.Cancelled or CarrierAssignment.Expired)
+            await webhooks.CancelledAsync(jobKey, request.Carrier, request.Id,
+                value == CarrierAssignment.Cancelled ? request.Reason : CarrierAssignment.Expired, "", token);
         return new WorkflowOutcome(true, $"บันทึกผลจาก {request.Carrier} แล้ว", await ReadAsync(jobKey, token));
     }
 
@@ -359,6 +482,37 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
             At = DateTimeOffset.UtcNow,
         });
         await Task.CompletedTask;
+    }
+
+    private async Task<int?> ResolveSupplierIdAsync(string carrier, CancellationToken token)
+    {
+        var key = CarrierDirectory.Lookup.Key(carrier);
+        if (key.Length == 0) return null;
+
+        var suppliers = await db.Suppliers.AsNoTracking()
+            .Where(row => row.IsCarrier)
+            .Select(row => new { row.Id, row.Name, row.Code })
+            .ToListAsync(token);
+        var direct = suppliers.FirstOrDefault(row =>
+            CarrierDirectory.Lookup.Key(row.Name) == key || CarrierDirectory.Lookup.Key(row.Code) == key);
+        if (direct is not null) return direct.Id;
+
+        var aliases = await db.SupplierAliases.AsNoTracking()
+            .Select(row => new { row.SupplierId, row.Alias }).ToListAsync(token);
+        return aliases.FirstOrDefault(row => CarrierDirectory.Lookup.Key(row.Alias) == key)?.SupplierId;
+    }
+
+    private static void ResetAssignment(OperationJob job, string by, DateTimeOffset now)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(job.Data)?.AsObject()
+            ?? throw new InvalidOperationException("Job data is not valid JSON");
+        foreach (var field in new[] { "trucker", "licence", "driver", "contact" }) node[field] = "";
+        node["status"] = JobStatus.WaitingSupplier;
+        job.Trucker = "";
+        job.Status = JobStatus.WaitingSupplier;
+        job.Data = node.ToJsonString();
+        job.UpdatedBy = by;
+        job.UpdatedAt = now;
     }
 
     /// <summary>
@@ -416,8 +570,9 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
             hold.Length > 0 ? null : info.Gate?.Question,
             hold.Length > 0 ? null : info.Gate?.Thai,
             suppliers.Select(s => new SupplierAttempt(
-                s.Id, s.Rank, s.Carrier, s.QuotedPrice, s.Outcome, s.Reason,
-                s.RequestedAt, s.RespondedAt, s.ResponseMinutes)).ToList(),
+                s.Id, s.SupplierId, s.Rank, s.Carrier, s.QuotedPrice, s.Outcome, s.Reason,
+                s.ReasonCode, s.Remark, s.RequestedBy, s.RespondedBy, s.PreviousRequestId,
+                s.RequestedAt, s.RespondedAt, s.ResponseMinutes, CarrierAssignment.IsActive(s.Outcome))).ToList(),
             priority,
             CarrierAssignment.NextInOrder(attempts, priority),
             events.Select(e => new WorkflowEventView(
