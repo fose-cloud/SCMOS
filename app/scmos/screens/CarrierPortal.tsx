@@ -482,6 +482,31 @@ function CarrierBilling({ items, busy, setBusy, onToast, onRefresh }: {
     } finally { setBusy(false); }
   }
 
+  async function submit(invoiceId: number) {
+    if (busy) return; setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/invoices/${invoiceId}/submit`, { method: "POST" });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? "ส่งตรวจ Validation ไม่สำเร็จ");
+      if (response.ok) await onRefresh();
+    } finally { setBusy(false); }
+  }
+
+  async function addCharge(container: HTMLDivElement, invoiceId: number) {
+    if (busy) return;
+    const read = (name: string) => (container.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? "";
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/invoices/${invoiceId}/charges`, { method: "POST",
+        headers: { "content-type": "application/json" }, body: JSON.stringify({
+          chargeType: read("chargeType"), requestedAmount: Number(read("requestedAmount")),
+          currency: read("chargeCurrency") || "THB", reason: read("chargeReason"),
+        }) });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? "บันทึกค่าใช้จ่ายเพิ่มเติมไม่สำเร็จ"); if (response.ok) await onRefresh();
+    } finally { setBusy(false); }
+  }
+
   if (items.length === 0) return <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>
     ยังไม่มีงานที่ Delivery Complete และพร้อมวางบิล
   </div>;
@@ -510,17 +535,37 @@ function CarrierBilling({ items, busy, setBusy, onToast, onRefresh }: {
           <BillingInput name="taxAmount" label="ภาษี" type="number" defaultValue={String(item.invoice.taxAmount)} />
         </div>
         <div style={css("display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
-          <button type="submit" disabled={busy} style={css("height:31px;padding:0 14px;border:0;background:#16794C;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>บันทึก Draft</button>
-          <label style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;color:#0A5C97;border-radius:4px;font-size:12px;font-weight:650;display:flex;align-items:center;cursor:pointer")}>+ เพิ่มเอกสาร
+          {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <button type="submit" disabled={busy} style={css("height:31px;padding:0 14px;border:0;background:#16794C;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>บันทึก Draft</button>}
+          {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <label style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;color:#0A5C97;border-radius:4px;font-size:12px;font-weight:650;display:flex;align-items:center;cursor:pointer")}>+ เพิ่มเอกสาร
             <input type="file" disabled={busy} style={css("display:none")} onChange={(event) => {
               void upload(item.invoice!.id, event.target.files?.[0] ?? null); event.currentTarget.value = "";
             }} />
-          </label>
+          </label>}
           <span style={css("font-size:11px;color:#64748B")}>ยอดรวม {item.invoice.currency} {item.invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+          {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <button type="button" disabled={busy}
+            onClick={() => void submit(item.invoice!.id)} style={css("height:31px;padding:0 14px;border:0;background:#0A5C97;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer")}>ส่งตรวจ Validation</button>}
         </div>
         {item.documents.length > 0 && <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>{item.documents.map((document) =>
           <a key={document.id} href={`/api/documents/${document.id}/content`} target="_blank" rel="noreferrer"
             style={css("font-size:11px;color:#0A5C97;background:#F4F8FC;border:1px solid #C8DEF0;border-radius:3px;padding:4px 7px")}>{document.fileName}</a>)}</div>}
+        {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <div
+          style={css("display:flex;gap:6px;align-items:end;flex-wrap:wrap")} role="form">
+          <BillingInput name="chargeType" label="ประเภทค่าใช้จ่ายเพิ่ม" defaultValue="" />
+          <BillingInput name="requestedAmount" label="ยอดที่ขอ" type="number" defaultValue="0" />
+          <input type="hidden" name="chargeCurrency" value={item.invoice.currency} />
+          <BillingInput name="chargeReason" label="เหตุผล" defaultValue="" />
+          <button type="button" disabled={busy} onClick={(event) => {
+            void addCharge(event.currentTarget.parentElement as HTMLDivElement, item.invoice!.id);
+          }} style={css("height:31px;padding:0 11px;border:1px solid #B45309;background:#fff;color:#B45309;border-radius:4px;font:inherit;font-size:11px;font-weight:650")}>ขอค่าใช้จ่ายเพิ่ม</button>
+        </div>}
+        {item.invoice.additionalCharges?.length > 0 && <div style={css("display:flex;gap:6px;flex-wrap:wrap")}>{item.invoice.additionalCharges.map((charge) =>
+          <span key={charge.id} style={css("font-size:11px;padding:4px 7px;background:#FFF8EC;border:1px solid #F2D4A5;border-radius:3px;color:#8A4B08")}>{charge.chargeType} · {charge.currency} {charge.requestedAmount.toLocaleString()} · {charge.status}</span>)}</div>}
+        {item.invoice.validationResults?.length > 0 && <div style={css("display:grid;gap:5px")}>{item.invoice.validationResults.map((result) => {
+          const bad = result.category === "BLOCKED" || result.category === "EXCEPTION";
+          return <div key={`${result.sequence}-${result.code}`} style={css(`padding:7px 9px;border-radius:4px;border:1px solid ${bad ? "#F3C9C4" : "#CDE8D9"};background:${bad ? "#FFF5F4" : "#F2FAF5"};font-size:11px;color:${bad ? "#B42318" : "#16794C"}`)}>
+            <strong>{result.code}</strong> · {result.message}{result.expectedAmount != null && ` · ควรเป็น ${result.currency} ${result.expectedAmount.toLocaleString()}`}
+          </div>;
+        })}</div>}
       </form>}
     </div>)}
   </div>;

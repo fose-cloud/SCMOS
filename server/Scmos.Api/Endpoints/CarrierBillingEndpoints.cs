@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
+using Scmos.Api.Data;
 using Scmos.Api.Rules;
 using Scmos.Api.Services;
 
@@ -9,6 +11,8 @@ public static class CarrierBillingEndpoints
 {
     public record DraftInput(string? InvoiceNumber, string? InvoiceDate, string? Currency,
         decimal Subtotal, decimal TaxAmount);
+    public record ChargeInput(string? ChargeType, decimal RequestedAmount, string? Currency,
+        string? Reason, long? EvidenceDocumentId);
 
     public static void MapCarrierBilling(this IEndpointRouteBuilder routes)
     {
@@ -64,6 +68,41 @@ public static class CarrierBillingEndpoints
                 form["kind"].ToString(), form["note"].ToString(), file, token);
             return Reply(result);
         }).DisableAntiforgery();
+
+        group.MapPost("/invoices/{invoiceId:long}/submit", async (long invoiceId,
+            HttpContext context, IUserAccessor users, CarrierBillingService billing, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var result = await billing.SubmitAsync(user, invoiceId, token);
+            return result.Ok ? Results.Json(new { message = result.Message, status = result.Status, results = result.Results })
+                : ApiResults.Error(result.Message, result.Code is "NO_CARRIER" ? 403 : result.Code is "NOT_FOUND" ? 404 : 409);
+        });
+
+        group.MapPost("/invoices/{invoiceId:long}/charges", async (long invoiceId,
+            [FromBody] ChargeInput body, HttpContext context, IUserAccessor users,
+            CarrierTenantContext tenants, ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            var tenant = CarrierTenantContext.IsCarrier(user) ? await tenants.ResolveAsync(user, token) : null;
+            if (tenant is null) return ApiResults.Error("บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", 403);
+            var invoice = await db.BillingInvoices.FirstOrDefaultAsync(x => x.Id == invoiceId && x.SupplierId == tenant.SupplierId, token);
+            if (invoice is null) return ApiResults.Error("ไม่พบใบวางบิลนี้", 404);
+            if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked)
+                return ApiResults.Error("เพิ่มค่าใช้จ่ายได้เฉพาะรายการที่ยังไม่ผ่าน Validation", 409);
+            var type = (body.ChargeType ?? "").Trim().ToUpperInvariant(); var currency = (body.Currency ?? invoice.Currency).Trim().ToUpperInvariant();
+            if (type.Length == 0 || body.RequestedAmount <= 0 || currency.Length != 3)
+                return ApiResults.Error("ประเภท ยอดเงิน หรือสกุลเงินไม่ถูกต้อง", 400);
+            var row = new BillingAdditionalCharge { InvoiceId = invoiceId, ChargeType = type,
+                RequestedAmount = decimal.Round(body.RequestedAmount, 2), Currency = currency,
+                Reason = (body.Reason ?? "").Trim(), EvidenceDocumentId = body.EvidenceDocumentId,
+                Status = "REQUESTED", RequestedBy = user.Signature, RequestedAt = DateTimeOffset.UtcNow };
+            db.BillingAdditionalCharges.Add(row);
+            audit.Stage(user, AuditActions.Register, "billing-additional-charge", invoiceId.ToString(),
+                type, "requested_amount", "", row.RequestedAmount.ToString(System.Globalization.CultureInfo.InvariantCulture), row.Reason);
+            await db.SaveChangesAsync(token);
+            return Results.Json(new { message = "บันทึกคำขอค่าใช้จ่ายเพิ่มเติมแล้ว", row });
+        });
     }
 
     private static IResult Reply(BillingMutation result) => result.Ok

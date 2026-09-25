@@ -13,6 +13,11 @@ public static class CarrierBillingFoundationEndpoints
 {
     public record CalendarInput(string? Kind, string? Name);
     public record SlaInput(string? StartDay, int? TargetWorkingDays, string? EffectiveTo, bool? Active);
+    public record RequirementInput(string? DocumentKind, string? Customer, int? SupplierId,
+        string? ServiceType, string? ShipmentType, string? ChargeType, string? SpecificRequirement,
+        bool Required, bool Blocking, int Priority, string? EffectiveTo, bool Active);
+    public record TaxInput(string? TaxType, decimal Rate, string? Customer, int? SupplierId,
+        string? ServiceType, string? ShipmentType, int Priority, string? EffectiveTo, bool Active);
 
     public static void MapCarrierBillingFoundation(this IEndpointRouteBuilder routes)
     {
@@ -148,9 +153,66 @@ public static class CarrierBillingFoundationEndpoints
             await db.SaveChangesAsync(token);
             return Results.Json(new { message = "บันทึกกฎ SLA แล้ว", row });
         });
+
+        group.MapGet("/requirements", async (HttpContext context, IUserAccessor users,
+            ScmosDbContext db, CancellationToken token) => users.Current(context) is null
+                ? ApiResults.SignInRequired
+                : Results.Json(await db.BillingRequirementRules.AsNoTracking()
+                    .OrderByDescending(x => x.Priority).ThenBy(x => x.Code).ThenByDescending(x => x.EffectiveFrom).ToListAsync(token)));
+
+        group.MapPut("/requirements/{code}/{effectiveFrom}", async (string code, string effectiveFrom,
+            [FromBody] RequirementInput body, HttpContext context, IUserAccessor users,
+            ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AdministerData)) return ApiResults.Error("แก้กฎเอกสารได้เฉพาะผู้ดูแลระบบ", 403);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak) return weak;
+            if (!IsoDate(effectiveFrom, out var from) || !OptionalDate(body.EffectiveTo, out var until))
+                return ApiResults.Error("ช่วงวันที่ต้องเป็น yyyy-MM-dd", 400);
+            var clean = code.Trim().ToUpperInvariant(); var kind = (body.DocumentKind ?? "").Trim().ToUpperInvariant();
+            if (clean.Length == 0 || kind.Length == 0 || until < from) return ApiResults.Error("รหัส ประเภทเอกสาร หรือช่วงวันที่ไม่ถูกต้อง", 400);
+            var row = await db.BillingRequirementRules.FirstOrDefaultAsync(x => x.Code == clean && x.EffectiveFrom == from, token);
+            if (row is null) { row = new() { Code = clean, EffectiveFrom = from }; db.BillingRequirementRules.Add(row); }
+            row.DocumentKind = kind; row.Customer = Clean(body.Customer); row.SupplierId = body.SupplierId;
+            row.ServiceType = Clean(body.ServiceType); row.ShipmentType = Clean(body.ShipmentType); row.ChargeType = Clean(body.ChargeType);
+            row.SpecificRequirement = Clean(body.SpecificRequirement); row.Required = body.Required; row.Blocking = body.Blocking;
+            row.Priority = body.Priority; row.EffectiveTo = until; row.Active = body.Active; row.UpdatedBy = user.Signature; row.UpdatedAt = DateTimeOffset.UtcNow;
+            audit.Stage(user, AuditActions.Configure, "billing-requirement-rule", $"{clean}:{from:yyyy-MM-dd}", clean, "rule", "", kind, "");
+            await db.SaveChangesAsync(token); return Results.Json(new { message = "บันทึกกฎเอกสารแล้ว", row });
+        });
+
+        group.MapGet("/tax", async (HttpContext context, IUserAccessor users,
+            ScmosDbContext db, CancellationToken token) => users.Current(context) is null
+                ? ApiResults.SignInRequired
+                : Results.Json(await db.BillingTaxRules.AsNoTracking().OrderByDescending(x => x.Priority)
+                    .ThenBy(x => x.Code).ThenByDescending(x => x.EffectiveFrom).ToListAsync(token)));
+
+        group.MapPut("/tax/{code}/{effectiveFrom}", async (string code, string effectiveFrom,
+            [FromBody] TaxInput body, HttpContext context, IUserAccessor users,
+            ScmosDbContext db, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AdministerData)) return ApiResults.Error("แก้กฎภาษีได้เฉพาะผู้ดูแลระบบ", 403);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerData) is { } weak) return weak;
+            if (!IsoDate(effectiveFrom, out var from) || !OptionalDate(body.EffectiveTo, out var until))
+                return ApiResults.Error("ช่วงวันที่ต้องเป็น yyyy-MM-dd", 400);
+            var clean = code.Trim().ToUpperInvariant(); var type = (body.TaxType ?? "").Trim().ToUpperInvariant();
+            if (clean.Length == 0 || type.Length == 0 || body.Rate < 0 || body.Rate > 1 || until < from)
+                return ApiResults.Error("รหัส ประเภท อัตราภาษี หรือช่วงวันที่ไม่ถูกต้อง", 400);
+            var row = await db.BillingTaxRules.FirstOrDefaultAsync(x => x.Code == clean && x.EffectiveFrom == from, token);
+            if (row is null) { row = new() { Code = clean, EffectiveFrom = from }; db.BillingTaxRules.Add(row); }
+            row.TaxType = type; row.Rate = body.Rate; row.Customer = Clean(body.Customer); row.SupplierId = body.SupplierId;
+            row.ServiceType = Clean(body.ServiceType); row.ShipmentType = Clean(body.ShipmentType); row.Priority = body.Priority;
+            row.EffectiveTo = until; row.Active = body.Active; row.UpdatedBy = user.Signature; row.UpdatedAt = DateTimeOffset.UtcNow;
+            audit.Stage(user, AuditActions.Configure, "billing-tax-rule", $"{clean}:{from:yyyy-MM-dd}", clean, "rate", "", body.Rate.ToString(CultureInfo.InvariantCulture), "");
+            await db.SaveChangesAsync(token); return Results.Json(new { message = "บันทึกกฎภาษีแล้ว", row });
+        });
     }
 
     private static bool IsoDate(string? value, out DateOnly day) =>
         DateOnly.TryParseExact((value ?? "").Trim(), "yyyy-MM-dd",
             CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
+    private static bool OptionalDate(string? value, out DateOnly? day)
+    { day = null; if (string.IsNullOrWhiteSpace(value)) return true; if (!IsoDate(value, out var parsed)) return false; day = parsed; return true; }
+    private static string Clean(string? value) => (value ?? "").Trim();
 }

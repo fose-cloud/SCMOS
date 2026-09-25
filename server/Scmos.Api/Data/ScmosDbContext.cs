@@ -72,6 +72,12 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<BillingCase> BillingCases => Set<BillingCase>();
     public DbSet<BillingInvoice> BillingInvoices => Set<BillingInvoice>();
     public DbSet<BillingInvoiceJobLink> BillingInvoiceJobLinks => Set<BillingInvoiceJobLink>();
+    public DbSet<BillingRequirementRule> BillingRequirementRules => Set<BillingRequirementRule>();
+    public DbSet<BillingRequirementSnapshot> BillingRequirementSnapshots => Set<BillingRequirementSnapshot>();
+    public DbSet<BillingTaxRule> BillingTaxRules => Set<BillingTaxRule>();
+    public DbSet<BillingAdditionalCharge> BillingAdditionalCharges => Set<BillingAdditionalCharge>();
+    public DbSet<BillingValidationRun> BillingValidationRuns => Set<BillingValidationRun>();
+    public DbSet<BillingValidationResult> BillingValidationResults => Set<BillingValidationResult>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
@@ -123,6 +129,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
         CarrierWebhookDelivery.Configure(model);
         CarrierBillingFoundationModel.Configure(model);
         CarrierBillingModel.Configure(model);
+        CarrierBillingValidationModel.Configure(model);
         model.Entity<OperationJob>(job =>
         {
             job.ToTable("operation_jobs");

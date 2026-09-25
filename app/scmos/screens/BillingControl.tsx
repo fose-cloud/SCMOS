@@ -9,7 +9,15 @@ export type BillingDocument = { id: number; fileName: string; kind: string; uplo
 export type BillingInvoice = {
   id: number; invoiceNumber: string; invoiceDate: string; currency: string;
   subtotal: number; taxAmount: number; totalAmount: number; status: string; updatedAt: string;
+  validationResults: BillingValidation[];
+  additionalCharges: BillingCharge[];
 };
+export type BillingCharge = { id: number; chargeType: string; requestedAmount: number;
+  approvedAmount: number | null; currency: string; reason: string; status: string };
+export type BillingValidation = { sequence: number; step: string; code: string; category: string;
+  blocking: boolean; message: string; expectedAmount: number | null; actualAmount: number | null;
+  currency: string; evidenceType: string; evidenceId: string; evidenceVersion: string;
+  ruleSource: string; effectiveDate: string };
 export type BillingCase = {
   id: number; jobKey: string; jobCode: string; customer: string; category: string;
   supplierId: number; supplier: string; status: string; deliveryCompletedAt: string;
@@ -121,8 +129,10 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: st
 
 function Status({ value }: { value: string }) {
   const draft = value === "DRAFT";
-  return <span style={css(`display:inline-block;padding:3px 7px;border-radius:3px;font-size:10px;font-weight:700;color:${draft ? "#16794C" : "#B45309"};background:${draft ? "#E8F5EE" : "#FFF3E0"}`)}>
-    {draft ? "DRAFT" : "WAITING"}
+  const blocked = value === "BLOCKED"; const validated = value === "VALIDATED";
+  const tone = blocked ? ["#B42318", "#FEECE9"] : validated ? ["#16794C", "#E8F5EE"] : draft ? ["#0A5C97", "#EAF4FC"] : ["#B45309", "#FFF3E0"];
+  return <span style={css(`display:inline-block;padding:3px 7px;border-radius:3px;font-size:10px;font-weight:700;color:${tone[0]};background:${tone[1]}`)}>
+    {value}
   </span>;
 }
 

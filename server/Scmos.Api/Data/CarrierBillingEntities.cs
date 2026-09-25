@@ -51,6 +51,8 @@ public class BillingInvoice
     public DateTimeOffset CreatedAt { get; set; }
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
+    public DateTimeOffset? SubmittedAt { get; set; }
+    public DateTimeOffset? ValidatedAt { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }
 
@@ -76,7 +78,7 @@ public static class CarrierBillingModel
         model.Entity<BillingCase>(entry =>
         {
             entry.ToTable("billing_cases", table => table.HasCheckConstraint(
-                "billing_cases_status_ck", "[status] IN ('WAITING_CARRIER_SUBMISSION','DRAFT')"));
+                "billing_cases_status_ck", "[status] IN ('WAITING_CARRIER_SUBMISSION','DRAFT','VALIDATED','BLOCKED')"));
             entry.HasKey(row => row.Id);
             entry.Property(row => row.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entry.Property(row => row.JobKey).HasColumnName("job_key").HasMaxLength(80);
@@ -128,6 +130,8 @@ public static class CarrierBillingModel
             entry.Property(row => row.CreatedAt).HasColumnName("created_at");
             entry.Property(row => row.UpdatedBy).HasColumnName("updated_by").HasMaxLength(120);
             entry.Property(row => row.UpdatedAt).HasColumnName("updated_at");
+            entry.Property(row => row.SubmittedAt).HasColumnName("submitted_at");
+            entry.Property(row => row.ValidatedAt).HasColumnName("validated_at");
             entry.Property(row => row.RowVersion).HasColumnName("row_version").IsRowVersion();
             entry.HasIndex(row => new { row.SupplierId, row.Status }).HasDatabaseName("billing_invoices_supplier_status_idx");
             entry.HasIndex(row => new { row.SupplierId, row.InvoiceNumber }).IsUnique()
