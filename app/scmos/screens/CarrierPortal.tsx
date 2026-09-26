@@ -508,6 +508,24 @@ function CarrierBilling({ items, busy, setBusy, onToast, onRefresh }: {
     } finally { setBusy(false); }
   }
 
+  async function saveOriginalPackage(container: HTMLDivElement, invoiceId: number) {
+    if (busy) return;
+    const read = (name: string) => (container.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? "";
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/invoices/${invoiceId}/original-package`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({
+          sentDate: read("originalSentDate"), courier: read("originalCourier"),
+          trackingNumber: read("originalTracking"), packageReference: read("originalPackageReference"),
+          remark: read("originalRemark"),
+        }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? "บันทึกข้อมูลจัดส่งต้นฉบับไม่สำเร็จ");
+      if (response.ok) await onRefresh();
+    } finally { setBusy(false); }
+  }
+
   if (items.length === 0) return <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>
     ยังไม่มีงานที่ Delivery Complete และพร้อมวางบิล
   </div>;
@@ -567,6 +585,27 @@ function CarrierBilling({ items, busy, setBusy, onToast, onRefresh }: {
             <strong>{result.code}</strong> · {result.message}{result.expectedAmount != null && ` · ควรเป็น ${result.currency} ${result.expectedAmount.toLocaleString()}`}
           </div>;
         })}</div>}
+        {(item.invoice.status === "AWAITING_ORIGINAL" || item.invoice.originalPackage) && <div
+          style={css("border-top:1px solid #E9EFF5;padding-top:10px;display:grid;gap:8px")} role="form">
+          <div style={css("font-size:11px;font-weight:700;color:#334155")}>จัดส่งเอกสารต้นฉบับ</div>
+          <div style={css("display:grid;grid-template-columns:150px minmax(160px,1fr) minmax(180px,1fr) minmax(180px,1fr);gap:8px") }>
+            <BillingInput name="originalSentDate" label="วันที่ส่ง" type="date"
+              defaultValue={item.invoice.originalPackage?.sentDate || localDateKey(new Date())} />
+            <BillingInput name="originalCourier" label="บริษัทขนส่ง" defaultValue={item.invoice.originalPackage?.courier || ""} />
+            <BillingInput name="originalTracking" label="Tracking Number" defaultValue={item.invoice.originalPackage?.trackingNumber || ""} />
+            <BillingInput name="originalPackageReference" label="Package Reference" defaultValue={item.invoice.originalPackage?.carrierPackageReference || ""} />
+          </div>
+          <div style={css("display:flex;gap:8px;align-items:end;flex-wrap:wrap") }>
+            <div style={css("flex:1;min-width:240px") }><BillingInput name="originalRemark" label="หมายเหตุ"
+              defaultValue={item.invoice.originalPackage?.carrierRemark || ""} /></div>
+            {item.invoice.status === "AWAITING_ORIGINAL" && <button type="button" disabled={busy} onClick={(event) => {
+              void saveOriginalPackage(event.currentTarget.parentElement?.parentElement as HTMLDivElement, item.invoice!.id);
+            }} style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;background:#fff;color:#0A5C97;border-radius:4px;font:inherit;font-size:11px;font-weight:650")}>แจ้งจัดส่งต้นฉบับ</button>}
+          </div>
+          {item.invoice.originalPackage?.receivedAt && <div style={css("font-size:11px;color:#16794C;font-weight:650") }>
+            LESCHACO รับแล้ว {readDate(item.invoice.originalPackage.receivedAt)} · {item.invoice.originalPackage.documentCount ?? 0} ฉบับ
+          </div>}
+        </div>}
       </form>}
     </div>)}
   </div>;

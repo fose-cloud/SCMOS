@@ -13,7 +13,8 @@ public record BillingInvoiceView(long Id, string InvoiceNumber, string InvoiceDa
     string Status, DateTimeOffset UpdatedAt, IReadOnlyList<BillingValidationView> ValidationResults,
     IReadOnlyList<BillingChargeView> AdditionalCharges, int ReviewCycle,
     DateTimeOffset? ReviewSubmittedAt, DateTimeOffset? ReviewDecidedAt, DateTimeOffset? OnlineApprovedAt,
-    int? ReviewAgeMinutes, int? ReviewDecisionMinutes, IReadOnlyList<BillingReviewEventView> ReviewEvents);
+    int? ReviewAgeMinutes, int? ReviewDecisionMinutes, IReadOnlyList<BillingReviewEventView> ReviewEvents,
+    OriginalPackageView? OriginalPackage);
 
 public record BillingCaseView(long Id, string JobKey, string JobCode, string Customer,
     string Category, int SupplierId, string Supplier, string Status,
@@ -278,6 +279,8 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             group => (IReadOnlyList<BillingReviewEventView>)group.Select(row => new BillingReviewEventView(row.Id,
                 row.Cycle, row.Action, row.FromStatus, row.ToStatus, row.ReasonCode, row.Remark,
                 row.ActorName, row.At)).ToList());
+        var originalPackages = await db.OriginalDocumentPackages.AsNoTracking()
+            .Where(row => invoiceIds.Contains(row.InvoiceId)).ToDictionaryAsync(row => row.InvoiceId, token);
         var held = await db.Documents.AsNoTracking().Where(row => row.BillingCaseId != null
                 && ids.Contains(row.BillingCaseId.Value)).OrderBy(row => row.UploadedAt).ToListAsync(token);
         var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(Thailand).DateTime);
@@ -288,7 +291,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             var link = links.FirstOrDefault(one => one.BillingCaseId == row.Id);
             var invoice = link is not null && invoices.TryGetValue(link.InvoiceId, out var found)
                 ? Describe(found, validations.GetValueOrDefault(found.Id, []), charges.GetValueOrDefault(found.Id, []),
-                    reviews.GetValueOrDefault(found.Id, [])) : null;
+                    reviews.GetValueOrDefault(found.Id, []), originalPackages.GetValueOrDefault(found.Id)) : null;
             var state = BillingSlaState.Of(today, row.SlaDueDate);
             return new BillingCaseView(row.Id, row.JobKey, job?.JobCode ?? row.JobKey,
                 job?.Customer ?? "", job?.Cat ?? "", row.SupplierId,
@@ -319,14 +322,16 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
     }
 
     private static BillingInvoiceView Describe(BillingInvoice row, IReadOnlyList<BillingValidationView>? results = null,
-        IReadOnlyList<BillingChargeView>? charges = null, IReadOnlyList<BillingReviewEventView>? reviews = null) => new(row.Id,
+        IReadOnlyList<BillingChargeView>? charges = null, IReadOnlyList<BillingReviewEventView>? reviews = null,
+        OriginalDocumentPackage? originalPackage = null) => new(row.Id,
         row.InvoiceNumber, row.InvoiceDate?.ToString("yyyy-MM-dd") ?? "", row.Currency,
         row.Subtotal, row.TaxAmount, row.TotalAmount, row.Status, row.UpdatedAt, results ?? [], charges ?? [],
         row.ReviewCycle, row.ReviewSubmittedAt, row.ReviewDecidedAt, row.OnlineApprovedAt,
         row.ReviewSubmittedAt is null || row.ReviewDecidedAt is not null ? null
             : (int)Math.Max(0, (DateTimeOffset.UtcNow - row.ReviewSubmittedAt.Value).TotalMinutes),
         row.ReviewSubmittedAt is null || row.ReviewDecidedAt is null ? null
-            : (int)Math.Max(0, (row.ReviewDecidedAt.Value - row.ReviewSubmittedAt.Value).TotalMinutes), reviews ?? []);
+            : (int)Math.Max(0, (row.ReviewDecidedAt.Value - row.ReviewSubmittedAt.Value).TotalMinutes), reviews ?? [],
+        originalPackage is null ? null : OriginalDocumentService.View(originalPackage));
 
     private static BillingMutation Denied() =>
         new(false, "NO_CARRIER", "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา");

@@ -446,6 +446,18 @@ Auth__RoleMap = titchanatorn.k@leschaco.co.th=Operation Supervisor; nattikorn.s@
 The five operators are matched by the staff directory on the local part of their
 email and need no entry. Valid roles are listed in `appsettings.json`.
 
+Physical receipt of carrier billing originals is a separate, fail-closed
+permission because the business owner has not yet fixed the responsible role.
+Set the agreed role names on the API App Service; an empty or missing value lets
+nobody mark an Original received:
+
+```
+CarrierBilling__OriginalReceiptRoleList = <agreed SCMOS role>; <optional second role>
+```
+
+The value is a comma- or semicolon-separated allowlist of exact SCMOS role names.
+Carrier accounts remain refused even if `Subcontractor` is accidentally listed.
+
 ### 4. Authentication
 
 Turn on **Authentication** on the *web* App Service — Microsoft as the provider,

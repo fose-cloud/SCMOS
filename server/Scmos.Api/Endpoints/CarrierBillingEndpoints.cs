@@ -14,19 +14,24 @@ public static class CarrierBillingEndpoints
     public record ChargeInput(string? ChargeType, decimal RequestedAmount, string? Currency,
         string? Reason, long? EvidenceDocumentId);
     public record ReviewInput(string? Action, string? ReasonCode, string? Remark);
+    public record OriginalPackageInput(string? SentDate, string? Courier, string? TrackingNumber,
+        string? PackageReference, string? Remark);
+    public record OriginalReceiptInput(string? ReceivedAt, int DocumentCount,
+        string? PackageReference, string? Remark);
 
     public static void MapCarrierBilling(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/carrier-billing").WithTags("Carrier Billing");
 
         group.MapGet("/cases", async (HttpContext context, IUserAccessor users,
-            CarrierBillingService billing, CancellationToken token) =>
+            CarrierBillingService billing, OriginalReceiptPolicy receiptPolicy, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             var result = await billing.ListAsync(user, token);
             return result.Ok
-                ? Results.Json(new { items = result.Items })
+                ? Results.Json(new { items = result.Items, canReceiveOriginal = receiptPolicy.CanReceive(user),
+                    originalReceiptConfigured = receiptPolicy.IsConfigured })
                 : ApiResults.Error(result.Message, StatusCodes.Status403Forbidden);
         });
 
@@ -116,7 +121,40 @@ public static class CarrierBillingEndpoints
             return result.Ok ? Results.Json(new { message = result.Message, status = result.Status, events = result.Events })
                 : ApiResults.Error(result.Message, result.Code == "NOT_FOUND" ? 404 : result.Code == "FORBIDDEN" ? 403 : 409);
         });
+
+        group.MapPut("/invoices/{invoiceId:long}/original-package", async (long invoiceId,
+            [FromBody] OriginalPackageInput body, HttpContext context, IUserAccessor users,
+            OriginalDocumentService originals, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            var result = await originals.SaveCarrierPackageAsync(user, invoiceId, body.SentDate ?? "",
+                body.Courier ?? "", body.TrackingNumber ?? "", body.PackageReference ?? "",
+                body.Remark ?? "", token);
+            return OriginalReply(result);
+        });
+
+        group.MapPost("/original/{invoiceId:long}/receive", async (long invoiceId,
+            [FromBody] OriginalReceiptInput body, HttpContext context, IUserAccessor users,
+            OriginalReceiptPolicy policy, OriginalDocumentService originals, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (!policy.CanReceive(user)) return ApiResults.Error(policy.IsConfigured
+                ? "บัญชีนี้ไม่มีสิทธิ์รับเอกสารต้นฉบับ" : "ยังไม่ได้กำหนดบทบาทผู้รับเอกสารต้นฉบับในระบบ", 403);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ReviewBilling) is { } weak) return weak;
+            var result = await originals.ReceiveAsync(user, invoiceId, body.ReceivedAt ?? "",
+                body.DocumentCount, body.PackageReference ?? "", body.Remark ?? "", token);
+            return OriginalReply(result);
+        });
     }
+
+    private static IResult OriginalReply(OriginalDocumentMutation result) => result.Ok
+        ? Results.Json(new { message = result.Message, status = result.InvoiceStatus,
+            financeReady = result.FinanceReady, replayed = result.Replayed, package = result.Package })
+        : ApiResults.Error(result.Message, result.Code switch {
+            "FORBIDDEN" => 403, "NOT_FOUND" => 404,
+            "INVALID_STATUS" or "ALREADY_RECEIVED" or "BILLING_CASE_NOT_FOUND" => 409,
+            _ => 400,
+        });
 
     private static IResult Reply(BillingMutation result) => result.Ok
         ? Results.Json(new { message = result.Message, replayed = result.Replayed,

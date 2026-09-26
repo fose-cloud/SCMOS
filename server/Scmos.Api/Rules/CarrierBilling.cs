@@ -10,6 +10,8 @@ public static class BillingCaseStatus
     public const string Returned = "RETURNED";
     public const string Disputed = "DISPUTED";
     public const string AwaitingOriginal = "AWAITING_ORIGINAL";
+    public const string OriginalReceived = "ORIGINAL_RECEIVED";
+    public const string ReadyForFinance = "READY_FOR_FINANCE";
 }
 
 public static class BillingInvoiceStatus
@@ -21,6 +23,8 @@ public static class BillingInvoiceStatus
     public const string Returned = "RETURNED";
     public const string Disputed = "DISPUTED";
     public const string AwaitingOriginal = "AWAITING_ORIGINAL";
+    public const string OriginalReceived = "ORIGINAL_RECEIVED";
+    public const string ReadyForFinance = "READY_FOR_FINANCE";
 }
 
 public static class BillingValidationCategory
@@ -94,6 +98,26 @@ public static class BillingReviewTransitions
         _ => "",
     };
     public static DateTimeOffset PreserveFirstSubmitted(DateTimeOffset? firstSubmittedAt, DateTimeOffset now) => firstSubmittedAt ?? now;
+}
+
+public static class OriginalDocumentStatus
+{
+    public const string Pending = "PENDING";
+    public const string Sent = "SENT";
+    public const string Received = "RECEIVED";
+}
+
+public record FinanceReadinessResult(bool Ready, string Code, string InvoiceStatus);
+
+public static class BillingFinanceReadiness
+{
+    public static FinanceReadinessResult Evaluate(bool onlineApproved, bool originalReceived, bool hasBlockingException)
+    {
+        if (!onlineApproved) return new(false, "ONLINE_APPROVAL_REQUIRED", BillingInvoiceStatus.SubconReview);
+        if (!originalReceived) return new(false, "ORIGINAL_REQUIRED", BillingInvoiceStatus.AwaitingOriginal);
+        if (hasBlockingException) return new(false, "BLOCKING_EXCEPTION", BillingInvoiceStatus.OriginalReceived);
+        return new(true, "READY_FOR_FINANCE", BillingInvoiceStatus.ReadyForFinance);
+    }
 }
 
 public static class BillingSlaState

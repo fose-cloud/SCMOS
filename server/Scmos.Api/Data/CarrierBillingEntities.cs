@@ -82,7 +82,7 @@ public static class CarrierBillingModel
         model.Entity<BillingCase>(entry =>
         {
             entry.ToTable("billing_cases", table => table.HasCheckConstraint(
-                "billing_cases_status_ck", "[status] IN ('WAITING_CARRIER_SUBMISSION','DRAFT','VALIDATED','BLOCKED','SUBCON_REVIEW','RETURNED','DISPUTED','AWAITING_ORIGINAL')"));
+                "billing_cases_status_ck", "[status] IN ('WAITING_CARRIER_SUBMISSION','DRAFT','VALIDATED','BLOCKED','SUBCON_REVIEW','RETURNED','DISPUTED','AWAITING_ORIGINAL','ORIGINAL_RECEIVED','READY_FOR_FINANCE')"));
             entry.HasKey(row => row.Id);
             entry.Property(row => row.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entry.Property(row => row.JobKey).HasColumnName("job_key").HasMaxLength(80);

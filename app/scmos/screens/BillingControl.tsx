@@ -12,11 +12,16 @@ export type BillingInvoice = {
   reviewCycle: number; reviewSubmittedAt: string; reviewDecidedAt: string; onlineApprovedAt: string;
   reviewAgeMinutes: number | null; reviewDecisionMinutes: number | null;
   reviewEvents: BillingReviewEvent[];
+  originalPackage: OriginalPackage | null;
   validationResults: BillingValidation[];
   additionalCharges: BillingCharge[];
 };
 export type BillingReviewEvent = { id: number; cycle: number; action: string; fromStatus: string;
   toStatus: string; reasonCode: string; remark: string; actorName: string; at: string };
+export type OriginalPackage = { id: number; status: string; sentDate: string; courier: string;
+  trackingNumber: string; carrierPackageReference: string; carrierRemark: string; sentBy: string;
+  sentAt: string; receivedAt: string; receivedByName: string; documentCount: number | null;
+  receiptPackageReference: string; receiptRemark: string };
 export type BillingCharge = { id: number; chargeType: string; requestedAmount: number;
   approvedAmount: number | null; currency: string; reason: string; status: string };
 export type BillingValidation = { sequence: number; step: string; code: string; category: string;
@@ -31,7 +36,7 @@ export type BillingCase = {
   slaIssueCode: string; slaIssue: string; invoice: BillingInvoice | null; documents: BillingDocument[];
 };
 
-type Filter = "ALL" | "WAITING_CARRIER_SUBMISSION" | "DRAFT" | "SUBCON_REVIEW" | "RETURNED" | "DISPUTED" | "AWAITING_ORIGINAL" | "OVERDUE";
+type Filter = "ALL" | "WAITING_CARRIER_SUBMISSION" | "DRAFT" | "SUBCON_REVIEW" | "RETURNED" | "DISPUTED" | "AWAITING_ORIGINAL" | "ORIGINAL_RECEIVED" | "READY_FOR_FINANCE" | "OVERDUE";
 
 const returnReasons = ["MISSING_DOCUMENT", "WRONG_RATE", "WRONG_VAT", "WRONG_RECEIPT", "UNAPPROVED_CHARGE", "WRONG_JOB", "DUPLICATE", "INVOICE_DATA_ERROR", "OTHER"];
 
@@ -44,14 +49,19 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
   const [acting, setActing] = useState(false);
   const [reasonCode, setReasonCode] = useState("MISSING_DOCUMENT");
   const [remark, setRemark] = useState("");
+  const [canReceiveOriginal, setCanReceiveOriginal] = useState(false);
+  const [originalReceiptConfigured, setOriginalReceiptConfigured] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const response = await apiFetch("/api/carrier-billing/cases", { headers: { accept: "application/json" } });
-      const body = await response.json().catch(() => ({})) as { items?: BillingCase[]; error?: string };
+      const body = await response.json().catch(() => ({})) as { items?: BillingCase[]; error?: string;
+        canReceiveOriginal?: boolean; originalReceiptConfigured?: boolean };
       if (!response.ok) { onToast(body.error ?? `เปิด Billing Control ไม่สำเร็จ (${response.status})`); return; }
       setItems(body.items ?? []);
+      setCanReceiveOriginal(body.canReceiveOriginal === true);
+      setOriginalReceiptConfigured(body.originalReceiptConfigured !== false);
     } finally { setLoading(false); }
   }, [onToast]);
 
@@ -71,6 +81,7 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
   const waiting = items.filter((item) => item.status === "WAITING_CARRIER_SUBMISSION").length;
   const drafts = items.filter((item) => item.status === "DRAFT").length;
   const reviews = items.filter((item) => item.status === "SUBCON_REVIEW").length;
+  const originalPending = items.filter((item) => item.status === "AWAITING_ORIGINAL").length;
   const overdue = items.filter((item) => item.slaState === "OVERDUE").length;
   const selected = items.find((item) => item.id === selectedId) ?? null;
 
@@ -92,6 +103,21 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
     } finally { setActing(false); }
   }
 
+  async function receiveOriginal(receivedAt: string, documentCount: number, packageReference: string, receiptRemark: string) {
+    const invoiceId = selected?.invoice?.id;
+    if (!invoiceId || acting) return;
+    setActing(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/original/${invoiceId}/receive`, {
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ receivedAt, documentCount, packageReference, remark: receiptRemark }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? (response.ok ? "รับเอกสารต้นฉบับแล้ว" : `บันทึกไม่สำเร็จ (${response.status})`));
+      if (response.ok) await load();
+    } finally { setActing(false); }
+  }
+
   return (
     <div style={css("display:flex;flex-direction:column;gap:12px")}>
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px")}>
@@ -99,6 +125,7 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
         <Metric label="รอผู้ขนส่งวางบิล" value={waiting} tone="#B45309" />
         <Metric label="Invoice Draft" value={drafts} tone="#16794C" />
         <Metric label="รอตรวจ Subcontract" value={reviews} tone="#7C3AED" />
+        <Metric label="รอเอกสารต้นฉบับ" value={originalPending} tone="#B45309" />
         <Metric label="เกิน SLA" value={overdue} tone="#B42318" />
       </div>
 
@@ -113,7 +140,8 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
             <option value="ALL">ทั้งหมด</option><option value="WAITING_CARRIER_SUBMISSION">รอผู้ขนส่ง</option>
             <option value="DRAFT">Draft</option><option value="SUBCON_REVIEW">รอตรวจ Subcontract</option>
             <option value="RETURNED">ส่งคืนแก้ไข</option><option value="DISPUTED">ข้อพิพาท</option>
-            <option value="AWAITING_ORIGINAL">รอต้นฉบับ</option><option value="OVERDUE">เกิน SLA</option>
+            <option value="AWAITING_ORIGINAL">รอต้นฉบับ</option><option value="ORIGINAL_RECEIVED">รับต้นฉบับแล้ว</option>
+            <option value="READY_FOR_FINANCE">พร้อมส่ง Finance</option><option value="OVERDUE">เกิน SLA</option>
           </select>
           <button onClick={() => void load()} disabled={loading}
             style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;background:#fff;color:#0A5C97;border-radius:4px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer")}>รีเฟรช</button>
@@ -148,8 +176,9 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
           </table>
         </ZoomBox>
       </div>
-      {selected?.invoice && <ReviewDetail item={selected} reasonCode={reasonCode} remark={remark}
-        acting={acting} onReason={setReasonCode} onRemark={setRemark} onReview={review} />}
+      {selected?.invoice && <ReviewDetail key={selected.invoice.id} item={selected} reasonCode={reasonCode} remark={remark}
+        acting={acting} canReceiveOriginal={canReceiveOriginal} originalReceiptConfigured={originalReceiptConfigured}
+        onReason={setReasonCode} onRemark={setRemark} onReview={review} onReceiveOriginal={receiveOriginal} />}
     </div>
   );
 }
@@ -166,8 +195,9 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: st
 
 function Status({ value }: { value: string }) {
   const draft = value === "DRAFT";
-  const blocked = value === "BLOCKED"; const validated = value === "VALIDATED";
-  const tone = blocked ? ["#B42318", "#FEECE9"] : validated ? ["#16794C", "#E8F5EE"] : draft ? ["#0A5C97", "#EAF4FC"] : ["#B45309", "#FFF3E0"];
+  const blocked = value === "BLOCKED" || value === "DISPUTED";
+  const ready = value === "READY_FOR_FINANCE"; const validated = value === "VALIDATED" || value === "ORIGINAL_RECEIVED";
+  const tone = blocked ? ["#B42318", "#FEECE9"] : ready ? ["#16794C", "#DDF5E7"] : validated ? ["#16794C", "#E8F5EE"] : draft ? ["#0A5C97", "#EAF4FC"] : ["#B45309", "#FFF3E0"];
   return <span style={css(`display:inline-block;padding:3px 7px;border-radius:3px;font-size:10px;font-weight:700;color:${tone[0]};background:${tone[1]}`)}>
     {value}
   </span>;
@@ -181,14 +211,22 @@ function SlaLabel({ item }: { item: BillingCase }) {
   return <span style={css(`font-size:10.5px;font-weight:650;color:${overdue ? "#B42318" : due ? "#B45309" : "#16794C"}`)}>{text}</span>;
 }
 
-function ReviewDetail({ item, reasonCode, remark, acting, onReason, onRemark, onReview }: {
+function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, originalReceiptConfigured,
+  onReason, onRemark, onReview, onReceiveOriginal }: {
   item: BillingCase; reasonCode: string; remark: string; acting: boolean;
+  canReceiveOriginal: boolean; originalReceiptConfigured: boolean;
   onReason: (value: string) => void; onRemark: (value: string) => void;
   onReview: (action: "APPROVE_ONLINE" | "RETURN_TO_CARRIER" | "RAISE_DISPUTE") => void;
+  onReceiveOriginal: (receivedAt: string, documentCount: number, packageReference: string, remark: string) => void;
 }) {
   const invoice = item.invoice!;
   const actionable = invoice.status === "SUBCON_REVIEW";
   const failures = invoice.validationResults.filter((result) => result.blocking);
+  const [receivedAt, setReceivedAt] = useState(() => localDateTimeInput(new Date()));
+  const [documentCount, setDocumentCount] = useState("1");
+  const [receiptReference, setReceiptReference] = useState("");
+  const [receiptRemark, setReceiptRemark] = useState("");
+  const original = invoice.originalPackage;
   return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:6px;padding:14px;display:grid;gap:12px") }>
     <div style={css("display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap") }>
       <div style={css("margin-right:auto") }><strong style={css("color:#0A2240")}>Review Detail · {item.jobCode || item.jobKey}</strong>
@@ -224,6 +262,38 @@ function ReviewDetail({ item, reasonCode, remark, acting, onReason, onRemark, on
         <Action label="เปิดข้อพิพาท" tone="#B42318" disabled={acting} onClick={() => onReview("RAISE_DISPUTE")} />
       </div>
     </div>}
+    {(invoice.status === "AWAITING_ORIGINAL" || invoice.status === "ORIGINAL_RECEIVED" || invoice.status === "READY_FOR_FINANCE") &&
+      <div style={css("border-top:1px solid #E7EDF3;padding-top:12px;display:grid;gap:9px") }>
+        <div style={css("font-size:11px;font-weight:700;color:#334155")}>Original Document Control</div>
+        <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px") }>
+          <Detail label="Physical status" value={original?.status ?? "PENDING"} />
+          <Detail label="Carrier sent" value={original?.sentDate || "ยังไม่แจ้ง"} />
+          <Detail label="Courier / Tracking" value={original ? `${original.courier || "—"} · ${original.trackingNumber || "—"}` : "—"} />
+          <Detail label="Received" value={dateTime(original?.receivedAt ?? "")} />
+          <Detail label="Document count" value={original?.documentCount == null ? "—" : `${original.documentCount} ฉบับ`} />
+          <Detail label="Received by" value={original?.receivedByName || "—"} />
+        </div>
+        {original?.carrierPackageReference && <div style={muted}>Carrier package ref: {original.carrierPackageReference}</div>}
+        {original?.carrierRemark && <div style={muted}>Carrier remark: {original.carrierRemark}</div>}
+        {original?.receiptPackageReference && <div style={muted}>Receipt package ref: {original.receiptPackageReference}</div>}
+        {original?.receiptRemark && <div style={muted}>Receipt remark: {original.receiptRemark}</div>}
+        {invoice.status === "AWAITING_ORIGINAL" && canReceiveOriginal && <div style={css("display:grid;gap:8px") }>
+          <div style={css("display:grid;grid-template-columns:190px 120px minmax(180px,1fr);gap:8px") }>
+            <input type="datetime-local" value={receivedAt} onChange={(event) => setReceivedAt(event.target.value)} style={control} />
+            <input type="number" min="1" value={documentCount} onChange={(event) => setDocumentCount(event.target.value)}
+              aria-label="จำนวนเอกสาร" style={control} />
+            <input value={receiptReference} onChange={(event) => setReceiptReference(event.target.value)}
+              placeholder="Package Reference ฝั่งรับ" style={control} />
+          </div>
+          <input value={receiptRemark} onChange={(event) => setReceiptRemark(event.target.value)}
+            placeholder="หมายเหตุการรับเอกสาร" style={control} />
+          <div><Action label="ยืนยันรับเอกสารต้นฉบับ" tone="#16794C" disabled={acting || Number(documentCount) <= 0 || !receivedAt}
+            onClick={() => onReceiveOriginal(new Date(receivedAt).toISOString(), Number(documentCount), receiptReference, receiptRemark)} /></div>
+        </div>}
+        {invoice.status === "AWAITING_ORIGINAL" && !originalReceiptConfigured && <div style={css("font-size:10.5px;color:#B42318") }>
+          ยังไม่ได้กำหนดบทบาทผู้รับเอกสารต้นฉบับใน CarrierBilling configuration
+        </div>}
+      </div>}
     <div>
       <div style={css("font-size:11px;font-weight:700;color:#334155;margin-bottom:5px")}>Review history</div>
       {invoice.reviewEvents.length === 0 ? <span style={muted}>ยังไม่มีประวัติ Review</span> : invoice.reviewEvents.slice().reverse().map((event) =>
@@ -252,6 +322,10 @@ function duration(minutes: number | null) {
   if (minutes < 60) return `${minutes} นาที`;
   const hours = Math.floor(minutes / 60); const rest = minutes % 60;
   return `${hours} ชม.${rest ? ` ${rest} นาที` : ""}`;
+}
+
+function localDateTimeInput(value: Date) {
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
 function dateTime(value: string) {
