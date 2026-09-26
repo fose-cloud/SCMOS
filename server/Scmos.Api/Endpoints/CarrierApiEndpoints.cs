@@ -397,6 +397,10 @@ public static class CarrierApiEndpoints
             return Results.Json(new { items = mine, correlationId = context.TraceIdentifier });
         });
 
+        // Phase 9 extends this same authenticated and rate-limited v1 group;
+        // no second carrier API or credential boundary is introduced.
+        CarrierBillingApiEndpoints.Map(v1);
+
         /* ------------------------------------------------ webhooks (phase 4) */
 
         // The URLs this supplier's systems asked SCMOS to call.
@@ -670,7 +674,7 @@ public static class CarrierApiEndpoints
         return await next(invocation);
     }
 
-    private static CarrierApiAuth.Principal PrincipalOf(HttpContext context) =>
+    internal static CarrierApiAuth.Principal PrincipalOf(HttpContext context) =>
         context.Items[CarrierApiAuth.ItemKey] as CarrierApiAuth.Principal
         ?? throw new InvalidOperationException("Carrier API endpoint reached without the authentication filter");
 
@@ -681,11 +685,11 @@ public static class CarrierApiEndpoints
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    private static Written Answer(int status, object body) =>
+    internal static Written Answer(int status, object body) =>
         new(status, "application/json; charset=utf-8", JsonSerializer.Serialize(body, Web));
 
     /// <summary>A refusal in the problem shape, as text, so the ledger can store and replay it like any answer.</summary>
-    private static Written Problem(HttpContext context, string code, string detail, object? more = null)
+    internal static Written Problem(HttpContext context, string code, string detail, object? more = null)
     {
         var problem = CarrierApi.ProblemOf(code);
         var document = new Dictionary<string, object?>
@@ -756,7 +760,7 @@ public static class CarrierApiEndpoints
     /// The ledger row is claimed before the work, under the database's
     /// unique index, so two retries racing cannot both be first.
     /// </summary>
-    private static async Task<IResult> IdempotentAsync(HttpContext context, string method, object? body, Func<Task<Written>> work)
+    internal static async Task<IResult> IdempotentAsync(HttpContext context, string method, object? body, Func<Task<Written>> work)
     {
         var who = PrincipalOf(context);
         var db = context.RequestServices.GetRequiredService<ScmosDbContext>();

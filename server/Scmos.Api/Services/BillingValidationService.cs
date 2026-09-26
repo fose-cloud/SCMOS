@@ -160,7 +160,8 @@ public class BillingValidationService(ScmosDbContext db, AuditService audit)
                 ActorId = actor.UserId, ActorName = actor.Signature, At = now });
         }
         audit.Stage(actor, AuditActions.Update, "billing-invoice", invoice.Id.ToString(), invoice.InvoiceNumber,
-            "status", fromStatus, invoice.Status, $"Phase 6 validation: {outcome}");
+            "status", fromStatus, invoice.Status, $"Phase 6 validation: {outcome}",
+            actor.Source == "carrier-api" ? EventSource.CarrierApi : "web");
         await db.SaveChangesAsync(token);
         await transaction.CommitAsync(token);
         return new(true, "OK", blocked ? "ตรวจพบรายการที่ต้องแก้ไขก่อนส่งต่อ" : "Validation ผ่านและบันทึกผลแล้ว",

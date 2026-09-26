@@ -34,8 +34,10 @@ test("SLA is snapshotted from the configured working-day calendar, never guessed
 });
 
 test("carrier billing commands are tenant scoped and browser cannot select supplier", () => {
-  assert.match(service, /row\.Id == caseId && row\.SupplierId == tenant\.SupplierId/);
-  assert.match(service, /row\.Id == invoiceId && row\.SupplierId == tenant\.SupplierId/);
+  assert.match(service, /CreateDraftForAsync\(user, tenant\.SupplierId, caseId/);
+  assert.match(service, /row\.Id == caseId && row\.SupplierId == supplierId/);
+  assert.match(service, /UpdateDraftForAsync\(user, tenant\.SupplierId, invoiceId/);
+  assert.match(service, /row\.Id == invoiceId && row\.SupplierId == supplierId/);
   assert.doesNotMatch(endpoints, /DraftInput\([^)]*SupplierId/);
 });
 

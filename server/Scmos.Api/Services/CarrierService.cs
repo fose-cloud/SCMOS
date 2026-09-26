@@ -595,6 +595,17 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
             Previous: new Dictionary<string, string> { ["status"] = oldStatus });
     }
 
+    /// <summary>
+    /// Checks one accepted job for a supplier identity already established by
+    /// SCMOS. Carrier API document routes use this instead of trusting a job
+    /// key alone or accepting a supplier id from the request.
+    /// </summary>
+    public async Task<bool> OwnsHeldJobAsync(Supplier company, string jobKey, CancellationToken token)
+    {
+        var names = await NamesOfAsync(company, token);
+        return await OwnsHeldJobAsync(company, names, jobKey, token);
+    }
+
     private async Task<bool> OwnsHeldJobAsync(Supplier company, IReadOnlySet<string> names,
         string jobKey, CancellationToken token)
     {

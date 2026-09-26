@@ -1,6 +1,6 @@
 # SCMOS Carrier TMS API — V1 contract
 
-Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · Phase 4 (webhooks) live from v2.7.56 · Phase 5 (auto-apply for a marked carrier, behind a switch) live from v2.7.57 · 20 September 2026 · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
+Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · Phase 4 (webhooks) live from v2.7.56 · Phase 5 (auto-apply for a marked carrier, behind a switch) live from v2.7.57 · Carrier Collaboration Phase 9 adds POD and online billing · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
 
 The [assessment](SCMOS_CARRIER_TMS_ASSESSMENT.md) says why the API is shaped this way. This page is the contract a carrier's TMS is built against.
 
@@ -210,6 +210,76 @@ Compare against `X-Scmos-Signature` in constant time; reject a `X-Scmos-Timestam
 A non-2xx answer, a timeout (10 s) or a refused connection is a failure. A redirect is not followed — a 3xx is a failure like any other answer. SCMOS tries again after 1 min, 5 min, 30 min, 2 h and 12 h — six attempts in all — then marks the delivery `dead` in the ledger. Deliveries are made in order of their due time; the same event is never delivered twice to one webhook (a retry carries the same `id` with a higher `attempt`). The Carrier API screen shows the department a webhook that is failing.
 
 A webhook that fails **30 attempts in a row** with none delivered — at least fifteen hours of a receiver that never once answered 2xx — is disabled by SCMOS: its row reads `disabled by SCMOS: 30 deliveries failed in a row`, its pending deliveries close out, and a `test` answers `409 conflict` as for any disabled webhook. Register a new one when the receiver is mended.
+
+## POD and online billing (Carrier Collaboration Phase 9)
+
+These routes use the same key, supplier boundary, rate limit, correlation id,
+problem format and persistent idempotency ledger as the assignment routes.
+There is no `supplierId` query or body field: the key decides the supplier.
+A known case, invoice or job belonging to another carrier is returned as `404`.
+
+Every write below requires `Idempotency-Key`. Multipart uploads fingerprint the
+file bytes with SHA-256 as well as its metadata, kind and note, so reusing a key
+for different bytes is `422 idempotency-key-reused` rather than a silent replay.
+
+### `POST /assignments/{id}/pod`
+
+Uploads delivery evidence to the accepted job. Send `multipart/form-data` with
+`file` (required) and `note` (optional, at most 500 characters). The controlled
+folder and kind are `POD` / `pod`; the caller cannot choose a storage path.
+Maximum size is 32 MB. The answer returns safe document metadata only — never
+the private Blob URL or object key.
+
+### `GET /billing/eligible?page=&pageSize=`
+
+Lists this carrier's Delivery-Complete Billing Cases that still have status
+`WAITING_CARRIER_SUBMISSION`, paged with the same 1–200 limit as assignments.
+Each item carries the snapshotted SLA start/due dates and current SLA state.
+
+### `POST /billing/cases/{caseId}/draft`
+
+Creates the one online Billing Draft for the eligible case. A retry is replayed;
+if the draft already exists, SCMOS returns it rather than creating another.
+
+### `PUT /billing/invoices/{invoiceId}`
+
+```json
+{
+  "invoiceNumber": "INV-2026-001",
+  "invoiceDate": "2026-09-26",
+  "currency": "THB",
+  "subtotal": 8500.00,
+  "taxAmount": 595.00
+}
+```
+
+Uses the same Draft/Blocked/Returned edit rules and duplicate invoice-number
+control as the Carrier Portal. Amounts cannot be negative; currency is a
+three-letter code; date is `yyyy-MM-dd`.
+
+### `POST /billing/invoices/{invoiceId}/documents`
+
+Uploads online billing evidence as `multipart/form-data`: `file` (required),
+`kind` (defaults to `invoice`, at most 60 characters) and `note` (optional,
+at most 500 characters). The invoice and linked Billing Case must both belong
+to the key's supplier. The same 32 MB storage rule applies.
+
+### `POST /billing/invoices/{invoiceId}/submit`
+
+Runs the authoritative server-side validation pipeline used by the Portal:
+eligibility, ownership, duplicate, document requirements, contracted rate,
+additional charge, tax and reconciliation. The response carries `status` and
+the persisted individual validation `results`; it never reduces the decision
+to a client-side Boolean.
+
+### `GET /billing/invoices/{invoiceId}`
+
+Returns the carrier-owned Billing Case and Invoice projection, including status,
+SLA, documents, latest validation, review history and original-package status.
+
+### `GET /billing/invoices/{invoiceId}/validation`
+
+Returns the invoice's current status and latest persisted validation results.
 
 ## Refusals
 

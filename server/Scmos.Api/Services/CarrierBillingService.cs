@@ -104,7 +104,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         {
             var tenant = await tenants.ResolveAsync(user, token);
             if (tenant is null) return (false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", []);
-            query = query.Where(row => row.SupplierId == tenant.SupplierId);
+            return await ListForCarrierAsync(tenant.SupplierId, token);
         }
         else if (!user.Can(Capability.ViewRates))
         {
@@ -115,12 +115,32 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         return (true, "", await DescribeAsync(cases, token));
     }
 
+    /// <summary>
+    /// The carrier-scoped billing projection for a supplier identity already
+    /// resolved by a trusted boundary (a staff membership or a Carrier API
+    /// key). The supplier id is never accepted from the public request.
+    /// </summary>
+    public async Task<(bool Ok, string Message, IReadOnlyList<BillingCaseView> Items)> ListForCarrierAsync(
+        int supplierId, CancellationToken token)
+    {
+        var cases = await db.BillingCases.AsNoTracking()
+            .Where(row => row.SupplierId == supplierId)
+            .OrderByDescending(row => row.DeliveryCompletedAt).Take(1000).ToListAsync(token);
+        return (true, "", await DescribeAsync(cases, token));
+    }
+
     public async Task<BillingMutation> CreateDraftAsync(AppUser user, long caseId, CancellationToken token)
     {
         var tenant = await CarrierAsync(user, token);
         if (tenant is null) return Denied();
+        return await CreateDraftForAsync(user, tenant.SupplierId, caseId, token);
+    }
+
+    public async Task<BillingMutation> CreateDraftForAsync(AppUser user, int supplierId,
+        long caseId, CancellationToken token)
+    {
         var billingCase = await db.BillingCases.FirstOrDefaultAsync(row =>
-            row.Id == caseId && row.SupplierId == tenant.SupplierId, token);
+            row.Id == caseId && row.SupplierId == supplierId, token);
         if (billingCase is null) return Missing();
 
         var linked = await db.BillingInvoiceJobLinks.AsNoTracking()
@@ -136,7 +156,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         var now = DateTimeOffset.UtcNow;
         var invoice = new BillingInvoice
         {
-            SupplierId = tenant.SupplierId,
+            SupplierId = supplierId,
             Status = BillingInvoiceStatus.Draft,
             Currency = "THB",
             CreatedBy = user.Signature,
@@ -157,7 +177,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         billingCase.UpdatedBy = user.Signature;
         billingCase.UpdatedAt = now;
         audit.Stage(user, AuditActions.Register, "billing-invoice", billingCase.JobKey,
-            billingCase.JobKey, "status", "", BillingInvoiceStatus.Draft, "Carrier Portal");
+            billingCase.JobKey, "status", "", BillingInvoiceStatus.Draft, ChannelOf(user), AuditSourceOf(user));
         await db.SaveChangesAsync(token);
         return new(true, "OK", "สร้างใบวางบิลฉบับร่างแล้ว", Invoice: Describe(invoice));
     }
@@ -168,8 +188,16 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
     {
         var tenant = await CarrierAsync(user, token);
         if (tenant is null) return Denied();
+        return await UpdateDraftForAsync(user, tenant.SupplierId, invoiceId, invoiceNumber,
+            invoiceDate, currency, subtotal, taxAmount, token);
+    }
+
+    public async Task<BillingMutation> UpdateDraftForAsync(AppUser user, int supplierId, long invoiceId,
+        string invoiceNumber, string invoiceDate, string currency, decimal subtotal,
+        decimal taxAmount, CancellationToken token)
+    {
         var invoice = await db.BillingInvoices.FirstOrDefaultAsync(row =>
-            row.Id == invoiceId && row.SupplierId == tenant.SupplierId, token);
+            row.Id == invoiceId && row.SupplierId == supplierId, token);
         if (invoice is null) return Missing();
         if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked
             && !BillingReviewTransitions.CanResubmit(invoice.Status))
@@ -191,7 +219,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         if (subtotal < 0 || taxAmount < 0)
             return Invalid("ยอดเงินต้องไม่ติดลบ");
         if (number.Length > 0 && await db.BillingInvoices.AsNoTracking().AnyAsync(row =>
-                row.SupplierId == tenant.SupplierId && row.InvoiceNumber == number && row.Id != invoice.Id, token))
+                row.SupplierId == supplierId && row.InvoiceNumber == number && row.Id != invoice.Id, token))
             return new(false, "DUPLICATE_INVOICE_NUMBER", "เลขที่ใบแจ้งหนี้นี้มีอยู่แล้ว");
 
         var before = $"{invoice.InvoiceNumber}|{invoice.InvoiceDate}|{invoice.Currency}|{invoice.TotalAmount}";
@@ -205,7 +233,8 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         invoice.UpdatedAt = DateTimeOffset.UtcNow;
         audit.Stage(user, AuditActions.Update, "billing-invoice", invoice.Id.ToString(),
             invoice.InvoiceNumber, "draft", before,
-            $"{invoice.InvoiceNumber}|{invoice.InvoiceDate}|{invoice.Currency}|{invoice.TotalAmount}", "");
+            $"{invoice.InvoiceNumber}|{invoice.InvoiceDate}|{invoice.Currency}|{invoice.TotalAmount}",
+            ChannelOf(user), AuditSourceOf(user));
         await db.SaveChangesAsync(token);
         return new(true, "OK", "บันทึกใบวางบิลฉบับร่างแล้ว", Invoice: Describe(invoice));
     }
@@ -215,8 +244,14 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
     {
         var tenant = await CarrierAsync(user, token);
         if (tenant is null) return Denied();
+        return await AddDocumentForAsync(user, tenant.SupplierId, invoiceId, kind, note, file, token);
+    }
+
+    public async Task<BillingMutation> AddDocumentForAsync(AppUser user, int supplierId, long invoiceId,
+        string kind, string note, IFormFile file, CancellationToken token)
+    {
         var invoice = await db.BillingInvoices.AsNoTracking().FirstOrDefaultAsync(row =>
-            row.Id == invoiceId && row.SupplierId == tenant.SupplierId, token);
+            row.Id == invoiceId && row.SupplierId == supplierId, token);
         if (invoice is null) return Missing();
         if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked
             && !BillingReviewTransitions.CanResubmit(invoice.Status))
@@ -225,12 +260,12 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             .FirstOrDefaultAsync(row => row.InvoiceId == invoiceId, token);
         if (link is null) return Missing();
         var billingCase = await db.BillingCases.AsNoTracking()
-            .FirstOrDefaultAsync(row => row.Id == link.BillingCaseId && row.SupplierId == tenant.SupplierId, token);
+            .FirstOrDefaultAsync(row => row.Id == link.BillingCaseId && row.SupplierId == supplierId, token);
         if (billingCase is null) return Missing();
         var result = await documents.AddToBillingAsync(billingCase, invoice, kind, note, file, user, token);
         if (!result.Ok) return new(false, "DOCUMENT_ERROR", result.Message);
         await audit.RecordAsync(user, AuditActions.Upload, "billing-invoice", invoice.Id.ToString(),
-            invoice.InvoiceNumber, "document", "", result.Document!.ObjectKey, note, token);
+            invoice.InvoiceNumber, "document", "", result.Document!.ObjectKey, note, token, AuditSourceOf(user));
         return new(true, "OK", result.Message, Invoice: Describe(invoice));
     }
 
@@ -239,7 +274,23 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         var tenant = await CarrierAsync(user, token);
         return tenant is null
             ? new(false, "NO_CARRIER", "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", "", [])
-            : await validation.SubmitAsync(user, tenant.SupplierId, invoiceId, token);
+            : await SubmitForAsync(user, tenant.SupplierId, invoiceId, token);
+    }
+
+    public Task<BillingSubmitResult> SubmitForAsync(AppUser user, int supplierId, long invoiceId,
+        CancellationToken token) => validation.SubmitAsync(user, supplierId, invoiceId, token);
+
+    public async Task<BillingCaseView?> FindInvoiceForAsync(int supplierId, long invoiceId,
+        CancellationToken token)
+    {
+        var caseId = await db.BillingInvoiceJobLinks.AsNoTracking()
+            .Where(row => row.InvoiceId == invoiceId)
+            .Select(row => (long?)row.BillingCaseId).FirstOrDefaultAsync(token);
+        if (caseId is null) return null;
+        var billingCase = await db.BillingCases.AsNoTracking().FirstOrDefaultAsync(row =>
+            row.Id == caseId.Value && row.SupplierId == supplierId, token);
+        if (billingCase is null) return null;
+        return (await DescribeAsync([billingCase], token)).SingleOrDefault();
     }
 
     private async Task<IReadOnlyList<BillingCaseView>> DescribeAsync(
@@ -308,6 +359,12 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
 
     private async Task<CarrierTenant?> CarrierAsync(AppUser user, CancellationToken token) =>
         CarrierTenantContext.IsCarrier(user) ? await tenants.ResolveAsync(user, token) : null;
+
+    private static string ChannelOf(AppUser user) => user.Source == "carrier-api"
+        ? "Carrier API" : "Carrier Portal";
+
+    private static string AuditSourceOf(AppUser user) => user.Source == "carrier-api"
+        ? EventSource.CarrierApi : "web";
 
     private static void Snapshot(BillingCase record, BillingSlaResolution resolved)
     {
