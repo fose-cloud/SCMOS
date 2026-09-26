@@ -106,6 +106,21 @@ public class BillingValidationResult
     public DateTimeOffset CreatedAt { get; set; }
 }
 
+public class BillingReviewEvent
+{
+    public long Id { get; set; }
+    public long InvoiceId { get; set; }
+    public int Cycle { get; set; }
+    public string Action { get; set; } = "";
+    public string FromStatus { get; set; } = "";
+    public string ToStatus { get; set; } = "";
+    public string ReasonCode { get; set; } = "";
+    public string Remark { get; set; } = "";
+    public string ActorId { get; set; } = "";
+    public string ActorName { get; set; } = "";
+    public DateTimeOffset At { get; set; }
+}
+
 public static class CarrierBillingValidationModel
 {
     public static void Configure(ModelBuilder model)
@@ -160,6 +175,14 @@ public static class CarrierBillingValidationModel
             Money(e, x => x.ExpectedAmount, "expected_amount"); Money(e, x => x.ActualAmount, "actual_amount"); Text(e, x => x.Currency, "currency", 3); Text(e, x => x.EvidenceType, "evidence_type", 40); Text(e, x => x.EvidenceId, "evidence_id", 120); Text(e, x => x.EvidenceVersion, "evidence_version", 240); Text(e, x => x.RuleSource, "rule_source", 240); Date(e, x => x.EffectiveDate, "effective_date"); e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.HasIndex(x => new { x.InvoiceId, x.RunId, x.Sequence });
             e.HasOne<BillingValidationRun>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Cascade);
+        });
+        model.Entity<BillingReviewEvent>(e => {
+            e.ToTable("billing_review_events"); e.HasKey(x => x.Id); e.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            e.Property(x => x.InvoiceId).HasColumnName("invoice_id"); e.Property(x => x.Cycle).HasColumnName("cycle");
+            Text(e, x => x.Action, "action", 40); Text(e, x => x.FromStatus, "from_status", 40); Text(e, x => x.ToStatus, "to_status", 40);
+            Text(e, x => x.ReasonCode, "reason_code", 60); Text(e, x => x.Remark, "remark", 800); Text(e, x => x.ActorId, "actor_id", 160); Text(e, x => x.ActorName, "actor_name", 160);
+            e.Property(x => x.At).HasColumnName("at"); e.HasIndex(x => new { x.InvoiceId, x.Id });
+            e.HasOne<BillingInvoice>().WithMany().HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

@@ -82,6 +82,7 @@ const CAPABILITY_TH: Record<string, string> = {
   AdministerData: "จัดการผู้ใช้และข้อมูลทั้งระบบ",
   ViewMailbox: "ดูศูนย์รวมการติดต่อ (อีเมล)",
   AdministerMailbox: "เชื่อมต่อและทดสอบตู้จดหมาย Outlook",
+  ReviewBilling: "ตรวจและอนุมัติใบวางบิลออนไลน์",
 };
 
 export function Administration({ jobs, me, onToast }: {

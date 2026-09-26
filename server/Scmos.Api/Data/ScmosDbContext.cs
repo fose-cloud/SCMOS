@@ -78,6 +78,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<BillingAdditionalCharge> BillingAdditionalCharges => Set<BillingAdditionalCharge>();
     public DbSet<BillingValidationRun> BillingValidationRuns => Set<BillingValidationRun>();
     public DbSet<BillingValidationResult> BillingValidationResults => Set<BillingValidationResult>();
+    public DbSet<BillingReviewEvent> BillingReviewEvents => Set<BillingReviewEvent>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();

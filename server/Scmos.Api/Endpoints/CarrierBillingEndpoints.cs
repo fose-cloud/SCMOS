@@ -13,6 +13,7 @@ public static class CarrierBillingEndpoints
         decimal Subtotal, decimal TaxAmount);
     public record ChargeInput(string? ChargeType, decimal RequestedAmount, string? Currency,
         string? Reason, long? EvidenceDocumentId);
+    public record ReviewInput(string? Action, string? ReasonCode, string? Remark);
 
     public static void MapCarrierBilling(this IEndpointRouteBuilder routes)
     {
@@ -88,7 +89,8 @@ public static class CarrierBillingEndpoints
             if (tenant is null) return ApiResults.Error("บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", 403);
             var invoice = await db.BillingInvoices.FirstOrDefaultAsync(x => x.Id == invoiceId && x.SupplierId == tenant.SupplierId, token);
             if (invoice is null) return ApiResults.Error("ไม่พบใบวางบิลนี้", 404);
-            if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked)
+            if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked
+                && !BillingReviewTransitions.CanResubmit(invoice.Status))
                 return ApiResults.Error("เพิ่มค่าใช้จ่ายได้เฉพาะรายการที่ยังไม่ผ่าน Validation", 409);
             var type = (body.ChargeType ?? "").Trim().ToUpperInvariant(); var currency = (body.Currency ?? invoice.Currency).Trim().ToUpperInvariant();
             if (type.Length == 0 || body.RequestedAmount <= 0 || currency.Length != 3)
@@ -102,6 +104,17 @@ public static class CarrierBillingEndpoints
                 type, "requested_amount", "", row.RequestedAmount.ToString(System.Globalization.CultureInfo.InvariantCulture), row.Reason);
             await db.SaveChangesAsync(token);
             return Results.Json(new { message = "บันทึกคำขอค่าใช้จ่ายเพิ่มเติมแล้ว", row });
+        });
+
+        group.MapPost("/review/{invoiceId:long}", async (long invoiceId, [FromBody] ReviewInput body,
+            HttpContext context, IUserAccessor users, BillingReviewService review, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ReviewBilling)) return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ตรวจใบวางบิล", 403);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ReviewBilling) is { } weak) return weak;
+            var result = await review.ActAsync(user, invoiceId, body.Action ?? "", body.ReasonCode ?? "", body.Remark ?? "", token);
+            return result.Ok ? Results.Json(new { message = result.Message, status = result.Status, events = result.Events })
+                : ApiResults.Error(result.Message, result.Code == "NOT_FOUND" ? 404 : result.Code == "FORBIDDEN" ? 403 : 409);
         });
     }
 

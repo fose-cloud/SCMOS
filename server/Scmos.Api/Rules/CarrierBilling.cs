@@ -6,6 +6,10 @@ public static class BillingCaseStatus
     public const string Draft = "DRAFT";
     public const string Validated = "VALIDATED";
     public const string Blocked = "BLOCKED";
+    public const string SubconReview = "SUBCON_REVIEW";
+    public const string Returned = "RETURNED";
+    public const string Disputed = "DISPUTED";
+    public const string AwaitingOriginal = "AWAITING_ORIGINAL";
 }
 
 public static class BillingInvoiceStatus
@@ -13,6 +17,10 @@ public static class BillingInvoiceStatus
     public const string Draft = "DRAFT";
     public const string Validated = "VALIDATED";
     public const string Blocked = "BLOCKED";
+    public const string SubconReview = "SUBCON_REVIEW";
+    public const string Returned = "RETURNED";
+    public const string Disputed = "DISPUTED";
+    public const string AwaitingOriginal = "AWAITING_ORIGINAL";
 }
 
 public static class BillingValidationCategory
@@ -50,6 +58,42 @@ public static class BillingValidationRules
         : sameNumber ? new("DUPLICATE_INVOICE_NUMBER", BillingValidationCategory.Blocked, true, "Invoice number is duplicated")
         : risk ? new("POSSIBLE_DUPLICATE_BILLING", BillingValidationCategory.Warning, false, "Job, amount and date match another claim")
         : new("DUPLICATE_CHECK_PASSED", BillingValidationCategory.Pass, false, "No duplicate billing was found");
+}
+
+public static class BillingReviewAction
+{
+    public const string Submitted = "SUBMITTED_FOR_REVIEW";
+    public const string Resubmitted = "RESUBMITTED";
+    public const string ApproveOnline = "APPROVE_ONLINE";
+    public const string ReturnToCarrier = "RETURN_TO_CARRIER";
+    public const string RaiseDispute = "RAISE_DISPUTE";
+}
+
+public static class BillingReturnReason
+{
+    public static readonly string[] All = ["MISSING_DOCUMENT", "WRONG_RATE", "WRONG_VAT",
+        "WRONG_RECEIPT", "UNAPPROVED_CHARGE", "WRONG_JOB", "DUPLICATE",
+        "INVOICE_DATA_ERROR", "OTHER"];
+    public static string? Problem(string? reason, string? remark)
+    {
+        var code = (reason ?? "").Trim().ToUpperInvariant();
+        if (!All.Contains(code, StringComparer.Ordinal)) return "กรุณาเลือกเหตุผลที่กำหนด";
+        if (code == "OTHER" && string.IsNullOrWhiteSpace(remark)) return "เหตุผล OTHER ต้องระบุรายละเอียด";
+        return null;
+    }
+}
+
+public static class BillingReviewTransitions
+{
+    public static bool CanAct(string status) => status == BillingInvoiceStatus.SubconReview;
+    public static bool CanResubmit(string status) => status is BillingInvoiceStatus.Returned or BillingInvoiceStatus.Disputed;
+    public static string NextStatus(string action) => action switch {
+        BillingReviewAction.ApproveOnline => BillingInvoiceStatus.AwaitingOriginal,
+        BillingReviewAction.ReturnToCarrier => BillingInvoiceStatus.Returned,
+        BillingReviewAction.RaiseDispute => BillingInvoiceStatus.Disputed,
+        _ => "",
+    };
+    public static DateTimeOffset PreserveFirstSubmitted(DateTimeOffset? firstSubmittedAt, DateTimeOffset now) => firstSubmittedAt ?? now;
 }
 
 public static class BillingSlaState

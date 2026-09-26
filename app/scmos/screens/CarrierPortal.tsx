@@ -437,6 +437,7 @@ function CarrierBilling({ items, busy, setBusy, onToast, onRefresh }: {
   items: BillingCase[]; busy: boolean; setBusy: (value: boolean) => void;
   onToast: (message: string) => void; onRefresh: () => Promise<void>;
 }) {
+  const editable = (status: string) => ["DRAFT", "BLOCKED", "RETURNED", "DISPUTED"].includes(status);
   async function createDraft(caseId: number) {
     if (busy) return;
     setBusy(true);
@@ -535,20 +536,20 @@ function CarrierBilling({ items, busy, setBusy, onToast, onRefresh }: {
           <BillingInput name="taxAmount" label="ภาษี" type="number" defaultValue={String(item.invoice.taxAmount)} />
         </div>
         <div style={css("display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
-          {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <button type="submit" disabled={busy} style={css("height:31px;padding:0 14px;border:0;background:#16794C;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>บันทึก Draft</button>}
-          {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <label style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;color:#0A5C97;border-radius:4px;font-size:12px;font-weight:650;display:flex;align-items:center;cursor:pointer")}>+ เพิ่มเอกสาร
+          {editable(item.invoice.status) && <button type="submit" disabled={busy} style={css("height:31px;padding:0 14px;border:0;background:#16794C;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>บันทึก Draft</button>}
+          {editable(item.invoice.status) && <label style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;color:#0A5C97;border-radius:4px;font-size:12px;font-weight:650;display:flex;align-items:center;cursor:pointer")}>+ เพิ่มเอกสาร
             <input type="file" disabled={busy} style={css("display:none")} onChange={(event) => {
               void upload(item.invoice!.id, event.target.files?.[0] ?? null); event.currentTarget.value = "";
             }} />
           </label>}
           <span style={css("font-size:11px;color:#64748B")}>ยอดรวม {item.invoice.currency} {item.invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
-          {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <button type="button" disabled={busy}
-            onClick={() => void submit(item.invoice!.id)} style={css("height:31px;padding:0 14px;border:0;background:#0A5C97;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer")}>ส่งตรวจ Validation</button>}
+          {editable(item.invoice.status) && <button type="button" disabled={busy}
+            onClick={() => void submit(item.invoice!.id)} style={css("height:31px;padding:0 14px;border:0;background:#0A5C97;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer")}>{item.invoice.reviewCycle > 0 ? "แก้ไขและส่งตรวจใหม่" : "ส่งตรวจ Validation"}</button>}
         </div>
         {item.documents.length > 0 && <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>{item.documents.map((document) =>
           <a key={document.id} href={`/api/documents/${document.id}/content`} target="_blank" rel="noreferrer"
             style={css("font-size:11px;color:#0A5C97;background:#F4F8FC;border:1px solid #C8DEF0;border-radius:3px;padding:4px 7px")}>{document.fileName}</a>)}</div>}
-        {(item.invoice.status === "DRAFT" || item.invoice.status === "BLOCKED") && <div
+        {editable(item.invoice.status) && <div
           style={css("display:flex;gap:6px;align-items:end;flex-wrap:wrap")} role="form">
           <BillingInput name="chargeType" label="ประเภทค่าใช้จ่ายเพิ่ม" defaultValue="" />
           <BillingInput name="requestedAmount" label="ยอดที่ขอ" type="number" defaultValue="0" />

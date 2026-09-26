@@ -23,8 +23,10 @@ public class BillingValidationService(ScmosDbContext db, AuditService audit)
     {
         var invoice = await db.BillingInvoices.FirstOrDefaultAsync(x => x.Id == invoiceId && x.SupplierId == supplierId, token);
         if (invoice is null) return Fail("NOT_FOUND", "ไม่พบใบวางบิลนี้");
-        if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked)
+        if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked
+            && !BillingReviewTransitions.CanResubmit(invoice.Status))
             return Fail("NOT_SUBMITTABLE", "ส่งตรวจได้เฉพาะ Draft หรือรายการที่ Validation ไม่ผ่าน");
+        var fromStatus = invoice.Status;
         if (string.IsNullOrWhiteSpace(invoice.InvoiceNumber) || invoice.InvoiceDate is null)
             return Fail("INVOICE_INCOMPLETE", "กรุณาระบุเลขที่และวันที่ใบแจ้งหนี้");
 
@@ -140,13 +142,25 @@ public class BillingValidationService(ScmosDbContext db, AuditService audit)
         db.BillingValidationRuns.Add(run);
         await db.SaveChangesAsync(token);
         foreach (var result in output) { result.RunId = run.Id; db.BillingValidationResults.Add(result); }
-        invoice.SubmittedAt ??= now; invoice.ValidatedAt = DateTimeOffset.UtcNow;
-        invoice.Status = blocked ? BillingInvoiceStatus.Blocked : BillingInvoiceStatus.Validated;
+        invoice.SubmittedAt = BillingReviewTransitions.PreserveFirstSubmitted(invoice.SubmittedAt, now);
+        invoice.ValidatedAt = DateTimeOffset.UtcNow;
+        invoice.Status = blocked ? BillingInvoiceStatus.Blocked : BillingInvoiceStatus.SubconReview;
         invoice.UpdatedBy = actor.Signature; invoice.UpdatedAt = now;
-        billingCase.Status = blocked ? BillingCaseStatus.Blocked : BillingCaseStatus.Validated;
+        billingCase.Status = blocked ? BillingCaseStatus.Blocked : BillingCaseStatus.SubconReview;
         billingCase.UpdatedBy = actor.Signature; billingCase.UpdatedAt = now;
+        if (!blocked)
+        {
+            invoice.ReviewCycle += 1;
+            invoice.ReviewSubmittedAt = now;
+            invoice.ReviewDecidedAt = null;
+            db.BillingReviewEvents.Add(new BillingReviewEvent { InvoiceId = invoice.Id,
+                Cycle = invoice.ReviewCycle, Action = invoice.ReviewCycle == 1
+                    ? BillingReviewAction.Submitted : BillingReviewAction.Resubmitted,
+                FromStatus = fromStatus, ToStatus = BillingInvoiceStatus.SubconReview,
+                ActorId = actor.UserId, ActorName = actor.Signature, At = now });
+        }
         audit.Stage(actor, AuditActions.Update, "billing-invoice", invoice.Id.ToString(), invoice.InvoiceNumber,
-            "status", BillingInvoiceStatus.Draft, invoice.Status, $"Phase 5 validation: {outcome}");
+            "status", fromStatus, invoice.Status, $"Phase 6 validation: {outcome}");
         await db.SaveChangesAsync(token);
         await transaction.CommitAsync(token);
         return new(true, "OK", blocked ? "ตรวจพบรายการที่ต้องแก้ไขก่อนส่งต่อ" : "Validation ผ่านและบันทึกผลแล้ว",

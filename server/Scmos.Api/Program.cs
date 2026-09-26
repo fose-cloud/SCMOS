@@ -125,6 +125,7 @@ builder.Services.AddScoped<CarrierDocumentAccess>();
 builder.Services.AddScoped<BusinessCalendarService>();
 builder.Services.AddScoped<CarrierBillingService>();
 builder.Services.AddScoped<BillingValidationService>();
+builder.Services.AddScoped<BillingReviewService>();
 // The Carrier TMS API's door: the key in the header, resolved to one supplier.
 builder.Services.AddScoped<CarrierApiAuth>();
 // What SCMOS tells a carrier's system unasked (phase 4): queued where the
@@ -326,6 +327,7 @@ if (CarrierCollaborationCheck.Run(args) is int carrierCollaborationExit) return 
 if (CarrierOperationsCheck.Run(args) is int carrierOperationsExit) return carrierOperationsExit;
 if (CarrierBillingPhase4Check.Run(args) is int carrierBillingPhase4Exit) return carrierBillingPhase4Exit;
 if (CarrierBillingPhase5Check.Run(args) is int carrierBillingPhase5Exit) return carrierBillingPhase5Exit;
+if (CarrierBillingPhase6Check.Run(args) is int carrierBillingPhase6Exit) return carrierBillingPhase6Exit;
 
 if (args.Contains("--seed"))
 {

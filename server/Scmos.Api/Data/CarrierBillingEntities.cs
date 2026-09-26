@@ -53,6 +53,10 @@ public class BillingInvoice
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? SubmittedAt { get; set; }
     public DateTimeOffset? ValidatedAt { get; set; }
+    public DateTimeOffset? ReviewSubmittedAt { get; set; }
+    public DateTimeOffset? ReviewDecidedAt { get; set; }
+    public DateTimeOffset? OnlineApprovedAt { get; set; }
+    public int ReviewCycle { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }
 
@@ -78,7 +82,7 @@ public static class CarrierBillingModel
         model.Entity<BillingCase>(entry =>
         {
             entry.ToTable("billing_cases", table => table.HasCheckConstraint(
-                "billing_cases_status_ck", "[status] IN ('WAITING_CARRIER_SUBMISSION','DRAFT','VALIDATED','BLOCKED')"));
+                "billing_cases_status_ck", "[status] IN ('WAITING_CARRIER_SUBMISSION','DRAFT','VALIDATED','BLOCKED','SUBCON_REVIEW','RETURNED','DISPUTED','AWAITING_ORIGINAL')"));
             entry.HasKey(row => row.Id);
             entry.Property(row => row.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entry.Property(row => row.JobKey).HasColumnName("job_key").HasMaxLength(80);
@@ -132,6 +136,10 @@ public static class CarrierBillingModel
             entry.Property(row => row.UpdatedAt).HasColumnName("updated_at");
             entry.Property(row => row.SubmittedAt).HasColumnName("submitted_at");
             entry.Property(row => row.ValidatedAt).HasColumnName("validated_at");
+            entry.Property(row => row.ReviewSubmittedAt).HasColumnName("review_submitted_at");
+            entry.Property(row => row.ReviewDecidedAt).HasColumnName("review_decided_at");
+            entry.Property(row => row.OnlineApprovedAt).HasColumnName("online_approved_at");
+            entry.Property(row => row.ReviewCycle).HasColumnName("review_cycle").HasDefaultValue(0);
             entry.Property(row => row.RowVersion).HasColumnName("row_version").IsRowVersion();
             entry.HasIndex(row => new { row.SupplierId, row.Status }).HasDatabaseName("billing_invoices_supplier_status_idx");
             entry.HasIndex(row => new { row.SupplierId, row.InvoiceNumber }).IsUnique()

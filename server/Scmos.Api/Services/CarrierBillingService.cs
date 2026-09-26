@@ -11,7 +11,9 @@ public record BillingChargeView(long Id, string ChargeType, decimal RequestedAmo
 public record BillingInvoiceView(long Id, string InvoiceNumber, string InvoiceDate,
     string Currency, decimal Subtotal, decimal TaxAmount, decimal TotalAmount,
     string Status, DateTimeOffset UpdatedAt, IReadOnlyList<BillingValidationView> ValidationResults,
-    IReadOnlyList<BillingChargeView> AdditionalCharges);
+    IReadOnlyList<BillingChargeView> AdditionalCharges, int ReviewCycle,
+    DateTimeOffset? ReviewSubmittedAt, DateTimeOffset? ReviewDecidedAt, DateTimeOffset? OnlineApprovedAt,
+    int? ReviewAgeMinutes, int? ReviewDecisionMinutes, IReadOnlyList<BillingReviewEventView> ReviewEvents);
 
 public record BillingCaseView(long Id, string JobKey, string JobCode, string Customer,
     string Category, int SupplierId, string Supplier, string Status,
@@ -168,7 +170,8 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         var invoice = await db.BillingInvoices.FirstOrDefaultAsync(row =>
             row.Id == invoiceId && row.SupplierId == tenant.SupplierId, token);
         if (invoice is null) return Missing();
-        if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked)
+        if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked
+            && !BillingReviewTransitions.CanResubmit(invoice.Status))
             return new(false, "NOT_DRAFT", "แก้ไขได้เฉพาะใบวางบิลฉบับร่าง");
 
         var number = (invoiceNumber ?? "").Trim();
@@ -214,7 +217,8 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         var invoice = await db.BillingInvoices.AsNoTracking().FirstOrDefaultAsync(row =>
             row.Id == invoiceId && row.SupplierId == tenant.SupplierId, token);
         if (invoice is null) return Missing();
-        if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked)
+        if (invoice.Status != BillingInvoiceStatus.Draft && invoice.Status != BillingInvoiceStatus.Blocked
+            && !BillingReviewTransitions.CanResubmit(invoice.Status))
             return new(false, "NOT_DRAFT", "เพิ่มเอกสารได้เฉพาะรายการที่ยังไม่ผ่าน Validation");
         var link = await db.BillingInvoiceJobLinks.AsNoTracking()
             .FirstOrDefaultAsync(row => row.InvoiceId == invoiceId, token);
@@ -268,6 +272,12 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         var charges = chargeRows.GroupBy(row => row.InvoiceId).ToDictionary(group => group.Key,
             group => (IReadOnlyList<BillingChargeView>)group.Select(row => new BillingChargeView(row.Id,
                 row.ChargeType, row.RequestedAmount, row.ApprovedAmount, row.Currency, row.Reason, row.Status)).ToList());
+        var reviewRows = await db.BillingReviewEvents.AsNoTracking().Where(row => invoiceIds.Contains(row.InvoiceId))
+            .OrderBy(row => row.Id).ToListAsync(token);
+        var reviews = reviewRows.GroupBy(row => row.InvoiceId).ToDictionary(group => group.Key,
+            group => (IReadOnlyList<BillingReviewEventView>)group.Select(row => new BillingReviewEventView(row.Id,
+                row.Cycle, row.Action, row.FromStatus, row.ToStatus, row.ReasonCode, row.Remark,
+                row.ActorName, row.At)).ToList());
         var held = await db.Documents.AsNoTracking().Where(row => row.BillingCaseId != null
                 && ids.Contains(row.BillingCaseId.Value)).OrderBy(row => row.UploadedAt).ToListAsync(token);
         var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(Thailand).DateTime);
@@ -277,7 +287,8 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             jobs.TryGetValue(row.JobKey, out var job);
             var link = links.FirstOrDefault(one => one.BillingCaseId == row.Id);
             var invoice = link is not null && invoices.TryGetValue(link.InvoiceId, out var found)
-                ? Describe(found, validations.GetValueOrDefault(found.Id, []), charges.GetValueOrDefault(found.Id, [])) : null;
+                ? Describe(found, validations.GetValueOrDefault(found.Id, []), charges.GetValueOrDefault(found.Id, []),
+                    reviews.GetValueOrDefault(found.Id, [])) : null;
             var state = BillingSlaState.Of(today, row.SlaDueDate);
             return new BillingCaseView(row.Id, row.JobKey, job?.JobCode ?? row.JobKey,
                 job?.Customer ?? "", job?.Cat ?? "", row.SupplierId,
@@ -308,9 +319,14 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
     }
 
     private static BillingInvoiceView Describe(BillingInvoice row, IReadOnlyList<BillingValidationView>? results = null,
-        IReadOnlyList<BillingChargeView>? charges = null) => new(row.Id,
+        IReadOnlyList<BillingChargeView>? charges = null, IReadOnlyList<BillingReviewEventView>? reviews = null) => new(row.Id,
         row.InvoiceNumber, row.InvoiceDate?.ToString("yyyy-MM-dd") ?? "", row.Currency,
-        row.Subtotal, row.TaxAmount, row.TotalAmount, row.Status, row.UpdatedAt, results ?? [], charges ?? []);
+        row.Subtotal, row.TaxAmount, row.TotalAmount, row.Status, row.UpdatedAt, results ?? [], charges ?? [],
+        row.ReviewCycle, row.ReviewSubmittedAt, row.ReviewDecidedAt, row.OnlineApprovedAt,
+        row.ReviewSubmittedAt is null || row.ReviewDecidedAt is not null ? null
+            : (int)Math.Max(0, (DateTimeOffset.UtcNow - row.ReviewSubmittedAt.Value).TotalMinutes),
+        row.ReviewSubmittedAt is null || row.ReviewDecidedAt is null ? null
+            : (int)Math.Max(0, (row.ReviewDecidedAt.Value - row.ReviewSubmittedAt.Value).TotalMinutes), reviews ?? []);
 
     private static BillingMutation Denied() =>
         new(false, "NO_CARRIER", "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา");

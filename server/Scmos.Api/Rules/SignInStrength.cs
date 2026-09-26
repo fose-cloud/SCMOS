@@ -135,6 +135,7 @@ public static class SignIn
         Capability.EditRates,
         Capability.AdministerData,
         Capability.ApproveRetention,
+        Capability.ReviewBilling,
         // Connecting a mailbox reads company mail, however narrow the window.
         // It costs nothing today — the policy defaults to Record — and the day
         // somebody switches it to Require is not the day to be deciding this.

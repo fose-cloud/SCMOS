@@ -179,6 +179,9 @@ public enum Capability
     /// exists to stop.
     /// </summary>
     ManageTraining = 1 << 14,
+
+    /// <summary>Review a validated carrier billing and approve, return, or dispute it.</summary>
+    ReviewBilling = 1 << 23,
 }
 
 /// <param name="Name">The role as it is written on an account.</param>
@@ -212,7 +215,8 @@ public static class Roles
     private const Capability OperationGrants =
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
         | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet
-        | Capability.ViewMailbox | Capability.EditSuppliers | Capability.RecordDiesel;
+        | Capability.ViewMailbox | Capability.EditSuppliers | Capability.RecordDiesel
+        | Capability.ReviewBilling;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar
