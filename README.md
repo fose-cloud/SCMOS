@@ -458,6 +458,29 @@ CarrierBilling__OriginalReceiptRoleList = <agreed SCMOS role>; <optional second 
 The value is a comma- or semicolon-separated allowlist of exact SCMOS role names.
 Carrier accounts remain refused even if `Subcontractor` is accidentally listed.
 
+### Carrier Billing Control Tower metrics
+
+Phase 8 reads the Phase 2–7 records; it does not keep a second KPI table. The
+default window is the most recent 90 days and the API refuses windows longer
+than 366 days. Carrier accounts are always forced to their supplier tenant by
+the API, regardless of any `supplierId` sent by the browser.
+
+| Metric | Authoritative calculation |
+| --- | --- |
+| Billing ≤3 / ≤4 Working Days | First invoice submission counted from the snapshotted SLA start date, using `business_calendar_days` |
+| Overdue | No invoice submission and the snapshotted SLA due date is before today |
+| First-Time-Right | First validation was not blocking and the first review decision was Online Approved |
+| Return Rate | `RETURN_TO_CARRIER` decisions divided by all completed review decisions |
+| Average Submission Lead Time | Average counted working days from SLA start to first submission |
+| Internal Review Time | Average minutes from Submitted/Resubmitted to its decision in the same review cycle |
+| Original Pending Aging | Calendar days since Online Approved while status remains `AWAITING_ORIGINAL` |
+| Carrier Acceptance | Confirmed divided by Confirmed + Rejected; pending/administrative outcomes are not in the denominator |
+| Truck Assignment Pending | Confirmed, open work whose current SCMOS Job still has no truck assignment |
+
+The endpoint is `GET /api/carrier-billing/control-tower?from=YYYY-MM-DD&to=YYYY-MM-DD&supplierId=<id>`.
+The response includes the KPI base counts, exception codes and case IDs used by
+the UI drill-down so a percentage never appears without its underlying rows.
+
 ### 4. Authentication
 
 Turn on **Authentication** on the *web* App Service — Microsoft as the provider,

@@ -36,6 +36,31 @@ export type BillingCase = {
   slaIssueCode: string; slaIssue: string; invoice: BillingInvoice | null; documents: BillingDocument[];
 };
 
+export type BillingControlTowerMetrics = {
+  billingCases: number; submitted: number;
+  within3WorkingDays: number; within3WorkingDaysPercent: number | null;
+  within4WorkingDays: number; within4WorkingDaysPercent: number | null;
+  overdue: number; firstTimeRight: number; firstTimeRightBase: number;
+  firstTimeRightPercent: number | null; returned: number; reviewDecisions: number;
+  returnRatePercent: number | null; averageSubmissionLeadWorkingDays: number | null;
+  averageInternalReviewMinutes: number | null; originalPending: number;
+  averageOriginalPendingDays: number | null; oldestOriginalPendingDays: number;
+  carrierAccepted: number; carrierDecisions: number; carrierAcceptancePercent: number | null;
+  carrierAcceptancePending: number; truckAssignmentPending: number;
+};
+export type BillingControlTowerItem = {
+  caseId: number; invoiceId: number | null; jobKey: string; jobCode: string; customer: string;
+  supplierId: number; supplier: string; status: string; slaState: string;
+  deliveryCompletedAt: string; submittedAt: string | null; submissionLeadWorkingDays: number | null;
+  internalReviewMinutes: number | null; originalPendingDays: number | null;
+  exceptionCount: number; blockingExceptionCount: number; firstTimeRight: boolean;
+  returned: boolean; overdue: boolean; invoiceNumber: string;
+};
+export type BillingControlTowerView = {
+  from: string; to: string; scope: string; metrics: BillingControlTowerMetrics;
+  items: BillingControlTowerItem[]; exceptions: Record<string, number>;
+};
+
 type Filter = "ALL" | "WAITING_CARRIER_SUBMISSION" | "DRAFT" | "SUBCON_REVIEW" | "RETURNED" | "DISPUTED" | "AWAITING_ORIGINAL" | "ORIGINAL_RECEIVED" | "READY_FOR_FINANCE" | "OVERDUE";
 
 const returnReasons = ["MISSING_DOCUMENT", "WRONG_RATE", "WRONG_VAT", "WRONG_RECEIPT", "UNAPPROVED_CHARGE", "WRONG_JOB", "DUPLICATE", "INVOICE_DATA_ERROR", "OTHER"];
@@ -51,19 +76,31 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
   const [remark, setRemark] = useState("");
   const [canReceiveOriginal, setCanReceiveOriginal] = useState(false);
   const [originalReceiptConfigured, setOriginalReceiptConfigured] = useState(true);
+  const [tower, setTower] = useState<BillingControlTowerView | null>(null);
+  const [drill, setDrill] = useState<{ label: string; caseIds: number[] } | null>(null);
+  const [periodFrom, setPeriodFrom] = useState(() => dateInput(new Date(Date.now() - 89 * 86_400_000)));
+  const [periodTo, setPeriodTo] = useState(() => dateInput(new Date()));
+  const [supplierFilter, setSupplierFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await apiFetch("/api/carrier-billing/cases", { headers: { accept: "application/json" } });
+      const [response, towerResponse] = await Promise.all([
+        apiFetch("/api/carrier-billing/cases", { headers: { accept: "application/json" } }),
+        apiFetch(`/api/carrier-billing/control-tower?from=${periodFrom}&to=${periodTo}${supplierFilter ? `&supplierId=${supplierFilter}` : ""}`,
+          { headers: { accept: "application/json" } }),
+      ]);
       const body = await response.json().catch(() => ({})) as { items?: BillingCase[]; error?: string;
         canReceiveOriginal?: boolean; originalReceiptConfigured?: boolean };
       if (!response.ok) { onToast(body.error ?? `เปิด Billing Control ไม่สำเร็จ (${response.status})`); return; }
       setItems(body.items ?? []);
       setCanReceiveOriginal(body.canReceiveOriginal === true);
       setOriginalReceiptConfigured(body.originalReceiptConfigured !== false);
+      const towerBody = await towerResponse.json().catch(() => ({})) as BillingControlTowerView & { error?: string };
+      if (towerResponse.ok) setTower(towerBody);
+      else onToast(towerBody.error ?? `เปิด Control Tower ไม่สำเร็จ (${towerResponse.status})`);
     } finally { setLoading(false); }
-  }, [onToast]);
+  }, [onToast, periodFrom, periodTo, supplierFilter]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
@@ -73,17 +110,21 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
     return items.filter((item) => {
       if (filter === "OVERDUE" && item.slaState !== "OVERDUE") return false;
       if (filter !== "ALL" && filter !== "OVERDUE" && item.status !== filter) return false;
+      if (drill && !drill.caseIds.includes(item.id)) return false;
       return !needle || [item.jobCode, item.customer, item.supplier, item.invoice?.invoiceNumber ?? ""]
         .some((value) => value.toLowerCase().includes(needle));
     });
-  }, [filter, items, search]);
+  }, [drill, filter, items, search]);
 
-  const waiting = items.filter((item) => item.status === "WAITING_CARRIER_SUBMISSION").length;
-  const drafts = items.filter((item) => item.status === "DRAFT").length;
-  const reviews = items.filter((item) => item.status === "SUBCON_REVIEW").length;
   const originalPending = items.filter((item) => item.status === "AWAITING_ORIGINAL").length;
   const overdue = items.filter((item) => item.slaState === "OVERDUE").length;
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  const metricItems = tower?.items ?? [];
+  const openDrill = (label: string, predicate: (item: BillingControlTowerItem) => boolean) => {
+    setFilter("ALL"); setSearch("");
+    setDrill({ label, caseIds: metricItems.filter(predicate).map((item) => item.caseId) });
+  };
+  const percent = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(1)}%`;
 
   async function review(action: "APPROVE_ONLINE" | "RETURN_TO_CARRIER" | "RAISE_DISPUTE") {
     const invoiceId = selected?.invoice?.id;
@@ -120,14 +161,54 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:12px")}>
-      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px")}>
-        <Metric label="Billing Eligible Jobs" value={items.length} tone="#0A5C97" />
-        <Metric label="รอผู้ขนส่งวางบิล" value={waiting} tone="#B45309" />
-        <Metric label="Invoice Draft" value={drafts} tone="#16794C" />
-        <Metric label="รอตรวจ Subcontract" value={reviews} tone="#7C3AED" />
-        <Metric label="รอเอกสารต้นฉบับ" value={originalPending} tone="#B45309" />
-        <Metric label="เกิน SLA" value={overdue} tone="#B42318" />
+      <div style={css("background:#0A2240;color:#fff;border-radius:6px;padding:11px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap") }>
+        <strong style={css("font-size:13px")}>Billing Control Tower</strong>
+        <span style={css("font-size:10.5px;color:#B8C9DA")}>{tower ? `${tower.from} ถึง ${tower.to} · ${tower.scope}` : "กำลังคำนวณ KPI…"}</span>
+        <label style={css("display:flex;align-items:center;gap:5px;font-size:10px;color:#B8C9DA")}>จาก
+          <input type="date" value={periodFrom} onChange={(event) => { setDrill(null); setPeriodFrom(event.target.value); }} style={towerControl} />
+        </label>
+        <label style={css("display:flex;align-items:center;gap:5px;font-size:10px;color:#B8C9DA")}>ถึง
+          <input type="date" value={periodTo} onChange={(event) => { setDrill(null); setPeriodTo(event.target.value); }} style={towerControl} />
+        </label>
+        <select aria-label="ผู้ขนส่งสำหรับ Control Tower" value={supplierFilter}
+          onChange={(event) => { setDrill(null); setSupplierFilter(event.target.value); }} style={towerControl}>
+          <option value="">ผู้ขนส่งทั้งหมด</option>
+          {[...new Map(items.map((item) => [item.supplierId, item.supplier])).entries()]
+            .sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        {drill && <button onClick={() => setDrill(null)} style={css("margin-left:auto;height:27px;padding:0 10px;border:1px solid #7FA4C5;border-radius:4px;background:#12385B;color:#fff;font:inherit;font-size:10.5px;cursor:pointer")}>Drill-down: {drill.label} ×</button>}
       </div>
+      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px")}>
+        <Metric label="Billing ≤3 Working Days" value={percent(tower?.metrics.within3WorkingDaysPercent)}
+          detail={`${tower?.metrics.within3WorkingDays ?? 0}/${tower?.metrics.submitted ?? 0} invoices`} tone="#16794C"
+          onClick={() => openDrill("≤3 Working Days", (item) => item.submissionLeadWorkingDays != null && item.submissionLeadWorkingDays <= 3)} />
+        <Metric label="Billing ≤4 Working Days" value={percent(tower?.metrics.within4WorkingDaysPercent)}
+          detail={`${tower?.metrics.within4WorkingDays ?? 0}/${tower?.metrics.submitted ?? 0} invoices`} tone="#0A5C97"
+          onClick={() => openDrill("≤4 Working Days", (item) => item.submissionLeadWorkingDays != null && item.submissionLeadWorkingDays <= 4)} />
+        <Metric label="Overdue" value={tower?.metrics.overdue ?? overdue} detail="ยังไม่ส่งวางบิลและพ้นกำหนด" tone="#B42318"
+          onClick={() => openDrill("Overdue", (item) => item.overdue)} />
+        <Metric label="First-Time-Right" value={percent(tower?.metrics.firstTimeRightPercent)}
+          detail={`${tower?.metrics.firstTimeRight ?? 0}/${tower?.metrics.firstTimeRightBase ?? 0} first decisions`} tone="#16794C"
+          onClick={() => openDrill("First-Time-Right", (item) => item.firstTimeRight)} />
+        <Metric label="Return Rate" value={percent(tower?.metrics.returnRatePercent)}
+          detail={`${tower?.metrics.returned ?? 0}/${tower?.metrics.reviewDecisions ?? 0} decisions`} tone="#B45309"
+          onClick={() => openDrill("Returned", (item) => item.returned)} />
+        <Metric label="Avg Submission Lead" value={tower?.metrics.averageSubmissionLeadWorkingDays == null ? "—" : `${tower.metrics.averageSubmissionLeadWorkingDays} วัน`}
+          detail="วันทำการจาก SLA start" tone="#0A5C97" onClick={() => openDrill("Submitted", (item) => item.submissionLeadWorkingDays != null)} />
+        <Metric label="Internal Review Time" value={duration(tower?.metrics.averageInternalReviewMinutes == null ? null : Math.round(tower.metrics.averageInternalReviewMinutes))}
+          detail="เฉลี่ยรอบที่ตัดสินแล้ว" tone="#7C3AED" onClick={() => openDrill("Reviewed", (item) => item.internalReviewMinutes != null)} />
+        <Metric label="Original Pending Aging" value={tower?.metrics.averageOriginalPendingDays == null ? "—" : `${tower.metrics.averageOriginalPendingDays} วัน`}
+          detail={`${tower?.metrics.originalPending ?? originalPending} รายการ · สูงสุด ${tower?.metrics.oldestOriginalPendingDays ?? 0} วัน`} tone="#B45309"
+          onClick={() => openDrill("Original Pending", (item) => item.originalPendingDays != null)} />
+        <Metric label="Carrier Acceptance" value={percent(tower?.metrics.carrierAcceptancePercent)}
+          detail={`รอตอบ ${tower?.metrics.carrierAcceptancePending ?? 0}`} tone="#16794C" />
+        <Metric label="Truck Assignment Pending" value={tower?.metrics.truckAssignmentPending ?? 0}
+          detail="รับงานแล้วแต่ยังไม่มีรถ" tone="#B42318" />
+      </div>
+      {tower && Object.keys(tower.exceptions).length > 0 && <div style={css("display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:10.5px;color:#64748B") }>
+        <strong>Exceptions:</strong>{Object.entries(tower.exceptions).slice(0, 8).map(([code, count]) =>
+          <span key={code} style={css("padding:3px 7px;border:1px solid #F0C7C2;background:#FFF6F5;color:#9F2D22;border-radius:3px")}>{code} · {count}</span>)}
+      </div>}
 
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:6px;overflow:hidden")}>
         <div style={css("padding:12px 14px;border-bottom:1px solid #E7EDF3;display:flex;gap:8px;align-items:center;flex-wrap:wrap")}>
@@ -186,10 +267,13 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
 const cell = css("padding:10px;color:#263B50;line-height:1.5");
 const muted = css("color:#7B8CA0;font-size:10.5px");
 
-function Metric({ label, value, tone }: { label: string; value: number; tone: string }) {
-  return <div style={css(`background:#fff;border:1px solid #D8E0E8;border-left:3px solid ${tone};border-radius:5px;padding:12px 14px`)}>
+function Metric({ label, value, detail, tone, onClick }: { label: string; value: number | string; detail?: string; tone: string; onClick?: () => void }) {
+  return <div onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined}
+    onKeyDown={(event) => { if (onClick && (event.key === "Enter" || event.key === " ")) onClick(); }}
+    style={css(`background:#fff;border:1px solid #D8E0E8;border-left:3px solid ${tone};border-radius:5px;padding:11px 12px;cursor:${onClick ? "pointer" : "default"}`)}>
     <div style={css("font-size:11px;color:#64748B;font-weight:600")}>{label}</div>
-    <div style={css("font-size:25px;color:#0A2240;font-weight:700;font-family:'IBM Plex Mono',monospace;margin-top:4px")}>{value}</div>
+    <div style={css("font-size:23px;color:#0A2240;font-weight:700;font-family:'IBM Plex Mono',monospace;margin-top:4px")}>{value}</div>
+    {detail && <div style={css("font-size:9.5px;color:#7B8CA0;margin-top:2px")}>{detail}</div>}
   </div>;
 }
 
@@ -316,6 +400,7 @@ function Action({ label, tone, disabled, onClick }: { label: string; tone: strin
 }
 
 const control = css("height:32px;padding:0 9px;border:1px solid #CAD5E0;border-radius:4px;background:#fff;font:inherit;font-size:11px");
+const towerControl = css("height:27px;padding:0 6px;border:1px solid #557896;border-radius:4px;background:#12385B;color:#fff;font:inherit;font-size:10px");
 
 function duration(minutes: number | null) {
   if (minutes == null) return "—";
@@ -326,6 +411,13 @@ function duration(minutes: number | null) {
 
 function localDateTimeInput(value: Date) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function dateInput(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function dateTime(value: string) {

@@ -23,6 +23,24 @@ public static class CarrierBillingEndpoints
     {
         var group = routes.MapGroup("/api/carrier-billing").WithTags("Carrier Billing");
 
+        group.MapGet("/control-tower", async (string? from, string? to, int? supplierId,
+            HttpContext context, IUserAccessor users, CarrierBillingControlTowerService tower,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime);
+            var start = string.IsNullOrWhiteSpace(from) ? today.AddDays(-89)
+                : DateOnly.TryParseExact(from, "yyyy-MM-dd", out var parsedFrom) ? parsedFrom : (DateOnly?)null;
+            var end = string.IsNullOrWhiteSpace(to) ? today
+                : DateOnly.TryParseExact(to, "yyyy-MM-dd", out var parsedTo) ? parsedTo : (DateOnly?)null;
+            if (start is null || end is null)
+                return ApiResults.Error("วันที่ต้องอยู่ในรูปแบบ YYYY-MM-DD", StatusCodes.Status400BadRequest);
+            var result = await tower.BuildAsync(user, start.Value, end.Value, supplierId, token);
+            return result.Ok ? Results.Json(result.Dashboard) : ApiResults.Error(result.Message,
+                result.Code is "FORBIDDEN" or "NO_CARRIER" ? StatusCodes.Status403Forbidden : StatusCodes.Status400BadRequest);
+        });
+
         group.MapGet("/cases", async (HttpContext context, IUserAccessor users,
             CarrierBillingService billing, OriginalReceiptPolicy receiptPolicy, CancellationToken token) =>
         {

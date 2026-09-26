@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
-import type { BillingCase } from "./BillingControl";
+import type { BillingCase, BillingControlTowerView } from "./BillingControl";
 
 /**
  * The carrier's own screen.
@@ -65,6 +65,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
   const [refused, setRefused] = useState("");
   const [tab, setTab] = useState<"new" | "schedule" | "billing">("new");
   const [billing, setBilling] = useState<BillingCase[]>([]);
+  const [tower, setTower] = useState<BillingControlTowerView | null>(null);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("active");
   const [calendarDate, setCalendarDate] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -78,9 +79,10 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
   const [remark, setRemark] = useState("");
 
   const load = useCallback(async () => {
-    const [response, billingResponse] = await Promise.all([
+    const [response, billingResponse, towerResponse] = await Promise.all([
       apiFetch("/api/carrier", { headers: { accept: "application/json" } }),
       apiFetch("/api/carrier-billing/cases", { headers: { accept: "application/json" } }),
+      apiFetch("/api/carrier-billing/control-tower", { headers: { accept: "application/json" } }),
     ]);
     if (!response.ok) {
       const body = await response.json().catch(() => ({})) as { error?: string };
@@ -92,6 +94,9 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     const billingBody = await billingResponse.json().catch(() => ({})) as { items?: BillingCase[]; error?: string };
     if (billingResponse.ok) setBilling(billingBody.items ?? []);
     else onToast(billingBody.error ?? `เปิดรายการวางบิลไม่สำเร็จ (${billingResponse.status})`);
+    const towerBody = await towerResponse.json().catch(() => ({})) as BillingControlTowerView & { error?: string };
+    if (towerResponse.ok) setTower(towerBody);
+    else onToast(towerBody.error ?? `เปิด Carrier Control Dashboard ไม่สำเร็จ (${towerResponse.status})`);
   }, [onToast, setPortal]);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
@@ -197,6 +202,19 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
         <div style={css("font-size:12px;color:#7B8CA0;margin-top:3px;line-height:1.6")}>
           หน้านี้แสดงเฉพาะงานที่ถูกส่งมาให้บริษัทนี้ และงานที่บริษัทนี้รับไปแล้วเท่านั้น
         </div>
+      </div>
+
+      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px") }>
+        <CarrierMetric label="Carrier Acceptance" value={tower?.metrics.carrierAcceptancePercent == null ? "—" : `${tower.metrics.carrierAcceptancePercent.toFixed(1)}%`}
+          note={`รอตอบ ${tower?.metrics.carrierAcceptancePending ?? portal.offered.length}`} tone="#16794C" />
+        <CarrierMetric label="Truck Assignment Pending" value={tower?.metrics.truckAssignmentPending ?? 0} note="รับงานแล้วแต่ยังไม่มีรถ" tone="#B42318" />
+        <CarrierMetric label="Billing ≤4 Working Days" value={tower?.metrics.within4WorkingDaysPercent == null ? "—" : `${tower.metrics.within4WorkingDaysPercent.toFixed(1)}%`}
+          note={`${tower?.metrics.within4WorkingDays ?? 0}/${tower?.metrics.submitted ?? 0} invoices`} tone="#0A5C97" />
+        <CarrierMetric label="Billing Overdue" value={tower?.metrics.overdue ?? 0} note="ยังไม่ส่งและพ้นกำหนด" tone="#B42318" />
+        <CarrierMetric label="First-Time-Right" value={tower?.metrics.firstTimeRightPercent == null ? "—" : `${tower.metrics.firstTimeRightPercent.toFixed(1)}%`}
+          note="ผ่านตั้งแต่รอบแรก" tone="#16794C" />
+        <CarrierMetric label="Original Pending" value={tower?.metrics.originalPending ?? 0}
+          note={`เฉลี่ย ${tower?.metrics.averageOriginalPendingDays ?? 0} วัน`} tone="#B45309" />
       </div>
 
       <div style={css("display:flex;gap:7px")}>
@@ -404,6 +422,14 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
       })}
     </div>
   );
+}
+
+function CarrierMetric({ label, value, note, tone }: { label: string; value: number | string; note: string; tone: string }) {
+  return <div style={css(`background:#fff;border:1px solid #E3E8EE;border-top:3px solid ${tone};border-radius:5px;padding:9px 11px`) }>
+    <div style={css("font-size:10px;color:#7B8CA0;font-weight:650")}>{label}</div>
+    <div style={css("font-size:20px;color:#0F2B46;font-weight:700;font-family:'IBM Plex Mono',monospace;margin-top:3px")}>{value}</div>
+    <div style={css("font-size:9.5px;color:#94A3B8;margin-top:2px")}>{note}</div>
+  </div>;
 }
 
 function Field({ label, width, value, onChange, placeholder }: {
