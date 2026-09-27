@@ -315,47 +315,58 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
                 $"ไม่พบ {name} ใน Supplier Register — ต้องผูกบริษัทหรือ alias ก่อนส่งงาน", state);
         var previousOutcome = active.Outcome;
         var now = DateTimeOffset.UtcNow;
-        await using var transaction = await db.Database.BeginTransactionAsync(token);
+        SupplierRequest? next = null;
 
-        active.Outcome = CarrierAssignment.Superseded;
-        active.Reason = note.Length > 0 ? note : code;
-        active.ReasonCode = code;
-        active.Remark = note;
-        active.RespondedAt = now;
-        active.RespondedBy = by;
-        await db.SaveChangesAsync(token);
-
-        var next = new SupplierRequest
+        // Through the execution strategy: the context retries on failure, and a
+        // retrying strategy refuses a transaction opened by hand outside it —
+        // this reassignment answered 500 until 27 Sep 2026 (found beside the
+        // same fault in billing submit by the Carrier API Phase 9 run).
+        var saved = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            JobKey = jobKey,
-            SupplierId = supplierId,
-            Rank = state.Suppliers.Count + 1,
-            Carrier = name,
-            QuotedPrice = quotedPrice,
-            Outcome = CarrierAssignment.Pending,
-            RequestedBy = by,
-            RequestedAt = now,
-            PreviousRequestId = active.Id,
-        };
-        db.SupplierRequests.Add(next);
+            await using var transaction = await db.Database.BeginTransactionAsync(token);
 
-        var job = await db.OperationJobs.FirstOrDefaultAsync(row => row.Key == jobKey, token);
-        if (job is null)
-        {
-            await transaction.RollbackAsync(token);
-            return new WorkflowOutcome(false, "ไม่พบงานนี้", state);
-        }
-        ResetAssignment(job, by, now);
+            active.Outcome = CarrierAssignment.Superseded;
+            active.Reason = note.Length > 0 ? note : code;
+            active.ReasonCode = code;
+            active.Remark = note;
+            active.RespondedAt = now;
+            active.RespondedBy = by;
+            await db.SaveChangesAsync(token);
 
-        var stage = Enum.Parse<Stage>(state.Stage);
-        await Record(jobKey, "reassign-carrier", stage, Stage.CapacityRequested, "",
-            $"#{active.Rank} {active.Carrier} → #{next.Rank} {name} · {code}" +
-            (note.Length > 0 ? $" · {note}" : ""), by, token);
-        audit.Stage(user, AuditActions.Update, "carrier-assignment", active.Id.ToString(), jobKey,
-            "outcome", previousOutcome,
-            CarrierAssignment.Superseded, $"{code} · {note} · next #{next.Rank} {name}");
-        await db.SaveChangesAsync(token);
-        await transaction.CommitAsync(token);
+            next = new SupplierRequest
+            {
+                JobKey = jobKey,
+                SupplierId = supplierId,
+                Rank = state.Suppliers.Count + 1,
+                Carrier = name,
+                QuotedPrice = quotedPrice,
+                Outcome = CarrierAssignment.Pending,
+                RequestedBy = by,
+                RequestedAt = now,
+                PreviousRequestId = active.Id,
+            };
+            db.SupplierRequests.Add(next);
+
+            var job = await db.OperationJobs.FirstOrDefaultAsync(row => row.Key == jobKey, token);
+            if (job is null)
+            {
+                await transaction.RollbackAsync(token);
+                return false;
+            }
+            ResetAssignment(job, by, now);
+
+            var stage = Enum.Parse<Stage>(state.Stage);
+            await Record(jobKey, "reassign-carrier", stage, Stage.CapacityRequested, "",
+                $"#{active.Rank} {active.Carrier} → #{next.Rank} {name} · {code}" +
+                (note.Length > 0 ? $" · {note}" : ""), by, token);
+            audit.Stage(user, AuditActions.Update, "carrier-assignment", active.Id.ToString(), jobKey,
+                "outcome", previousOutcome,
+                CarrierAssignment.Superseded, $"{code} · {note} · next #{next.Rank} {name}");
+            await db.SaveChangesAsync(token);
+            await transaction.CommitAsync(token);
+            return true;
+        });
+        if (!saved || next is null) return new WorkflowOutcome(false, "ไม่พบงานนี้", state);
         register.Invalidate();
 
         await webhooks.CancelledAsync(jobKey, active.Carrier, active.Id,

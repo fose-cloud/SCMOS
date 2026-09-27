@@ -18,7 +18,19 @@ public record BillingSubmitResult(bool Ok, string Code, string Message, string S
 /// <summary>Deterministic Phase 5 carrier-submit validation. Every decision is persisted with its evidence.</summary>
 public class BillingValidationService(ScmosDbContext db, AuditService audit)
 {
-    public async Task<BillingSubmitResult> SubmitAsync(AppUser actor, int supplierId, long invoiceId,
+    /// <summary>
+    /// Runs the submission through the execution strategy. The context is
+    /// configured with EnableRetryOnFailure, and a retrying strategy refuses a
+    /// transaction opened by hand outside it — every submit, the portal's and
+    /// the Carrier API's, answered 500 until 27 Sep 2026, when the Phase 9
+    /// end-to-end run found it. CustomerDocumentService and the rest already
+    /// open their transactions this way.
+    /// </summary>
+    public Task<BillingSubmitResult> SubmitAsync(AppUser actor, int supplierId, long invoiceId,
+        CancellationToken token) =>
+        db.Database.CreateExecutionStrategy().ExecuteAsync(() => SubmitOnceAsync(actor, supplierId, invoiceId, token));
+
+    private async Task<BillingSubmitResult> SubmitOnceAsync(AppUser actor, int supplierId, long invoiceId,
         CancellationToken token)
     {
         var invoice = await db.BillingInvoices.FirstOrDefaultAsync(x => x.Id == invoiceId && x.SupplierId == supplierId, token);
