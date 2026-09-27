@@ -60,7 +60,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
                 existing.UpdatedAt = DateTimeOffset.UtcNow;
                 audit.Stage(actor, AuditActions.Configure, "billing-case", existing.Id.ToString(),
                     job.JobCode, "sla", existing.SlaIssueCode, resolved.Rule!.Code,
-                    "เติม SLA snapshot หลังตั้งค่ากฎ");
+                    "เติม SLA snapshot หลังตั้งค่ากฎ", AuditSourceOf(actor));
             }
             return (existing, false);
         }
@@ -92,7 +92,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         }
         db.BillingCases.Add(record);
         audit.Stage(actor, AuditActions.Register, "billing-case", job.Key, job.JobCode,
-            "status", "", record.Status, "Delivery Complete");
+            "status", "", record.Status, $"Delivery Complete · {ChannelOf(actor)}", AuditSourceOf(actor));
         return (record, true);
     }
 
@@ -127,6 +127,23 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             .Where(row => row.SupplierId == supplierId)
             .OrderByDescending(row => row.DeliveryCompletedAt).Take(1000).ToListAsync(token);
         return (true, "", await DescribeAsync(cases, token));
+    }
+
+    /// <summary>
+    /// One page of a supplier's Billing Cases, filtered by status in the
+    /// query rather than after it — the Carrier API's lists (Phase 9). The
+    /// portal's 1,000-row read is a screen's; an integration paging through
+    /// a year of cases must not lose the oldest ones off the end of it.
+    /// </summary>
+    public async Task<(IReadOnlyList<BillingCaseView> Items, int Total)> PageForCarrierAsync(int supplierId,
+        IReadOnlyCollection<string>? statuses, int page, int size, CancellationToken token)
+    {
+        var query = db.BillingCases.AsNoTracking().Where(row => row.SupplierId == supplierId);
+        if (statuses is { Count: > 0 }) query = query.Where(row => statuses.Contains(row.Status));
+        var total = await query.CountAsync(token);
+        var cases = await query.OrderByDescending(row => row.DeliveryCompletedAt).ThenByDescending(row => row.Id)
+            .Skip((page - 1) * size).Take(size).ToListAsync(token);
+        return (await DescribeAsync(cases, token), total);
     }
 
     public async Task<BillingMutation> CreateDraftAsync(AppUser user, long caseId, CancellationToken token)

@@ -109,6 +109,7 @@ public static class CarrierEndpoints
     {
         CarrierService.ResultCode.NoCompany => StatusCodes.Status403Forbidden,
         CarrierService.ResultCode.NotOffered or CarrierService.ResultCode.NotHeld => StatusCodes.Status404NotFound,
+        CarrierService.ResultCode.NotOwned => StatusCodes.Status404NotFound,
         CarrierService.ResultCode.Closed or CarrierService.ResultCode.Conflict => StatusCodes.Status409Conflict,
         _ => StatusCodes.Status400BadRequest,
     };

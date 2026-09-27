@@ -140,24 +140,33 @@ public static class CarrierApiEndpoints
         /* --------------------------------------------- the writes (phase 2) */
 
         // Accepting: the request waiting for this carrier is confirmed, the
-        // truck goes on the job, the other carriers' open requests close.
+        // truck goes on the job when it is sent, the other carriers' open
+        // requests close. The truck became optional with Carrier Billing
+        // Phase 9 (26 Sep 2026): the portal has accepted without one since
+        // Phase 2 — accept, then assign the truck — and BR-016 asks both
+        // doors to follow the same rule. A body with the truck is read and
+        // written exactly as before.
         v1.MapPost("/assignments/{jobKey}/accept", async (string jobKey, [FromBody] TruckBody? body,
             HttpContext context, CarrierService carriers, AuditService audit, CancellationToken token) =>
             await IdempotentAsync(context, "POST", body, async () =>
             {
                 var who = PrincipalOf(context);
-                var (truck, problems, warnings) = CarrierApi.ReadTruck(body?.Licence, body?.Driver, body?.Contact, body?.Container, body?.Seal, requireTruck: true);
+                var (truck, problems, warnings) = CarrierApi.ReadTruck(body?.Licence, body?.Driver, body?.Contact, body?.Container, body?.Seal, requireTruck: false);
                 if (problems.Count > 0) return Problem(context, CarrierApi.Invalid, string.Join("; ", problems), new { problems });
 
                 var result = await carriers.AcceptForAsync(who.Company, jobKey, truck.Licence, truck.Driver, truck.Contact,
                     truck.Container, truck.Seal, who.AsUser().Signature, token);
                 if (!result.Ok) return RefusedWrite(context, result, jobKey, await GroupOfAsync(carriers, who, jobKey, token));
+                if (result.Replayed)
+                    return Answer(200, new { message = result.Message, jobKey, status = JobStatus.SupplierConfirmed, replayed = true, correlationId = context.TraceIdentifier });
 
                 var by = who.AsUser();
+                var withTruck = truck.Licence.Length > 0 || truck.Driver.Length > 0 || truck.Contact.Length > 0;
                 await audit.RecordAsync(by, AuditActions.Update, "job", jobKey, jobKey,
-                    "trucker, licence, driver, contact", result.Before,
-                    $"{truck.Licence} · {truck.Driver} · {truck.Contact}",
-                    $"ผู้รับเหมายืนยันรับงานและแจ้งรถผ่าน Carrier API ({who.ClientId})", token, EventSource.CarrierApi);
+                    withTruck ? "trucker, licence, driver, contact" : "trucker, status", result.Before,
+                    withTruck ? $"{truck.Licence} · {truck.Driver} · {truck.Contact}" : JobStatus.SupplierConfirmed,
+                    withTruck ? $"ผู้รับเหมายืนยันรับงานและแจ้งรถผ่าน Carrier API ({who.ClientId})"
+                        : $"ผู้รับเหมายืนยันรับงานผ่าน Carrier API ({who.ClientId}) — รถแจ้งภายหลัง", token, EventSource.CarrierApi);
                 foreach (var name in new[] { "container", "seal" })
                 {
                     if (result.Written is { } written && written.TryGetValue(name, out var value))
@@ -184,16 +193,25 @@ public static class CarrierApiEndpoints
             await IdempotentAsync(context, "POST", body, async () =>
             {
                 var who = PrincipalOf(context);
-                var reason = Formats.Clean(body?.Reason);
-                if (reason.Length == 0 || reason.Length > 400)
-                    return Problem(context, CarrierApi.Invalid, "reason is required (at most 400 characters)");
+                // Since Carrier Billing Phase 9 a decline carries the portal's reason code and remark;
+                // "reason" alone is still read, as the remark under OTHER, the way V1 wrote it.
+                var code = CarrierApi.ReasonCode(body?.ReasonCode);
+                if (code is null) return Problem(context, CarrierApi.Invalid, "reasonCode is upper-case letters, digits and '_', at most 40");
+                var remark = Formats.Clean(body?.Remark is { Length: > 0 } ? body.Remark : body?.Reason);
+                if (remark.Length > 400) return Problem(context, CarrierApi.Invalid, "remark is longer than 400 characters");
+                if (code == "OTHER" && remark.Length == 0)
+                    return Problem(context, CarrierApi.Invalid, "a decline needs a reasonCode, or a remark (reason) saying why");
 
-                var result = await carriers.DeclineForAsync(who.Company, jobKey, reason, token);
+                var by = who.AsUser();
+                var result = await carriers.DeclineForAsync(who.Company, jobKey, code, remark, by.Signature, token);
                 if (!result.Ok) return RefusedWrite(context, result, jobKey, await GroupOfAsync(carriers, who, jobKey, token));
+                if (result.Replayed)
+                    return Answer(200, new { message = result.Message, jobKey, reasonCode = code, replayed = true, correlationId = context.TraceIdentifier });
 
-                await audit.RecordAsync(who.AsUser(), AuditActions.Update, "job", jobKey, jobKey,
-                    "supplier-response", "pending", "rejected", $"{reason} — Carrier API ({who.ClientId})", token, EventSource.CarrierApi);
-                return Answer(200, new { message = result.Message, jobKey, correlationId = context.TraceIdentifier });
+                await audit.RecordAsync(by, AuditActions.Update, "carrier-assignment",
+                    result.AssignmentId?.ToString() ?? jobKey, jobKey, "outcome", CarrierAssignment.Pending, CarrierAssignment.Rejected,
+                    $"{code}{(remark.Length > 0 ? " · " + remark : "")} — Carrier API ({who.ClientId})", token, EventSource.CarrierApi);
+                return Answer(200, new { message = result.Message, jobKey, reasonCode = code, correlationId = context.TraceIdentifier });
             }));
 
         // The truck's details after acceptance — a plate, a driver, a
@@ -400,6 +418,7 @@ public static class CarrierApiEndpoints
         // Phase 9 extends this same authenticated and rate-limited v1 group;
         // no second carrier API or credential boundary is introduced.
         CarrierBillingApiEndpoints.Map(v1);
+        CarrierOperationsApiEndpoints.Map(v1);
 
         /* ------------------------------------------------ webhooks (phase 4) */
 
@@ -717,7 +736,7 @@ public static class CarrierApiEndpoints
     /// but already answered, held rather than offered, closed; a cell the
     /// register holds otherwise is 409 with the conflicts named.
     /// </summary>
-    private static Written RefusedWrite(HttpContext context, CarrierService.Result result, string jobKey, string? group)
+    internal static Written RefusedWrite(HttpContext context, CarrierService.Result result, string jobKey, string? group)
     {
         switch (result.Code)
         {
@@ -730,6 +749,10 @@ public static class CarrierApiEndpoints
                     : Problem(context, CarrierApi.Conflict, result.Code == CarrierService.ResultCode.NotOffered
                         ? $"The assignment is {group}, not waiting for this carrier's answer"
                         : $"The assignment is {group}, not held by this carrier", new { reason = result.Code, group });
+            case CarrierService.ResultCode.NotOwned:
+                return Problem(context, CarrierApi.Invalid,
+                    "truckId, trailerId and driverId must be active entries of this carrier's own register (GET /fleet)",
+                    new { reason = result.Code });
             case CarrierService.ResultCode.Closed:
                 return Problem(context, CarrierApi.Conflict, result.Message, new { reason = result.Code });
             case CarrierService.ResultCode.Conflict:
@@ -745,7 +768,7 @@ public static class CarrierApiEndpoints
     }
 
     /// <summary>Which of the carrier's two lists a job is in, or null when it is in neither — for the 404 / 409 distinction.</summary>
-    private static async Task<string?> GroupOfAsync(CarrierService carriers, CarrierApiAuth.Principal who, string jobKey, CancellationToken token)
+    internal static async Task<string?> GroupOfAsync(CarrierService carriers, CarrierApiAuth.Principal who, string jobKey, CancellationToken token)
     {
         var portal = await carriers.ReadForAsync(who.Company, token);
         return Assignments(portal).FirstOrDefault(row => string.Equals(row.Id, jobKey, StringComparison.Ordinal))?.Group;
@@ -990,9 +1013,10 @@ public static class CarrierApiEndpoints
     public record RevokeBody(string? Reason);
     public record AutoApplyBody(bool Enabled, string? Reason);
 
-    /// <summary>The truck a carrier sends: on acceptance the first three are required; the box and the seal are an export's.</summary>
+    /// <summary>The truck a carrier sends — on acceptance optional since Carrier Billing Phase 9; the box and the seal are an export's.</summary>
     public record TruckBody(string? Licence, string? Driver, string? Contact, string? Container, string? Seal);
-    public record DeclineBody(string? Reason);
+    /// <summary>Why a carrier says no: a reason code (OTHER when absent) and a remark; <c>reason</c> is V1's remark.</summary>
+    public record DeclineBody(string? Reason, string? ReasonCode = null, string? Remark = null);
     /// <summary>A status the truck reached — one of <see cref="CarrierEvent.Types"/> — when, and a remark; a note is a remark alone.</summary>
     public record EventBody(string? Type, string? At, string? Remark);
     /// <summary>A URL to call and the events to call it for — empty is all of them.</summary>

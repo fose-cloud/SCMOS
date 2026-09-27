@@ -79,6 +79,8 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         public const string NotOffered = "not-offered";
         /// <summary>The register does not name this carrier on that job.</summary>
         public const string NotHeld = "not-held";
+        /// <summary>A truck, trailer or driver that is not an active entry of this carrier's own register.</summary>
+        public const string NotOwned = "not-owned";
         public const string Closed = "closed";
         public const string Conflict = "conflict";
         public const string Failed = "failed";
@@ -374,6 +376,15 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         => await DeclineAssignmentAsync(company, jobKey, null, "OTHER", reason,
             $"carrier:{company.Code}", token);
 
+    /// <summary>
+    /// The refusal with its reason code and remark, as the portal records it
+    /// (Phase 2), answered by <paramref name="by"/> — the Carrier API's key,
+    /// so the assignment row names the system that said no.
+    /// </summary>
+    public async Task<Result> DeclineForAsync(Supplier company, string jobKey, string reasonCode, string remark,
+        string by, CancellationToken token)
+        => await DeclineAssignmentAsync(company, jobKey, null, reasonCode, remark, by, token);
+
     public async Task<Result> DeclineAssignmentAsync(Supplier company, string jobKey, long? requestId,
         string reasonCode, string remark, string by, CancellationToken token)
     {
@@ -459,6 +470,19 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
     {
         var company = await CompanyOfAsync(user, token);
         if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", Code: ResultCode.NoCompany);
+        return await AssignResourcesForAsync(user, company, jobKey, truckId, trailerId, driverId, token);
+    }
+
+    /// <summary>
+    /// The resource assignment for a supplier the caller has settled — the
+    /// portal through <see cref="CompanyOfAsync"/>, the Carrier TMS API
+    /// through its key (Phase 9). One operation for both doors: the same
+    /// fleet-ownership check, the same history row, the same audit, with
+    /// only the channel named differently.
+    /// </summary>
+    public async Task<Result> AssignResourcesForAsync(AppUser user, Supplier company, string jobKey, int truckId,
+        int? trailerId, int driverId, CancellationToken token)
+    {
         var names = await NamesOfAsync(company, token);
         if (!await OwnsHeldJobAsync(company, names, jobKey, token))
             return new Result(false, "งานนี้ไม่ได้อยู่กับบริษัทนี้", Code: ResultCode.NotHeld);
@@ -472,7 +496,7 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         var driver = await db.SupplierDrivers.AsNoTracking().FirstOrDefaultAsync(row =>
             row.Id == driverId && row.SupplierId == company.Id && row.Status == "active", token);
         if (truck is null || driver is null || (trailerId is not null && trailer is null))
-            return new Result(false, "รถหรือคนขับไม่ได้อยู่ในทะเบียนที่ใช้งานของบริษัทนี้", Code: ResultCode.NotHeld);
+            return new Result(false, "รถหรือคนขับไม่ได้อยู่ในทะเบียนที่ใช้งานของบริษัทนี้", Code: ResultCode.NotOwned);
 
         var before = await jobs.SnapshotAsync([jobKey], token);
         if (!before.TryGetValue(jobKey, out var fields))
@@ -514,11 +538,11 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         db.WorkflowEvents.Add(new WorkflowEvent
         {
             JobKey = jobKey, Kind = "carrier-resources", FromStage = stage, ToStage = Stage.SupplierAssigned.ToString(),
-            Note = note, By = user.Signature, At = DateTimeOffset.UtcNow, Source = "web",
+            Note = note, By = user.Signature, At = DateTimeOffset.UtcNow, Source = SourceOf(user),
         });
         audit.Stage(user, AuditActions.Assign, "job", jobKey, jobKey, "truck-driver",
             $"{previous["licence"]} · {previous["driver"]}", $"{licence} · {driver.Name}",
-            "Carrier Portal");
+            ChannelOf(user), AuditSourceOf(user));
         await db.SaveChangesAsync(token);
         register.Invalidate();
         return new Result(true, $"จัดรถ {licence} · {driver.Name} แล้ว", Written: writes, Previous: previous);
@@ -530,6 +554,19 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
     {
         var company = await CompanyOfAsync(user, token);
         if (company is null) return new Result(false, "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา", Code: ResultCode.NoCompany);
+        return await AdvanceForAsync(user, company, jobKey, type, eventAt, remark, token);
+    }
+
+    /// <summary>
+    /// The status move for a supplier the caller has settled — see
+    /// <see cref="AssignResourcesForAsync"/>. The ladder, the milestone, the
+    /// history row and the Billing Case at Delivery Complete are the portal's
+    /// own; a Carrier API key reaches this only when the department trusts it
+    /// (see <c>CarrierOperationsApiEndpoints</c>).
+    /// </summary>
+    public async Task<Result> AdvanceForAsync(AppUser user, Supplier company, string jobKey, string type,
+        DateTimeOffset? eventAt, string remark, CancellationToken token)
+    {
         var names = await NamesOfAsync(company, token);
         if (!await OwnsHeldJobAsync(company, names, jobKey, token))
             return new Result(false, "งานนี้ไม่ได้อยู่กับบริษัทนี้", Code: ResultCode.NotHeld);
@@ -582,10 +619,11 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         {
             JobKey = jobKey, Kind = "carrier-status", FromStage = Workflow.FromStatus(oldStatus).ToString(),
             ToStage = stageName, Note = remark.Trim(), By = user.Signature, At = DateTimeOffset.UtcNow,
-            EventAt = readAt, Source = "web",
+            EventAt = readAt, Source = SourceOf(user),
         });
         audit.Stage(user, AuditActions.StatusChange, "job", jobKey, job.JobCode, "status",
-            oldStatus, decision.TargetStatus, remark.Trim().Length > 0 ? remark.Trim() : "Carrier Portal");
+            oldStatus, decision.TargetStatus, remark.Trim().Length > 0 ? $"{ChannelOf(user)}: {remark.Trim()}" : ChannelOf(user),
+            AuditSourceOf(user));
         if (CarrierOperations.IsDeliveryComplete(type))
             await billing.EnsureForDeliveryAsync(user, company, job, readAt.Value, token);
         await db.SaveChangesAsync(token);
@@ -693,6 +731,18 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
             RespondedAt: request?.RespondedAt,
             AssignmentOutcome: request?.Outcome ?? "legacy",
             OperationalAvailable: request is null || request.Outcome == CarrierAssignment.Confirmed);
+
+    /// <summary>Whether a carrier's write came through the Carrier TMS API rather than the portal.</summary>
+    private static bool ViaApi(AppUser user) => user.Source == "carrier-api";
+
+    /// <summary>The door, as the audit reason names it.</summary>
+    private static string ChannelOf(AppUser user) => ViaApi(user) ? "Carrier API" : "Carrier Portal";
+
+    /// <summary>The audit row's source: TMS for the API, as every other write through that door records.</summary>
+    private static string AuditSourceOf(AppUser user) => ViaApi(user) ? EventSource.CarrierApi : "web";
+
+    /// <summary>The history row's source — the same word as the audit's.</summary>
+    private static string SourceOf(AppUser user) => AuditSourceOf(user);
 
     private static string Value(IReadOnlyDictionary<string, string> fields, string name) =>
         fields.TryGetValue(name, out var value) && value.Length > 0 ? value : "(ว่าง)";

@@ -48,8 +48,21 @@ public class OriginalDocumentService(ScmosDbContext db, CarrierTenantContext ten
         if (!CarrierTenantContext.IsCarrier(actor)) return Fail("FORBIDDEN", "เฉพาะบัญชีผู้ขนส่งเท่านั้นที่แจ้งการส่งต้นฉบับได้");
         var tenant = await tenants.ResolveAsync(actor, token);
         if (tenant is null) return Fail("FORBIDDEN", "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา");
+        return await SaveCarrierPackageForAsync(actor, tenant.SupplierId, invoiceId, sentDate, courier,
+            trackingNumber, packageReference, remark, token);
+    }
+
+    /// <summary>
+    /// The carrier's package details for a supplier identity already settled
+    /// by a trusted boundary — a portal membership above, or a Carrier API key
+    /// (Phase 9). The supplier id never comes from the request.
+    /// </summary>
+    public async Task<OriginalDocumentMutation> SaveCarrierPackageForAsync(AppUser actor, int supplierId, long invoiceId,
+        string sentDate, string courier, string trackingNumber, string packageReference,
+        string remark, CancellationToken token)
+    {
         var invoice = await db.BillingInvoices.FirstOrDefaultAsync(row => row.Id == invoiceId
-            && row.SupplierId == tenant.SupplierId, token);
+            && row.SupplierId == supplierId, token);
         if (invoice is null) return Fail("NOT_FOUND", "ไม่พบใบวางบิลนี้");
         if (invoice.Status != BillingInvoiceStatus.AwaitingOriginal)
             return Fail("INVALID_STATUS", "แจ้งพัสดุต้นฉบับได้หลัง Online Approval และก่อน LESCHACO รับเอกสารเท่านั้น");
@@ -66,6 +79,7 @@ public class OriginalDocumentService(ScmosDbContext db, CarrierTenantContext ten
         var now = DateTimeOffset.UtcNow;
         var package = await db.OriginalDocumentPackages.FirstOrDefaultAsync(row => row.InvoiceId == invoiceId, token);
         if (package?.ReceivedAt is not null) return Fail("ALREADY_RECEIVED", "LESCHACO รับเอกสารต้นฉบับชุดนี้แล้ว");
+        var viaApi = actor.Source == "carrier-api";
         var fromPackageStatus = package?.Status ?? OriginalDocumentStatus.Pending;
         package ??= new OriginalDocumentPackage { InvoiceId = invoiceId, CreatedAt = now };
         if (package.Id == 0) db.OriginalDocumentPackages.Add(package);
@@ -74,7 +88,8 @@ public class OriginalDocumentService(ScmosDbContext db, CarrierTenantContext ten
         package.CarrierRemark = cleanRemark; package.SentBy = actor.Signature; package.SentAt = now; package.UpdatedAt = now;
         audit.Stage(actor, AuditActions.Update, "billing-original-package", invoiceId.ToString(), invoice.InvoiceNumber,
             "status", fromPackageStatus, OriginalDocumentStatus.Sent,
-            $"{cleanCourier} · {(cleanTracking.Length > 0 ? cleanTracking : cleanReference)}");
+            $"{(viaApi ? "Carrier API · " : "")}{cleanCourier} · {(cleanTracking.Length > 0 ? cleanTracking : cleanReference)}",
+            viaApi ? EventSource.CarrierApi : "web");
         await db.SaveChangesAsync(token);
         return Success("บันทึกข้อมูลจัดส่งเอกสารต้นฉบับแล้ว", invoice.Status, false, false, package);
     }

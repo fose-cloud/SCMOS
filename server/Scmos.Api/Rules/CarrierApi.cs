@@ -303,6 +303,119 @@ public static class CarrierApi
         return false;
     }
 
+    /* ------------------- operations and billing (Carrier Billing phase 9) */
+
+    /// <summary>
+    /// Whether a key may use the routes that write the way the carrier's own
+    /// person does in the portal — registered truck and driver over whatever
+    /// the job holds, and the operational status on the portal's ladder up to
+    /// Delivery Complete. That is the trust <see cref="AutoApplies"/> already
+    /// names: the department's mark on the key and <c>CarrierApi__AutoApply</c>
+    /// on. A key without it keeps the owner-governed routes — the truck into
+    /// empty cells, status events queued for the job's owner — which is how
+    /// the TMS door has worked since v2.7.55. No key gains a power here that
+    /// the department did not already give it.
+    /// </summary>
+    public static bool MayWriteDirectly(string? setting, bool keyMarked) => AutoApplies(setting, keyMarked);
+
+    /// <summary>The media types a carrier's system may upload — a scan or a photograph of paperwork.</summary>
+    public static readonly IReadOnlyDictionary<string, string> UploadTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["application/pdf"] = "pdf",
+        ["image/jpeg"] = "jpeg",
+        ["image/png"] = "png",
+        ["image/webp"] = "webp",
+        ["image/heic"] = "heif",
+        ["image/heif"] = "heif",
+        ["image/tiff"] = "tiff",
+    };
+
+    /// <summary>
+    /// Why an upload is refused, or null. The declared type must be one of
+    /// <see cref="UploadTypes"/> and the first bytes must say the same thing:
+    /// the header is what the client claims, the bytes are what it sent, and
+    /// a file served back to the department from storage should be what its
+    /// name says it is. <paramref name="head"/> is the start of the file —
+    /// sixteen bytes are enough for every type here.
+    /// </summary>
+    public static string? UploadProblem(string? contentType, ReadOnlySpan<byte> head)
+    {
+        var type = (contentType ?? "").Split(';')[0].Trim();
+        if (!UploadTypes.TryGetValue(type, out var family))
+            return "Content-Type of the file must be one of: " + string.Join(", ", UploadTypes.Keys);
+        return SniffedFamily(head) == family ? null : $"the file's bytes are not a {family.ToUpperInvariant()} file";
+    }
+
+    /// <summary>What the first bytes of a file say it is — pdf, jpeg, png, webp, heif, tiff — or empty.</summary>
+    public static string SniffedFamily(ReadOnlySpan<byte> head)
+    {
+        if (head.StartsWith("%PDF-"u8)) return "pdf";
+        if (head.Length >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF) return "jpeg";
+        if (head.StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })) return "png";
+        if (head.Length >= 12 && head[..4].SequenceEqual("RIFF"u8) && head[8..12].SequenceEqual("WEBP"u8)) return "webp";
+        if (head.Length >= 12 && head[4..8].SequenceEqual("ftyp"u8))
+        {
+            var brand = Encoding.ASCII.GetString(head[8..12]);
+            if (brand is "heic" or "heix" or "hevc" or "hevx" or "heim" or "heis" or "mif1" or "msf1") return "heif";
+        }
+        if (head.StartsWith("II*\0"u8) || head.StartsWith("MM\0*"u8)) return "tiff";
+        return "";
+    }
+
+    /// <summary>
+    /// What a document may be called: lower-case letters, digits, '_' and '-',
+    /// at most 60 — invoice, pod, cargo_receipt, receipt, or whatever kind a
+    /// billing requirement rule names. The list of kinds is the department's
+    /// configuration (<c>billing_requirement_rules.document_kind</c>), so the
+    /// door checks the shape and leaves the vocabulary to the rules.
+    /// </summary>
+    public static string? DocumentKind(string? kind, string fallback)
+    {
+        var text = (kind ?? "").Trim().ToLowerInvariant();
+        if (text.Length == 0) return fallback;
+        if (text.Length > 60) return null;
+        foreach (var c in text)
+            if (!(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-')) return null;
+        return text;
+    }
+
+    /// <summary>
+    /// A decline's reason code: upper-case letters, digits and '_', at most
+    /// 40 — the portal's codes, and any the department adds. Empty is OTHER,
+    /// which the assignment rule then requires a remark for. Null when the
+    /// code is not that shape.
+    /// </summary>
+    public static string? ReasonCode(string? code)
+    {
+        var text = (code ?? "").Trim().ToUpperInvariant();
+        if (text.Length == 0) return "OTHER";
+        if (text.Length > 40) return null;
+        foreach (var c in text)
+            if (!(c is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_')) return null;
+        return text;
+    }
+
+    /// <summary>
+    /// The statuses a Billing Case list may be filtered by, read from a
+    /// comma list; null when one of them is not a status the case can have.
+    /// Empty is every status.
+    /// </summary>
+    public static IReadOnlyList<string>? BillingStatuses(string? filter)
+    {
+        var wanted = (filter ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(one => one.ToUpperInvariant()).Distinct().ToList();
+        return wanted.All(one => BillingCaseStatuses.Contains(one)) ? wanted : null;
+    }
+
+    /// <summary>Every status a Billing Case carries (<see cref="BillingCaseStatus"/>).</summary>
+    public static readonly string[] BillingCaseStatuses =
+    [
+        BillingCaseStatus.WaitingCarrierSubmission, BillingCaseStatus.Draft, BillingCaseStatus.Validated,
+        BillingCaseStatus.Blocked, BillingCaseStatus.SubconReview, BillingCaseStatus.Returned,
+        BillingCaseStatus.Disputed, BillingCaseStatus.AwaitingOriginal, BillingCaseStatus.OriginalReceived,
+        BillingCaseStatus.ReadyForFinance,
+    ];
+
     /* ------------------------------------------------------ the refusals */
 
     /// <summary>

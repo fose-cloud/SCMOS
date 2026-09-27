@@ -1,6 +1,6 @@
 # SCMOS Carrier TMS API — V1 contract
 
-Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · Phase 4 (webhooks) live from v2.7.56 · Phase 5 (auto-apply for a marked carrier, behind a switch) live from v2.7.57 · Carrier Collaboration Phase 9 adds POD and online billing · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
+Phase 1 (reads) live from v2.7.52 · Phase 2 (accept, decline, truck) live from v2.7.53 · Phase 3 (status events, queued for the owner) live from v2.7.55 · Phase 4 (webhooks) live from v2.7.56 · Phase 5 (auto-apply for a marked carrier, behind a switch) live from v2.7.57 · Carrier Collaboration Phase 9 (27 September 2026) adds the fleet, the portal's resource and status operations, POD, online billing and the original-document package · base URL `https://scmos-api-3936.azurewebsites.net/api/carrier/v1/` — **the API host, called directly.** The web host's `/api/*` proxy is for the browser and does not pass the `Authorization` header on; a call through it answers `401`. The Carrier API screen shows the exact base URL beside every key it issues.
 
 The [assessment](SCMOS_CARRIER_TMS_ASSESSMENT.md) says why the API is shaped this way. This page is the contract a carrier's TMS is built against.
 
@@ -103,7 +103,7 @@ Every write is audited under the key's name (`carrier-api:ck_…`, source `TMS`)
 { "licence": "71-5111 ชบ.", "driver": "เต๋า ใจเงิน", "contact": "085-089-2487", "container": "TEMU5246902", "seal": "SL-9" }
 ```
 
-`licence`, `driver`, `contact` are required — the acceptance is the truck, as in the portal. `container` and `seal` (an export's) are optional and go **only into empty cells**; a cell the department keyed with a different value is `409 conflict` with the conflicts named, and nothing is written. Values are held to the register's standard: a Thai plate (province optional), a Thai phone written back as `0XX-XXXXXXX`, a container of four letters and seven digits (a check digit that disagrees is written as sent, with a warning — the register may carry the same number from the booking).
+`licence`, `driver`, `contact` are **optional since Carrier Collaboration Phase 9** — accept first, assign the truck afterwards (`PUT …/resources` or `PUT …/truck`), as the portal has done since Carrier Collaboration Phase 2. When they are sent they are read and written exactly as before; `{}` is a valid body. `container` and `seal` (an export's) are optional and go **only into empty cells**; a cell the department keyed with a different value is `409 conflict` with the conflicts named, and nothing is written. Values are held to the register's standard: a Thai plate (province optional), a Thai phone written back as `0XX-XXXXXXX`, a container of four letters and seven digits (a check digit that disagrees is written as sent, with a warning — the register may carry the same number from the booking).
 
 What it does: the request waiting for this carrier is confirmed, every other carrier's open request on the job is cancelled, the job takes `trucker`, `licence`, `driver`, `contact` and status `SUPPLIER_CONFIRMED`.
 
@@ -116,11 +116,15 @@ What it does: the request waiting for this carrier is confirmed, every other car
 }
 ```
 
-Refusals: `404` when the id is not in this carrier's lists; `409` with `group: "accepted"` when the job is already this carrier's (accepted once) or `reason: "not-offered"` when the request is no longer pending; `400` with `problems[]` for fields that cannot be read.
+Accepting a job this carrier has already accepted answers `200` with `replayed: true` and writes nothing. Refusals: `404` when the id is not in this carrier's lists; `409` with `reason: "not-offered"` when the request was superseded or cancelled; `400` with `problems[]` for fields that cannot be read.
 
 ### `POST /assignments/{id}/decline`
 
-`{ "reason": "รถไม่ว่าง" }` — required, at most 400 characters. The request is answered `rejected`; who is asked next stays the operator's decision. Afterwards the job is in neither list, so a second decline is `404`.
+```json
+{ "reasonCode": "NO_TRUCK", "remark": "รถไม่ว่างวันนั้น" }
+```
+
+`reasonCode` — upper-case letters, digits and `_`, at most 40 — is kept on the assignment beside `remark` (at most 400 characters), as the portal keeps them. Without a code the decline is `OTHER`, which needs a remark saying why. V1's `{ "reason": "…" }` is still read: it is the remark under `OTHER`. The request is answered `rejected`, the assignment names the key as the responder (`carrier-api:ck_…`), and who is asked next stays the operator's decision. Declining again answers `200` with `replayed: true`.
 
 ### `PUT /assignments/{id}/truck`
 
@@ -280,6 +284,67 @@ SLA, documents, latest validation, review history and original-package status.
 ### `GET /billing/invoices/{invoiceId}/validation`
 
 Returns the invoice's current status and latest persisted validation results.
+
+### `PUT /billing/invoices/{invoiceId}/original-package`
+
+```json
+{ "sentDate": "2026-09-30", "courier": "Kerry", "trackingNumber": "KEX123", "packageReference": "", "remark": "" }
+```
+
+The carrier's side of the original documents, after online approval and before LESCHACO signs for them (invoice status `AWAITING_ORIGINAL`, else `409`). `courier` and one of `trackingNumber` / `packageReference` are required; `sentDate` is `yyyy-MM-dd` and not in the future. The answer carries the package as the carrier may see it — never who at LESCHACO received it.
+
+### `GET /billing/cases?status=&page=&pageSize=`
+
+Every Billing Case of this carrier's, newest Delivery Complete first, or only those in `status` — a comma list of `WAITING_CARRIER_SUBMISSION`, `DRAFT`, `VALIDATED`, `BLOCKED`, `SUBCON_REVIEW`, `RETURNED`, `DISPUTED`, `AWAITING_ORIGINAL`, `ORIGINAL_RECEIVED`, `READY_FOR_FINANCE` (any case). Filtered and paged in the database, so a long history is paged through, not cut off.
+
+### `GET /billing/invoices/{invoiceId}/status`
+
+Where the invoice stands in one small answer: invoice and case status, the SLA (`state`, `startDate`, `dueDate`, `daysRemaining`, `targetWorkingDays`, `issueCode`), the review (`cycle`, submitted / decided / online-approved times, the last action with its reason code and remark), the count of blocking validation results, the original package, and `readyForFinance`. Payment details are not part of it: what a carrier is told about payment is a business decision still to be made.
+
+### Uploads — what is accepted
+
+Both upload routes take one `file`, at most 32 MB, whose declared `Content-Type` is one of `application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `image/tiff` **and** whose first bytes are that kind of file (a PDF starts `%PDF-`, a JPEG `FF D8 FF`, and so on). Anything else is `400` before anything is stored. `kind` on a billing document is lower-case letters, digits, `_` and `-`, at most 60 — `invoice`, `pod`, `cargo_receipt`, `receipt`, or a kind the department's billing requirement rules name; the rules decide which kinds are required.
+
+## The portal's operations (Carrier Collaboration Phase 9)
+
+BR-016 of the Carrier Collaboration + Billing specification: the portal and a TMS use the same business logic. These routes call the operations the portal's buttons call, with the key's supplier — the same fleet-ownership check, the same ladder, the same history row and audit (source `TMS`), and the same Billing Case at Delivery Complete.
+
+**Who may write directly.** A person in the portal writes directly. A key writes directly only when the department trusts it — the same two hands as [auto-apply](#auto-apply-phase-5): the key marked on Integrations → Carrier API **and** `CarrierApi__AutoApply=on`. A key without both gets `403 forbidden` with `reason: "not-trusted"` from `PUT …/resources` and `POST …/status`, and keeps the governed routes: `PUT …/truck` (empty cells only) and `POST …/events` (the job's owner approves). An answer is stored under its `Idempotency-Key`, so after the department marks a key, retry with a new key.
+
+### `GET /fleet`
+
+This carrier's active trucks (`id`, `plate`, `vehicleType`, `dgCapable`, `registrationExpiry`) and drivers (`id`, `name`, `phone`, `licenceExpiry`, `trainingExpiry`) — the ids the resources route takes. Registering trucks and drivers stays with the portal and the department.
+
+### `PUT /assignments/{id}/resources` (trusted keys)
+
+```json
+{ "truckId": 12, "trailerId": 13, "driverId": 7 }
+```
+
+A registered truck, an optional second registered truck as the trailer, and a registered driver onto an accepted, open job — over what the job holds (a reassignment is allowed and the previous plate and driver stay in the history). The job takes `licence` (`plate` or `plate / trailer plate`), `driver`, `contact` and, when it is earlier on the ladder, status `TRUCK_ASSIGNED`. An id that is not an active entry of this carrier's own register is `400` with `reason: "not-owned"`; a job that is not this carrier's accepted work is `404`; a closed job `409`. The same assignment again answers `200` with `replayed: true`.
+
+### `POST /assignments/{id}/status` (trusted keys)
+
+```json
+{ "type": "delivery_complete", "at": "2026-09-27T16:40:00+07:00", "remark": "" }
+```
+
+`type` is one of `dispatched`, `picked_up`, `loading`, `in_transit`, `delivered`, `container_returned`, `delivery_complete` — the portal's ladder for the job's category, forward only. `at` is optional (now), ISO 8601 with an offset, at most 10 minutes ahead and 7 days back. The same status again is `200` with `replayed: true`; a step back, a step not on the category's ladder, or a closed or cancelled job is `409`.
+
+`delivery_complete` closes the job (`COMPLETED`) and opens its Billing Case in the same operation — the start of the billing SLA. The answer names it, so the TMS can draft at once:
+
+```json
+{
+  "message": "บันทึกสถานะ COMPLETED แล้ว", "jobKey": "J25", "type": "delivery_complete",
+  "status": "COMPLETED", "from": "DELIVERED", "replayed": false,
+  "billingCase": { "id": 41, "status": "WAITING_CARRIER_SUBMISSION", "slaDueDate": "2026-10-01", "slaIssueCode": "" },
+  "correlationId": "…"
+}
+```
+
+### `GET /assignments/{id}/history`
+
+The job's carrier history — each resource assignment and status move (`kind`, `from`, `to`, `note`, `recordedAt`, `eventAt`) — and its PODs as document metadata, never a storage URL. `404` unless the job is this carrier's accepted work.
 
 ## Refusals
 
