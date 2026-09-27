@@ -47,13 +47,15 @@ static class PlatformVocabularyCheck
                 $"vocabulary: {tool.Name} is a low-risk read — nothing in the registry may be a write");
         }
 
-        // Every name the audit will accept is a tool that exists. extract_document is the
-        // Workspace's own extractor, audited through the platform since Phase 5 without being
-        // offered to a model, so it is the one name that is allowed to have no registry entry.
-        foreach (var name in AiAuditRules.KnownTools.Where(name => name != "extract_document"))
+        // Every name the audit will accept is a tool that exists. The Workspace extractor and
+        // Phase 10 Billing Control analysis are dedicated endpoints, audited through the platform
+        // but never offered by the general assistant's registry.
+        var dedicated = new[] { "extract_document", "analyze_billing" };
+        foreach (var name in AiAuditRules.KnownTools.Where(name => !dedicated.Contains(name, StringComparer.Ordinal)))
             check(tools.Find(name) is not null, $"vocabulary: the audit's tool {name} is a tool the registry has");
-        check(AiPermissions.Find("extract_document") is { Permission: AiPermission.Allow } && tools.Find("extract_document") is null,
-            "vocabulary: extract_document is permitted and audited but never offered to a model");
+        foreach (var name in dedicated)
+            check(AiPermissions.Find(name) is { Permission: AiPermission.Allow } && tools.Find(name) is null,
+                $"vocabulary: {name} is permitted and audited but never offered by the general assistant");
 
         // Every agent the audit may record is an agent the registry has, and every agent with a
         // connected executor is one the audit may record — the pair a run needs to be written at all.

@@ -25,6 +25,10 @@ public sealed class AiOptions
     public bool IncidentAgentEnabled { get; set; }
     // Phase 5: the Document & Invoice Agent (the registry's former billing-agent, never connected under that name).
     public bool DocumentAgentEnabled { get; set; }
+    // Phase 10: document extraction/classification and billing explanations.
+    // Both are separately default-off; the global Enabled switch still wins.
+    public bool DocumentAiEnabled { get; set; }
+    public bool BillingAiEnabled { get; set; }
     public bool ComplianceAgentEnabled { get; set; }
     public bool ManagementAgentEnabled { get; set; }
     // Reserved, NOT an authorization to wire writes. Phase B always refuses them.

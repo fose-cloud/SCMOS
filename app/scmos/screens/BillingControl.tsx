@@ -28,6 +28,13 @@ export type BillingValidation = { sequence: number; step: string; code: string; 
   blocking: boolean; message: string; expectedAmount: number | null; actualAmount: number | null;
   currency: string; evidenceType: string; evidenceId: string; evidenceVersion: string;
   ruleSource: string; effectiveDate: string };
+export type BillingAiAnalysis = { id: number; invoiceId: number; billingCaseId: number | null;
+  documentId: number | null; kind: string; status: "SUGGESTED" | "CONFIRMED" | "REJECTED";
+  result: Record<string, string>; summary: string; confidence: number; model: string;
+  evidenceType: string; evidenceReference: string; evidenceVersion: string; requestedBy: string;
+  requestedAt: string; decidedBy: string; decidedAt: string | null; decisionRemark: string };
+export type BillingAiAvailability = { enabled: boolean; documentEnabled: boolean; billingEnabled: boolean;
+  configured: boolean; mock: boolean };
 export type BillingCase = {
   id: number; jobKey: string; jobCode: string; customer: string; category: string;
   supplierId: number; supplier: string; status: string; deliveryCompletedAt: string;
@@ -259,7 +266,7 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
       </div>
       {selected?.invoice && <ReviewDetail key={selected.invoice.id} item={selected} reasonCode={reasonCode} remark={remark}
         acting={acting} canReceiveOriginal={canReceiveOriginal} originalReceiptConfigured={originalReceiptConfigured}
-        onReason={setReasonCode} onRemark={setRemark} onReview={review} onReceiveOriginal={receiveOriginal} />}
+        onToast={onToast} onReason={setReasonCode} onRemark={setRemark} onReview={review} onReceiveOriginal={receiveOriginal} />}
     </div>
   );
 }
@@ -296,9 +303,10 @@ function SlaLabel({ item }: { item: BillingCase }) {
 }
 
 function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, originalReceiptConfigured,
-  onReason, onRemark, onReview, onReceiveOriginal }: {
+  onToast, onReason, onRemark, onReview, onReceiveOriginal }: {
   item: BillingCase; reasonCode: string; remark: string; acting: boolean;
   canReceiveOriginal: boolean; originalReceiptConfigured: boolean;
+  onToast: (message: string) => void;
   onReason: (value: string) => void; onRemark: (value: string) => void;
   onReview: (action: "APPROVE_ONLINE" | "RETURN_TO_CARRIER" | "RAISE_DISPUTE") => void;
   onReceiveOriginal: (receivedAt: string, documentCount: number, packageReference: string, remark: string) => void;
@@ -310,7 +318,56 @@ function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, or
   const [documentCount, setDocumentCount] = useState("1");
   const [receiptReference, setReceiptReference] = useState("");
   const [receiptRemark, setReceiptRemark] = useState("");
+  const [aiItems, setAiItems] = useState<BillingAiAnalysis[]>([]);
+  const [aiAvailability, setAiAvailability] = useState<BillingAiAvailability | null>(null);
+  const [aiKind, setAiKind] = useState("BILLING_RISK");
+  const [aiDocumentId, setAiDocumentId] = useState(item.documents[0]?.id ? String(item.documents[0].id) : "");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiRemark, setAiRemark] = useState("");
   const original = invoice.originalPackage;
+
+  const loadAi = useCallback(async () => {
+    const response = await apiFetch(`/api/carrier-billing/invoices/${invoice.id}/ai`, { headers: { accept: "application/json" } });
+    const body = await response.json().catch(() => ({})) as { availability?: BillingAiAvailability;
+      items?: BillingAiAnalysis[]; error?: string };
+    if (response.ok) { setAiAvailability(body.availability ?? null); setAiItems(body.items ?? []); }
+    else if (response.status !== 403) onToast(body.error ?? `เปิดผล AI ไม่สำเร็จ (${response.status})`);
+  }, [invoice.id, onToast]);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- the state update happens after the API response.
+  useEffect(() => { void loadAi(); }, [loadAi]);
+
+  const documentAi = ["DOCUMENT_CLASSIFICATION", "INVOICE_EXTRACTION", "POD_EXTRACTION"].includes(aiKind);
+  const aiEnabled = documentAi ? aiAvailability?.documentEnabled : aiAvailability?.billingEnabled;
+
+  async function analyzeAi() {
+    if (aiBusy || !aiEnabled || (documentAi && !aiDocumentId)) return;
+    setAiBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/invoices/${invoice.id}/ai/analyze`, {
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ kind: aiKind, documentId: documentAi ? Number(aiDocumentId) : null }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? (response.ok ? "AI วิเคราะห์แล้ว" : `AI วิเคราะห์ไม่สำเร็จ (${response.status})`));
+      if (response.ok) await loadAi();
+    } finally { setAiBusy(false); }
+  }
+
+  async function decideAi(id: number, decision: "CONFIRMED" | "REJECTED") {
+    if (aiBusy) return;
+    setAiBusy(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/invoices/${invoice.id}/ai/${id}/decision`, {
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ decision, remark: aiRemark }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? (response.ok ? "บันทึกผลตรวจแล้ว" : `บันทึกไม่สำเร็จ (${response.status})`));
+      if (response.ok) { setAiRemark(""); await loadAi(); }
+    } finally { setAiBusy(false); }
+  }
+
   return <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:6px;padding:14px;display:grid;gap:12px") }>
     <div style={css("display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap") }>
       <div style={css("margin-right:auto") }><strong style={css("color:#0A2240")}>Review Detail · {item.jobCode || item.jobKey}</strong>
@@ -333,6 +390,55 @@ function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, or
           </span>)}</div>}
       {failures.length > 0 && <div style={css("font-size:10.5px;color:#B42318;margin-top:5px")}>พบ Blocking Validation {failures.length} รายการ</div>}
     </div>
+    {aiAvailability && <div style={css("border-top:1px solid #E7EDF3;padding-top:12px;display:grid;gap:9px") }>
+      <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap") }>
+        <div style={css("font-size:11px;font-weight:700;color:#334155")}>Phase 10 · AI Suggestions</div>
+        <span style={css(`font-size:9.5px;padding:2px 6px;border-radius:3px;color:${aiAvailability.enabled ? "#16794C" : "#64748B"};background:${aiAvailability.enabled ? "#E8F5EE" : "#F1F5F9"}`)}>
+          {aiAvailability.mock ? "MOCK / OFFLINE" : aiAvailability.enabled ? "ENABLED" : "DISABLED"}
+        </span>
+        <span style={muted}>คำแนะนำเท่านั้น · ไม่แก้ยอดเงิน/Rate/Tax/Original/Finance อัตโนมัติ</span>
+      </div>
+      <div style={css("display:grid;grid-template-columns:minmax(210px,280px) minmax(210px,1fr) auto;gap:8px") }>
+        <select aria-label="ประเภท AI analysis" value={aiKind} onChange={(event) => setAiKind(event.target.value)} style={control}>
+          <option value="BILLING_RISK">Billing risk summary</option>
+          <option value="VARIANCE_EXPLANATION">Variance explanation</option>
+          <option value="DOCUMENT_CLASSIFICATION">Document classification</option>
+          <option value="INVOICE_EXTRACTION">Invoice extraction</option>
+          <option value="POD_EXTRACTION">POD extraction</option>
+        </select>
+        {documentAi ? <select aria-label="เอกสารสำหรับ AI" value={aiDocumentId} onChange={(event) => setAiDocumentId(event.target.value)} style={control}>
+          <option value="">เลือกเอกสาร</option>
+          {item.documents.map((document) => <option key={document.id} value={document.id}>{document.fileName}</option>)}
+        </select> : <div style={css("display:flex;align-items:center;color:#7B8CA0;font-size:10.5px")}>ใช้ Invoice + Validation + Charges + รายการเอกสารที่ระบบบันทึกไว้</div>}
+        <Action label={aiBusy ? "กำลังวิเคราะห์…" : "วิเคราะห์ด้วย AI"} tone="#7C3AED"
+          disabled={aiBusy || !aiEnabled || !aiAvailability.configured || (documentAi && !aiDocumentId)} onClick={() => void analyzeAi()} />
+      </div>
+      {!aiEnabled && <div style={muted}>Feature flag สำหรับประเภทนี้ปิดอยู่</div>}
+      {aiEnabled && !aiAvailability.configured && <div style={css("font-size:10.5px;color:#B42318")}>AI provider ยังไม่พร้อมใช้งาน</div>}
+      {aiItems.length > 0 && <input value={aiRemark} onChange={(event) => setAiRemark(event.target.value)}
+        placeholder="หมายเหตุสำหรับการยืนยัน/ปฏิเสธผล AI (ไม่บังคับ)" style={control} />}
+      {aiItems.length === 0 ? <span style={muted}>ยังไม่มีคำแนะนำ AI สำหรับ Invoice นี้</span> : aiItems.map((analysis) =>
+        <div key={analysis.id} style={css("border:1px solid #DDD6FE;background:#FAF8FF;border-radius:5px;padding:9px;display:grid;gap:6px") }>
+          <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap") }>
+            <strong style={css("font-size:10.5px;color:#5B21B6")}>{analysis.kind}</strong>
+            <span style={css("font-size:9.5px;color:#475569")}>confidence {(analysis.confidence * 100).toFixed(0)}%</span>
+            <span style={css("font-size:9.5px;color:#475569")}>model {analysis.model}</span>
+            <span style={css(`font-size:9.5px;font-weight:700;color:${analysis.status === "CONFIRMED" ? "#16794C" : analysis.status === "REJECTED" ? "#B42318" : "#B45309"}`)}>{analysis.status}</span>
+            <span style={css("margin-left:auto;font-size:9.5px;color:#7B8CA0")}>{dateTime(analysis.requestedAt)}</span>
+          </div>
+          <div style={css("font-size:11px;color:#263B50")}>{analysis.summary}</div>
+          <div style={muted}>Evidence: {analysis.evidenceType} · {analysis.evidenceReference || "—"}
+            {analysis.evidenceVersion ? ` · version ${analysis.evidenceVersion.slice(0, 16)}…` : ""}</div>
+          {Object.keys(analysis.result ?? {}).length > 0 && <div style={css("display:flex;gap:5px;flex-wrap:wrap") }>
+            {Object.entries(analysis.result).map(([key, value]) => <span key={key} style={css("font-size:9.5px;padding:2px 5px;background:#fff;border:1px solid #E5E7EB;border-radius:3px")}>{key}: {String(value)}</span>)}
+          </div>}
+          {analysis.status === "SUGGESTED" && <div style={css("display:flex;gap:6px") }>
+            <Action label="ยืนยันคำแนะนำ" tone="#16794C" disabled={aiBusy} onClick={() => void decideAi(analysis.id, "CONFIRMED")} />
+            <Action label="ปฏิเสธคำแนะนำ" tone="#B42318" disabled={aiBusy} onClick={() => void decideAi(analysis.id, "REJECTED")} />
+          </div>}
+          {analysis.decidedAt && <div style={muted}>ตรวจโดย {analysis.decidedBy} · {dateTime(analysis.decidedAt)}{analysis.decisionRemark ? ` · ${analysis.decisionRemark}` : ""}</div>}
+        </div>)}
+    </div>}
     {actionable && <div style={css("border-top:1px solid #E7EDF3;padding-top:12px;display:grid;gap:8px") }>
       <div style={css("display:grid;grid-template-columns:minmax(180px,260px) minmax(240px,1fr);gap:8px") }>
         <select value={reasonCode} onChange={(event) => onReason(event.target.value)} style={control}>

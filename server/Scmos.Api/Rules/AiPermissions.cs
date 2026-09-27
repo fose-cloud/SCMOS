@@ -56,6 +56,9 @@ public static class AiPermissions
         new("query_documents", Document, AiPermission.Allow, "อ่านเอกสารของงานตาม checklist ใบแจ้งหนี้ผู้ขนส่งเทียบกำหนดวางบิล และเอกสารผู้ขนส่ง/คนขับที่ใกล้หมดอายุ (ไม่เปิดไฟล์ ไม่อนุมัติ)"),
         // The Workspace's document reader, under the platform's limiter and audit since Phase 5 — the same call it always was.
         new("extract_document", Document, AiPermission.Allow, "อ่านเอกสารงาน (booking / DO / B/L / รูป) เป็นช่องกรอกของฟอร์มเพิ่มงาน — ผู้ใช้ตรวจก่อนบันทึก"),
+        // Carrier Billing Phase 10: a dedicated reviewed Billing Control endpoint,
+        // not a general chat tool. It explains supplied deterministic facts only.
+        new("analyze_billing", Document, AiPermission.Allow, "อธิบาย Billing risk/variance จากผล Validation ที่ระบบคำนวณแล้ว — เป็นคำแนะนำ ไม่อนุมัติหรือแก้ข้อมูล"),
         new("analyze_excel", Document, AiPermission.Allow, "อ่านและวิเคราะห์ไฟล์ Excel"),
         new("calculate_kpi", Kpi, AiPermission.Allow, "คำนวณ KPI ทั้ง 8 ตัวตามช่วงเวลา"),
         new("analyze_kpi", Kpi, AiPermission.Allow, "วิเคราะห์แนวโน้มและเปรียบเทียบ KPI"),

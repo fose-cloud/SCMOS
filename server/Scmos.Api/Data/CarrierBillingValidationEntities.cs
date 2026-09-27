@@ -121,6 +121,34 @@ public class BillingReviewEvent
     public DateTimeOffset At { get; set; }
 }
 
+/// <summary>
+/// A Phase 10 AI suggestion. It is deliberately separate from the trusted
+/// invoice, rate and workflow rows: confirmation records human review but never
+/// applies fields or advances financial state.
+/// </summary>
+public class BillingAiAnalysis
+{
+    public long Id { get; set; }
+    public long InvoiceId { get; set; }
+    public long? BillingCaseId { get; set; }
+    public long? DocumentId { get; set; }
+    public string Kind { get; set; } = "";
+    public string Status { get; set; } = "SUGGESTED";
+    public string ResultJson { get; set; } = "{}";
+    public string Summary { get; set; } = "";
+    public decimal Confidence { get; set; }
+    public string Model { get; set; } = "";
+    public string EvidenceType { get; set; } = "";
+    public string EvidenceReference { get; set; } = "";
+    public string EvidenceVersion { get; set; } = "";
+    public string RequestedBy { get; set; } = "";
+    public DateTimeOffset RequestedAt { get; set; }
+    public string DecidedBy { get; set; } = "";
+    public DateTimeOffset? DecidedAt { get; set; }
+    public string DecisionRemark { get; set; } = "";
+    public byte[] RowVersion { get; set; } = [];
+}
+
 public static class CarrierBillingValidationModel
 {
     public static void Configure(ModelBuilder model)
@@ -183,6 +211,28 @@ public static class CarrierBillingValidationModel
             Text(e, x => x.ReasonCode, "reason_code", 60); Text(e, x => x.Remark, "remark", 800); Text(e, x => x.ActorId, "actor_id", 160); Text(e, x => x.ActorName, "actor_name", 160);
             e.Property(x => x.At).HasColumnName("at"); e.HasIndex(x => new { x.InvoiceId, x.Id });
             e.HasOne<BillingInvoice>().WithMany().HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+        });
+        model.Entity<BillingAiAnalysis>(e => {
+            e.ToTable("billing_ai_analyses", table => {
+                table.HasCheckConstraint("billing_ai_kind_ck", "[kind] IN ('DOCUMENT_CLASSIFICATION','INVOICE_EXTRACTION','POD_EXTRACTION','BILLING_RISK','VARIANCE_EXPLANATION')");
+                table.HasCheckConstraint("billing_ai_status_ck", "[status] IN ('SUGGESTED','CONFIRMED','REJECTED')");
+                table.HasCheckConstraint("billing_ai_confidence_ck", "[confidence] >= 0 AND [confidence] <= 1");
+            });
+            e.HasKey(x => x.Id); e.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            e.Property(x => x.InvoiceId).HasColumnName("invoice_id"); e.Property(x => x.BillingCaseId).HasColumnName("billing_case_id");
+            e.Property(x => x.DocumentId).HasColumnName("document_id"); Text(e, x => x.Kind, "kind", 40); Text(e, x => x.Status, "status", 20);
+            e.Property(x => x.ResultJson).HasColumnName("result_json").HasColumnType("nvarchar(max)"); Text(e, x => x.Summary, "summary", 1000);
+            e.Property(x => x.Confidence).HasColumnName("confidence").HasPrecision(5, 4); Text(e, x => x.Model, "model", 100);
+            Text(e, x => x.EvidenceType, "evidence_type", 40); Text(e, x => x.EvidenceReference, "evidence_reference", 500);
+            Text(e, x => x.EvidenceVersion, "evidence_version", 120); Text(e, x => x.RequestedBy, "requested_by", 120);
+            e.Property(x => x.RequestedAt).HasColumnName("requested_at"); Text(e, x => x.DecidedBy, "decided_by", 120);
+            e.Property(x => x.DecidedAt).HasColumnName("decided_at"); Text(e, x => x.DecisionRemark, "decision_remark", 500);
+            e.Property(x => x.RowVersion).HasColumnName("row_version").IsRowVersion();
+            e.HasIndex(x => new { x.InvoiceId, x.RequestedAt }).HasDatabaseName("billing_ai_invoice_requested_idx");
+            e.HasIndex(x => new { x.BillingCaseId, x.Status }).HasDatabaseName("billing_ai_case_status_idx");
+            e.HasOne<BillingInvoice>().WithMany().HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<BillingCase>().WithMany().HasForeignKey(x => x.BillingCaseId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<StoredDocument>().WithMany().HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

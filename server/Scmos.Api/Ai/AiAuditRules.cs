@@ -26,7 +26,7 @@ public static class AiAuditRules
     public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent", "management-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "query_repository", "read_source", "query_platform"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "analyze_billing", "query_repository", "read_source", "query_platform"];
 
     /// <summary>The platform tool's views (Phase 7).</summary>
     public static readonly string[] PlatformViews = ["health", "deployments", "errors", "requests"];
@@ -36,7 +36,8 @@ public static class AiAuditRules
 
     /// <summary>The documents tool's views (Phase 5), and the extractor's — a job category, as the Workspace's document reader takes it.</summary>
     public static readonly string[] DocumentViews = ["job", "missing", "invoice", "expiring"];
-    public static readonly string[] ExtractViews = ["import", "export", "delivery"];
+    public static readonly string[] ExtractViews = ["import", "export", "delivery", "classification", "invoice", "pod"];
+    public static readonly string[] BillingAiViews = ["billing_risk", "variance"];
 
     /// <summary>The messages tool's views (Phase 4).</summary>
     public static readonly string[] MessageViews = ["job", "waiting", "unmatched", "today"];
@@ -113,8 +114,11 @@ public static class AiAuditRules
         var documentView = e.View is not null && DocumentViews.Contains(e.View, StringComparer.Ordinal);
         var extract = e.Tool == "extract_document";
         var extractView = e.View is not null && ExtractViews.Contains(e.View, StringComparer.Ordinal);
+        var billingAi = e.Tool == "analyze_billing";
+        var billingAiView = e.View is not null && BillingAiViews.Contains(e.View, StringComparer.Ordinal);
         if (hasTool ? (e.Limit is null or < 1 or > 50
                 || (messages ? !messageView : documents ? !documentView : extract ? !extractView
+                    : billingAi ? !billingAiView
                     : engineering ? !engineeringView || e.Limit > 20
                     : sourceRead ? !sourceView
                     : platform ? !platformView

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Scmos.Api.Ai;
 using Scmos.Api.Auth;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
@@ -18,6 +19,8 @@ public static class CarrierBillingEndpoints
         string? PackageReference, string? Remark);
     public record OriginalReceiptInput(string? ReceivedAt, int DocumentCount,
         string? PackageReference, string? Remark);
+    public record AiAnalyzeInput(string? Kind, long? DocumentId);
+    public record AiDecisionInput(string? Decision, string? Remark);
 
     public static void MapCarrierBilling(this IEndpointRouteBuilder routes)
     {
@@ -137,6 +140,41 @@ public static class CarrierBillingEndpoints
             if (ApiResults.NeedsSecondFactor(users, user, Capability.ReviewBilling) is { } weak) return weak;
             var result = await review.ActAsync(user, invoiceId, body.Action ?? "", body.ReasonCode ?? "", body.Remark ?? "", token);
             return result.Ok ? Results.Json(new { message = result.Message, status = result.Status, events = result.Events })
+                : ApiResults.Error(result.Message, result.Code == "NOT_FOUND" ? 404 : result.Code == "FORBIDDEN" ? 403 : 409);
+        });
+
+        group.MapGet("/invoices/{invoiceId:long}/ai", async (long invoiceId,
+            HttpContext context, IUserAccessor users, BillingAiService service, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            var result = await service.ListAsync(user, invoiceId, token);
+            return result.Ok ? Results.Json(new { availability = service.Availability, items = result.Items })
+                : ApiResults.Error(result.Code == "NOT_FOUND" ? "ไม่พบใบวางบิลนี้" : "บัญชีนี้ไม่มีสิทธิ์ใช้ Billing AI",
+                    result.Code == "NOT_FOUND" ? 404 : 403);
+        });
+
+        group.MapPost("/invoices/{invoiceId:long}/ai/analyze", async (long invoiceId,
+            [FromBody] AiAnalyzeInput body, HttpContext context, IUserAccessor users,
+            BillingAiService service, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            var correlation = AiAuditRules.CorrelationOf(context.Request.Headers["X-Correlation-ID"].FirstOrDefault(), context.TraceIdentifier);
+            var result = await service.AnalyzeAsync(user, invoiceId, body.Kind ?? "", body.DocumentId, correlation, token);
+            return result.Ok ? Results.Json(new { message = result.Message, analysis = result.Analysis })
+                : ApiResults.Error(result.Message, result.Code switch {
+                    "FORBIDDEN" => 403, "NOT_FOUND" or "DOCUMENT_NOT_FOUND" => 404,
+                    "DISABLED" or "NOT_CONFIGURED" or "AUDIT_UNAVAILABLE" => 503,
+                    "BUSY" => 429, "PROVIDER_ERROR" or "DOCUMENT_UNAVAILABLE" => 502, _ => 400 });
+        });
+
+        group.MapPost("/invoices/{invoiceId:long}/ai/{analysisId:long}/decision", async (long invoiceId,
+            long analysisId, [FromBody] AiDecisionInput body, HttpContext context, IUserAccessor users,
+            BillingAiService service, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ReviewBilling) is { } weak) return weak;
+            var result = await service.DecideAsync(user, invoiceId, analysisId, body.Decision ?? "", body.Remark ?? "", token);
+            return result.Ok ? Results.Json(new { message = result.Message, analysis = result.Analysis })
                 : ApiResults.Error(result.Message, result.Code == "NOT_FOUND" ? 404 : result.Code == "FORBIDDEN" ? 403 : 409);
         });
 

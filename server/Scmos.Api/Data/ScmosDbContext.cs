@@ -79,6 +79,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<BillingValidationRun> BillingValidationRuns => Set<BillingValidationRun>();
     public DbSet<BillingValidationResult> BillingValidationResults => Set<BillingValidationResult>();
     public DbSet<BillingReviewEvent> BillingReviewEvents => Set<BillingReviewEvent>();
+    public DbSet<BillingAiAnalysis> BillingAiAnalyses => Set<BillingAiAnalysis>();
     public DbSet<OriginalDocumentPackage> OriginalDocumentPackages => Set<OriginalDocumentPackage>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
