@@ -37,6 +37,9 @@ public sealed class AiAuditLog
     /// <summary>The tool step on a tool event, the steps taken on run_completed (1D); null on run_started and on rows from before.</summary>
     public int? Step { get; set; }
 
+    /// <summary>Which prompt answered — the build's commit (<c>build:…</c>), on run_started only; empty on rows from before the Agent Platform foundation.</summary>
+    public string PromptVersion { get; set; } = "";
+
     public static void Configure(ModelBuilder model)
     {
         model.Entity<AiAuditLog>(entry =>
@@ -70,6 +73,7 @@ public sealed class AiAuditLog
             entry.Property(e => e.Fingerprint).HasColumnName("fingerprint").HasMaxLength(64);
             entry.Property(e => e.CorrelationId).HasColumnName("correlation_id").HasMaxLength(64).HasDefaultValue("");
             entry.Property(e => e.Step).HasColumnName("step");
+            entry.Property(e => e.PromptVersion).HasColumnName("prompt_version").HasMaxLength(60).HasDefaultValue("");
             entry.HasIndex(e => new { e.RunId, e.Sequence }).IsUnique().HasDatabaseName("ai_audit_logs_run_sequence_idx");
             entry.HasIndex(e => new { e.At, e.Id }).HasDatabaseName("ai_audit_logs_at_idx");
         });

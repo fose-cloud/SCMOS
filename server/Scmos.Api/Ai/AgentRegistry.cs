@@ -2,20 +2,27 @@ using Scmos.Api.Rules;
 
 namespace Scmos.Api.Ai;
 
+/// <param name="MaxAutonomy">The most the agent's code can do — a setting never lifts it above this (Agent Platform foundation).</param>
+/// <param name="DefaultAutonomy">Its autonomy while nobody has stored a setting: what it did before settings existed.</param>
+/// <param name="DefaultShadow">Whether it starts in shadow mode — on for an operational agent that is new, off for these.</param>
 public sealed record AgentDefinition(string Id, string Name, string Description, AiRisk Risk,
-    Capability RequiredCapability, IReadOnlyList<string> AllowedTools, IReadOnlyList<string> Pages);
+    Capability RequiredCapability, IReadOnlyList<string> AllowedTools, IReadOnlyList<string> Pages,
+    AiAutonomy MaxAutonomy = AiAutonomy.Recommend, AiAutonomy DefaultAutonomy = AiAutonomy.Recommend, bool DefaultShadow = false);
 
 /// <summary>Deterministic master routing. A page hint never supplies authorization.</summary>
 public sealed class AgentRegistry
 {
     private static AgentDefinition Define(string id, string name, string description, Capability capability,
-        string[] tools, string[] pages) => new(id, name, description, AiRisk.Low, capability,
-            Array.AsReadOnly(tools), Array.AsReadOnly(pages));
+        string[] tools, string[] pages, AiAutonomy most = AiAutonomy.Recommend) => new(id, name, description, AiRisk.Low, capability,
+            Array.AsReadOnly(tools), Array.AsReadOnly(pages), most, most);
 
     public IReadOnlyList<AgentDefinition> All { get; } = Array.AsReadOnly(new[]
     {
+        // L3: besides reading, it drafts the Operations change pilot's proposals, which a supervisor confirms
+        // before anything is written (OperationsChangeService) — execute-with-approval, never on its own.
         Define("operations-agent", "Operations Agent", "Operational shipment evidence and risk", Capability.ViewDashboard,
-            ["query_shipments", "search_shipment", "query_delays", "query_followup"], ["operations", "workspace"]),
+            ["query_shipments", "search_shipment", "query_delays", "query_followup"], ["operations", "workspace"],
+            AiAutonomy.ExecuteWithApproval),
         Define("vendor-agent", "Vendor Agent", "Approved vendor evidence", Capability.ManageSuppliers,
             ["search_supplier", "recommend_supplier"], ["vendors", "suppliers"]),
         Define("rate-agent", "Rate Agent", "Approved rates only; never invent a price", Capability.ViewRates,

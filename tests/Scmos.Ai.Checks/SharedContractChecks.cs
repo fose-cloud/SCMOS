@@ -89,9 +89,10 @@ static class SharedContractChecks
             "1A/1D/2/4/5/6/8: public chat response envelope remains append-only");
         check(Fields(new AiStatus(false, false, false, false, true, false, false, []),
             ["enabled", "chatEnabled", "providerConfigured", "mock", "configurationValid", "liveToolsReady",
-                "writeToolsReady", "agents", "auditReady", "operationsControl"]),
-            "1A: public status envelope unchanged");
+                "writeToolsReady", "agents", "auditReady", "operationsControl", "executionEnabled", "governanceAvailable"]),
+            "1A / Agent Platform foundation: public status envelope is append-only");
         check(Fields(new AiAgentStatus("operations-agent", "Operations", true, true),
-            ["id", "name", "enabled", "connected"]), "1A: agent status remains backward compatible");
+            ["id", "name", "enabled", "connected", "status", "autonomy", "shadow", "code"]),
+            "1A / Agent Platform foundation: agent status is append-only — the first four fields as they were");
     }
 }

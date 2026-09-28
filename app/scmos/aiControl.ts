@@ -488,6 +488,14 @@ const ERRORS: Record<string, string> = {
   invalid_tool: "AI ส่งคำสั่งที่ไม่ผ่านการตรวจสอบ จึงไม่ได้อ่านข้อมูล", source_unavailable: "อ่านข้อมูลงานไม่สำเร็จ",
   clarification_required: "รองรับงานวันนี้ งานเสี่ยง ค้นหางาน และงานล่าช้า กรุณาระบุคำถามให้ตรงกับหัวข้อเหล่านี้",
   cancelled: "ยกเลิกคำขอแล้ว", not_found: "ไม่พบประวัติรอบการทำงานนี้",
+  // Agent Platform foundation — the governance gate's refusals.
+  ai_stopped: "ผู้ดูแลระบบหยุด AI ทั้งระบบไว้ ระบบ SCMOS อื่นใช้งานได้ตามปกติ",
+  agent_paused: "ผู้ดูแลระบบหยุด Agent นี้ไว้ชั่วคราว", agent_maintenance: "Agent นี้ปิดปรับปรุงอยู่",
+  agent_circuit_open: "Agent นี้ผิดพลาดติดกันหลายครั้ง ระบบจึงพักไว้สักครู่ กรุณาลองใหม่ภายหลัง",
+  governance_unavailable: "อ่านการตั้งค่าการกำกับ AI ไม่ได้ ระบบจึงยังไม่ให้ AI ทำงาน",
+  autonomy_insufficient: "ระดับการทำงานของ Agent นี้ไม่พอสำหรับคำขอนี้",
+  execution_disabled: "ปิดการทำงานของ AI อยู่ — อ่านและแนะนำได้อย่างเดียว",
+  shadow_mode: "Agent นี้อยู่ในโหมด Shadow — บันทึกสิ่งที่จะทำ แต่ให้คนเป็นผู้ลงมือ",
 };
 export function errorText(error: unknown) {
   const code = error instanceof ControlError ? error.code : "unavailable";

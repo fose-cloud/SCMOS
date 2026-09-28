@@ -326,6 +326,8 @@ static class OperationsChecks
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddAiFoundation(builder.Configuration);
+        // No database in this host: governance at its defaults, as a deployment with no settings rows is.
+        builder.Services.AddSingleton<IAiGovernance>(new DefaultGovernance());
         builder.Services.AddSingleton<IOperationsControl>(new TestOperationsControl(new(true, true, 0, false)));
         builder.Services.AddSingleton<IOperationsSource>(source);
         builder.Services.AddSingleton<IAiProvider>(provider);

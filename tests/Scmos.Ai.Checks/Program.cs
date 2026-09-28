@@ -176,6 +176,7 @@ builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
 builder.Logging.ClearProviders();
 builder.WebHost.UseUrls("http://127.0.0.1:0");
 builder.Services.AddAiFoundation(builder.Configuration);
+builder.Services.AddSingleton<IAiGovernance>(new DefaultGovernance());
 builder.Services.AddSingleton<IOperationsControl>(new TestOperationsControl(new(true, true, 0, false)));
 builder.Services.Configure<OpenAiOptions>(_ => { });
 builder.Services.AddDbContext<ScmosDbContext>();
@@ -256,9 +257,17 @@ PlatformVocabularyCheck.Run(Check);
 await AccessMatrixCheck.RunAsync(Check);
 await OperationsChecks.RunAsync(Check);
 await OperationsControlChecks.RunAsync(Check);
+await GovernanceChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));
 Console.WriteLine($"All {count} AI foundation/Operations/audit checks passed. No production data or live OpenAI calls.");
 
+/// <summary>Governance with no settings rows and no history — every agent as it was before governance existed.</summary>
+sealed class DefaultGovernance(GovernanceSnapshot? snapshot = null) : IAiGovernance
+{
+    public int Reads { get; private set; }
+    public GovernanceSnapshot Snapshot { get; set; } = snapshot ?? GovernanceSnapshot.Defaults(new AgentRegistry());
+    public Task<GovernanceSnapshot> SnapshotAsync(CancellationToken token) { Reads++; return Task.FromResult(Snapshot); }
+}
 sealed class TestEnvironment : IHostEnvironment
 {
     public string EnvironmentName { get; set; } = Environments.Development;

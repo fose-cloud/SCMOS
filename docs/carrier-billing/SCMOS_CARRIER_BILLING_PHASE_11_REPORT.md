@@ -90,7 +90,7 @@ only when the server reports that the signed-in account may release.
 
 ## Database and migration
 
-EF migration `20260928015421_CarrierBillingPhase11Finance` adds:
+EF migration `20260928022651_CarrierBillingPhase11Finance` adds:
 
 - `billing_finance_records` with one record per invoice, unique idempotency key,
   canonical snapshot/hash, response/payment references and row version;

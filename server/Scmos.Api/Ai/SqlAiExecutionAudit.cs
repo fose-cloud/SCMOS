@@ -54,6 +54,8 @@ public sealed class SqlAiExecutionAudit(DbContextOptions<ScmosDbContext> options
 
     public async Task RecordAsync(AiExecutionEvent entry, CancellationToken token)
     {
+        // Every run's start names the prompt that answered it — the build's commit — without any agent having to.
+        if (entry.Event == "run_started" && entry.PromptVersion is null) entry = entry with { PromptVersion = AiBuild.PromptVersion };
         var row = AiAuditRules.From(entry);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(Budget));

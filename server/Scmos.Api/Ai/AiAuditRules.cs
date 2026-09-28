@@ -57,6 +57,10 @@ public static class AiAuditRules
         value is not null && value.Length <= 64
         && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_' or ':');
 
+    /// <summary>A prompt version as the audit keeps one: 1–60 ASCII letters, digits, ':', '@', '.', '-' or '_' (e.g. <c>build:65fd552a1b2c</c>).</summary>
+    public static bool IsPromptVersion(string? value) =>
+        value is { Length: > 0 and <= 60 } && value.All(c => char.IsAsciiLetterOrDigit(c) || c is ':' or '@' or '.' or '-' or '_');
+
     /// <summary>The correlation id for a request: the header when it is well-formed, otherwise the server's own trace identifier (trimmed to shape), otherwise a fresh id.</summary>
     public static string CorrelationOf(string? header, string? traceIdentifier)
     {
@@ -89,7 +93,9 @@ public static class AiAuditRules
             || (e.Scope.OperatorId is not null && !Text(e.Scope.OperatorId, 20))
             || !Text(e.Model, 100) || e.Model!.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_' and not '.' and not '/')
             || e.At == default || e.Usage is { InputTokens: < 0 } or { OutputTokens: < 0 }
-            || !IsCorrelation(e.CorrelationId))
+            || !IsCorrelation(e.CorrelationId)
+            // The prompt version is named once, on the run's start, as a short identifier — never prompt text.
+            || (e.PromptVersion is not null && (e.Event != "run_started" || !IsPromptVersion(e.PromptVersion))))
             throw new ArgumentException("Invalid audit metadata.");
         if (start ? e.Status != "running" : e.Status is not ("succeeded" or "failed" or "cancelled" or "timeout"
             or "provider_unavailable" or "provider_busy" or "source_unavailable" or "clarification_required"
@@ -169,6 +175,7 @@ public static class AiAuditRules
                 _ => "operation_jobs",
             },
             CorrelationId = e.CorrelationId, Step = toolEvent ? e.Step ?? 1 : e.Event == "run_completed" ? e.Step : null,
+            PromptVersion = e.PromptVersion ?? "",
         };
         row.Fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(row)));
         return row;

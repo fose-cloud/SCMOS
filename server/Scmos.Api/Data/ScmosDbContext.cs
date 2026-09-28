@@ -62,6 +62,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<AiAuditLog> AiAuditLogs => Set<AiAuditLog>();
     public DbSet<AiOperationsControl> AiOperationsControls => Set<AiOperationsControl>();
+    public DbSet<AiAgentConfig> AiAgentConfigs => Set<AiAgentConfig>();
+    public DbSet<AiDecision> AiDecisions => Set<AiDecision>();
     /// <summary>A carrier's machine credentials for the Carrier TMS API — see CarrierApiEntities.cs.</summary>
     public DbSet<CarrierApiClient> CarrierApiClients => Set<CarrierApiClient>();
     public DbSet<CarrierApiRequest> CarrierApiRequests => Set<CarrierApiRequest>();
@@ -128,6 +130,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     {
         AiAuditLog.Configure(model);
         AiOperationsControl.Configure(model);
+        AiAgentConfig.Configure(model);
+        AiDecision.Configure(model);
         CarrierApiClient.Configure(model);
         CarrierApiRequest.Configure(model);
         CarrierWebhook.Configure(model);

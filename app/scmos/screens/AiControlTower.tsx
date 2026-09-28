@@ -13,6 +13,7 @@ import s from "./AiControlTower.module.css";
 import { OperationsChanges } from "./OperationsChanges";
 import { agentReadiness } from "../agentReadiness";
 import { Assistant } from "./Assistant";
+import { AiGovernancePanel } from "./AiGovernancePanel";
 import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, parseChangeClarification, type ChangeDraft } from "../operationsChangeCommand";
 
 /** Private, short-lived state only: no prompt/evidence in localStorage or shared page caches. */
@@ -656,6 +657,10 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
         <p>สิ่งที่ผู้ช่วยทำได้เลย สิ่งที่ต้องให้คนอนุมัติ และสิ่งที่ห้ามเด็ดขาด · อ่านจาก API ที่บังคับใช้จริง</p></div></div>
       <Assistant canApprove={canApprove} onToast={onToast} onOpenJob={onOpenJob} />
     </section>
+
+    {/* Autonomy, shadow mode, status, health and cost per agent, and the execution switch
+        (Agent Platform foundation, 27 Sep 2026) — for whoever may read the AI audit; changed only by an Administrator. */}
+    {canViewAudit && <AiGovernancePanel />}
 
     <section ref={activityPanel} className={s.panel} aria-labelledby="ai-activity">
       <div className={s.sectionTitle}><div><h2 id="ai-activity">AI Activity</h2>

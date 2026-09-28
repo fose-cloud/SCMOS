@@ -68,6 +68,10 @@ public static class AiServiceRegistration
         services.AddSingleton<MockAiProvider>();
         services.AddSingleton<IAiProvider>(sp => sp.GetRequiredService<IOptions<AiOptions>>().Value.MockMode
             ? sp.GetRequiredService<MockAiProvider>() : sp.GetRequiredService<OpenAiProvider>());
+        // Agent Platform foundation: settings, breaker and decision log beside the flags, never instead of them.
+        services.AddScoped<AiGovernanceService>();
+        services.AddScoped<IAiGovernance>(sp => sp.GetRequiredService<AiGovernanceService>());
+        services.AddScoped<AiDecisionLog>();
         services.AddScoped<AgentOrchestrator>();
         services.AddScoped<OperationsControlService>();
         services.AddHttpContextAccessor();

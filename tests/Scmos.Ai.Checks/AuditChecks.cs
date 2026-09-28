@@ -207,6 +207,16 @@ static class AuditChecks
                     && steps.DownOperations.All(op => op is DropColumnOperation), "1D: the audit migration only adds two columns");
                 foreach (var command in setup.GetService<IMigrationsSqlGenerator>().Generate(steps.UpOperations, setup.Model))
                     await setup.Database.ExecuteSqlRawAsync(command.CommandText);
+                // The Agent Platform foundation adds one column to the audit (prompt_version, defaulted) beside its
+                // own two tables; only the audit's column is applied here, and its rollback erases nothing.
+                var governance = new AiAgentGovernance { ActiveProvider = "Microsoft.EntityFrameworkCore.SqlServer" };
+                var auditColumns = governance.UpOperations.OfType<AddColumnOperation>().Where(op => op.Table == "ai_audit_logs").ToList();
+                check(auditColumns.Count == 1 && auditColumns[0].Name == "prompt_version" && !auditColumns[0].IsNullable
+                    && governance.UpOperations.All(op => op is AddColumnOperation or CreateTableOperation or CreateIndexOperation)
+                    && governance.DownOperations.Count == 1 && governance.DownOperations[0] is SqlOperation forwardOnly && forwardOnly.Sql.Contains("THROW"),
+                    "foundation: the governance migration only adds (one defaulted audit column, two tables) and cannot be rolled back over evidence");
+                foreach (var command in setup.GetService<IMigrationsSqlGenerator>().Generate(auditColumns.Cast<MigrationOperation>().ToList(), setup.Model))
+                    await setup.Database.ExecuteSqlRawAsync(command.CommandText);
                 await setup.Database.ExecuteSqlRawAsync("CREATE TABLE phase_d_sentinel (id int NOT NULL PRIMARY KEY); INSERT INTO phase_d_sentinel VALUES (42);");
             }
             check(await Sink().CheckReadyAsync(default), "D SQL: installed mapped audit shape is ready");
@@ -302,6 +312,8 @@ static class AuditChecks
         builder.Services.AddAiFoundation(builder.Configuration);
         // This host tests execution audit; switch persistence has its own real SQL checks above.
         builder.Services.AddSingleton<IOperationsControl>(new TestOperationsControl(new(true, true, 0, false)));
+        // Likewise governance: its tables are not in this audit-only scratch schema; GovernanceChecks has its SQL.
+        builder.Services.AddSingleton<IAiGovernance>(new DefaultGovernance());
         builder.Services.AddSingleton(options);
         builder.Services.AddScoped(_ => new ScmosDbContext(options));
         builder.Services.AddSingleton<IUserAccessor>(users);

@@ -41,7 +41,17 @@ public sealed class AiOptions
     // few minutes so a follow-up reads against it. Off by default; no table.
     public bool ContextEnabled { get; set; }
     public int ContextMinutes { get; set; } = 10;
+    // Agent Platform foundation (27 Sep 2026): the circuit breaker, read from the audit's recent runs —
+    // this many platform failures in a row show DEGRADED, this many rest the agent for the cool-down.
+    public int BreakerDegradedAfter { get; set; } = 3;
+    public int BreakerPauseAfter { get; set; } = 5;
+    public int BreakerCoolDownMinutes { get; set; } = 10;
+    // Prices per million tokens, "model=input/output; …" — empty means no cost is shown (configuration required).
+    public string PriceList { get; set; } = "";
+    public string PriceCurrency { get; set; } = "USD";
 
     public bool Valid => TimeoutSeconds is >= 1 and <= 60 && MaxOutputTokens is >= 64 and <= 2000
-        && ContextMinutes is >= 1 and <= 60;
+        && ContextMinutes is >= 1 and <= 60
+        && BreakerDegradedAfter is >= 1 and <= 20 && BreakerPauseAfter >= BreakerDegradedAfter && BreakerPauseAfter <= 50
+        && BreakerCoolDownMinutes is >= 1 and <= 240 && PriceCurrency.Length is >= 1 and <= 8;
 }
