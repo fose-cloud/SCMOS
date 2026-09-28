@@ -58,7 +58,9 @@ public sealed class AgentRegistry
         // The specification's Communication Agent (Phase 4): what the carriers
         // said, as the LINE parser and the mail links already read it. Reading
         // the Communication Center is what it needs — never a carrier's account.
-        Define("communication-agent", "Communication Agent", "What carriers said in LINE, from their TMS and in linked mail — read, never sent", Capability.ViewMailbox,
+        // Since 28 Sep 2026 also the Agent Platform's drafts (Communication.CommunicationDrafts): a reminder to a carrier
+        // from a fixed template, for the job's owner to send — still nothing sent by SCMOS.
+        Define("communication-agent", "Communication Agent", "What carriers said in LINE, from their TMS and in linked mail, and template reminders to them for a person to send — read and drafted, never sent", Capability.ViewMailbox,
             ["query_messages"], ["line", "mail", "communications"]),
         Define("engineering-agent", "Engineering Agent", "Read-only SCMOS GitHub issue, PR and commit metadata, and a bounded read of the repository's own source", Capability.AdministerData,
             ["query_repository", "read_source"], ["engineering"]),

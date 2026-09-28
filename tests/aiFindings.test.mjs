@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { AGENT_LABEL, answerBody, answerError, inReadingOrder, parseDecisions, RISK_LABEL, RISK_ORDER } from "../app/scmos/aiFindings.ts";
+import { AGENT_LABEL, answerBody, answerError, draftText, SENT_CHANNELS, inReadingOrder, parseDecisions, RISK_LABEL, RISK_ORDER } from "../app/scmos/aiFindings.ts";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -52,7 +52,7 @@ test("the most serious come first, then the newest", () => {
 
 test("the Carrier Agent's recommendations are a filter of their own, named for what they are about", () => {
   assert.equal(AGENT_LABEL["vendor-agent"], "ผู้ขนส่ง");
-  assert.match(read("app/scmos/screens/AiFindingsPanel.tsx"), /\["all", "otd-agent", "validation-agent", "vendor-agent"\] as const/);
+  assert.match(read("app/scmos/screens/AiFindingsPanel.tsx"), /\["all", "otd-agent", "validation-agent", "vendor-agent", /);
 });
 
 test("an answer is sent trimmed; an override carries what was done and why", () => {
@@ -70,4 +70,29 @@ test("the panel shows the four kinds apart, answers through the control header, 
   assert.match(panel, /\/api\/ai\/decisions\?status=OPEN/);
   assert.match(panel, /disabled=\{busy !== null \|\| !choice\.trim\(\) \|\| !reason\.trim\(\)\}/);
   assert.match(tower, /\{canViewDashboard && <AiFindingsPanel onOpenJob=\{onOpenJob\} \/>\}/);
+});
+
+test("a Communication draft is its template's message; any other decision has none", () => {
+  const message = "เรียน ACN รบกวนยืนยันรับงาน J-1 ลูกค้า BASF วันที่ 29/09/2026 เวลา 09:00 (ขอรถเมื่อ 28/09 08:45) ขอบคุณ";
+  const draft = decision({
+    agentId: "communication-agent", decisionType: "communication_draft", riskLevel: "",
+    findings: { ...decision().findings, recommendations: [{ text: message, source: "template:CARRIER_CONFIRMATION_REMINDER" }] },
+  });
+  assert.equal(parseDecisions(page([draft])).items.length, 1);
+  assert.equal(draftText(draft), message);
+  assert.equal(draftText(decision()), null);                                         // an OTD finding is not a message
+  assert.equal(draftText({ ...draft, findings: { ...draft.findings, recommendations: [{ text: message, source: null }] } }), null);
+  assert.equal(AGENT_LABEL["communication-agent"], "ข้อความ");
+  assert.deepEqual([...SENT_CHANNELS], ["LINE", "โทรศัพท์", "อีเมล"]);
+  assert.deepEqual(answerBody("ACCEPTED", "LINE"), { outcome: "ACCEPTED", choice: "LINE", reason: "" });
+});
+
+test("the panel shows a draft to copy and asks whether it was sent — SCMOS sends nothing", () => {
+  const panel = read("app/scmos/screens/AiFindingsPanel.tsx");
+  for (const label of ["ร่างข้อความ", "คัดลอกข้อความ", "ส่งแล้ว", "ส่งข้อความอื่น", "ไม่ส่ง"]) assert.ok(panel.includes(`>${label}<`), label);
+  assert.match(panel, /navigator\.clipboard\.writeText/);
+  assert.match(panel, /answer\(item\.id, "ACCEPTED", channel\)/);
+  assert.match(panel, /\["all", "otd-agent", "validation-agent", "vendor-agent", "communication-agent"\] as const/);
+  assert.match(panel, /\{item\.riskLevel && <span/);                                // no empty risk badge on a draft
+  assert.doesNotMatch(panel, /\/api\/line|push|sendMessage/i);                       // nothing here sends
 });

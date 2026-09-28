@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Ai;
 using Scmos.Api.Ai.Carrier;
+using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Otd;
 using Scmos.Api.Ai.Validation;
 using Scmos.Api.Auth;
@@ -176,8 +177,8 @@ static class AgentScanChecks
 
             var first = await Pass();
             var rows = await Decisions();
-            check(first.Where(one => one.AgentId != CarrierAgent.Id).All(one => one.Code == "ok")
-                && first.Single(one => one.AgentId == CarrierAgent.Id).Code == "agent_disabled"
+            check(first.Where(one => one.AgentId is not CarrierAgent.Id and not CommunicationAgent.Id).All(one => one.Code == "ok")
+                && first.Where(one => one.AgentId is CarrierAgent.Id or CommunicationAgent.Id).All(one => one.Code == "agent_disabled")
                 && first.Single(one => one.AgentId == OtdAgent.Id).Created == 2
                 && first.Single(one => one.AgentId == ValidationAgent.Id).Created == 1 && rows.Count == 3,
                 "scan SQL: the first pass records the late job and the truckless one (OTD) and the unreadable weight (Validation)");
@@ -323,6 +324,60 @@ static class AgentScanChecks
                     && validation is { Compared30d: 0, Matched30d: 0 },
                     "scan SQL: the governance report counts the comparison — 1 of 2 matched; a dismissal compares nothing");
             }
+
+            /* ---------------- the Communication Agent's drafts ---------------- */
+            var chatOnly = await Pass(new AiOptions { Enabled = true, CommunicationAgentEnabled = true });
+            check(chatOnly.Single(one => one.AgentId == CommunicationAgent.Id).Code == "agent_disabled"
+                && !(await Decisions()).Any(one => one.AgentId == CommunicationAgent.Id),
+                "scan SQL: the Communication Agent's chat flag alone does not start its drafts — they have their own switch");
+            var commOn = new AiOptions { Enabled = true, CommunicationAgentEnabled = true, CommunicationDraftsEnabled = true };
+            await using (var db = new ScmosDbContext(options))
+            {
+                db.OperationJobs.AddRange(
+                    Stored(Job("S-POD", ("status", "COMPLETED"), ("date", "27/09/2026"), ("arrDate", "27/09/2026"), ("arrTime", "10:00"))),
+                    Stored(Job("S-POD-HELD", ("status", "COMPLETED"), ("date", "27/09/2026"), ("arrDate", "27/09/2026"), ("arrTime", "10:00"))),
+                    Stored(Job("S-WROTE", ("date", "29/09/2026"), ("licence", ""), ("driver", ""))));
+                db.Documents.Add(new StoredDocument { JobKey = "S-POD-HELD", Folder = "POD", FileName = "pod.pdf", ObjectKey = "test/S-POD-HELD/POD/pod.pdf", UploadedBy = "test", UploadedAt = clock.GetUtcNow() });
+                db.LineEvents.Add(new LineEvent { WebhookEventId = "scan-test-wrote", JobKey = "S-WROTE", ProcessingStatus = LineProcessing.NeedReview, ReceivedAt = clock.GetUtcNow() });
+                await db.SaveChangesAsync();
+            }
+            clock.Advance(TimeSpan.FromMinutes(90));
+            var drafted = await Pass(commOn);
+            var drafts = (await Decisions()).Where(one => one.AgentId == CommunicationAgent.Id).OrderBy(one => one.EntityId).ToList();
+            string TemplateOf(AiDecision row) => CommunicationDrafts.TemplateOf(JsonSerializer.Deserialize<string[]>(row.RuleReferences)!) ?? "";
+            check(drafted.Single(one => one.AgentId == CommunicationAgent.Id) is { Code: "ok", Created: 3 }
+                && drafts.Select(one => one.EntityId).SequenceEqual(["S-FINE", "S-OPEN", "S-POD"])
+                && TemplateOf(drafts[0]) == CommunicationTemplates.TruckDetailReminder
+                && TemplateOf(drafts[1]) == CommunicationTemplates.ConfirmationReminder && AiDecisionLog.View(drafts[1]).Findings.Recommendations.Single().Text.StartsWith("เรียน NEWCO รบกวนยืนยันรับงาน", StringComparison.Ordinal)
+                && TemplateOf(drafts[2]) == CommunicationTemplates.PodReminder
+                && drafts.All(one => one is { Status: AiDecisionLog.Open, DecisionType: CommunicationDrafts.DecisionType, OwnerId: "OP-S1", RunId: "" }),
+                "scan SQL: three drafts — the truck for today's job, NEWCO's unanswered request, yesterday's POD; not the job with a POD on file, not the one whose carrier already wrote");
+
+            await using (var db = new ScmosDbContext(options))
+            {
+                var log = new AiDecisionLog(db, agents, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance), clock);
+                var owner = new AppUser("scan-op", "op@test.invalid", "Operator", Roles.Operation, "OP-S1", "test", true);
+                check(await log.AnswerAsync(drafts[1].Id, owner, "ACCEPTED", "LINE", "", default) == "ok",
+                    "scan SQL: the owner sends the reminder on LINE and says so");
+            }
+            clock.Advance(TimeSpan.FromMinutes(15));
+            var afterSent = await Pass(commOn);
+            var sent = (await Decisions()).Single(one => one.Id == drafts[1].Id);
+            check(sent is { Status: AiDecisionLog.Accepted, HumanChoice: "LINE", HumanMatches: true, DecidedBy: "op@test.invalid" }
+                && afterSent.Single(one => one.AgentId == CommunicationAgent.Id).Created == 0
+                && (await Decisions()).Count(one => one.AgentId == CommunicationAgent.Id && one.EntityId == "S-OPEN") == 1,
+                "scan SQL: sent is recorded — who, on which channel — and the same reminder is not drafted again");
+
+            await using (var db = new ScmosDbContext(options))
+            {
+                db.Documents.Add(new StoredDocument { JobKey = "S-POD", Folder = "POD", FileName = "pod.pdf", ObjectKey = "test/S-POD/POD/pod.pdf", UploadedBy = "test", UploadedAt = clock.GetUtcNow() });
+                await db.SaveChangesAsync();
+            }
+            clock.Advance(TimeSpan.FromMinutes(15));
+            var podIn = await Pass(commOn);
+            check(podIn.Single(one => one.AgentId == CommunicationAgent.Id).Resolved == 1
+                && (await Decisions()).Single(one => one.Id == drafts[2].Id).Status == AiDecisionLog.Resolved,
+                "scan SQL: the POD arrives — the draft that asked for it is resolved, never sent");
         }
         finally
         {

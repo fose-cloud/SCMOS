@@ -31,6 +31,9 @@ Use the existing .NET configuration providers; Azure environment names use doubl
 | `AI:RateAgentEnabled` | `AI__RateAgentEnabled` | false |
 | `AI:DataAgentEnabled` | `AI__DataAgentEnabled` | false — the Data Agent (Phase 2; was `KpiAgentEnabled`, never set) |
 | `AI:CommunicationAgentEnabled` | `AI__CommunicationAgentEnabled` | false — the Communication Agent (Phase 4): reads the LINE and mail ledgers, sends nothing |
+| `AI:CommunicationDraftsEnabled` | `AI__CommunicationDraftsEnabled` | false — its template reminders to carriers (28 Sep 2026), drafted for a person to send; SCMOS sends nothing |
+| `AI:CarrierReminderMinutes` | `AI__CarrierReminderMinutes` | 60 — how long a carrier request waits before a reminder is drafted (5–1440) |
+| `AI:PodReminderDays` | `AI__PodReminderDays` | 14 — how far back a finished job is still asked for its POD (1–60) |
 | `AI:EngineeringAgentEnabled` | `AI__EngineeringAgentEnabled` | false — Phase 6 first read: fixed public GitHub metadata, Administrator only, no writes |
 | `AI:EngineeringSourceEnabled` | `AI__EngineeringSourceEnabled` | false — Phase 6 second increment: the repository's own source, read-only and bounded (four reads a question, app/API/tests/docs only, secrets masked), the model's analysis labelled as its own; no run, edit or deploy exists to be offered |
 | `AI:SreAgentEnabled` | `AI__SreAgentEnabled` | false — the SRE Agent (Phase 7): the platform's own health (process, database answer time, register cache, configuration, workers' last signs of life), GitHub workflow runs, failure counts by kind, the last hour's requests and the API's own exceptions as the process remembers them (route patterns and exception types only); safe identifiers only; nothing restarted, rolled back or changed |

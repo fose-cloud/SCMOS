@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Ai.Carrier;
+using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Otd;
 using Scmos.Api.Ai.Validation;
 using Scmos.Api.Data;
@@ -41,7 +42,14 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
     AiDecisionLog decisions, SupplierService suppliers, IOptions<AiOptions> options, TimeProvider clock, ILogger<AgentScanner> log)
 {
     /// <summary>The rule-first agents this pass runs, in order.</summary>
-    public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id];
+    public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id, CommunicationAgent.Id];
+
+    /// <summary>
+    /// Whether configuration lets the agent's pass run. The Communication Agent's flag already runs its
+    /// chat read in production, so its drafts need their own switch as well.
+    /// </summary>
+    public static bool Switched(AgentDefinition agent, AiOptions ai) => ai.Enabled && AgentRegistry.Enabled(agent, ai)
+        && (agent.Id != CommunicationAgent.Id || ai.CommunicationDraftsEnabled);
 
     public async Task<IReadOnlyList<ScanSummary>> ScanAsync(CancellationToken token, string? only = null)
     {
@@ -53,7 +61,7 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
         foreach (var id in Agents.Where(id => only is null || id == only))
         {
             var agent = agents.Find(id)!;
-            var gate = snapshot.Gate(agent, ai.Enabled && AgentRegistry.Enabled(agent, ai), AgentNeed.Recommend);
+            var gate = snapshot.Gate(agent, Switched(agent, ai), AgentNeed.Recommend);
             if (!gate.Allowed) { summaries.Add(new(id, gate.Code, 0, 0, 0, 0, 0, 0, 0)); continue; }
             // A background pass can wait for the register; it never takes the stale-while-revalidate
             // answer a person's screen does, so it judges "now" against the register as it is.
@@ -76,6 +84,9 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
             case CarrierAgent.Id:
                 var context = await CarrierContextAsync(jobs, now, token);
                 return row => CarrierAgent.Assess(row, now, context);
+            case CommunicationAgent.Id:
+                var communication = await CommunicationContextAsync(jobs, now, token);
+                return row => CommunicationDrafts.Assess(row, now, communication);
             default: return _ => null;
         }
     }
@@ -121,6 +132,35 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
             return resolved[name] = id is { } found && byId.TryGetValue(found, out var summary) ? summary : null;
         }
         return new CarrierContext(priority, attempts, Supplier);
+    }
+
+    /// <summary>
+    /// The waiting requests, the POD files and the carriers' messages still waiting for a person —
+    /// for the jobs the drafts could be about, read the way the bell reads them.
+    /// </summary>
+    private async Task<CommunicationContext> CommunicationContextAsync(JobRegisterSnapshot jobs, DateTimeOffset now, CancellationToken token)
+    {
+        var ai = options.Value;
+        var today = DateOnly.FromDateTime(now.ToOffset(Formats.Zone).DateTime);
+        var pending = new Dictionary<string, PendingRequest>(StringComparer.Ordinal);
+        foreach (var one in await db.SupplierRequests.AsNoTracking().Where(one => one.Outcome == CarrierAssignment.Pending)
+                     .Select(one => new { one.Id, one.JobKey, one.Carrier, one.RequestedAt }).ToListAsync(token))
+            pending[one.JobKey] = new PendingRequest(one.Id, one.Carrier, one.RequestedAt);
+
+        // Only the finished jobs inside the POD window can be drafted for, so only theirs are looked up.
+        var done = jobs.Rows.Where(row => row.Key.Length > 0 && row.Record is { } job && JobRules.IsDone(job.Status)
+                && Ai.Documents.DocumentsReadService.DoneOn(WorkspaceTabs.JobView.From(row.Raw)).Day is { } day
+                && day < today && day >= today.AddDays(-ai.PodReminderDays))
+            .Select(row => row.Key).ToList();
+        var withPod = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var chunk in done.Chunk(500))
+            withPod.UnionWith(await db.Documents.AsNoTracking().Where(file => file.Folder == "POD" && chunk.Contains(file.JobKey))
+                .Select(file => file.JobKey).Distinct().ToListAsync(token));
+
+        var wrote = (await db.LineEvents.AsNoTracking()
+            .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "")
+            .Select(one => one.JobKey).Distinct().ToListAsync(token)).ToHashSet(StringComparer.Ordinal);
+        return new CommunicationContext(pending, withPod, wrote, ai.CarrierReminderMinutes, ai.PodReminderDays);
     }
 
     private async Task<ScanSummary> PassAsync(AgentDefinition agent, JobRegisterSnapshot jobs, DateTimeOffset now,

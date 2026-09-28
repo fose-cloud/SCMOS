@@ -17,7 +17,19 @@ export type Decision = {
 };
 export type DecisionPage = { items: Decision[]; total: number };
 
-export const AGENT_LABEL: Record<string, string> = { "otd-agent": "OTD", "validation-agent": "ตรวจข้อมูล", "vendor-agent": "ผู้ขนส่ง" };
+export const AGENT_LABEL: Record<string, string> = {
+  "otd-agent": "OTD", "validation-agent": "ตรวจข้อมูล", "vendor-agent": "ผู้ขนส่ง", "communication-agent": "ข้อความ",
+};
+
+/** The Communication Agent's drafts: a message for a person to send, answered as sent, sent otherwise, or not sent. */
+export const DRAFT_TYPE = "communication_draft";
+export const SENT_CHANNELS = ["LINE", "โทรศัพท์", "อีเมล"] as const;
+
+/** The message a draft carries — the recommendation written from a template — or null for any other decision. */
+export function draftText(decision: Pick<Decision, "decisionType" | "findings">): string | null {
+  if (decision.decisionType !== DRAFT_TYPE) return null;
+  return decision.findings.recommendations.find(one => one.source?.startsWith("template:"))?.text ?? null;
+}
 
 /** Most serious first; the OTD words and the validation words share one order. */
 export const RISK_ORDER = ["CRITICAL", "HIGH", "WATCH", "MEDIUM", "LOW", "NORMAL", ""] as const;

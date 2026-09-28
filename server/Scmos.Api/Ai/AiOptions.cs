@@ -51,6 +51,13 @@ public sealed class AiOptions
     // The OTD Agent's near-plan windows: not yet running this close to plan is WATCH; no truck this close is HIGH.
     public int OtdWatchMinutes { get; set; } = 120;
     public int OtdHighMinutes { get; set; } = 60;
+    // The Communication Agent's drafts to carriers (28 Sep 2026): its own switch, because the agent's
+    // flag already runs its chat read in production. Drafts only — nothing is sent. A request waits
+    // CarrierReminderMinutes before a reminder is drafted (the confirmation SLA is not yet set by the
+    // department); a finished job is asked for its POD for PodReminderDays.
+    public bool CommunicationDraftsEnabled { get; set; }
+    public int CarrierReminderMinutes { get; set; } = 60;
+    public int PodReminderDays { get; set; } = 14;
     public int BreakerDegradedAfter { get; set; } = 3;
     public int BreakerPauseAfter { get; set; } = 5;
     public int BreakerCoolDownMinutes { get; set; } = 10;
@@ -62,5 +69,6 @@ public sealed class AiOptions
         && ContextMinutes is >= 1 and <= 60
         && BreakerDegradedAfter is >= 1 and <= 20 && BreakerPauseAfter >= BreakerDegradedAfter && BreakerPauseAfter <= 50
         && BreakerCoolDownMinutes is >= 1 and <= 240 && PriceCurrency.Length is >= 1 and <= 8
-        && AgentScanMinutes is >= 0 and <= 1440 && OtdHighMinutes is >= 1 and <= 720 && OtdWatchMinutes >= OtdHighMinutes && OtdWatchMinutes <= 1440;
+        && AgentScanMinutes is >= 0 and <= 1440 && OtdHighMinutes is >= 1 and <= 720 && OtdWatchMinutes >= OtdHighMinutes && OtdWatchMinutes <= 1440
+        && CarrierReminderMinutes is >= 5 and <= 1440 && PodReminderDays is >= 1 and <= 60;
 }
