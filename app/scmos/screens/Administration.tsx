@@ -20,13 +20,15 @@ import { CarrierBillingFoundation } from "./CarrierBillingFoundation";
  */
 
 type Role = { name: string; scopeEn: string; scopeTh: string; grants: string[] };
+type CarrierOption = { id: number; code: string; name: string; status: string };
 type Person = {
   id: string; email: string; name: string; account: string; role: string;
+  supplierId: number | null; supplierName: string;
   active: boolean; note: string; jobs: number; can: string[];
   updatedBy: string; updatedAt: string;
 };
 type Directory = {
-  people: Person[]; roles: Role[]; canManage: boolean; you: string;
+  people: Person[]; roles: Role[]; carriers: CarrierOption[]; canManage: boolean; you: string;
   /** Whether this API can create a sign-in, not only a register row. */
   signIn?: { ready: boolean; why: string };
 };
@@ -94,7 +96,8 @@ export function Administration({ jobs, me, onToast }: {
   const [dir, setDir] = useRemembered<Directory>("administration");
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ email: "", name: "", role: "Operation User", note: "", signIn: "invite" });
+  const [form, setForm] = useState({ email: "", name: "", role: "Operation User",
+    supplierId: "", note: "", signIn: "invite" });
   /**
    * The temporary password, held only long enough to be read.
    *
@@ -104,7 +107,8 @@ export function Administration({ jobs, me, onToast }: {
    */
   const [issued, setIssued] = useState<{ name: string; signIn: string; password: string } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ role: string; email: string; note: string }>({ role: "", email: "", note: "" });
+  const [draft, setDraft] = useState<{ role: string; supplierId: string; email: string; note: string }>(
+    { role: "", supplierId: "", email: "", note: "" });
 
   /**
    * Why the directory could not be read, in the caller's own words.
@@ -245,6 +249,8 @@ export function Administration({ jobs, me, onToast }: {
   }
 
   const roleOf = (name: string) => dir.roles.find((role) => role.name === name);
+  const carriers = dir.carriers ?? [];
+  const carrierMissing = form.role === "Subcontractor" && !form.supplierId;
   const admins = dir.people.filter((p) => p.active && p.can.includes("AdministerData")).length;
 
   return (
@@ -323,24 +329,38 @@ export function Administration({ jobs, me, onToast }: {
                   placeholder="Somchai" style={INPUT} />
               </Field>
               <Field label="บทบาท" width="200px">
-                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} style={SELECT}>
+                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value,
+                  supplierId: e.target.value === "Subcontractor" ? form.supplierId : "" })} style={SELECT}>
                   {dir.roles.map((role) => <option key={role.name} value={role.name}>{role.name} — {role.scopeTh}</option>)}
                 </select>
               </Field>
+              {form.role === "Subcontractor" && (
+                <Field label="บริษัทขนส่ง *" width="280px">
+                  <select value={form.supplierId}
+                    onChange={(e) => setForm({ ...form, supplierId: e.target.value })} style={SELECT}>
+                    <option value="">เลือกบริษัทขนส่ง…</option>
+                    {carriers.map((carrier) => <option key={carrier.id} value={carrier.id}>
+                      {carrier.code ? `${carrier.code} — ` : ""}{carrier.name}
+                    </option>)}
+                  </select>
+                </Field>
+              )}
               <Field label="หมายเหตุ" width="180px">
                 <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} style={INPUT} />
               </Field>
               <button
                 onClick={async () => {
-                  const reply = await create(form);
+                  const reply = await create({ ...form,
+                    supplierId: form.role === "Subcontractor" ? Number(form.supplierId) : null });
                   if (!reply) return;
                   setIssued({ name: form.name, signIn: reply.signIn ?? "", password: reply.tempPassword ?? "" });
-                  setForm({ email: "", name: "", role: "Operation User", note: "", signIn: form.signIn });
+                  setForm({ email: "", name: "", role: "Operation User", supplierId: "",
+                    note: "", signIn: form.signIn });
                   setAdding(false);
                 }}
-                disabled={busy || !form.email.trim() || !form.name.trim()}
+                disabled={busy || !form.email.trim() || !form.name.trim() || carrierMissing}
                 style={css("height:30px;padding:0 15px;border:1px solid #16794C;background:" +
-                  (busy || !form.email.trim() || !form.name.trim() ? "#C3CFDB" : "#16794C") +
+                  (busy || !form.email.trim() || !form.name.trim() || carrierMissing ? "#C3CFDB" : "#16794C") +
                   ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>สร้างบัญชี</button>
             </div>
 
@@ -384,8 +404,8 @@ export function Administration({ jobs, me, onToast }: {
 
         <ZoomBox>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-            <thead><tr>{["รหัส", "ชื่อ", "อีเมล", "บทบาท", "งาน", "สถานะ", ""].map((h, i) => (
-              <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:" + (i === 4 ? "right" : "left") +
+            <thead><tr>{["รหัส", "ชื่อ", "อีเมล", "บทบาท", "บริษัทขนส่ง", "งาน", "สถานะ", ""].map((h, i) => (
+              <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:" + (i === 5 ? "right" : "left") +
                 ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
             ))}</tr></thead>
             <tbody>
@@ -408,7 +428,8 @@ export function Administration({ jobs, me, onToast }: {
                     </td>
                     <td style={CELL_S}>
                       {open
-                        ? <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })}
+                        ? <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value,
+                            supplierId: e.target.value === "Subcontractor" ? draft.supplierId : "" })}
                             style={css("height:27px;border:1px solid #C9D6E2;border-radius:4px;padding:0 6px;font-size:11.5px;background:#fff")}>
                             {dir.roles.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                           </select>
@@ -416,6 +437,20 @@ export function Administration({ jobs, me, onToast }: {
                             <div style={css("color:" + (person.active ? "#16232F" : "#94A3B8"))}>{person.role}</div>
                             <div style={css("font-size:10.5px;color:#94A3B8")}>{roleOf(person.role)?.scopeTh ?? ""}</div>
                           </>}
+                    </td>
+                    <td style={css(CELL + ";min-width:230px;color:#465A6E")}>
+                      {open && draft.role === "Subcontractor"
+                        ? <select value={draft.supplierId}
+                            onChange={(e) => setDraft({ ...draft, supplierId: e.target.value })}
+                            style={css("width:100%;height:27px;border:1px solid #C9D6E2;border-radius:4px;padding:0 6px;font-size:11.5px;background:#fff")}>
+                            <option value="">เลือกบริษัทขนส่ง…</option>
+                            {carriers.map((carrier) => <option key={carrier.id} value={carrier.id}>
+                              {carrier.code ? `${carrier.code} — ` : ""}{carrier.name}
+                            </option>)}
+                          </select>
+                        : person.role === "Subcontractor"
+                          ? person.supplierName || <span style={css("color:#B42318;font-weight:600")}>ยังไม่ได้ผูกบริษัท</span>
+                          : <span style={css("color:#94A3B8")}>—</span>}
                     </td>
                     <td style={css(CELL + ";text-align:right;font-family:ui-monospace,monospace;color:#7B8CA0")}>
                       {person.jobs.toLocaleString()}
@@ -427,14 +462,22 @@ export function Administration({ jobs, me, onToast }: {
                     <td style={css(CELL + ";white-space:nowrap")}>
                       {dir.canManage && (open ? (
                         <span style={css("display:flex;gap:5px")}>
-                          <Mini label="บันทึก" tone="#16794C" busy={busy}
-                            onClick={async () => { if (await post(`/${person.id}`, draft)) setEditing(null); }} />
+                          <Mini label="บันทึก" tone="#16794C"
+                            busy={busy || (draft.role === "Subcontractor" && !draft.supplierId)}
+                            onClick={async () => {
+                              if (draft.role === "Subcontractor" && !draft.supplierId) return;
+                              if (await post(`/${person.id}`, { ...draft,
+                                supplierId: draft.role === "Subcontractor" ? Number(draft.supplierId) : null }))
+                                setEditing(null);
+                            }} />
                           <Mini label="ยกเลิก" tone="#7B8CA0" busy={busy} onClick={() => setEditing(null)} />
                         </span>
                       ) : (
                         <span style={css("display:flex;gap:5px")}>
                           <Mini label="แก้ไข" tone="#0A5FA8" busy={busy}
-                            onClick={() => { setEditing(person.id); setDraft({ role: person.role, email: person.email, note: person.note }); }} />
+                            onClick={() => { setEditing(person.id); setDraft({ role: person.role,
+                              supplierId: person.supplierId == null ? "" : String(person.supplierId),
+                              email: person.email, note: person.note }); }} />
                           <Mini label={person.active ? "ปิดบัญชี" : "เปิดใช้"} tone={person.active ? "#B42318" : "#16794C"} busy={busy}
                             onClick={() => void post(`/${person.id}`, { active: !person.active })} />
                           {/* Offered for everyone, because an administrator

@@ -6,11 +6,14 @@ using Scmos.Api.Rules;
 namespace Scmos.Api.Services;
 
 public record StaffView(
-    string Id, string Email, string Name, string Account, string Role, bool Active, string Note,
+    string Id, string Email, string Name, string Account, string Role,
+    int? SupplierId, string SupplierName, bool Active, string Note,
     /// <summary>Jobs currently assigned to this person. Why deactivating is not deleting.</summary>
     int Jobs,
     IReadOnlyList<string> Can,
     string UpdatedBy, DateTimeOffset UpdatedAt);
+
+public record StaffCarrierOption(int Id, string Code, string Name, string Status);
 
 public record StaffResult(bool Ok, string Message, string? Id = null);
 
@@ -79,17 +82,32 @@ public class StaffService(ScmosDbContext db)
     {
         var people = await db.Staff.AsNoTracking().OrderBy(p => p.Id).ToListAsync(token);
 
+        var supplierIds = people.Where(person => person.SupplierId is not null)
+            .Select(person => person.SupplierId!.Value).Distinct().ToList();
+        var supplierNames = await db.Suppliers.AsNoTracking()
+            .Where(supplier => supplierIds.Contains(supplier.Id))
+            .ToDictionaryAsync(supplier => supplier.Id, supplier => supplier.Name, token);
+
         var jobs = await db.OperationJobs.AsNoTracking()
             .Where(job => job.OwnerId != "")
             .GroupBy(job => job.OwnerId)
             .Select(group => new { Id = group.Key, Count = group.Count() })
             .ToDictionaryAsync(entry => entry.Id, entry => entry.Count, token);
 
-        return people.Select(person => Describe(person, jobs.GetValueOrDefault(person.Id))).ToList();
+        return people.Select(person => Describe(person, jobs.GetValueOrDefault(person.Id),
+            person.SupplierId is { } supplierId ? supplierNames.GetValueOrDefault(supplierId, "") : "")).ToList();
     }
 
-    public static StaffView Describe(StaffMember person, int jobs) => new(
-        person.Id, person.Email, person.Name, person.Account, person.Role, person.Active, person.Note,
+    public async Task<IReadOnlyList<StaffCarrierOption>> CarrierOptionsAsync(CancellationToken token) =>
+        await db.Suppliers.AsNoTracking().Where(supplier => supplier.IsCarrier)
+            .OrderBy(supplier => supplier.Name).ThenBy(supplier => supplier.Code)
+            .Select(supplier => new StaffCarrierOption(
+                supplier.Id, supplier.Code, supplier.Name, supplier.Status))
+            .ToListAsync(token);
+
+    public static StaffView Describe(StaffMember person, int jobs, string supplierName = "") => new(
+        person.Id, person.Email, person.Name, person.Account, person.Role,
+        person.SupplierId, supplierName, person.Active, person.Note,
         jobs,
         Enum.GetValues<Capability>()
             .Where(capability => capability != Capability.None && Roles.Can(person.Role, capability))
@@ -199,13 +217,16 @@ public class StaffService(ScmosDbContext db)
     /// directory that nothing in SCMOS refers to. Check first, invite second,
     /// write the row third.
     /// </summary>
-    public async Task<StaffResult> PrecheckAsync(string email, string name, string role,
+    public async Task<StaffResult> PrecheckAsync(string email, string name, string role, int? supplierId,
         CancellationToken token)
     {
         if (email.Trim().Length == 0) return new StaffResult(false, "ต้องระบุอีเมลที่ใช้ลงชื่อเข้าใช้");
         if (name.Trim().Length == 0) return new StaffResult(false, "ต้องระบุชื่อ");
         if (Roles.Find(role) is null)
             return new StaffResult(false, "บทบาทที่ใช้ได้: " + string.Join(", ", Roles.All.Select(r => r.Name)));
+
+        if (await ValidateMembershipAsync(role, supplierId, token) is { } membershipError)
+            return membershipError;
 
         return await db.Staff.AnyAsync(p => p.Email == email.Trim(), token)
             ? new StaffResult(false, "อีเมลนี้มีอยู่ในทะเบียนแล้ว")
@@ -220,14 +241,14 @@ public class StaffService(ScmosDbContext db)
     /// refers to them. Storing the human one is what left the first invited
     /// account signed in and unrecognised.
     /// </param>
-    public async Task<StaffResult> CreateAsync(string email, string name, string role, string note,
+    public async Task<StaffResult> CreateAsync(string email, string name, string role, int? supplierId, string note,
         AppUser by, CancellationToken token, string signInName = "")
     {
         var typed = email.Trim();
         var address = signInName.Trim().Length > 0 ? signInName.Trim() : typed;
         var person = name.Trim();
 
-        var checks = await PrecheckAsync(typed, person, role, token);
+        var checks = await PrecheckAsync(typed, person, role, supplierId, token);
         if (!checks.Ok) return checks;
 
         if (address != typed && await db.Staff.AnyAsync(p => p.Email == address, token))
@@ -246,7 +267,7 @@ public class StaffService(ScmosDbContext db)
         db.Staff.Add(new StaffMember
         {
             Id = id, Email = address, Name = person, Account = "", Role = role,
-            Active = true, Note = note.Trim(),
+            SupplierId = supplierId, Active = true, Note = note.Trim(),
             CreatedBy = by.Signature, CreatedAt = now, UpdatedBy = by.Signature, UpdatedAt = now,
         });
         await db.SaveChangesAsync(token);
@@ -255,12 +276,22 @@ public class StaffService(ScmosDbContext db)
     }
 
     public async Task<StaffResult> UpdateAsync(string id, string? email, string? name, string? role,
-        bool? active, string? note, AppUser by, CancellationToken token)
+        int? supplierId, bool? active, string? note, AppUser by, CancellationToken token)
     {
         var person = await db.Staff.FirstOrDefaultAsync(p => p.Id == id, token);
         if (person is null) return new StaffResult(false, "ไม่พบบัญชีนี้");
 
         var self = string.Equals(person.Id, by.OperatorId, StringComparison.OrdinalIgnoreCase);
+
+        // A role-bearing edit is the complete membership decision made by the
+        // Administration form. Status-only edits omit the role and therefore
+        // leave the existing supplier membership untouched.
+        if (role is not null)
+        {
+            if (await ValidateMembershipAsync(role, supplierId, token) is { } membershipError)
+                return membershipError;
+            person.SupplierId = Roles.Find(role)?.Name == Roles.Subcontractor ? supplierId : null;
+        }
 
         if (role is not null && role != person.Role)
         {
@@ -301,6 +332,25 @@ public class StaffService(ScmosDbContext db)
         await db.SaveChangesAsync(token);
 
         return new StaffResult(true, $"บันทึก {person.Name} แล้ว", person.Id);
+    }
+
+    private async Task<StaffResult?> ValidateMembershipAsync(string role, int? supplierId,
+        CancellationToken token)
+    {
+        var carrierRole = Roles.Find(role)?.Name == Roles.Subcontractor;
+        if (!carrierRole)
+            return supplierId is null
+                ? null
+                : new StaffResult(false, "เลือกบริษัทขนส่งได้เฉพาะบทบาท Subcontractor");
+
+        if (supplierId is null or <= 0)
+            return new StaffResult(false, "บทบาท Subcontractor ต้องเลือกบริษัทขนส่ง");
+
+        var carrierExists = await db.Suppliers.AsNoTracking()
+            .AnyAsync(supplier => supplier.Id == supplierId && supplier.IsCarrier, token);
+        return carrierExists
+            ? null
+            : new StaffResult(false, "ไม่พบบริษัทขนส่งที่เลือก หรือ Supplier นี้ไม่ใช่ Carrier");
     }
 
     /// <summary>

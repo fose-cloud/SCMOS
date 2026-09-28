@@ -20,8 +20,10 @@ public static class StaffEndpoints
     /// account with a temporary password they must replace, and <c>none</c>
     /// records the row only — for somebody who can already sign in.
     /// </param>
-    public record CreateBody(string? Email, string? Name, string? Role, string? Note, string? SignIn);
-    public record UpdateBody(string? Email, string? Name, string? Role, bool? Active, string? Note);
+    public record CreateBody(string? Email, string? Name, string? Role, int? SupplierId,
+        string? Note, string? SignIn);
+    public record UpdateBody(string? Email, string? Name, string? Role, int? SupplierId,
+        bool? Active, string? Note);
 
     public static void MapStaff(this IEndpointRouteBuilder routes)
     {
@@ -47,6 +49,7 @@ public static class StaffEndpoints
             return Results.Json(new
             {
                 people = await staff.ListAsync(token),
+                carriers = await staff.CarrierOptionsAsync(token),
                 roles = Roles.All.Select(role => new
                 {
                     name = role.Name,
@@ -89,7 +92,7 @@ public static class StaffEndpoints
             // invitation leaves a real directory account with nothing pointing
             // at it, and an email in somebody's inbox for a system they cannot
             // get into.
-            var checks = await staff.PrecheckAsync(email, name, body.Role ?? "", token);
+            var checks = await staff.PrecheckAsync(email, name, body.Role ?? "", body.SupplierId, token);
             if (!checks.Ok) return ApiResults.Error(checks.Message, StatusCodes.Status400BadRequest);
 
             var signInName = "";
@@ -118,7 +121,7 @@ public static class StaffEndpoints
                     : made.Message;
             }
 
-            var result = await staff.CreateAsync(email, name, body.Role ?? "", body.Note ?? "",
+            var result = await staff.CreateAsync(email, name, body.Role ?? "", body.SupplierId, body.Note ?? "",
                 user, token, signInName);
             if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
 
@@ -243,20 +246,24 @@ public static class StaffEndpoints
             // Read the row before the change so the trail can say what it was.
             var before = (await staff.ListAsync(token)).FirstOrDefault(p => p.Id == id);
 
-            var result = await staff.UpdateAsync(id, body.Email, body.Name, body.Role, body.Active,
+            var result = await staff.UpdateAsync(id, body.Email, body.Name, body.Role, body.SupplierId, body.Active,
                 body.Note, user, token);
             if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
 
-            var field = body.Role is not null ? "role" : body.Active is not null ? "active" : "details";
+            var field = body.Role is not null && body.Role != before?.Role ? "role"
+                : body.SupplierId is not null && body.SupplierId != before?.SupplierId ? "supplier"
+                : body.Active is not null ? "active" : "details";
             var was = field switch
             {
                 "role" => before?.Role ?? "",
+                "supplier" => before?.SupplierId?.ToString() ?? "",
                 "active" => (before?.Active ?? true).ToString(),
                 _ => before?.Email ?? "",
             };
             var now = field switch
             {
                 "role" => body.Role ?? "",
+                "supplier" => body.SupplierId?.ToString() ?? "",
                 "active" => (body.Active ?? true).ToString(),
                 _ => body.Email ?? "",
             };
