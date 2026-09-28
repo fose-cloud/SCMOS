@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
@@ -30,13 +32,39 @@ public sealed class AiDecisionLog(ScmosDbContext db, AgentRegistry agents, Audit
     public const string Accepted = "ACCEPTED";
     public const string Overridden = "OVERRIDDEN";
     public const string Dismissed = "DISMISSED";
+    /// <summary>The agent's next pass concluded something else about the same thing.</summary>
+    public const string Superseded = "SUPERSEDED";
+    /// <summary>The agent's next pass found nothing left to conclude.</summary>
+    public const string Resolved = "RESOLVED";
     public static readonly string[] Outcomes = [Accepted, Overridden, Dismissed];
+
+    /// <summary>
+    /// The finding without its moving parts: kind, outcome, risk and the rules
+    /// that fired — never the minutes or the clock, which change every pass
+    /// and would make one finding look like a new one each time.
+    /// </summary>
+    public static string FingerprintOf(AgentResult result) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+        string.Join("|", result.AgentId, result.DecisionType, result.Status, result.RiskLevel ?? "",
+            string.Join(",", result.RuleReferences.Order(StringComparer.Ordinal)))))).ToLowerInvariant();
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     /// <summary>Stores one result, or refuses it whole with the reasons. The run id, when given, is the audited run's.</summary>
     public async Task<(long? Id, IReadOnlyList<string> Problems)> RecordAsync(AgentResult result, string runId,
         string ownerId, bool shadow, AiAutonomy autonomy, CancellationToken token)
+    {
+        var (row, problems) = Stage(result, runId, ownerId, shadow, autonomy);
+        if (row is null) return (null, problems);
+        await db.SaveChangesAsync(token);
+        return (row.Id, []);
+    }
+
+    /// <summary>
+    /// Checks one result and adds it to the context without saving — for a pass
+    /// that writes many and saves once. A result that fails is not added.
+    /// </summary>
+    public (AiDecision? Row, IReadOnlyList<string> Problems) Stage(AgentResult result, string runId, string ownerId,
+        bool shadow, AiAutonomy autonomy)
     {
         var problems = AgentResultRules.Problems(result, agents.All.Select(agent => agent.Id)).ToList();
         if (runId.Length > 0 && !AiAuditRules.Id(runId)) problems.Add("runId is not a run id");
@@ -54,13 +82,13 @@ public sealed class AiDecisionLog(ScmosDbContext db, AgentRegistry agents, Audit
             Payload = JsonSerializer.Serialize(findings, Json),
             RuleReferences = JsonSerializer.Serialize(result.RuleReferences, Json),
             EvidenceReferences = JsonSerializer.Serialize(result.EvidenceReferences, Json),
+            Fingerprint = FingerprintOf(result),
             CreatedAt = clock.GetUtcNow(),
         };
         if (row.Payload.Length > 60_000 || row.RuleReferences.Length > 4000 || row.EvidenceReferences.Length > 4000)
             return (null, ["the result is larger than the log keeps"]);
         db.AiDecisions.Add(row);
-        await db.SaveChangesAsync(token);
-        return (row.Id, []);
+        return (row, []);
     }
 
     public static bool CanList(AppUser? user) => AiPermissionPolicy.Authenticated(user) && AiPermissionPolicy.InternalUser(user!)

@@ -43,6 +43,14 @@ public sealed class AiOptions
     public int ContextMinutes { get; set; } = 10;
     // Agent Platform foundation (27 Sep 2026): the circuit breaker, read from the audit's recent runs —
     // this many platform failures in a row show DEGRADED, this many rest the agent for the cool-down.
+    // The rule-first agents (Agent Platform, 28 Sep 2026): the OTD Agent and the Validation Agent,
+    // each off unless its own flag is set, scanned every AgentScanMinutes (0 = never).
+    public bool OtdAgentEnabled { get; set; }
+    public bool ValidationAgentEnabled { get; set; }
+    public int AgentScanMinutes { get; set; } = 15;
+    // The OTD Agent's near-plan windows: not yet running this close to plan is WATCH; no truck this close is HIGH.
+    public int OtdWatchMinutes { get; set; } = 120;
+    public int OtdHighMinutes { get; set; } = 60;
     public int BreakerDegradedAfter { get; set; } = 3;
     public int BreakerPauseAfter { get; set; } = 5;
     public int BreakerCoolDownMinutes { get; set; } = 10;
@@ -53,5 +61,6 @@ public sealed class AiOptions
     public bool Valid => TimeoutSeconds is >= 1 and <= 60 && MaxOutputTokens is >= 64 and <= 2000
         && ContextMinutes is >= 1 and <= 60
         && BreakerDegradedAfter is >= 1 and <= 20 && BreakerPauseAfter >= BreakerDegradedAfter && BreakerPauseAfter <= 50
-        && BreakerCoolDownMinutes is >= 1 and <= 240 && PriceCurrency.Length is >= 1 and <= 8;
+        && BreakerCoolDownMinutes is >= 1 and <= 240 && PriceCurrency.Length is >= 1 and <= 8
+        && AgentScanMinutes is >= 0 and <= 1440 && OtdHighMinutes is >= 1 and <= 720 && OtdWatchMinutes >= OtdHighMinutes && OtdWatchMinutes <= 1440;
 }

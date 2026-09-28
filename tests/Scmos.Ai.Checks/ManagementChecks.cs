@@ -91,7 +91,7 @@ static class ManagementChecks
         var guard = new QueryPolicyGuard(tools);
 
         /* ---- the registry, the catalogue, the plans ---- */
-        check(agents.All.Count == 11 && agent.RequiredCapability == Capability.ViewDashboard && agent.AllowedTools.SequenceEqual([ManagementPlans.JobPlan, ManagementPlans.LatePaperworkPlan])
+        check(agents.All.Count == 13 && agent.RequiredCapability == Capability.ViewDashboard && agent.AllowedTools.SequenceEqual([ManagementPlans.JobPlan, ManagementPlans.LatePaperworkPlan])
             && agents.Resolve(new("x", Context: new("management")))?.Id == ManagementAgent.Id && agents.Resolve(new("x", Context: new("dashboard")))?.Id == ManagementAgent.Id,
             "8: the Management Agent is the registry's own descriptor, connected: its tools are its plans, its pages management and dashboard");
         check(!AgentRegistry.Enabled(agent, new AiOptions()) && AgentRegistry.Enabled(agent, new AiOptions { ManagementAgentEnabled = true }), "8: off unless AI:ManagementAgentEnabled");

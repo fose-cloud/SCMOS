@@ -156,6 +156,8 @@ builder.Services.AddScoped<DelegationService>();
 // Proposed dropdown corrections and delay reasons, decided by the job's owner (22 Sep 2026).
 builder.Services.AddScoped<CorrectionService>();
 builder.Services.AddHostedService<CorrectionScheduler>();
+// The rule-first AI agents' pass (OTD, Validation) — writes only what governance allows; off with AI__AgentScanMinutes=0.
+builder.Services.AddHostedService<Scmos.Api.Ai.AgentScanScheduler>();
 // The register snapshot, built once at startup so the first reader after a deploy does not wait for it.
 builder.Services.AddHostedService<RegisterWarmup>();
 builder.Services.AddScoped<JobTransferService>();

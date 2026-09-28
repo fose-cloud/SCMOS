@@ -44,7 +44,7 @@ var development = new TestEnvironment();
 AiOptions Enabled() => new() { Enabled = true, ChatEnabled = true, MockMode = true, OperationsAgentEnabled = true };
 var request = new AiChatRequest("Show today's high-risk shipments.");
 Check(!new AiOptions().Enabled && !new AiOptions().ChatEnabled && !new AiOptions().WriteToolsEnabled, "all flags default off");
-Check(agents.All.Count == 11 && agents.Resolve(request)?.Id == operations.Id, "eleven specialists (Engineering Agent since Phase 6, SRE Agent since Phase 7) and deterministic master default");
+Check(agents.All.Count == 13 && agents.Resolve(request)?.Id == operations.Id, "thirteen agents (Engineering Agent since Phase 6, SRE Agent since Phase 7, the OTD and Validation agents since the Agent Platform) and deterministic master default");
 Check(agents.Resolve(request with { Context = new("rates") })?.Id == "rate-agent", "page-based route");
 Check(agents.Resolve(request with { AgentId = "unregistered" }) is null, "unknown agent is not silently rerouted");
 Check(agents.Resolve(request with { Context = new("unregistered") }) is null, "unknown page is refused");
@@ -258,6 +258,7 @@ await AccessMatrixCheck.RunAsync(Check);
 await OperationsChecks.RunAsync(Check);
 await OperationsControlChecks.RunAsync(Check);
 await GovernanceChecks.RunAsync(Check, args.Contains("--write-local-db"));
+await AgentScanChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));
 Console.WriteLine($"All {count} AI foundation/Operations/audit checks passed. No production data or live OpenAI calls.");
 

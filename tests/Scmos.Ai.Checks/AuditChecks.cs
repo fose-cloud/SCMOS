@@ -215,6 +215,11 @@ static class AuditChecks
                     && governance.UpOperations.All(op => op is AddColumnOperation or CreateTableOperation or CreateIndexOperation)
                     && governance.DownOperations.Count == 1 && governance.DownOperations[0] is SqlOperation forwardOnly && forwardOnly.Sql.Contains("THROW"),
                     "foundation: the governance migration only adds (one defaulted audit column, two tables) and cannot be rolled back over evidence");
+                var lifecycle = new AiDecisionLifecycle { ActiveProvider = "Microsoft.EntityFrameworkCore.SqlServer" };
+                check(lifecycle.UpOperations.All(op => op is AddColumnOperation { Table: "ai_decisions" } or DropCheckConstraintOperation { Table: "ai_decisions" }
+                        or AddCheckConstraintOperation { Table: "ai_decisions" })
+                    && lifecycle.DownOperations.Count == 1 && lifecycle.DownOperations[0] is SqlOperation lifecycleDown && lifecycleDown.Sql.Contains("THROW"),
+                    "agents: the decision-lifecycle migration only widens ai_decisions and cannot be rolled back over history");
                 foreach (var command in setup.GetService<IMigrationsSqlGenerator>().Generate(auditColumns.Cast<MigrationOperation>().ToList(), setup.Model))
                     await setup.Database.ExecuteSqlRawAsync(command.CommandText);
                 await setup.Database.ExecuteSqlRawAsync("CREATE TABLE phase_d_sentinel (id int NOT NULL PRIMARY KEY); INSERT INTO phase_d_sentinel VALUES (42);");

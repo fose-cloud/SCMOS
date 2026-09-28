@@ -86,6 +86,8 @@ static class AccessMatrixCheck
             "Administrator · management-agent · use=yes · —",
             "Administrator · communication-agent · use=yes · query_messages=allowed",
             "Administrator · engineering-agent · use=yes · query_repository=allowed read_source=allowed",
+            "Administrator · otd-agent · use=yes · —",
+            "Administrator · validation-agent · use=yes · —",
             "Administrator · sre-agent · use=yes · query_platform=allowed",
 
             "Manager · operations-agent · use=yes · query_shipments=allowed search_shipment=allowed query_delays=allowed query_followup=allowed",
@@ -98,6 +100,8 @@ static class AccessMatrixCheck
             "Manager · management-agent · use=yes · —",
             "Manager · communication-agent · use=yes · query_messages=allowed",
             "Manager · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "Manager · otd-agent · use=yes · —",
+            "Manager · validation-agent · use=yes · —",
             "Manager · sre-agent · use=no · query_platform=forbidden",
 
             "Assistant Manager · operations-agent · use=yes · query_shipments=allowed search_shipment=allowed query_delays=allowed query_followup=allowed",
@@ -110,6 +114,8 @@ static class AccessMatrixCheck
             "Assistant Manager · management-agent · use=yes · —",
             "Assistant Manager · communication-agent · use=yes · query_messages=allowed",
             "Assistant Manager · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "Assistant Manager · otd-agent · use=yes · —",
+            "Assistant Manager · validation-agent · use=yes · —",
             "Assistant Manager · sre-agent · use=no · query_platform=forbidden",
 
             "Operation Supervisor · operations-agent · use=yes · query_shipments=allowed search_shipment=allowed query_delays=allowed query_followup=allowed",
@@ -122,6 +128,8 @@ static class AccessMatrixCheck
             "Operation Supervisor · management-agent · use=yes · —",
             "Operation Supervisor · communication-agent · use=yes · query_messages=allowed",
             "Operation Supervisor · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "Operation Supervisor · otd-agent · use=yes · —",
+            "Operation Supervisor · validation-agent · use=yes · —",
             "Operation Supervisor · sre-agent · use=no · query_platform=forbidden",
 
             // A carrier is refused everywhere, by InternalUser, before any capability is read.
@@ -135,6 +143,8 @@ static class AccessMatrixCheck
             "Subcontractor · management-agent · use=no · —",
             "Subcontractor · communication-agent · use=no · query_messages=forbidden",
             "Subcontractor · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "Subcontractor · otd-agent · use=no · —",
+            "Subcontractor · validation-agent · use=no · —",
             "Subcontractor · sre-agent · use=no · query_platform=forbidden",
 
             "Operation User · operations-agent · use=yes · query_shipments=allowed search_shipment=allowed query_delays=allowed query_followup=allowed",
@@ -147,6 +157,8 @@ static class AccessMatrixCheck
             "Operation User · management-agent · use=yes · —",
             "Operation User · communication-agent · use=yes · query_messages=allowed",
             "Operation User · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "Operation User · otd-agent · use=yes · —",
+            "Operation User · validation-agent · use=yes · —",
             "Operation User · sre-agent · use=no · query_platform=forbidden",
 
             // Customer service upload paperwork; they do not read the mailbox or the rates.
@@ -160,6 +172,8 @@ static class AccessMatrixCheck
             "CS · management-agent · use=yes · —",
             "CS · communication-agent · use=no · query_messages=forbidden",
             "CS · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "CS · otd-agent · use=yes · —",
+            "CS · validation-agent · use=yes · —",
             "CS · sre-agent · use=no · query_platform=forbidden",
 
             // The dashboard roles read figures and nothing else.
@@ -173,6 +187,8 @@ static class AccessMatrixCheck
             "Management · management-agent · use=yes · —",
             "Management · communication-agent · use=no · query_messages=forbidden",
             "Management · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "Management · otd-agent · use=yes · —",
+            "Management · validation-agent · use=yes · —",
             "Management · sre-agent · use=no · query_platform=forbidden",
 
             "Viewer · operations-agent · use=yes · query_shipments=allowed search_shipment=allowed query_delays=allowed query_followup=allowed",
@@ -185,6 +201,8 @@ static class AccessMatrixCheck
             "Viewer · management-agent · use=yes · —",
             "Viewer · communication-agent · use=no · query_messages=forbidden",
             "Viewer · engineering-agent · use=no · query_repository=forbidden read_source=forbidden",
+            "Viewer · otd-agent · use=yes · —",
+            "Viewer · validation-agent · use=yes · —",
             "Viewer · sre-agent · use=no · query_platform=forbidden",
         ];
         var difference = lines.Except(expected).Concat(expected.Except(lines)).ToList();

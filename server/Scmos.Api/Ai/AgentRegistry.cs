@@ -13,8 +13,8 @@ public sealed record AgentDefinition(string Id, string Name, string Description,
 public sealed class AgentRegistry
 {
     private static AgentDefinition Define(string id, string name, string description, Capability capability,
-        string[] tools, string[] pages, AiAutonomy most = AiAutonomy.Recommend) => new(id, name, description, AiRisk.Low, capability,
-            Array.AsReadOnly(tools), Array.AsReadOnly(pages), most, most);
+        string[] tools, string[] pages, AiAutonomy most = AiAutonomy.Recommend, bool shadow = false) => new(id, name, description, AiRisk.Low, capability,
+            Array.AsReadOnly(tools), Array.AsReadOnly(pages), most, most, shadow);
 
     public IReadOnlyList<AgentDefinition> All { get; } = Array.AsReadOnly(new[]
     {
@@ -60,6 +60,13 @@ public sealed class AgentRegistry
         Define("engineering-agent", "Engineering Agent", "Read-only SCMOS GitHub issue, PR and commit metadata, and a bounded read of the repository's own source", Capability.AdministerData,
             ["query_repository", "read_source"], ["engineering"]),
         // The specification's SRE Agent (Phase 7): what the platform knows about itself — read, measured, never acted on.
+        // The Agent Platform's rule-first agents (28 Sep 2026): no model, no tool offered to one, no page of their own —
+        // a scheduled pass over the register writes their conclusions to the decision log. New operational agents
+        // start in shadow mode (§66): they recommend, a person acts.
+        Define("otd-agent", "OTD Agent", "Delay risk before on-time fails — plan against now, the customer's grace, truck and status; rules first, no model", Capability.ViewDashboard,
+            [], [], AiAutonomy.Recommend, shadow: true),
+        Define("validation-agent", "Validation Agent", "The register's own checks on the coming week's work — unreadable values, unknown vehicle types, gate-in risk, missing container or seal; rules first, no model", Capability.ViewDashboard,
+            [], [], AiAutonomy.Recommend, shadow: true),
         Define("sre-agent", "SRE Agent", "The platform's own health, deployments and failure counts — read and measured, nothing restarted or changed", Capability.AdministerData,
             ["query_platform"], ["sre", "health", "system"]),
     });
@@ -85,6 +92,8 @@ public sealed class AgentRegistry
         "document-agent" => options.DocumentAgentEnabled,
         "compliance-agent" => options.ComplianceAgentEnabled,
         "management-agent" => options.ManagementAgentEnabled,
+        "otd-agent" => options.OtdAgentEnabled,
+        "validation-agent" => options.ValidationAgentEnabled,
         _ => false,
     };
 }

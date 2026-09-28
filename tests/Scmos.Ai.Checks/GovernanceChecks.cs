@@ -53,16 +53,19 @@ static class GovernanceChecks
             var setting = AgentGovernance.Default(agent);
             check(AgentGovernance.Evaluate(agent, true, setting, platform, healthy, AgentNeed.Run).Allowed
                 && AgentGovernance.Evaluate(agent, true, setting, platform, healthy, AgentNeed.Recommend).Allowed
-                && !setting.ShadowMode && setting.Status == AgentGovernance.Active,
-                $"foundation: with no settings rows {agent.Id} runs and recommends exactly as before");
+                && setting.ShadowMode == agent.DefaultShadow && setting.Status == AgentGovernance.Active,
+                $"foundation: with no settings rows {agent.Id} runs and recommends as it was built to");
             check(!AgentGovernance.Evaluate(agent, true, setting, platform, healthy, AgentNeed.ExecuteAutonomously).Allowed,
                 $"foundation: {agent.Id} never executes on its own by default");
         }
         check(AgentGovernance.Evaluate(operations, true, AgentGovernance.Default(operations), platform, healthy, AgentNeed.ExecuteWithApproval).Allowed
             && agents.All.Where(agent => agent.Id != operations.Id).All(agent =>
-                AgentGovernance.Evaluate(agent, true, AgentGovernance.Default(agent), platform, healthy, AgentNeed.ExecuteWithApproval).Code == "autonomy_insufficient"),
+                AgentGovernance.Evaluate(agent, true, AgentGovernance.Default(agent), platform, healthy, AgentNeed.ExecuteWithApproval).Code
+                    is "autonomy_insufficient" or "shadow_mode"),
             "foundation: only the Operations Agent executes with approval by default — its change pilot, as before");
         check(AgentGovernance.ExecutionEnabled(platform), "foundation: the platform's execution switch starts on, as the pilot's own switches decided");
+        check(agents.All.Where(agent => agent.DefaultShadow).Select(agent => agent.Id).OrderBy(id => id).SequenceEqual(["otd-agent", "validation-agent"]),
+            "foundation: only the new operational agents start in shadow; the eleven that were live are unchanged");
 
         /* ---------------- autonomy, shadow, status, the switches ---------------- */
         var lifted = AgentGovernance.Default(data) with { Autonomy = AiAutonomy.RuleGovernedAutonomous };

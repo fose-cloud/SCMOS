@@ -65,6 +65,22 @@ public static class AiGovernanceEndpoints
                 });
         });
 
+        // A rule-first agent's pass, now — what the scheduler does every AI__AgentScanMinutes. Governance still
+        // decides whether it writes anything; the answer says what the pass found and changed.
+        ai.MapPost("/agents/{agentId}/scan", async (string agentId, HttpContext context, IUserAccessor users,
+            AgentScanner scanner, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (!AiPermissionPolicy.Authenticated(user)) return ApiResults.SignInRequired;
+            if (!AiGovernanceService.CanManage(user)) return ApiResults.Error("Administrator only", 403);
+            if (context.Request.Headers["X-SCMOS-AI-Control"] != "1") return ApiResults.Error("Invalid control request", 400);
+            if (!AgentScanner.Agents.Contains(agentId, StringComparer.Ordinal))
+                return Results.Json(new { code = "not_scannable", error = "This agent does not run a pass" }, statusCode: 404);
+            var summary = (await scanner.ScanAsync(token, agentId)).Single();
+            return Results.Json(summary, statusCode: summary.Code is "ok" or "answered_meanwhile" ? 200 : 503);
+        });
+
         ai.MapGet("/decisions", async (string? status, string? agent, string? entityType, string? entityId, int? page, int? pageSize,
             HttpContext context, IUserAccessor users, AiDecisionLog decisions, CancellationToken token) =>
         {

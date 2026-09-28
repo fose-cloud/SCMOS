@@ -66,8 +66,15 @@ public sealed class AiDecision
     public string Summary { get; set; } = "";
     /// <summary>COMPLETED · UNKNOWN · INSUFFICIENT_INFORMATION · REQUIRES_HUMAN_REVIEW · BLOCKED.</summary>
     public string ResultStatus { get; set; } = "";
-    /// <summary>OPEN until a person answers: ACCEPTED, OVERRIDDEN or DISMISSED.</summary>
+    /// <summary>
+    /// OPEN until a person answers — ACCEPTED, OVERRIDDEN or DISMISSED — or the
+    /// agent's next pass closes it: SUPERSEDED when it concluded something else
+    /// about the same thing, RESOLVED when there was nothing left to conclude.
+    /// </summary>
     public string Status { get; set; } = "OPEN";
+
+    /// <summary>What the conclusion was, without its moving figures — the kind, the outcome, the rules that fired — so a pass can tell "the same finding again" from "a different one".</summary>
+    public string Fingerprint { get; set; } = "";
     public string RiskLevel { get; set; } = "";
     public decimal? Confidence { get; set; }
     public bool RequiresApproval { get; set; }
@@ -103,6 +110,7 @@ public sealed class AiDecision
             entry.Property(e => e.ResultStatus).HasColumnName("result_status").HasMaxLength(30);
             // Answered once: the update carries "and it is still OPEN", so two people answering at once cannot both win.
             entry.Property(e => e.Status).HasColumnName("status").HasMaxLength(20).IsConcurrencyToken();
+            entry.Property(e => e.Fingerprint).HasColumnName("fingerprint").HasMaxLength(64).HasDefaultValue("");
             entry.Property(e => e.RiskLevel).HasColumnName("risk_level").HasMaxLength(20);
             entry.Property(e => e.Confidence).HasColumnName("confidence").HasPrecision(4, 3);
             entry.Property(e => e.RequiresApproval).HasColumnName("requires_approval");
@@ -124,7 +132,7 @@ public sealed class AiDecision
             entry.HasIndex(e => new { e.Status, e.OwnerId }).HasDatabaseName("ai_decisions_open_idx");
             entry.ToTable(table =>
             {
-                table.HasCheckConstraint("ai_decisions_status_ck", "[status] IN ('OPEN','ACCEPTED','OVERRIDDEN','DISMISSED')");
+                table.HasCheckConstraint("ai_decisions_status_ck", "[status] IN ('OPEN','ACCEPTED','OVERRIDDEN','DISMISSED','SUPERSEDED','RESOLVED')");
                 table.HasCheckConstraint("ai_decisions_confidence_ck", "[confidence] IS NULL OR ([confidence] >= 0 AND [confidence] <= 1)");
             });
         });

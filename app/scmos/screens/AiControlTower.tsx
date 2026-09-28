@@ -14,6 +14,7 @@ import { OperationsChanges } from "./OperationsChanges";
 import { agentReadiness } from "../agentReadiness";
 import { Assistant } from "./Assistant";
 import { AiGovernancePanel } from "./AiGovernancePanel";
+import { AiFindingsPanel } from "./AiFindingsPanel";
 import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, parseChangeClarification, type ChangeDraft } from "../operationsChangeCommand";
 
 /** Private, short-lived state only: no prompt/evidence in localStorage or shared page caches. */
@@ -499,6 +500,9 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
         {control.enabled ? "ปิด Operations AI" : "เปิด Operations AI"}
       </button>}
     </section>}
+
+    {/* What the OTD and Validation agents found and nobody has answered (Agent Platform, 28 Sep 2026). */}
+    {canViewDashboard && <AiFindingsPanel onOpenJob={onOpenJob} />}
 
     <section aria-labelledby="ai-morning">
       <div className={s.sectionTitle}><div><h2 id="ai-morning">Morning Brief</h2>

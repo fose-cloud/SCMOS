@@ -95,7 +95,6 @@ the added table and column unchanged.
 
 ## Next
 
-OTD Agent and Validation Agent over the rules that already run
-(`MonitorRules`, `ProblemRules`, `JobRules`, `PreRun`), writing to the decision
-log; then the Carrier Agent in shadow. The five confirmations in the assessment
-(§8) are still open and do not block these.
+Done 28 Sep: the OTD and Validation agents — `SCMOS_AI_OTD_VALIDATION_AGENTS.md`.
+Then the Carrier Agent in shadow. The five confirmations in the assessment (§8)
+are still open and do not block it.

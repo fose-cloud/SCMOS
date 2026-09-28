@@ -51,6 +51,9 @@
 .evidence table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 430px; }
 .evidence th { text-align: left; padding: 10px; background: #eef3f8; color: #52657a; position: sticky; top: 0; }
 .evidence td { padding: 12px 10px; vertical-align: top; border-top: 1px solid #e6ecf3; line-height: 1.6; }
+.findingGroup { margin-top: 8px; font-size: 12px; }
+.findingList { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; line-height: 1.5; }
+.findingSource { margin-left: 6px; font-size: 11px; color: #63758a; overflow-wrap: anywhere; }
 .governanceTable { width: 100%; min-width: 1040px; border-collapse: collapse; font-size: 12px; }
 .governanceTable th { text-align: left; padding: 10px; background: #eef3f8; color: #52657a; white-space: nowrap; }
 .governanceTable td { padding: 10px; vertical-align: top; border-top: 1px solid #e6ecf3; line-height: 1.6; }
