@@ -52,10 +52,15 @@ public sealed record AiChatResponse(string RunId, string Code, string Summary, s
     /// <summary>The Management Agent's plan, trail and findings (Phase 8); its steps' own answers travel in Evidence, Documents and Messages beside it. Null for every other agent.</summary>
     CollaborationAnswer? Collaboration = null);
 public sealed record AiChatOutcome(int Status, AiChatResponse Response);
-public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected);
+/// <param name="Status">ACTIVE · PAUSED · DEGRADED · MAINTENANCE · DISABLED — an administrator's word, or the breaker's (Agent Platform foundation).</param>
+/// <param name="Autonomy">The effective autonomy, 0–4.</param>
+/// <param name="Code">Why it is not enabled, when it is not — the code a run would answer with.</param>
+public sealed record AiAgentStatus(string Id, string Name, bool Enabled, bool Connected,
+    string Status = "ACTIVE", int Autonomy = 2, bool Shadow = false, string Code = "");
 public sealed record AiStatus(bool Enabled, bool ChatEnabled, bool ProviderConfigured, bool Mock,
     bool ConfigurationValid, bool LiveToolsReady, bool WriteToolsReady, IReadOnlyList<AiAgentStatus> Agents,
-    bool AuditReady = false, OperationsControlView? OperationsControl = null);
+    bool AuditReady = false, OperationsControlView? OperationsControl = null,
+    bool ExecutionEnabled = true, bool GovernanceAvailable = true);
 
 public static class AiRequestValidator
 {

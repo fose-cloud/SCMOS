@@ -20,11 +20,21 @@ public sealed record OperationsChangePreview(string Key, string Version, Diction
 /// No model call occurs here and legacy approval routes cannot execute this contract.
 /// </summary>
 public sealed class OperationsChangeService(ScmosDbContext db, AuditService audit,
-    JobRegisterCache cache, TimeProvider clock, IOptions<AiOptions> options)
+    JobRegisterCache cache, TimeProvider clock, IOptions<AiOptions> options, IAiGovernance? governance = null)
 {
     public bool Configured => options.Value.OperationsWritesEnabled && !options.Value.OperationsEmergencyDisabled;
     private async Task<bool> Enabled(CancellationToken token) => Configured
-        && await db.AiOperationsControls.AnyAsync(c => c.Id == 1 && c.Enabled, token);
+        && await db.AiOperationsControls.AnyAsync(c => c.Id == 1 && c.Enabled, token)
+        && await GovernedAsync(token);
+
+    /// <summary>
+    /// The pilot is the Operations Agent executing with a person's approval (L3):
+    /// the platform's execution switch, the agent's autonomy and shadow mode all
+    /// have to allow it (Agent Platform foundation). In shadow mode it proposes
+    /// nothing and a person makes the change on the grid.
+    /// </summary>
+    private async Task<bool> GovernedAsync(CancellationToken token) => governance is null
+        || (await governance.SnapshotAsync(token)).Gate("operations-agent", flagEnabled: true, AgentNeed.ExecuteWithApproval).Allowed;
     private async Task<bool> CurrentStaff(AppUser user, Capability capability, CancellationToken token)
     {
         var person = await db.Staff.AsNoTracking().SingleOrDefaultAsync(s => s.Id == user.OperatorId, token);

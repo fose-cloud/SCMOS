@@ -18,7 +18,7 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
     IAgentExecutor<DataExecution>? data = null, IAgentExecutor<CommunicationExecution>? communication = null,
     IAgentExecutor<DocumentExecution>? documents = null,
     IAgentExecutor<EngineeringExecution>? engineering = null, IAgentExecutor<SreExecution>? sre = null,
-    IAgentExecutor<ManagementExecution>? management = null)
+    IAgentExecutor<ManagementExecution>? management = null, IAiGovernance? governance = null)
 {
     private readonly AiOptions _options = options.Value;
     private const string Instructions = "You are an SCMOS assistant. Approved SCMOS rules and source evidence are authoritative. "
@@ -42,7 +42,43 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         AuditReady: operations?.AuditReady == true || data?.AuditReady == true || communication?.AuditReady == true
             || documents?.AuditReady == true || engineering?.AuditReady == true || sre?.AuditReady == true || management?.AuditReady == true);
 
-    public async Task<AiStatus> StatusAsync(AppUser user, CancellationToken token)
+    public async Task<AiStatus> StatusAsync(AppUser user, CancellationToken token) =>
+        await GovernedAsync(await BaseStatusAsync(user, token), token);
+
+    /// <summary>
+    /// The status as governance leaves it: an agent paused, resting on its
+    /// breaker or set to L0 is not enabled, whatever its flag says, and each
+    /// agent says its effective autonomy, shadow mode and status.
+    /// </summary>
+    private async Task<AiStatus> GovernedAsync(AiStatus status, CancellationToken token)
+    {
+        var snapshot = await SnapshotAsync(token);
+        return status with
+        {
+            ExecutionEnabled = snapshot.Available && AgentGovernance.ExecutionEnabled(snapshot.Platform),
+            GovernanceAvailable = snapshot.Available,
+            Agents = status.Agents.Select(view =>
+            {
+                if (agents.Find(view.Id) is not { } agent) return view;
+                var setting = snapshot.SettingOf(agent);
+                var gate = snapshot.Gate(agent, view.Enabled, AgentNeed.Run);
+                return view with
+                {
+                    Enabled = gate.Allowed,
+                    Status = snapshot.Available ? AgentGovernance.EffectiveStatus(setting, snapshot.HealthOf(agent.Id)) : AgentGovernance.Paused,
+                    Autonomy = (int)AgentGovernance.Effective(agent, setting, snapshot.Platform),
+                    Shadow = setting.ShadowMode,
+                    Code = gate.Allowed ? "" : gate.Code,
+                };
+            }).ToArray(),
+        };
+    }
+
+    /// <summary>The governance state for this request; the development mock and a host without governance use the defaults.</summary>
+    private async Task<GovernanceSnapshot> SnapshotAsync(CancellationToken token) =>
+        governance is null || _options.MockMode ? GovernanceSnapshot.Defaults(agents) : await governance.SnapshotAsync(token);
+
+    private async Task<AiStatus> BaseStatusAsync(AppUser user, CancellationToken token)
     {
         if (control is not null)
         {
@@ -104,6 +140,10 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         if (agent is null) return Reply(400, "unknown_agent", "This page or agent is not registered.");
         if (!AiPermissionPolicy.CanUse(user!, agent)) return Reply(403, "forbidden", "The requested data scope is not available to this account.");
         if (!controlled && !AgentRegistry.Enabled(agent, _options)) return Reply(503, "agent_disabled", "This specialist is disabled.");
+        // The governance gate (Agent Platform foundation, 27 Sep 2026): the platform's ceiling, the agent's own
+        // settings and its circuit breaker, judged before the provider is called or anything is read.
+        var gate = (await SnapshotAsync(token)).Gate(agent, flagEnabled: true, AgentNeed.Run);
+        if (!gate.Allowed) return Reply(503, gate.Code, gate.Reason);
         // Live mode runs only an agent with a connected executor: Operations, the Data Agent (Phase 2), the Communication Agent (Phase 4), the Document & Invoice Agent (Phase 5).
         var isData = agent.Id == DataAgent.Id;
         var isCommunication = agent.Id == CommunicationAgent.Id;

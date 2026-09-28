@@ -10,7 +10,7 @@ public sealed record AiExecutionEvent(string RunId, string UserId, string Role, 
     string Event, string? Tool, string Status, DateTimeOffset At, int? Total = null, int? Returned = null,
     AiReadScope? Scope = null, AiUsage? Usage = null, string? ToolCallId = null, string? Model = null,
     string? View = null, int? Limit = null, string[]? SourceKeys = null,
-    string CorrelationId = "", int? Step = null);
+    string CorrelationId = "", int? Step = null, string? PromptVersion = null);
 public interface IAiExecutionAudit
 {
     bool Ready { get; }

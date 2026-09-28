@@ -25,7 +25,8 @@ public sealed record ManagementExecution(string Code, string Summary, Collaborat
 /// with nothing released, and no summary says one list explains another.
 /// </summary>
 public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IAiExecutionAudit audit, IAiProvider provider,
-    TimeProvider clock, IOptions<AiOptions> options, IOptions<OpenAiOptions>? providerOptions = null, IOperationsControl? control = null)
+    TimeProvider clock, IOptions<AiOptions> options, IOptions<OpenAiOptions>? providerOptions = null, IOperationsControl? control = null,
+    IAiGovernance? governance = null)
     : IAgentExecutor<ManagementExecution>
 {
     public const string Id = "management-agent";
@@ -63,6 +64,18 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
 
     /// <summary>A specialist's enablement as the orchestrator judges it: the Operations pilot by its control switch (or its flag), every other by its flag.</summary>
     private async Task<bool> EnabledAsync(AgentDefinition owner, CancellationToken token)
+    {
+        if (!await SwitchedOnAsync(owner, token)) return false;
+        // A specialist an administrator paused, or one resting on its breaker, is off for a plan's step too.
+        if (governance is null || options.Value.MockMode) return true;
+        _governance ??= await governance.SnapshotAsync(token);
+        return _governance.Gate(owner, flagEnabled: true, AgentNeed.Run).Allowed;
+    }
+
+    /// <summary>The governance state, read once for the run so every step is judged against the same one.</summary>
+    private GovernanceSnapshot? _governance;
+
+    private async Task<bool> SwitchedOnAsync(AgentDefinition owner, CancellationToken token)
     {
         if (owner.Id == "operations-agent")
         {
