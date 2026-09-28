@@ -345,6 +345,7 @@ if (CarrierBillingPhase8Check.Run(args) is int carrierBillingPhase8Exit) return 
 if (CarrierBillingPhase9Check.Run(args) is int carrierBillingPhase9Exit) return carrierBillingPhase9Exit;
 if (CarrierBillingPhase10Check.Run(args) is int carrierBillingPhase10Exit) return carrierBillingPhase10Exit;
 if (CarrierBillingPhase11Check.Run(args) is int carrierBillingPhase11Exit) return carrierBillingPhase11Exit;
+if (CarrierBillingFinalAcceptanceCheck.Run(args) is int carrierBillingAcceptanceExit) return carrierBillingAcceptanceExit;
 
 if (args.Contains("--seed"))
 {
