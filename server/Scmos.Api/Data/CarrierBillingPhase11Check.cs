@@ -75,7 +75,8 @@ public static class CarrierBillingPhase11Check
         Check(!new UnconfiguredFinanceAdapter().Configured, "unknown Production Finance target stays unconfigured");
 
         var configured = Options.Create(new FinanceIntegrationOptions
-            { ReleaseRoles = [Roles.Manager, Roles.AssistantManager] });
+            { ReleaseRoles = [Roles.Admin, Roles.Manager, Roles.AssistantManager,
+                Roles.Supervisor, Roles.Operation] });
         var policy = new FinanceReleasePolicy(configured);
         var manager = new AppUser("manager", "manager@local", "Manager", Roles.Manager, "M-1", "test", true);
         var assistant = new AppUser("assistant", "assistant@local", "Assistant Manager",
@@ -85,10 +86,12 @@ public static class CarrierBillingPhase11Check
         var admin = new AppUser("admin", "admin@local", "Administrator",
             Roles.Admin, "AD-1", "test", true);
         var carrier = new AppUser("carrier", "carrier@local", "Carrier", Roles.Subcontractor, "C-1", "test", true);
+        var operation = new AppUser("operation", "operation@local", "Operation",
+            Roles.Operation, "OP-1", "test", true);
         Check(policy.CanRelease(manager) && policy.CanRelease(assistant)
-            && !policy.CanRelease(supervisor) && !policy.CanRelease(admin)
-            && !policy.CanRelease(carrier),
-            "only Manager and Assistant Manager may release Finance");
+            && policy.CanRelease(supervisor) && policy.CanRelease(admin)
+            && policy.CanRelease(operation) && !policy.CanRelease(carrier),
+            "configured internal roles may release Finance and carrier never may");
 
         Console.WriteLine(failed == 0 ? "Carrier Billing Phase 11 checks passed."
             : $"Carrier Billing Phase 11 checks failed: {failed}");

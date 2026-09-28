@@ -13,7 +13,8 @@ const settings = JSON.parse(read("server/Scmos.Api/appsettings.json"));
 test("Phase 11 uses the approved internal Finance queue and restricted business roles", () => {
   assert.equal(settings.CarrierBilling.FinanceIntegration.Enabled, true);
   assert.equal(settings.CarrierBilling.FinanceIntegration.Adapter, "SCMOS_INTERNAL");
-  assert.deepEqual(settings.CarrierBilling.FinanceIntegration.ReleaseRoles, ["Manager", "Assistant Manager"]);
+  assert.deepEqual(settings.CarrierBilling.FinanceIntegration.ReleaseRoles,
+    ["Administrator", "Manager", "Assistant Manager", "Operation Supervisor", "Operation User"]);
   assert.match(service, /interface IFinanceAdapter/);
   assert.match(service, /class InternalFinanceQueueAdapter/);
   assert.match(service, /SCMOS-FIN-/);

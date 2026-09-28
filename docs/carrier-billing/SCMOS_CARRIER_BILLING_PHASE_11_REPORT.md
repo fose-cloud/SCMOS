@@ -51,12 +51,11 @@ Release, manual retry and reconciliation require all of:
 
 - an authenticated internal account;
 - the existing `ReviewBilling` capability and MFA policy; and
-- either the `Manager` or `Assistant Manager` role explicitly listed in Finance
-  integration configuration.
+- one of the explicitly configured roles: `Administrator`, `Manager`,
+  `Assistant Manager`, `Operation Supervisor` or `Operation User`.
 
-`Operation User`, `Operation Supervisor`, `Administrator`, `Subcontractor`,
-`CS`, `Management` and `Viewer` cannot release, retry or reconcile Finance.
-Carrier accounts also cannot list Finance records. Because carrier payment
+`Subcontractor`, `CS`, `Management` and `Viewer` cannot release, retry or
+reconcile Finance. Carrier accounts also cannot list Finance records. Because carrier payment
 visibility is still a business decision, Carrier Portal and Carrier API keep
 showing the last public state, `READY_FOR_FINANCE`; internal processing,
 rejection, payment, references and close states are not returned. Paged status
@@ -112,8 +111,11 @@ The selected production configuration is:
 ```text
 CarrierBilling__FinanceIntegration__Enabled=true
 CarrierBilling__FinanceIntegration__Adapter=SCMOS_INTERNAL
-CarrierBilling__FinanceIntegration__ReleaseRoles__0=Manager
-CarrierBilling__FinanceIntegration__ReleaseRoles__1=Assistant Manager
+CarrierBilling__FinanceIntegration__ReleaseRoles__0=Administrator
+CarrierBilling__FinanceIntegration__ReleaseRoles__1=Manager
+CarrierBilling__FinanceIntegration__ReleaseRoles__2=Assistant Manager
+CarrierBilling__FinanceIntegration__ReleaseRoles__3=Operation Supervisor
+CarrierBilling__FinanceIntegration__ReleaseRoles__4=Operation User
 ```
 
 The internal adapter is deterministic and performs no external call. Missing or
