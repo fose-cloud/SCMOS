@@ -66,14 +66,29 @@ public static class CarrierBillingPhase11Check
         var result = mock.SubmitAsync(sample, "phase11-check", CancellationToken.None).GetAwaiter().GetResult();
         Check(result.Ok && result.Status == FinanceStatus.Accepted
             && result.ExternalReference == "MOCK-FIN-42", "mock adapter is deterministic and offline");
+        var internalResult = new InternalFinanceQueueAdapter().SubmitAsync(sample,
+            "phase11-internal-check", CancellationToken.None).GetAwaiter().GetResult();
+        Check(internalResult.Ok && internalResult.Status == FinanceStatus.Submitted
+            && internalResult.ExternalReference == "SCMOS-FIN-42"
+            && internalResult.Code == "INTERNAL_QUEUE",
+            "SCMOS internal Finance queue is deterministic and makes no external call");
         Check(!new UnconfiguredFinanceAdapter().Configured, "unknown Production Finance target stays unconfigured");
 
-        var configured = Options.Create(new FinanceIntegrationOptions { ReleaseRoles = [Roles.Manager] });
+        var configured = Options.Create(new FinanceIntegrationOptions
+            { ReleaseRoles = [Roles.Manager, Roles.AssistantManager] });
         var policy = new FinanceReleasePolicy(configured);
         var manager = new AppUser("manager", "manager@local", "Manager", Roles.Manager, "M-1", "test", true);
+        var assistant = new AppUser("assistant", "assistant@local", "Assistant Manager",
+            Roles.AssistantManager, "AM-1", "test", true);
+        var supervisor = new AppUser("supervisor", "supervisor@local", "Supervisor",
+            Roles.Supervisor, "SV-1", "test", true);
+        var admin = new AppUser("admin", "admin@local", "Administrator",
+            Roles.Admin, "AD-1", "test", true);
         var carrier = new AppUser("carrier", "carrier@local", "Carrier", Roles.Subcontractor, "C-1", "test", true);
-        Check(policy.CanRelease(manager) && !policy.CanRelease(carrier),
-            "configured internal role may release Finance and carrier tenant never may");
+        Check(policy.CanRelease(manager) && policy.CanRelease(assistant)
+            && !policy.CanRelease(supervisor) && !policy.CanRelease(admin)
+            && !policy.CanRelease(carrier),
+            "only Manager and Assistant Manager may release Finance");
 
         Console.WriteLine(failed == 0 ? "Carrier Billing Phase 11 checks passed."
             : $"Carrier Billing Phase 11 checks failed: {failed}");

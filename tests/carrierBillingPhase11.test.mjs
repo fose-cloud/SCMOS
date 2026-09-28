@@ -10,11 +10,13 @@ const endpoint = read("server/Scmos.Api/Endpoints/CarrierBillingEndpoints.cs");
 const control = read("app/scmos/screens/BillingControl.tsx");
 const settings = JSON.parse(read("server/Scmos.Api/appsettings.json"));
 
-test("Phase 11 defaults fail closed and does not invent an ERP", () => {
-  assert.equal(settings.CarrierBilling.FinanceIntegration.Enabled, false);
-  assert.equal(settings.CarrierBilling.FinanceIntegration.Adapter, "None");
-  assert.deepEqual(settings.CarrierBilling.FinanceIntegration.ReleaseRoles, []);
+test("Phase 11 uses the approved internal Finance queue and restricted business roles", () => {
+  assert.equal(settings.CarrierBilling.FinanceIntegration.Enabled, true);
+  assert.equal(settings.CarrierBilling.FinanceIntegration.Adapter, "SCMOS_INTERNAL");
+  assert.deepEqual(settings.CarrierBilling.FinanceIntegration.ReleaseRoles, ["Manager", "Assistant Manager"]);
   assert.match(service, /interface IFinanceAdapter/);
+  assert.match(service, /class InternalFinanceQueueAdapter/);
+  assert.match(service, /SCMOS-FIN-/);
   assert.match(service, /class UnconfiguredFinanceAdapter/);
   assert.match(service, /environment\.IsDevelopment\(\).*environment\.IsEnvironment\("Test"\)/s);
 });

@@ -88,15 +88,39 @@ public sealed class MockFinanceAdapter : IFinanceAdapter
 }
 
 /// <summary>
+/// Production-safe manual handoff. The canonical snapshot is already durable
+/// in SCMOS; this adapter marks it submitted to the internal Finance queue and
+/// performs no outbound network call. Finance staff reconcile the response in
+/// Billing Control until an approved ERP contract replaces this adapter.
+/// </summary>
+public sealed class InternalFinanceQueueAdapter : IFinanceAdapter
+{
+    public string Name => "SCMOS_INTERNAL";
+    public bool Configured => true;
+    public Task<FinanceAdapterResult> SubmitAsync(CanonicalFinanceInvoice invoice,
+        string idempotencyKey, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        return Task.FromResult(new FinanceAdapterResult(true, FinanceStatus.Submitted,
+            $"SCMOS-FIN-{invoice.InvoiceId}", "INTERNAL_QUEUE",
+            "Submitted to the SCMOS internal Finance queue", false));
+    }
+}
+
+/// <summary>
 /// Mock can never be selected in Production. The real adapter remains an
 /// explicit extension point rather than a guessed ERP integration.
 /// </summary>
 public sealed class FinanceAdapterResolver(IOptions<FinanceIntegrationOptions> options,
-    IWebHostEnvironment environment, MockFinanceAdapter mock, UnconfiguredFinanceAdapter none)
+    IWebHostEnvironment environment, InternalFinanceQueueAdapter internalQueue,
+    MockFinanceAdapter mock, UnconfiguredFinanceAdapter none)
 {
-    public IFinanceAdapter Current =>
-        string.Equals(options.Value.Adapter, "Mock", StringComparison.OrdinalIgnoreCase)
-        && (environment.IsDevelopment() || environment.IsEnvironment("Test")) ? mock : none;
+    public IFinanceAdapter Current => options.Value.Adapter.Trim().ToUpperInvariant() switch
+    {
+        "SCMOS_INTERNAL" => internalQueue,
+        "MOCK" when environment.IsDevelopment() || environment.IsEnvironment("Test") => mock,
+        _ => none,
+    };
 }
 
 public record FinanceRecordView(long Id, long InvoiceId, string Status, string Adapter,

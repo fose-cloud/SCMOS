@@ -10,8 +10,8 @@ safe Finance integration boundary. It adds:
 - a versioned canonical Finance invoice model;
 - a deterministic release gate that rechecks Online Approval, physical
   Original receipt and blocking validation exceptions at send time;
-- a Finance adapter interface, an unconfigured production adapter and a
-  deterministic offline mock adapter;
+- a Finance adapter interface, the production-safe SCMOS internal Finance
+  queue, an unconfigured fallback and a deterministic offline mock adapter;
 - a transactional outbox committed with the Finance record and Billing status;
 - idempotent, leased delivery with bounded retry and visible dead-letter state;
 - Finance response, rejection, payment and close reconciliation;
@@ -24,10 +24,12 @@ Carrier, Invoice or Finance master was introduced.
 
 ## Finance boundary and safety
 
-The actual LESCHACO Finance/Accounting target and field mapping remain `TBD`.
-This phase therefore does not invent a vendor API, database connection,
-credential, endpoint or vendor DTO. `IFinanceAdapter` is the extension point for
-the confirmed target later.
+The selected target is `SCMOS Internal Finance Queue`. The approved canonical
+snapshot stays in SCMOS and is submitted to a manual Finance work queue without
+an outbound network call, external credential or guessed ERP mapping. Finance
+staff record acceptance, rejection, payment and close in Billing Control.
+`IFinanceAdapter` remains the replacement boundary if LESCHACO later confirms
+an external ERP contract.
 
 The canonical payload contains the reviewed SCMOS identity and evidence:
 
@@ -49,14 +51,17 @@ Release, manual retry and reconciliation require all of:
 
 - an authenticated internal account;
 - the existing `ReviewBilling` capability and MFA policy; and
-- a role explicitly listed in Finance integration configuration.
+- either the `Manager` or `Assistant Manager` role explicitly listed in Finance
+  integration configuration.
 
-There is no guessed default release role. Carrier accounts cannot release,
-retry, reconcile or list Finance records. Because carrier payment visibility is
-still a business decision, Carrier Portal and Carrier API keep showing the last
-public state, `READY_FOR_FINANCE`; internal processing, rejection, payment,
-references and close states are not returned. Paged status filtering applies
-the same masking and cannot be used to infer a private transition.
+`Operation User`, `Operation Supervisor`, `Administrator`, `Subcontractor`,
+`CS`, `Management` and `Viewer` cannot release, retry or reconcile Finance.
+Carrier accounts also cannot list Finance records. Because carrier payment
+visibility is still a business decision, Carrier Portal and Carrier API keep
+showing the last public state, `READY_FOR_FINANCE`; internal processing,
+rejection, payment, references and close states are not returned. Paged status
+filtering applies the same masking and cannot be used to infer a private
+transition.
 
 ## State and reliability
 
@@ -102,18 +107,19 @@ changes.
 
 ## Configuration
 
-The feature is fail-closed by default:
+The selected production configuration is:
 
 ```text
-CarrierBilling__FinanceIntegration__Enabled=false
-CarrierBilling__FinanceIntegration__Adapter=None
-CarrierBilling__FinanceIntegration__ReleaseRoles__0=<explicit approved role>
+CarrierBilling__FinanceIntegration__Enabled=true
+CarrierBilling__FinanceIntegration__Adapter=SCMOS_INTERNAL
+CarrierBilling__FinanceIntegration__ReleaseRoles__0=Manager
+CarrierBilling__FinanceIntegration__ReleaseRoles__1=Assistant Manager
 ```
 
-`Adapter=Mock` is accepted only in Development or the Test environment. It is
-never selected in Production. Until a real adapter and approved roles are
-configured, Production can safely carry the schema and code without sending a
-Finance transaction.
+The internal adapter is deterministic and performs no external call. Missing or
+unknown configuration still resolves to an unconfigured adapter. `Adapter=Mock`
+is accepted only in Development or the Test environment and is never selected
+in Production.
 
 ## Verification
 
@@ -130,10 +136,10 @@ Finance transaction.
 
 No verification call used Production data, a live Finance system or OpenAI.
 
-## Remaining production decision
+## Later external ERP decision
 
-Before enabling this feature, LESCHACO must confirm the target Finance platform,
-authentication/secret storage, vendor mapping, accepted response/callback
-contract, approved release roles and which payment details carriers may see.
-Those decisions belong in the real adapter and controlled configuration; they
-are intentionally not guessed in Phase 11.
+No external ERP is required for this internal workflow. If LESCHACO later wants
+automatic posting, the organization must confirm its Finance platform,
+authentication/secret storage, vendor mapping and response/callback contract.
+Carrier payment visibility also remains a separate business decision. Those
+changes belong behind `IFinanceAdapter`; they do not require rebuilding Billing.

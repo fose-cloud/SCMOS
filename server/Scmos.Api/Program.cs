@@ -131,6 +131,7 @@ builder.Services.AddScoped<OriginalReceiptPolicy>();
 builder.Services.AddScoped<OriginalDocumentService>();
 builder.Services.AddScoped<CarrierBillingControlTowerService>();
 builder.Services.AddScoped<BillingAiService>();
+builder.Services.AddSingleton<InternalFinanceQueueAdapter>();
 builder.Services.AddSingleton<MockFinanceAdapter>();
 builder.Services.AddSingleton<UnconfiguredFinanceAdapter>();
 builder.Services.AddScoped<FinanceAdapterResolver>();
