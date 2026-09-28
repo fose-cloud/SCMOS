@@ -21,6 +21,9 @@ public static class CarrierBillingEndpoints
         string? PackageReference, string? Remark);
     public record AiAnalyzeInput(string? Kind, long? DocumentId);
     public record AiDecisionInput(string? Decision, string? Remark);
+    public record FinanceSendInput(string? IdempotencyKey);
+    public record FinanceReconcileInput(string? Status, string? ExternalReference,
+        string? PaymentReference, DateTimeOffset? PaidAt, string? Reason);
 
     public static void MapCarrierBilling(this IEndpointRouteBuilder routes)
     {
@@ -45,14 +48,16 @@ public static class CarrierBillingEndpoints
         });
 
         group.MapGet("/cases", async (HttpContext context, IUserAccessor users,
-            CarrierBillingService billing, OriginalReceiptPolicy receiptPolicy, CancellationToken token) =>
+            CarrierBillingService billing, OriginalReceiptPolicy receiptPolicy,
+            FinanceIntegrationService finance, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             var result = await billing.ListAsync(user, token);
             return result.Ok
                 ? Results.Json(new { items = result.Items, canReceiveOriginal = receiptPolicy.CanReceive(user),
-                    originalReceiptConfigured = receiptPolicy.IsConfigured })
+                    originalReceiptConfigured = receiptPolicy.IsConfigured,
+                    finance = finance.Availability(user) })
                 : ApiResults.Error(result.Message, StatusCodes.Status403Forbidden);
         });
 
@@ -201,6 +206,49 @@ public static class CarrierBillingEndpoints
                 body.DocumentCount, body.PackageReference ?? "", body.Remark ?? "", token);
             return OriginalReply(result);
         });
+
+        group.MapPost("/finance/invoices/{invoiceId:long}/send", async (long invoiceId,
+            [FromBody] FinanceSendInput body, HttpContext context, IUserAccessor users,
+            FinanceIntegrationService finance, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ReviewBilling) is { } weak) return weak;
+            var correlation = AiAuditRules.CorrelationOf(context.Request.Headers["X-Correlation-ID"].FirstOrDefault(), context.TraceIdentifier);
+            var result = await finance.QueueAsync(user, invoiceId, body.IdempotencyKey ?? "", correlation, token);
+            return FinanceReply(result);
+        });
+
+        group.MapGet("/finance/records", async (HttpContext context, IUserAccessor users,
+            FinanceIntegrationService finance, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            var records = await finance.ListInternalAsync(user, token);
+            return records is null
+                ? ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดู Finance records", 403)
+                : Results.Json(new { items = records });
+        });
+
+        group.MapPost("/finance/records/{recordId:long}/retry", async (long recordId,
+            HttpContext context, IUserAccessor users, FinanceIntegrationService finance,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ReviewBilling) is { } weak) return weak;
+            var correlation = AiAuditRules.CorrelationOf(context.Request.Headers["X-Correlation-ID"].FirstOrDefault(), context.TraceIdentifier);
+            return FinanceReply(await finance.RetryAsync(user, recordId, correlation, token));
+        });
+
+        group.MapPost("/finance/records/{recordId:long}/reconcile", async (long recordId,
+            [FromBody] FinanceReconcileInput body, HttpContext context, IUserAccessor users,
+            FinanceIntegrationService finance, CancellationToken token) =>
+        {
+            var user = users.Current(context); if (user is null) return ApiResults.SignInRequired;
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.ReviewBilling) is { } weak) return weak;
+            var result = await finance.ReconcileAsync(user, recordId, body.Status ?? "",
+                body.ExternalReference ?? "", body.PaymentReference ?? "", body.PaidAt,
+                body.Reason ?? "", token);
+            return FinanceReply(result);
+        });
     }
 
     private static IResult OriginalReply(OriginalDocumentMutation result) => result.Ok
@@ -209,6 +257,15 @@ public static class CarrierBillingEndpoints
         : ApiResults.Error(result.Message, result.Code switch {
             "FORBIDDEN" => 403, "NOT_FOUND" => 404,
             "INVALID_STATUS" or "ALREADY_RECEIVED" or "BILLING_CASE_NOT_FOUND" => 409,
+            _ => 400,
+        });
+
+    private static IResult FinanceReply(FinanceMutation result) => result.Ok
+        ? Results.Json(new { message = result.Message, replayed = result.Replayed, finance = result.Record })
+        : ApiResults.Error(result.Message, result.Code switch {
+            "FORBIDDEN" => 403, "NOT_FOUND" or "OUTBOX_NOT_FOUND" => 404,
+            "DISABLED" or "ADAPTER_NOT_CONFIGURED" or "INVALID_CONFIGURATION" => 503,
+            "NOT_READY" or "INVALID_STATUS" or "INVALID_TRANSITION" or "IDEMPOTENCY_CONFLICT" => 409,
             _ => 400,
         });
 

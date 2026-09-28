@@ -32,6 +32,7 @@ if (!string.IsNullOrWhiteSpace(vault))
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.Section));
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.Section));
 builder.Services.Configure<OpenAiOptions>(builder.Configuration.GetSection(OpenAiOptions.Section));
+builder.Services.Configure<FinanceIntegrationOptions>(builder.Configuration.GetSection(FinanceIntegrationOptions.Section));
 builder.Services.AddAiFoundation(builder.Configuration);
 
 var connectionString = builder.Configuration.GetConnectionString("ScmosDb") ?? "";
@@ -130,6 +131,12 @@ builder.Services.AddScoped<OriginalReceiptPolicy>();
 builder.Services.AddScoped<OriginalDocumentService>();
 builder.Services.AddScoped<CarrierBillingControlTowerService>();
 builder.Services.AddScoped<BillingAiService>();
+builder.Services.AddSingleton<MockFinanceAdapter>();
+builder.Services.AddSingleton<UnconfiguredFinanceAdapter>();
+builder.Services.AddScoped<FinanceAdapterResolver>();
+builder.Services.AddScoped<FinanceReleasePolicy>();
+builder.Services.AddScoped<FinanceIntegrationService>();
+builder.Services.AddHostedService<FinanceOutboxDispatcher>();
 // The Carrier TMS API's door: the key in the header, resolved to one supplier.
 builder.Services.AddScoped<CarrierApiAuth>();
 // What SCMOS tells a carrier's system unasked (phase 4): queued where the
@@ -336,6 +343,7 @@ if (CarrierBillingPhase7Check.Run(args) is int carrierBillingPhase7Exit) return 
 if (CarrierBillingPhase8Check.Run(args) is int carrierBillingPhase8Exit) return carrierBillingPhase8Exit;
 if (CarrierBillingPhase9Check.Run(args) is int carrierBillingPhase9Exit) return carrierBillingPhase9Exit;
 if (CarrierBillingPhase10Check.Run(args) is int carrierBillingPhase10Exit) return carrierBillingPhase10Exit;
+if (CarrierBillingPhase11Check.Run(args) is int carrierBillingPhase11Exit) return carrierBillingPhase11Exit;
 
 if (args.Contains("--seed"))
 {

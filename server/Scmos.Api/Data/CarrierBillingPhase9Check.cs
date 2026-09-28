@@ -96,8 +96,12 @@ public static class CarrierBillingPhase9Check
         Check(CarrierApi.BillingStatuses("")!.Count == 0
             && CarrierApi.BillingStatuses("waiting_carrier_submission, draft")!.SequenceEqual([BillingCaseStatus.WaitingCarrierSubmission, BillingCaseStatus.Draft])
             && CarrierApi.BillingStatuses("PAID") is null
-            && CarrierApi.BillingCaseStatuses.Length == typeof(BillingCaseStatus).GetFields().Length,
-            "billing lists filter on the case statuses there are, and every one of them");
+            && CarrierApi.BillingCaseStatuses.Contains(BillingCaseStatus.ReadyForFinance)
+            && !CarrierApi.BillingCaseStatuses.Contains(BillingCaseStatus.FinanceProcessing)
+            && !CarrierApi.BillingCaseStatuses.Contains(BillingCaseStatus.FinanceRejected)
+            && !CarrierApi.BillingCaseStatuses.Contains(BillingCaseStatus.Paid)
+            && !CarrierApi.BillingCaseStatuses.Contains(BillingCaseStatus.Closed),
+            "billing lists expose every carrier status and keep Finance/payment states internal");
 
         Console.WriteLine(failed == 0 ? "Carrier Billing Phase 9 checks passed."
             : $"Carrier Billing Phase 9 checks failed: {failed}");

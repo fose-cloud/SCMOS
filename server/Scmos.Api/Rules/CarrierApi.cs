@@ -407,7 +407,11 @@ public static class CarrierApi
         return wanted.All(one => BillingCaseStatuses.Contains(one)) ? wanted : null;
     }
 
-    /// <summary>Every status a Billing Case carries (<see cref="BillingCaseStatus"/>).</summary>
+    /// <summary>
+    /// Billing Case statuses exposed to a carrier. Finance processing,
+    /// rejection, payment and close are internal until the business confirms
+    /// which payment information carriers may see.
+    /// </summary>
     public static readonly string[] BillingCaseStatuses =
     [
         BillingCaseStatus.WaitingCarrierSubmission, BillingCaseStatus.Draft, BillingCaseStatus.Validated,

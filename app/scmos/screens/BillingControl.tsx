@@ -13,6 +13,7 @@ export type BillingInvoice = {
   reviewAgeMinutes: number | null; reviewDecisionMinutes: number | null;
   reviewEvents: BillingReviewEvent[];
   originalPackage: OriginalPackage | null;
+  finance?: FinanceRecord | null;
   validationResults: BillingValidation[];
   additionalCharges: BillingCharge[];
 };
@@ -35,6 +36,12 @@ export type BillingAiAnalysis = { id: number; invoiceId: number; billingCaseId: 
   requestedAt: string; decidedBy: string; decidedAt: string | null; decisionRemark: string };
 export type BillingAiAvailability = { enabled: boolean; documentEnabled: boolean; billingEnabled: boolean;
   configured: boolean; mock: boolean };
+export type FinanceRecord = { id: number; invoiceId: number; status: string; adapter: string;
+  idempotencyKey: string; attempts: number; lastAttemptAt: string | null; nextAttemptAt: string | null;
+  externalReference: string; responseCode: string; responseMessage: string; paymentReference: string;
+  paidAt: string | null; reconciledAt: string | null; reconciledBy: string; createdAt: string; updatedAt: string };
+export type FinanceAvailability = { enabled: boolean; adapterConfigured: boolean; adapter: string;
+  releaseConfigured: boolean; canRelease: boolean };
 export type BillingCase = {
   id: number; jobKey: string; jobCode: string; customer: string; category: string;
   supplierId: number; supplier: string; status: string; deliveryCompletedAt: string;
@@ -68,7 +75,7 @@ export type BillingControlTowerView = {
   items: BillingControlTowerItem[]; exceptions: Record<string, number>;
 };
 
-type Filter = "ALL" | "WAITING_CARRIER_SUBMISSION" | "DRAFT" | "SUBCON_REVIEW" | "RETURNED" | "DISPUTED" | "AWAITING_ORIGINAL" | "ORIGINAL_RECEIVED" | "READY_FOR_FINANCE" | "OVERDUE";
+type Filter = "ALL" | "WAITING_CARRIER_SUBMISSION" | "DRAFT" | "SUBCON_REVIEW" | "RETURNED" | "DISPUTED" | "AWAITING_ORIGINAL" | "ORIGINAL_RECEIVED" | "READY_FOR_FINANCE" | "FINANCE_PROCESSING" | "FINANCE_REJECTED" | "PAID" | "CLOSED" | "OVERDUE";
 
 const returnReasons = ["MISSING_DOCUMENT", "WRONG_RATE", "WRONG_VAT", "WRONG_RECEIPT", "UNAPPROVED_CHARGE", "WRONG_JOB", "DUPLICATE", "INVOICE_DATA_ERROR", "OTHER"];
 
@@ -83,6 +90,8 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
   const [remark, setRemark] = useState("");
   const [canReceiveOriginal, setCanReceiveOriginal] = useState(false);
   const [originalReceiptConfigured, setOriginalReceiptConfigured] = useState(true);
+  const [financeAvailability, setFinanceAvailability] = useState<FinanceAvailability>({ enabled: false,
+    adapterConfigured: false, adapter: "UNCONFIGURED", releaseConfigured: false, canRelease: false });
   const [tower, setTower] = useState<BillingControlTowerView | null>(null);
   const [drill, setDrill] = useState<{ label: string; caseIds: number[] } | null>(null);
   const [periodFrom, setPeriodFrom] = useState(() => dateInput(new Date(Date.now() - 89 * 86_400_000)));
@@ -92,17 +101,23 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [response, towerResponse] = await Promise.all([
+      const [response, towerResponse, financeResponse] = await Promise.all([
         apiFetch("/api/carrier-billing/cases", { headers: { accept: "application/json" } }),
         apiFetch(`/api/carrier-billing/control-tower?from=${periodFrom}&to=${periodTo}${supplierFilter ? `&supplierId=${supplierFilter}` : ""}`,
           { headers: { accept: "application/json" } }),
+        apiFetch("/api/carrier-billing/finance/records", { headers: { accept: "application/json" } }),
       ]);
       const body = await response.json().catch(() => ({})) as { items?: BillingCase[]; error?: string;
-        canReceiveOriginal?: boolean; originalReceiptConfigured?: boolean };
+        canReceiveOriginal?: boolean; originalReceiptConfigured?: boolean; finance?: FinanceAvailability };
       if (!response.ok) { onToast(body.error ?? `เปิด Billing Control ไม่สำเร็จ (${response.status})`); return; }
-      setItems(body.items ?? []);
+      const financeBody = await financeResponse.json().catch(() => ({})) as { items?: FinanceRecord[] };
+      const financeByInvoice = new Map((financeResponse.ok ? financeBody.items ?? [] : [])
+        .map((record) => [record.invoiceId, record]));
+      setItems((body.items ?? []).map((item) => item.invoice ? { ...item,
+        invoice: { ...item.invoice, finance: financeByInvoice.get(item.invoice.id) ?? null } } : item));
       setCanReceiveOriginal(body.canReceiveOriginal === true);
       setOriginalReceiptConfigured(body.originalReceiptConfigured !== false);
+      if (body.finance) setFinanceAvailability(body.finance);
       const towerBody = await towerResponse.json().catch(() => ({})) as BillingControlTowerView & { error?: string };
       if (towerResponse.ok) setTower(towerBody);
       else onToast(towerBody.error ?? `เปิด Control Tower ไม่สำเร็จ (${towerResponse.status})`);
@@ -162,6 +177,51 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
       });
       const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
       onToast(body.message ?? body.error ?? (response.ok ? "รับเอกสารต้นฉบับแล้ว" : `บันทึกไม่สำเร็จ (${response.status})`));
+      if (response.ok) await load();
+    } finally { setActing(false); }
+  }
+
+  async function sendFinance() {
+    const invoiceId = selected?.invoice?.id;
+    if (!invoiceId || acting) return;
+    setActing(true);
+    try {
+      const idempotencyKey = `web:${invoiceId}:${crypto.randomUUID()}`;
+      const response = await apiFetch(`/api/carrier-billing/finance/invoices/${invoiceId}/send`, {
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ idempotencyKey }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? (response.ok ? "จัดคิวส่ง Finance แล้ว" : `ส่ง Finance ไม่สำเร็จ (${response.status})`));
+      if (response.ok) await load();
+    } finally { setActing(false); }
+  }
+
+  async function retryFinance(recordId: number) {
+    if (acting) return;
+    setActing(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/finance/records/${recordId}/retry`, {
+        method: "POST", headers: { accept: "application/json" },
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? (response.ok ? "จัดคิว Retry Finance แล้ว" : `Retry ไม่สำเร็จ (${response.status})`));
+      if (response.ok) await load();
+    } finally { setActing(false); }
+  }
+
+  async function reconcileFinance(recordId: number, status: string, externalReference: string,
+    paymentReference: string, paidAt: string, reason: string) {
+    if (acting) return;
+    setActing(true);
+    try {
+      const response = await apiFetch(`/api/carrier-billing/finance/records/${recordId}/reconcile`, {
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ status, externalReference, paymentReference,
+          paidAt: paidAt ? new Date(paidAt).toISOString() : null, reason }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
+      onToast(body.message ?? body.error ?? (response.ok ? "บันทึก Finance reconciliation แล้ว" : `บันทึกไม่สำเร็จ (${response.status})`));
       if (response.ok) await load();
     } finally { setActing(false); }
   }
@@ -230,6 +290,8 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
             <option value="RETURNED">ส่งคืนแก้ไข</option><option value="DISPUTED">ข้อพิพาท</option>
             <option value="AWAITING_ORIGINAL">รอต้นฉบับ</option><option value="ORIGINAL_RECEIVED">รับต้นฉบับแล้ว</option>
             <option value="READY_FOR_FINANCE">พร้อมส่ง Finance</option><option value="OVERDUE">เกิน SLA</option>
+            <option value="FINANCE_PROCESSING">Finance processing</option><option value="FINANCE_REJECTED">Finance rejected</option>
+            <option value="PAID">Paid</option><option value="CLOSED">Closed</option>
           </select>
           <button onClick={() => void load()} disabled={loading}
             style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;background:#fff;color:#0A5C97;border-radius:4px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer")}>รีเฟรช</button>
@@ -266,7 +328,9 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
       </div>
       {selected?.invoice && <ReviewDetail key={selected.invoice.id} item={selected} reasonCode={reasonCode} remark={remark}
         acting={acting} canReceiveOriginal={canReceiveOriginal} originalReceiptConfigured={originalReceiptConfigured}
-        onToast={onToast} onReason={setReasonCode} onRemark={setRemark} onReview={review} onReceiveOriginal={receiveOriginal} />}
+        financeAvailability={financeAvailability} onToast={onToast} onReason={setReasonCode} onRemark={setRemark}
+        onReview={review} onReceiveOriginal={receiveOriginal} onSendFinance={sendFinance}
+        onRetryFinance={retryFinance} onReconcileFinance={reconcileFinance} />}
     </div>
   );
 }
@@ -287,8 +351,9 @@ function Metric({ label, value, detail, tone, onClick }: { label: string; value:
 function Status({ value }: { value: string }) {
   const draft = value === "DRAFT";
   const blocked = value === "BLOCKED" || value === "DISPUTED";
-  const ready = value === "READY_FOR_FINANCE"; const validated = value === "VALIDATED" || value === "ORIGINAL_RECEIVED";
-  const tone = blocked ? ["#B42318", "#FEECE9"] : ready ? ["#16794C", "#DDF5E7"] : validated ? ["#16794C", "#E8F5EE"] : draft ? ["#0A5C97", "#EAF4FC"] : ["#B45309", "#FFF3E0"];
+  const ready = value === "READY_FOR_FINANCE" || value === "PAID" || value === "CLOSED";
+  const finance = value === "FINANCE_PROCESSING"; const validated = value === "VALIDATED" || value === "ORIGINAL_RECEIVED";
+  const tone = blocked || value === "FINANCE_REJECTED" ? ["#B42318", "#FEECE9"] : ready ? ["#16794C", "#DDF5E7"] : finance ? ["#7C3AED", "#F1EAFE"] : validated ? ["#16794C", "#E8F5EE"] : draft ? ["#0A5C97", "#EAF4FC"] : ["#B45309", "#FFF3E0"];
   return <span style={css(`display:inline-block;padding:3px 7px;border-radius:3px;font-size:10px;font-weight:700;color:${tone[0]};background:${tone[1]}`)}>
     {value}
   </span>;
@@ -303,13 +368,18 @@ function SlaLabel({ item }: { item: BillingCase }) {
 }
 
 function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, originalReceiptConfigured,
-  onToast, onReason, onRemark, onReview, onReceiveOriginal }: {
+  financeAvailability, onToast, onReason, onRemark, onReview, onReceiveOriginal,
+  onSendFinance, onRetryFinance, onReconcileFinance }: {
   item: BillingCase; reasonCode: string; remark: string; acting: boolean;
   canReceiveOriginal: boolean; originalReceiptConfigured: boolean;
+  financeAvailability: FinanceAvailability;
   onToast: (message: string) => void;
   onReason: (value: string) => void; onRemark: (value: string) => void;
   onReview: (action: "APPROVE_ONLINE" | "RETURN_TO_CARRIER" | "RAISE_DISPUTE") => void;
   onReceiveOriginal: (receivedAt: string, documentCount: number, packageReference: string, remark: string) => void;
+  onSendFinance: () => void; onRetryFinance: (recordId: number) => void;
+  onReconcileFinance: (recordId: number, status: string, externalReference: string,
+    paymentReference: string, paidAt: string, reason: string) => void;
 }) {
   const invoice = item.invoice!;
   const actionable = invoice.status === "SUBCON_REVIEW";
@@ -318,6 +388,11 @@ function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, or
   const [documentCount, setDocumentCount] = useState("1");
   const [receiptReference, setReceiptReference] = useState("");
   const [receiptRemark, setReceiptRemark] = useState("");
+  const [financeStatus, setFinanceStatus] = useState("ACCEPTED");
+  const [financeReference, setFinanceReference] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paidAt, setPaidAt] = useState(() => localDateTimeInput(new Date()));
+  const [financeReason, setFinanceReason] = useState("");
   const [aiItems, setAiItems] = useState<BillingAiAnalysis[]>([]);
   const [aiAvailability, setAiAvailability] = useState<BillingAiAvailability | null>(null);
   const [aiKind, setAiKind] = useState("BILLING_RISK");
@@ -452,7 +527,7 @@ function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, or
         <Action label="เปิดข้อพิพาท" tone="#B42318" disabled={acting} onClick={() => onReview("RAISE_DISPUTE")} />
       </div>
     </div>}
-    {(invoice.status === "AWAITING_ORIGINAL" || invoice.status === "ORIGINAL_RECEIVED" || invoice.status === "READY_FOR_FINANCE") &&
+    {(["AWAITING_ORIGINAL", "ORIGINAL_RECEIVED", "READY_FOR_FINANCE", "FINANCE_PROCESSING", "FINANCE_REJECTED", "PAID", "CLOSED"].includes(invoice.status)) &&
       <div style={css("border-top:1px solid #E7EDF3;padding-top:12px;display:grid;gap:9px") }>
         <div style={css("font-size:11px;font-weight:700;color:#334155")}>Original Document Control</div>
         <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px") }>
@@ -483,6 +558,61 @@ function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, or
         {invoice.status === "AWAITING_ORIGINAL" && !originalReceiptConfigured && <div style={css("font-size:10.5px;color:#B42318") }>
           ยังไม่ได้กำหนดบทบาทผู้รับเอกสารต้นฉบับใน CarrierBilling configuration
         </div>}
+      </div>}
+    {(["READY_FOR_FINANCE", "FINANCE_PROCESSING", "FINANCE_REJECTED", "PAID", "CLOSED"].includes(invoice.status)) &&
+      <div style={css("border-top:1px solid #E7EDF3;padding-top:12px;display:grid;gap:9px") }>
+        <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap") }>
+          <div style={css("font-size:11px;font-weight:700;color:#334155")}>Phase 11 · Finance Integration</div>
+          <span style={css(`font-size:9.5px;padding:2px 6px;border-radius:3px;color:${financeAvailability.enabled ? "#16794C" : "#64748B"};background:${financeAvailability.enabled ? "#E8F5EE" : "#F1F5F9"}`)}>
+            {financeAvailability.enabled ? financeAvailability.adapter : "DISABLED"}
+          </span>
+          <span style={muted}>Canonical payload · transactional outbox · idempotent retry</span>
+        </div>
+        {invoice.finance ? <>
+          <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px") }>
+            <Detail label="Finance status" value={invoice.finance.status} />
+            <Detail label="Adapter / Attempts" value={`${invoice.finance.adapter} · ${invoice.finance.attempts}`} />
+            <Detail label="Finance reference" value={invoice.finance.externalReference || "—"} />
+            <Detail label="Payment reference" value={invoice.finance.paymentReference || "—"} />
+            <Detail label="Last attempt" value={dateTime(invoice.finance.lastAttemptAt ?? "")} />
+            <Detail label="Reconciled" value={dateTime(invoice.finance.reconciledAt ?? "")} />
+          </div>
+          {invoice.finance.responseMessage && <div style={muted}>{invoice.finance.responseCode} · {invoice.finance.responseMessage}</div>}
+          {invoice.finance.status === "FAILED" && financeAvailability.canRelease &&
+            <div><Action label="Retry Finance" tone="#B45309" disabled={acting} onClick={() => onRetryFinance(invoice.finance!.id)} /></div>}
+          {financeAvailability.canRelease && ["SUBMITTED", "PROCESSING", "ACCEPTED", "PAID"].includes(invoice.finance.status) &&
+            <div style={css("display:grid;gap:8px;background:#F7F9FB;border:1px solid #E7EDF3;border-radius:5px;padding:9px") }>
+              <div style={css("font-size:10.5px;font-weight:700;color:#334155")}>Finance response / reconciliation</div>
+              <div style={css("display:grid;grid-template-columns:150px minmax(180px,1fr) minmax(180px,1fr);gap:8px") }>
+                <select value={financeStatus} onChange={(event) => setFinanceStatus(event.target.value)} style={control}>
+                  <option value="ACCEPTED">ACCEPTED</option><option value="REJECTED">REJECTED</option>
+                  <option value="PAID">PAID</option><option value="CLOSED">CLOSED</option>
+                </select>
+                <input value={financeReference} onChange={(event) => setFinanceReference(event.target.value)}
+                  placeholder="Finance reference" style={control} />
+                <input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)}
+                  placeholder="Payment reference" style={control} />
+              </div>
+              <div style={css("display:grid;grid-template-columns:190px minmax(220px,1fr) auto;gap:8px") }>
+                <input type="datetime-local" value={paidAt} onChange={(event) => setPaidAt(event.target.value)}
+                  disabled={financeStatus !== "PAID"} style={control} />
+                <input value={financeReason} onChange={(event) => setFinanceReason(event.target.value)}
+                  placeholder="Response / reconciliation remark" style={control} />
+                <Action label="บันทึกผล Finance" tone="#0A5C97" disabled={acting || !financeReference.trim()
+                  || (financeStatus === "PAID" && !paidAt)}
+                  onClick={() => onReconcileFinance(invoice.finance!.id, financeStatus, financeReference,
+                    paymentReference, paidAt, financeReason)} />
+              </div>
+            </div>}
+        </> : <>
+          {financeAvailability.canRelease && financeAvailability.enabled && financeAvailability.adapterConfigured
+            ? <div><Action label="ส่งเข้า Finance" tone="#16794C" disabled={acting} onClick={onSendFinance} /></div>
+            : <div style={css("font-size:10.5px;color:#B42318")}>{!financeAvailability.enabled
+                ? "Finance Integration feature flag ยังปิดอยู่"
+                : !financeAvailability.adapterConfigured ? "ยังไม่ได้กำหนด Finance/ERP adapter"
+                : !financeAvailability.releaseConfigured ? "ยังไม่ได้กำหนดบทบาทผู้ส่ง Finance"
+                : "บัญชีนี้ไม่มีสิทธิ์ส่ง Finance"}</div>}
+        </>}
       </div>}
     <div>
       <div style={css("font-size:11px;font-weight:700;color:#334155;margin-bottom:5px")}>Review history</div>

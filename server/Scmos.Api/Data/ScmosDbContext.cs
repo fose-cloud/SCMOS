@@ -81,6 +81,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<BillingReviewEvent> BillingReviewEvents => Set<BillingReviewEvent>();
     public DbSet<BillingAiAnalysis> BillingAiAnalyses => Set<BillingAiAnalysis>();
     public DbSet<OriginalDocumentPackage> OriginalDocumentPackages => Set<OriginalDocumentPackage>();
+    public DbSet<BillingFinanceRecord> BillingFinanceRecords => Set<BillingFinanceRecord>();
+    public DbSet<IntegrationOutboxEvent> IntegrationOutbox => Set<IntegrationOutboxEvent>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<SupplierAlias> SupplierAliases => Set<SupplierAlias>();
@@ -134,6 +136,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
         CarrierBillingModel.Configure(model);
         CarrierBillingValidationModel.Configure(model);
         CarrierBillingOriginalModel.Configure(model);
+        CarrierBillingFinanceModel.Configure(model);
         model.Entity<OperationJob>(job =>
         {
             job.ToTable("operation_jobs");

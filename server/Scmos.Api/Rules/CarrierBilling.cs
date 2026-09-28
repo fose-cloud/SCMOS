@@ -12,6 +12,10 @@ public static class BillingCaseStatus
     public const string AwaitingOriginal = "AWAITING_ORIGINAL";
     public const string OriginalReceived = "ORIGINAL_RECEIVED";
     public const string ReadyForFinance = "READY_FOR_FINANCE";
+    public const string FinanceProcessing = "FINANCE_PROCESSING";
+    public const string FinanceRejected = "FINANCE_REJECTED";
+    public const string Paid = "PAID";
+    public const string Closed = "CLOSED";
 }
 
 public static class BillingInvoiceStatus
@@ -25,6 +29,34 @@ public static class BillingInvoiceStatus
     public const string AwaitingOriginal = "AWAITING_ORIGINAL";
     public const string OriginalReceived = "ORIGINAL_RECEIVED";
     public const string ReadyForFinance = "READY_FOR_FINANCE";
+    public const string FinanceProcessing = "FINANCE_PROCESSING";
+    public const string FinanceRejected = "FINANCE_REJECTED";
+    public const string Paid = "PAID";
+    public const string Closed = "CLOSED";
+}
+
+/// <summary>
+/// Finance and payment states are internal until the business confirms which
+/// payment information a carrier may see. Carrier projections keep the last
+/// public state, including when filtering a paged API list.
+/// </summary>
+public static class CarrierBillingVisibility
+{
+    private static readonly string[] FinanceInternal =
+    [
+        BillingCaseStatus.FinanceProcessing, BillingCaseStatus.FinanceRejected,
+        BillingCaseStatus.Paid, BillingCaseStatus.Closed,
+    ];
+
+    public static bool IsFinanceInternal(string status) => FinanceInternal.Contains(status, StringComparer.Ordinal);
+
+    public static string PublicStatus(string status) => IsFinanceInternal(status)
+        ? BillingCaseStatus.ReadyForFinance : status;
+
+    public static IReadOnlyCollection<string> StorageStatuses(IReadOnlyCollection<string> publicStatuses) =>
+        publicStatuses.Contains(BillingCaseStatus.ReadyForFinance, StringComparer.Ordinal)
+            ? publicStatuses.Concat(FinanceInternal).Distinct(StringComparer.Ordinal).ToArray()
+            : publicStatuses;
 }
 
 public static class BillingValidationCategory

@@ -126,7 +126,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         var cases = await db.BillingCases.AsNoTracking()
             .Where(row => row.SupplierId == supplierId)
             .OrderByDescending(row => row.DeliveryCompletedAt).Take(1000).ToListAsync(token);
-        return (true, "", await DescribeAsync(cases, token));
+        return (true, "", await DescribeCarrierAsync(cases, token));
     }
 
     /// <summary>
@@ -139,11 +139,15 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         IReadOnlyCollection<string>? statuses, int page, int size, CancellationToken token)
     {
         var query = db.BillingCases.AsNoTracking().Where(row => row.SupplierId == supplierId);
-        if (statuses is { Count: > 0 }) query = query.Where(row => statuses.Contains(row.Status));
+        if (statuses is { Count: > 0 })
+        {
+            var storageStatuses = CarrierBillingVisibility.StorageStatuses(statuses);
+            query = query.Where(row => storageStatuses.Contains(row.Status));
+        }
         var total = await query.CountAsync(token);
         var cases = await query.OrderByDescending(row => row.DeliveryCompletedAt).ThenByDescending(row => row.Id)
             .Skip((page - 1) * size).Take(size).ToListAsync(token);
-        return (await DescribeAsync(cases, token), total);
+        return (await DescribeCarrierAsync(cases, token), total);
     }
 
     public async Task<BillingMutation> CreateDraftAsync(AppUser user, long caseId, CancellationToken token)
@@ -307,7 +311,22 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         var billingCase = await db.BillingCases.AsNoTracking().FirstOrDefaultAsync(row =>
             row.Id == caseId.Value && row.SupplierId == supplierId, token);
         if (billingCase is null) return null;
-        return (await DescribeAsync([billingCase], token)).SingleOrDefault();
+        return (await DescribeCarrierAsync([billingCase], token)).SingleOrDefault();
+    }
+
+    /// <summary>
+    /// Payment visibility for carriers is still a business TBD. Carrier Portal
+    /// and Carrier API therefore keep the last approved public state and never
+    /// disclose processing, rejection, payment or close information.
+    /// </summary>
+    private async Task<IReadOnlyList<BillingCaseView>> DescribeCarrierAsync(
+        IReadOnlyList<BillingCase> cases, CancellationToken token)
+    {
+        var views = await DescribeAsync(cases, token);
+        return views.Select(row => CarrierBillingVisibility.IsFinanceInternal(row.Status)
+            ? row with { Status = BillingCaseStatus.ReadyForFinance,
+                Invoice = row.Invoice is null ? null : row.Invoice with { Status = BillingInvoiceStatus.ReadyForFinance } }
+            : row).ToList();
     }
 
     private async Task<IReadOnlyList<BillingCaseView>> DescribeAsync(
