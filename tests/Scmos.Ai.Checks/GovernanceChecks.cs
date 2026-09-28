@@ -64,8 +64,9 @@ static class GovernanceChecks
                     is "autonomy_insufficient" or "shadow_mode"),
             "foundation: only the Operations Agent executes with approval by default — its change pilot, as before");
         check(AgentGovernance.ExecutionEnabled(platform), "foundation: the platform's execution switch starts on, as the pilot's own switches decided");
-        check(agents.All.Where(agent => agent.DefaultShadow).Select(agent => agent.Id).OrderBy(id => id).SequenceEqual(["otd-agent", "validation-agent"]),
-            "foundation: only the new operational agents start in shadow; the eleven that were live are unchanged");
+        check(agents.All.Where(agent => agent.DefaultShadow).Select(agent => agent.Id).OrderBy(id => id)
+                .SequenceEqual(["otd-agent", "validation-agent", "vendor-agent"]),
+            "foundation: only the operational agents new to the platform start in shadow — OTD, Validation, and the Carrier Agent under vendor-agent, never connected before; the ten that were live are unchanged");
 
         /* ---------------- autonomy, shadow, status, the switches ---------------- */
         var lifted = AgentGovernance.Default(data) with { Autonomy = AiAutonomy.RuleGovernedAutonomous };

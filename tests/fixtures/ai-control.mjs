@@ -4,7 +4,7 @@ export const status = {
   liveToolsReady: true, writeToolsReady: false, auditReady: true,
   agents: [
     { id: "operations-agent", name: "Operations Agent", enabled: true, connected: true },
-    { id: "vendor-agent", name: "Vendor Agent", enabled: false, connected: false },
+    { id: "vendor-agent", name: "Carrier Agent", enabled: false, connected: false },
   ],
 };
 const figure = (id, value, note = "FIXTURE ONLY · ข้อมูลทดสอบ ไม่ใช่ข้อมูลงานจริง") =>

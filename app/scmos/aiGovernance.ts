@@ -18,6 +18,8 @@ export type AgentGovernance = {
   runs24h: number; failures24h: number; failureRate24h: number | null; consecutiveFailures: number;
   lastSuccess: string | null; lastFailure: string | null; averageMs: number | null; breaker: string;
   usage: AgentUsage;
+  /** Decisions in 30 days where a person's action can be set against the agent's, and how many agreed. */
+  compared30d: number; matched30d: number;
 };
 
 export type PlatformGovernance = {
@@ -83,7 +85,14 @@ function agent(v: unknown): v is AgentGovernance {
     && (v.failureRate24h === null || typeof v.failureRate24h === "number" && v.failureRate24h >= 0 && v.failureRate24h <= 1)
     && whole(v.consecutiveFailures) && when(v.lastSuccess) && when(v.lastFailure)
     && (v.averageMs === null || whole(v.averageMs)) && ["Closed", "Degraded", "Open", "HalfOpen"].includes(String(v.breaker))
-    && usage(v.usage);
+    && usage(v.usage) && whole(v.compared30d) && whole(v.matched30d) && Number(v.matched30d) <= Number(v.compared30d);
+}
+
+/** "8/10 (80%)", or a dash while nothing has been compared. */
+export function agreementText(agent: Pick<AgentGovernance, "compared30d" | "matched30d">): string {
+  return agent.compared30d > 0
+    ? `${agent.matched30d}/${agent.compared30d} (${Math.round(agent.matched30d * 100 / agent.compared30d)}%)`
+    : "—";
 }
 
 export function parseGovernance(v: unknown): GovernanceReport {

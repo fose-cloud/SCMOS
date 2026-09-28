@@ -109,14 +109,23 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
             .Select(job => new { job.Trucker, job.Data })
             .ToListAsync(token);
 
-        if (rows.Count == 0) return [];
+        return Rank(rows.Select(row => (row.Trucker, JobRecord.From(row.Data))));
+    }
 
+    /// <summary>
+    /// The ranking itself, over a customer's jobs of one category that name a
+    /// carrier — pure, so the Carrier Agent reads the very order this workflow
+    /// enforces (one rule, read in two places; Agent Platform, 28 Sep 2026).
+    /// </summary>
+    public static IReadOnlyList<CarrierPriority> Rank(IEnumerable<(string Trucker, JobRecord? Record)> rows)
+    {
         var scored = rows
+            .Where(row => row.Trucker.Trim().Length > 0)
             .GroupBy(row => row.Trucker.Trim().ToUpperInvariant())
             .Where(group => group.Key.Length > 0)
             .Select(group =>
             {
-                var records = group.Select(row => JobRecord.From(row.Data)).Where(r => r is not null).ToList();
+                var records = group.Select(row => row.Record).Where(r => r is not null).ToList();
                 var measurable = records.Count(r => JobRules.IsMeasurable(r!));
                 var onTime = records.Count(r => JobRules.IsOnTime(r!));
                 var rated = measurable >= MinimumSample;
@@ -497,20 +506,32 @@ public class WorkflowService(ScmosDbContext db, JobRegisterCache register, Carri
 
     private async Task<int?> ResolveSupplierIdAsync(string carrier, CancellationToken token)
     {
-        var key = CarrierDirectory.Lookup.Key(carrier);
-        if (key.Length == 0) return null;
-
+        if (CarrierDirectory.Lookup.Key(carrier).Length == 0) return null;
         var suppliers = await db.Suppliers.AsNoTracking()
             .Where(row => row.IsCarrier)
             .Select(row => new { row.Id, row.Name, row.Code })
             .ToListAsync(token);
-        var direct = suppliers.FirstOrDefault(row =>
-            CarrierDirectory.Lookup.Key(row.Name) == key || CarrierDirectory.Lookup.Key(row.Code) == key);
-        if (direct is not null) return direct.Id;
-
         var aliases = await db.SupplierAliases.AsNoTracking()
             .Select(row => new { row.SupplierId, row.Alias }).ToListAsync(token);
-        return aliases.FirstOrDefault(row => CarrierDirectory.Lookup.Key(row.Alias) == key)?.SupplierId;
+        return ResolveSupplier(carrier, suppliers.Select(row => (row.Id, row.Name, row.Code)),
+            aliases.Select(row => (row.SupplierId, row.Alias)));
+    }
+
+    /// <summary>
+    /// Which registered carrier a register spelling means: by name or code, then
+    /// by alias — the rule a request has to pass, pure so the Carrier Agent can
+    /// tell in advance who could not be asked.
+    /// </summary>
+    public static int? ResolveSupplier(string carrier, IEnumerable<(int Id, string Name, string Code)> carriers,
+        IEnumerable<(int SupplierId, string Alias)> aliases)
+    {
+        var key = CarrierDirectory.Lookup.Key(carrier);
+        if (key.Length == 0) return null;
+        foreach (var row in carriers)
+            if (CarrierDirectory.Lookup.Key(row.Name) == key || CarrierDirectory.Lookup.Key(row.Code) == key) return row.Id;
+        foreach (var row in aliases)
+            if (CarrierDirectory.Lookup.Key(row.Alias) == key) return row.SupplierId;
+        return null;
     }
 
     private static void ResetAssignment(OperationJob job, string by, DateTimeOffset now)

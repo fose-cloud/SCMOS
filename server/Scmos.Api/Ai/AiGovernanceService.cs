@@ -76,7 +76,10 @@ public sealed record AgentGovernanceView(string Id, string Name, bool FlagEnable
     int EffectiveAutonomy, bool ShadowMode, string Status, string EffectiveStatus, string Reason, int Revision,
     string UpdatedBy, DateTimeOffset? UpdatedAt, bool Stored, int Runs24h, int Failures24h, double? FailureRate24h,
     int ConsecutiveFailures, DateTimeOffset? LastSuccess, DateTimeOffset? LastFailure, int? AverageMs, string Breaker,
-    AgentUsageView Usage);
+    AgentUsageView Usage,
+    // The shadow comparison autonomy is raised on (§66): decisions answered or acted on in 30 days
+    // where what a person did can be set against what the agent said, and how many agreed.
+    int Compared30d = 0, int Matched30d = 0);
 
 public sealed record PlatformGovernanceView(int Autonomy, bool ExecutionEnabled, bool Stopped, string Reason, int Revision,
     string UpdatedBy, DateTimeOffset? UpdatedAt, bool Stored);
@@ -154,6 +157,11 @@ public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents,
                     Out24 = group.Sum(row => row.At >= since ? (long)(row.OutputTokens ?? 0) : 0L),
                 })
                 .ToListAsync(token);
+            var agreement = await db.AiDecisions.AsNoTracking()
+                .Where(row => row.HumanMatches != null && row.DecidedAt >= since30)
+                .GroupBy(row => row.AgentId)
+                .Select(group => new { AgentId = group.Key, Compared = group.Count(), Matched = group.Count(row => row.HumanMatches == true) })
+                .ToDictionaryAsync(row => row.AgentId, row => (row.Compared, row.Matched), token);
 
             var views = agents.All.Select(agent =>
             {
@@ -179,7 +187,8 @@ public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents,
                     setting.UpdatedBy, setting.UpdatedAt, setting.Stored, health.Runs, health.Failures, health.FailureRate,
                     health.ConsecutiveFailures, health.LastSuccess, health.LastFailure, health.AverageMs, health.Breaker.ToString(),
                     new AgentUsageView(mine.Sum(row => row.In24), mine.Sum(row => row.Out24), CostOf(month: false),
-                        mine.Sum(row => row.In30), mine.Sum(row => row.Out30), CostOf(month: true)));
+                        mine.Sum(row => row.In30), mine.Sum(row => row.Out30), CostOf(month: true)),
+                    agreement.GetValueOrDefault(agent.Id).Compared, agreement.GetValueOrDefault(agent.Id).Matched);
             }).ToList();
 
             return new GovernanceReport(true, CanManage(user), PlatformView(platform), views, AiBuild.PromptVersion,

@@ -1,8 +1,12 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Scmos.Api.Ai.Carrier;
 using Scmos.Api.Ai.Otd;
 using Scmos.Api.Ai.Validation;
 using Scmos.Api.Data;
+using Scmos.Api.Rules;
+using Scmos.Api.Services;
 
 namespace Scmos.Api.Ai;
 
@@ -26,12 +30,18 @@ public sealed record ScanSummary(string AgentId, string Code, int Jobs, int Find
 /// gone is resolved, and one a person already answered is not raised again
 /// until it changes.
 /// </para>
+///
+/// <para>
+/// For the Carrier Agent a closed decision also records what a person did
+/// instead: the first carrier asked after it was raised (or, with no request,
+/// the carrier now on the job), and whether that was the one recommended.
+/// </para>
 /// </summary>
 public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, AgentRegistry agents, IAiGovernance governance,
-    AiDecisionLog decisions, IOptions<AiOptions> options, TimeProvider clock, ILogger<AgentScanner> log)
+    AiDecisionLog decisions, SupplierService suppliers, IOptions<AiOptions> options, TimeProvider clock, ILogger<AgentScanner> log)
 {
     /// <summary>The rule-first agents this pass runs, in order.</summary>
-    public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id];
+    public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id];
 
     public async Task<IReadOnlyList<ScanSummary>> ScanAsync(CancellationToken token, string? only = null)
     {
@@ -54,19 +64,72 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
         return summaries;
     }
 
-    private AgentResult? Assess(string agentId, CachedJobRow row, DateTimeOffset now) => agentId switch
+    /// <summary>The agent's judgement of one row, with whatever it needs read once for the whole pass.</summary>
+    private async Task<Func<CachedJobRow, AgentResult?>> AssessorAsync(string agentId, JobRegisterSnapshot jobs,
+        DateTimeOffset now, CancellationToken token)
     {
-        OtdAgent.Id => OtdAgent.Assess(row, now, options.Value.OtdWatchMinutes, options.Value.OtdHighMinutes),
-        ValidationAgent.Id => ValidationAgent.Assess(row, now),
-        _ => null,
-    };
+        var ai = options.Value;
+        switch (agentId)
+        {
+            case OtdAgent.Id: return row => OtdAgent.Assess(row, now, ai.OtdWatchMinutes, ai.OtdHighMinutes);
+            case ValidationAgent.Id: return row => ValidationAgent.Assess(row, now);
+            case CarrierAgent.Id:
+                var context = await CarrierContextAsync(jobs, now, token);
+                return row => CarrierAgent.Assess(row, now, context);
+            default: return _ => null;
+        }
+    }
+
+    /// <summary>
+    /// The requests already made for the jobs in the Carrier Agent's scope, the
+    /// workflow's order for their customers — ranked from this same register
+    /// read, over the same rows <see cref="WorkflowService.PriorityForAsync"/>
+    /// selects — and the Supplier Register as the workflow resolves it.
+    /// </summary>
+    private async Task<CarrierContext> CarrierContextAsync(JobRegisterSnapshot jobs, DateTimeOffset now, CancellationToken token)
+    {
+        var today = DateOnly.FromDateTime(now.ToOffset(Formats.Zone).DateTime);
+        var scope = jobs.Rows.Where(row => row.Key.Length > 0 && row.Record is { } job && CarrierAgent.InScope(job, [], today)).ToList();
+
+        var attempts = new Dictionary<string, IReadOnlyList<Attempt>>(StringComparer.Ordinal);
+        foreach (var chunk in scope.Select(row => row.Key).Chunk(500))
+        {
+            var asked = await db.SupplierRequests.AsNoTracking().Where(one => chunk.Contains(one.JobKey))
+                .OrderBy(one => one.Rank).ThenBy(one => one.Id)
+                .Select(one => new { one.JobKey, one.Carrier, one.Outcome, one.Rank }).ToListAsync(token);
+            foreach (var group in asked.GroupBy(one => one.JobKey, StringComparer.Ordinal))
+                attempts[group.Key] = group.Select(one => new Attempt(one.Carrier, one.Outcome, one.Rank)).ToList();
+        }
+
+        static (string, string) Of(JobRecord job) => (Formats.Clean(job.Customer).ToUpperInvariant(), Formats.Clean(job.Cat).ToUpperInvariant());
+        var wanted = scope.Select(row => Of(row.Record!)).Where(pair => pair.Item1.Length > 0).ToHashSet();
+        var priority = jobs.Rows
+            .Where(row => row.Record is { } job && Formats.Clean(row.Trucker).Length > 0 && wanted.Contains(Of(job)))
+            .GroupBy(row => Of(row.Record!))
+            .ToDictionary(group => (group.Key.Item1, group.Key.Item2),
+                group => WorkflowService.Rank(group.Select(row => (row.Trucker, row.Record))));
+
+        IReadOnlyList<SupplierSummary> register = scope.Count == 0 ? [] : await suppliers.ListAsync(null, null, token);
+        var byId = register.ToDictionary(one => one.Id);
+        var carriers = register.Where(one => one.IsCarrier).Select(one => (one.Id, one.Name, one.Code)).ToList();
+        var aliases = register.SelectMany(one => one.Aliases.Select(alias => (one.Id, alias))).ToList();
+        var resolved = new Dictionary<string, SupplierSummary?>(StringComparer.OrdinalIgnoreCase);
+        SupplierSummary? Supplier(string name)
+        {
+            if (resolved.TryGetValue(name, out var known)) return known;
+            var id = WorkflowService.ResolveSupplier(name, carriers, aliases);
+            return resolved[name] = id is { } found && byId.TryGetValue(found, out var summary) ? summary : null;
+        }
+        return new CarrierContext(priority, attempts, Supplier);
+    }
 
     private async Task<ScanSummary> PassAsync(AgentDefinition agent, JobRegisterSnapshot jobs, DateTimeOffset now,
         bool shadow, AiAutonomy autonomy, CancellationToken token)
     {
+        var assess = await AssessorAsync(agent.Id, jobs, now, token);
         var findings = new Dictionary<string, (AgentResult Result, string Owner)>(StringComparer.Ordinal);
         foreach (var row in jobs.Rows)
-            if (Assess(agent.Id, row, now) is { } result) findings[result.EntityId] = (result, row.Record?.OpId ?? "");
+            if (assess(row) is { } result) findings[result.EntityId] = (result, row.Record?.OpId ?? "");
 
         var open = await db.AiDecisions.Where(one => one.AgentId == agent.Id && one.Status == AiDecisionLog.Open).ToListAsync(token);
         var openByEntity = open.GroupBy(one => one.EntityId, StringComparer.Ordinal)
@@ -86,12 +149,14 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
         }
 
         int created = 0, unchanged = 0, superseded = 0, resolved = 0, refused = 0;
+        var closed = new List<AiDecision>();
         void Close(AiDecision row, string status, string note)
         {
             row.Status = status;
             row.DecidedAt = now;
             row.DecidedBy = "system";
             row.OverrideReason = note;
+            closed.Add(row);
         }
         foreach (var (key, (result, owner)) in findings)
         {
@@ -117,6 +182,7 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
             if (findings.ContainsKey(key)) continue;
             foreach (var row in rows) { Close(row, AiDecisionLog.Resolved, "รอบตรวจใหม่ไม่พบประเด็นนี้แล้ว"); resolved++; }
         }
+        if (agent.Id == CarrierAgent.Id && closed.Count > 0) await ObserveCarrierChoicesAsync(closed, jobs, token);
         try { await db.SaveChangesAsync(token); }
         catch (DbUpdateConcurrencyException)
         {
@@ -130,6 +196,43 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
             log.LogInformation("{Agent}: {Created} new, {Superseded} superseded, {Resolved} resolved, {Unchanged} unchanged over {Jobs} jobs",
                 agent.Id, created, superseded, resolved, unchanged, jobs.Rows.Count);
         return new ScanSummary(agent.Id, "ok", jobs.Rows.Count, findings.Count, created, unchanged, superseded, resolved, refused);
+    }
+
+    /// <summary>
+    /// The shadow comparison for closed Carrier decisions: the first carrier a
+    /// person asked after the decision was raised — or, when the job was given
+    /// a carrier without a request, the carrier on it now — and whether that is
+    /// the carrier the agent said to ask first. A decision nobody acted on
+    /// records nothing.
+    /// </summary>
+    private async Task ObserveCarrierChoicesAsync(IReadOnlyList<AiDecision> closed, JobRegisterSnapshot jobs, CancellationToken token)
+    {
+        var keys = closed.Select(one => one.EntityId).Distinct(StringComparer.Ordinal).ToList();
+        var requests = new List<(string JobKey, string Carrier, string By, DateTimeOffset At, long Id)>();
+        foreach (var chunk in keys.Chunk(500))
+            requests.AddRange((await db.SupplierRequests.AsNoTracking().Where(one => chunk.Contains(one.JobKey))
+                .Select(one => new { one.JobKey, one.Carrier, one.RequestedBy, one.RequestedAt, one.Id }).ToListAsync(token))
+                .Select(one => (one.JobKey, one.Carrier, one.RequestedBy, one.RequestedAt, one.Id)));
+        var rows = jobs.Rows.Where(row => row.Key.Length > 0).GroupBy(row => row.Key, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        foreach (var decision in closed)
+        {
+            var first = requests.Where(one => one.JobKey == decision.EntityId && one.At >= decision.CreatedAt)
+                .OrderBy(one => one.At).ThenBy(one => one.Id).Select(one => ((string, string)?)(one.Carrier, one.By)).FirstOrDefault();
+            var (choice, note) = first is { } asked
+                ? (Formats.Clean(asked.Item1), $"ถาม {Formats.Clean(asked.Item1)} แล้ว" + (asked.Item2.Length > 0 ? $" ({asked.Item2})" : ""))
+                : decision.Status == AiDecisionLog.Resolved && rows.TryGetValue(decision.EntityId, out var row) && Formats.Clean(row.Trucker).Length > 0
+                    ? (Formats.Clean(row.Trucker), $"งานได้ผู้ขนส่ง {Formats.Clean(row.Trucker)} แล้ว")
+                    : ("", "");
+            if (choice.Length == 0) continue;
+            string[] references;
+            try { references = JsonSerializer.Deserialize<string[]>(decision.RuleReferences) ?? []; }
+            catch (JsonException) { references = []; }
+            decision.HumanChoice = choice.Length <= 400 ? choice : choice[..400];
+            decision.HumanMatches = CarrierAgent.Recommended(references) is { } recommended
+                ? CarrierDirectory.Lookup.Key(choice) == recommended : null;
+            decision.OverrideReason = note.Length <= 400 ? note : note[..400];
+        }
     }
 }
 

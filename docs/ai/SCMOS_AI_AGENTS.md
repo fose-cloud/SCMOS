@@ -5,7 +5,7 @@ Originally Phase D, 2026-09-07; updated 21 September 2026. The currently connect
 | Specialist | Page hints | Additional existing capability |
 | --- | --- | --- |
 | operations-agent (tools: query_shipments, search_shipment, query_delays, and since Phase 3 query_followup — [record](SCMOS_AI_PHASE_3.md)) | operations, workspace | ViewDashboard |
-| vendor-agent | vendors, suppliers | ManageSuppliers |
+| vendor-agent (named Carrier Agent since 28 Sep 2026: not connected to chat; connected to the rule-first pass that recommends which carrier to ask first — [record](SCMOS_AI_CARRIER_AGENT.md)) | vendors, suppliers | ManageSuppliers |
 | rate-agent | rates, quotation | ViewRates |
 | data-agent (the specification's Data Agent; the former `kpi-agent` descriptor, connected in Phase 2 — [record](SCMOS_AI_PHASE_2.md)) | kpi, reports | ViewDashboard |
 | communication-agent (the specification's Communication Agent, connected in Phase 4 — [record](SCMOS_AI_PHASE_4.md); tool `query_messages`; reads the LINE and mail ledgers, sends nothing) | line, mail, communications | ViewMailbox |

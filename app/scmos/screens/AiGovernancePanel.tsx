@@ -5,7 +5,7 @@ import { apiFetch } from "../api";
 import { stamp } from "../aiControl";
 import { ZoomBox } from "../TableFrame";
 import {
-  AUTONOMY_LABEL, autonomyChoices, costText, GOVERNANCE_STATUS_LABEL, parseGovernance, PLATFORM_CHOICES, PLATFORM_ID,
+  agreementText, AUTONOMY_LABEL, autonomyChoices, costText, GOVERNANCE_STATUS_LABEL, parseGovernance, PLATFORM_CHOICES, PLATFORM_ID,
   saveError, SETTABLE_STATUSES, settingsBody, type AgentGovernance, type GovernanceReport,
 } from "../aiGovernance";
 import s from "./AiControlTower.module.css";
@@ -108,7 +108,7 @@ export function AiGovernancePanel() {
             <table className={s.governanceTable} aria-label="Agent">
               <thead><tr>
                 <th>Agent</th><th>สถานะ</th><th>ระดับ</th><th>Shadow</th><th>ตั้งสถานะ</th>
-                <th>รอบ 24 ชม.</th><th>ล้มเหลว</th><th>ติดกัน</th><th>เฉลี่ย ms</th><th>Token 24 ชม.</th><th>ค่าใช้จ่าย 24 ชม. / 30 วัน</th>
+                <th>รอบ 24 ชม.</th><th>ล้มเหลว</th><th>ติดกัน</th><th>เฉลี่ย ms</th><th>Token 24 ชม.</th><th>ค่าใช้จ่าย 24 ชม. / 30 วัน</th><th>ตรงกับคน 30 วัน</th>
                 {report.canManage && <th />}
               </tr></thead>
               <tbody>{report.agents.map(agent => {
@@ -140,6 +140,7 @@ export function AiGovernancePanel() {
                   <td>{agent.averageMs ?? "—"}</td>
                   <td>{tokens(agent.usage.inputTokens24h)} / {tokens(agent.usage.outputTokens24h)}</td>
                   <td>{costText(agent.usage.cost24h, report.priceCurrency, report.pricesConfigured)} · {costText(agent.usage.cost30d, report.priceCurrency, report.pricesConfigured)}</td>
+                  <td>{agreementText(agent)}</td>
                   {report.canManage && <td>{dirty && <div className={s.actions}>
                     <input aria-label={`เหตุผลสำหรับ ${agent.name}`} placeholder="เหตุผล" maxLength={200} value={draft.reason}
                       onChange={e => edit(agent.id, draft, { reason: e.target.value })} />

@@ -104,5 +104,6 @@ audited, and a rescan did not raise them again.
   calculations are reliable") — the wording is rule templates.
 - Findings are seen in the Control Tower; they are not pushed to the owner (bell,
   mail) yet.
-- Carrier eligibility, driver training and supplier compliance are not in the
-  Validation Agent; they belong with the Carrier Agent (next, in shadow).
+- Carrier eligibility and supplier compliance are not in the Validation Agent;
+  the Carrier Agent reads them (`SCMOS_AI_CARRIER_AGENT.md`). Driver training is
+  read by no agent yet.

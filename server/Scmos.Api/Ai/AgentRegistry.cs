@@ -23,8 +23,11 @@ public sealed class AgentRegistry
         Define("operations-agent", "Operations Agent", "Operational shipment evidence and risk", Capability.ViewDashboard,
             ["query_shipments", "search_shipment", "query_delays", "query_followup"], ["operations", "workspace"],
             AiAutonomy.ExecuteWithApproval),
-        Define("vendor-agent", "Vendor Agent", "Approved vendor evidence", Capability.ManageSuppliers,
-            ["search_supplier", "recommend_supplier"], ["vendors", "suppliers"]),
+        // The specification's Carrier Agent (Agent Platform, 28 Sep 2026): this descriptor, connected at last —
+        // not to chat, where it still has no executor, but to the rule-first pass over the register
+        // (Carrier.CarrierAgent): which carrier to ask first for a job still without one. Shadow, like the others.
+        Define("vendor-agent", "Carrier Agent", "Which carrier to ask first for a job still without one — the workflow's own order, less those already asked or barred by the Supplier Register; rules first, no model", Capability.ManageSuppliers,
+            ["search_supplier", "recommend_supplier"], ["vendors", "suppliers"], AiAutonomy.Recommend, shadow: true),
         Define("rate-agent", "Rate Agent", "Approved rates only; never invent a price", Capability.ViewRates,
             ["query_rates", "recommend_rate"], ["rates", "quotation"]),
         // The specification's "SCMOS Data Agent": the department's own figures

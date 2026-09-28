@@ -27,7 +27,7 @@ Use the existing .NET configuration providers; Azure environment names use doubl
 | `AI:ChatEnabled` | `AI__ChatEnabled` | false |
 | `AI:MockMode` | `AI__MockMode` | false; refused outside Development |
 | `AI:OperationsAgentEnabled` | `AI__OperationsAgentEnabled` | false |
-| `AI:VendorAgentEnabled` | `AI__VendorAgentEnabled` | false |
+| `AI:VendorAgentEnabled` | `AI__VendorAgentEnabled` | false — the Carrier Agent (28 Sep 2026): the rule-first pass recommending which carrier to ask first, in shadow; writes only to `ai_decisions` |
 | `AI:RateAgentEnabled` | `AI__RateAgentEnabled` | false |
 | `AI:DataAgentEnabled` | `AI__DataAgentEnabled` | false — the Data Agent (Phase 2; was `KpiAgentEnabled`, never set) |
 | `AI:CommunicationAgentEnabled` | `AI__CommunicationAgentEnabled` | false — the Communication Agent (Phase 4): reads the LINE and mail ledgers, sends nothing |

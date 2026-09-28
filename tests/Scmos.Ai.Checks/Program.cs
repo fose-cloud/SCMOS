@@ -183,6 +183,11 @@ builder.Services.AddDbContext<ScmosDbContext>();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<JobRegisterCache>();
 builder.Services.AddScoped<JobsRepository>();
+// The Carrier Agent's pass reads the Supplier Register as its screen does (AgentScanner); the API's Program registers these.
+builder.Services.AddScoped<CarrierDirectory>();
+builder.Services.AddScoped<KpiEngine>();
+builder.Services.AddScoped<SupplierService>();
+builder.Services.Configure<PreRunOptions>(_ => { });
 builder.Services.AddScoped<AiGateway>();
 var users = new TestUsers();
 builder.Services.AddSingleton<IUserAccessor>(users);
@@ -259,6 +264,7 @@ await OperationsChecks.RunAsync(Check);
 await OperationsControlChecks.RunAsync(Check);
 await GovernanceChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await AgentScanChecks.RunAsync(Check, args.Contains("--write-local-db"));
+CarrierAgentChecks.Run(Check);
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));
 Console.WriteLine($"All {count} AI foundation/Operations/audit checks passed. No production data or live OpenAI calls.");
 

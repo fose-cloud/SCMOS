@@ -17,7 +17,7 @@ export type Decision = {
 };
 export type DecisionPage = { items: Decision[]; total: number };
 
-export const AGENT_LABEL: Record<string, string> = { "otd-agent": "OTD", "validation-agent": "ตรวจข้อมูล" };
+export const AGENT_LABEL: Record<string, string> = { "otd-agent": "OTD", "validation-agent": "ตรวจข้อมูล", "vendor-agent": "ผู้ขนส่ง" };
 
 /** Most serious first; the OTD words and the validation words share one order. */
 export const RISK_ORDER = ["CRITICAL", "HIGH", "WATCH", "MEDIUM", "LOW", "NORMAL", ""] as const;

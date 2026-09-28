@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Ai;
+using Scmos.Api.Ai.Carrier;
 using Scmos.Api.Ai.Otd;
 using Scmos.Api.Ai.Validation;
 using Scmos.Api.Auth;
@@ -148,11 +149,14 @@ static class AgentScanChecks
                 await using var db = new ScmosDbContext(options);
                 var audit = new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance);
                 var governance = new AiGovernanceService(db, agents, audit, Options.Create(with ?? ai), clock, NullLogger<AiGovernanceService>.Instance);
-                var register = new JobRegisterCache(db, new MemoryCache(new MemoryCacheOptions()), NullLogger<JobRegisterCache>.Instance);
+                var cache = new MemoryCache(new MemoryCacheOptions());
+                var register = new JobRegisterCache(db, cache, NullLogger<JobRegisterCache>.Instance);
                 // A test that just edited a job drops the cached read, as the application's own writes do.
                 register.Invalidate();
+                var suppliers = new SupplierService(db, new KpiEngine(db, register, new CarrierDirectory(db, cache), cache,
+                    Options.Create(new PreRunOptions())));
                 var scanner = new AgentScanner(db, register, agents, governance, new AiDecisionLog(db, agents, audit, clock),
-                    Options.Create(with ?? ai), clock, NullLogger<AgentScanner>.Instance);
+                    suppliers, Options.Create(with ?? ai), clock, NullLogger<AgentScanner>.Instance);
                 return await scanner.ScanAsync(default);
             }
             async Task<List<AiDecision>> Decisions()
@@ -172,7 +176,9 @@ static class AgentScanChecks
 
             var first = await Pass();
             var rows = await Decisions();
-            check(first.All(one => one.Code == "ok") && first.Single(one => one.AgentId == OtdAgent.Id).Created == 2
+            check(first.Where(one => one.AgentId != CarrierAgent.Id).All(one => one.Code == "ok")
+                && first.Single(one => one.AgentId == CarrierAgent.Id).Code == "agent_disabled"
+                && first.Single(one => one.AgentId == OtdAgent.Id).Created == 2
                 && first.Single(one => one.AgentId == ValidationAgent.Id).Created == 1 && rows.Count == 3,
                 "scan SQL: the first pass records the late job and the truckless one (OTD) and the unreadable weight (Validation)");
             check(rows.All(one => one.Status == AiDecisionLog.Open && one.Shadow && one.OwnerId == "OP-S1" && one.RunId == ""
@@ -227,6 +233,96 @@ static class AgentScanChecks
             check(off.Single(one => one.AgentId == OtdAgent.Id).Code == "agent_disabled", "scan SQL: an agent whose flag is off does not run");
             var aiOff = await Pass(new AiOptions { OtdAgentEnabled = true, ValidationAgentEnabled = true });
             check(aiOff.All(one => one.Code == "agent_disabled"), "scan SQL: with AI off nothing runs — SCMOS without AI is unchanged");
+
+            /* ---------------- the Carrier Agent and its shadow comparison ---------------- */
+            var carrierOn = new AiOptions { Enabled = true, VendorAgentEnabled = true };
+            await using (var db = new ScmosDbContext(options))
+            {
+                for (var i = 0; i < 6; i++)
+                    db.OperationJobs.Add(Stored(Job($"H-SHORE-{i}", ("status", "COMPLETED"), ("date", "01/09/2026"), ("planTime", "08:00"),
+                        ("arrDate", "01/09/2026"), ("arrTime", "07:55"))));
+                for (var i = 0; i < 6; i++)
+                    db.OperationJobs.Add(Stored(Job($"H-ACN-{i}", ("trucker", "ACN"), ("status", "COMPLETED"), ("date", "01/09/2026"),
+                        ("planTime", "08:00"), ("arrDate", "01/09/2026"), ("arrTime", i < 3 ? "07:50" : "09:30"))));
+                db.OperationJobs.Add(Stored(Job("S-OPEN", ("trucker", ""), ("status", JobStatus.WaitingSupplier), ("date", "29/09/2026"),
+                    ("planTime", "09:00"), ("licence", ""), ("driver", ""))));
+                var shore = new Supplier { Name = "SHORE LOGISTICS", Code = "SHR", Status = "approved", IsCarrier = true, CreatedAt = Now, UpdatedAt = Now };
+                db.Suppliers.AddRange(shore, new Supplier { Name = "ACN", Code = "ACN", Status = "approved", IsCarrier = true, CreatedAt = Now, UpdatedAt = Now });
+                await db.SaveChangesAsync();
+                db.SupplierAliases.Add(new SupplierAlias { SupplierId = shore.Id, Alias = "SHORE", Source = "test", Confirmed = true });
+                await db.SaveChangesAsync();
+            }
+            async Task Ask(string carrier, int rank, string? closeFirst = null)
+            {
+                await using var db = new ScmosDbContext(options);
+                if (closeFirst is not null)
+                {
+                    var open = await db.SupplierRequests.SingleAsync(one => one.JobKey == "S-OPEN" && one.Outcome == CarrierAssignment.Pending);
+                    open.Outcome = closeFirst;
+                    open.RespondedAt = clock.GetUtcNow();
+                }
+                else db.SupplierRequests.Add(new SupplierRequest
+                {
+                    JobKey = "S-OPEN", Carrier = carrier, Rank = rank, Outcome = CarrierAssignment.Pending,
+                    RequestedBy = "Operator", RequestedAt = clock.GetUtcNow().AddMinutes(1),
+                });
+                await db.SaveChangesAsync();
+            }
+
+            clock.Advance(TimeSpan.FromMinutes(15));
+            var carrierFirst = await Pass(carrierOn);
+            var raised = (await Decisions()).Where(one => one.AgentId == CarrierAgent.Id).ToList();
+            check(carrierFirst.Single(one => one.AgentId == CarrierAgent.Id) is { Code: "ok", Created: 1 } && raised.Count == 1
+                && raised[0] is { EntityId: "S-OPEN", Status: AiDecisionLog.Open, Shadow: true, OwnerId: "OP-S1", RiskLevel: "WATCH" }
+                && raised[0].RuleReferences.Contains("\"Carrier.Ask:SHORE\"") && raised[0].RuleReferences.Contains("\"Carrier.Then1:ACN\""),
+                "scan SQL: tomorrow's job without a carrier — ask SHORE, then ACN, from this register's own record; in shadow, owned");
+            await using (var db = new ScmosDbContext(options))
+            {
+                var audit = new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance);
+                var workflow = new WorkflowService(db, new JobRegisterCache(db, new MemoryCache(new MemoryCacheOptions()), NullLogger<JobRegisterCache>.Instance),
+                    new CarrierWebhookQueue(db, NullLogger<CarrierWebhookQueue>.Instance), audit);
+                var order = await workflow.PriorityForAsync("BASF", "IMPORT", default);
+                check(order.Select(one => one.Carrier).Take(2).SequenceEqual(["SHORE", "ACN"]),
+                    "scan SQL: the workflow's own PriorityForAsync, over the table, gives the order the agent read from the register — one rule");
+            }
+            check(carrierFirst.Where(one => one.AgentId != CarrierAgent.Id).All(one => one.Code == "agent_disabled"),
+                "scan SQL: the Carrier Agent runs on its own flag (AI__VendorAgentEnabled), the others on theirs");
+
+            await Ask("SHORE", 1);
+            clock.Advance(TimeSpan.FromMinutes(15));
+            var asked = await Pass(carrierOn);
+            var first1 = (await Decisions()).Single(one => one.Id == raised[0].Id);
+            check(asked.Single(one => one.AgentId == CarrierAgent.Id).Resolved == 1
+                && first1 is { Status: AiDecisionLog.Resolved, HumanChoice: "SHORE", HumanMatches: true, DecidedBy: "system" }
+                && first1.OverrideReason == "ถาม SHORE แล้ว (Operator)",
+                "scan SQL: SHORE asked through the workflow — the decision resolves and records the person's choice, which matched");
+
+            await Ask("", 0, closeFirst: CarrierAssignment.Rejected);
+            clock.Advance(TimeSpan.FromMinutes(15));
+            await Pass(carrierOn);
+            var second = (await Decisions()).Where(one => one.AgentId == CarrierAgent.Id && one.Status == AiDecisionLog.Open).ToList();
+            check(second.Count == 1 && second[0].RuleReferences.Contains("\"Carrier.Ask:ACN\"") && !second[0].RuleReferences.Contains("SHORE"),
+                "scan SQL: SHORE declined — a new decision recommends ACN, and SHORE is not asked twice");
+
+            await Ask("NEWCO", 2);
+            clock.Advance(TimeSpan.FromMinutes(15));
+            await Pass(carrierOn);
+            var skipped = (await Decisions()).Single(one => one.Id == second[0].Id);
+            check(skipped is { Status: AiDecisionLog.Resolved, HumanChoice: "NEWCO", HumanMatches: false },
+                "scan SQL: the operator asked NEWCO instead — recorded as a choice that did not match, for the comparison");
+
+            await using (var db = new ScmosDbContext(options))
+            {
+                var service = new AiGovernanceService(db, agents, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance),
+                    Options.Create(carrierOn), clock, NullLogger<AiGovernanceService>.Instance);
+                var admin = new AppUser("scan-admin", "a@test.invalid", "Admin", Roles.Admin, "AD-S1", "test", true);
+                var report = await service.ReportAsync(admin, default);
+                var carrierView = report.Agents.Single(one => one.Id == CarrierAgent.Id);
+                var validation = report.Agents.Single(one => one.Id == ValidationAgent.Id);
+                check(report.Available && carrierView is { Compared30d: 2, Matched30d: 1, ShadowMode: true, Name: "Carrier Agent" }
+                    && validation is { Compared30d: 0, Matched30d: 0 },
+                    "scan SQL: the governance report counts the comparison — 1 of 2 matched; a dismissal compares nothing");
+            }
         }
         finally
         {

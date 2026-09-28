@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  AUTONOMY_LABEL, autonomyChoices, costText, GOVERNANCE_STATUS_LABEL, parseGovernance, PLATFORM_CHOICES, saveError,
+  agreementText, AUTONOMY_LABEL, autonomyChoices, costText, GOVERNANCE_STATUS_LABEL, parseGovernance, PLATFORM_CHOICES, saveError,
   SETTABLE_STATUSES, settingsBody,
 } from "../app/scmos/aiGovernance.ts";
 
@@ -14,6 +14,7 @@ const agent = (over = {}) => ({
   stored: false, runs24h: 4, failures24h: 1, failureRate24h: 0.25, consecutiveFailures: 0, lastSuccess: "2026-09-28T01:00:00Z",
   lastFailure: "2026-09-27T23:00:00Z", averageMs: 2100, breaker: "Closed",
   usage: { inputTokens24h: 1200, outputTokens24h: 300, cost24h: 0.01, inputTokens30d: 40000, outputTokens30d: 9000, cost30d: 0.15 },
+  compared30d: 0, matched30d: 0,
   ...over,
 });
 const report = (over = {}) => ({
@@ -42,6 +43,15 @@ test("a report that does not match is not drawn", () => {
   rejects(report({ platform: { ...report().platform, autonomy: 2 } }));      // execution flag disagrees with the ceiling
   rejects(report({ platform: { ...report().platform, autonomy: 0, executionEnabled: false } })); // stopped flag disagrees
   rejects(report({ agents: [agent({ breaker: "Melted" })] }));
+  rejects(report({ agents: [agent({ compared30d: 2, matched30d: 3 })] }));    // more agreed than compared
+  rejects(report({ agents: [agent({ compared30d: undefined })] }));
+});
+
+test("agreement with people reads as matched of compared, or a dash before anything is compared", () => {
+  assert.equal(agreementText({ compared30d: 10, matched30d: 8 }), "8/10 (80%)");
+  assert.equal(agreementText({ compared30d: 3, matched30d: 1 }), "1/3 (33%)");
+  assert.equal(agreementText({ compared30d: 0, matched30d: 0 }), "—");
+  assert.match(read("app/scmos/screens/AiGovernancePanel.tsx"), /<th>ตรงกับคน 30 วัน<\/th>/);
 });
 
 test("the levels on offer never exceed what the agent was built for", () => {

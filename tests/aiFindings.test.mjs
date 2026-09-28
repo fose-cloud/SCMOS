@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { answerBody, answerError, inReadingOrder, parseDecisions, RISK_LABEL, RISK_ORDER } from "../app/scmos/aiFindings.ts";
+import { AGENT_LABEL, answerBody, answerError, inReadingOrder, parseDecisions, RISK_LABEL, RISK_ORDER } from "../app/scmos/aiFindings.ts";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -48,6 +48,11 @@ test("the most serious come first, then the newest", () => {
   ]).map(d => d.id);
   assert.deepEqual(order, [4, 3, 2, 1]);
   assert.ok(RISK_ORDER.every(level => level === "" || Object.hasOwn(RISK_LABEL, level)));
+});
+
+test("the Carrier Agent's recommendations are a filter of their own, named for what they are about", () => {
+  assert.equal(AGENT_LABEL["vendor-agent"], "ผู้ขนส่ง");
+  assert.match(read("app/scmos/screens/AiFindingsPanel.tsx"), /\["all", "otd-agent", "validation-agent", "vendor-agent"\] as const/);
 });
 
 test("an answer is sent trimmed; an override carries what was done and why", () => {

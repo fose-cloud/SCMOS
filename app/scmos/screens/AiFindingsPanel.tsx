@@ -9,7 +9,7 @@ import {
 } from "../aiFindings";
 import s from "./AiControlTower.module.css";
 
-type Filter = "all" | "otd-agent" | "validation-agent";
+type Filter = "all" | "otd-agent" | "validation-agent" | "vendor-agent";
 
 function List({ title, items }: { title: string; items: Finding[] }) {
   if (items.length === 0) return null;
@@ -81,7 +81,7 @@ export function AiFindingsPanel({ onOpenJob }: { onOpenJob: (key: string) => voi
     <div className={s.sectionTitle}><div><h2 id="ai-findings">งานที่ AI ตรวจพบ</h2>
       {items && <p>{total} รายการรอคำตอบ</p>}</div>
       <div className={s.actions}>
-        {(["all", "otd-agent", "validation-agent"] as const).map(id =>
+        {(["all", "otd-agent", "validation-agent", "vendor-agent"] as const).map(id =>
           <button key={id} className={s.button + (filter === id ? " " + s.primary : "")} aria-pressed={filter === id}
             onClick={() => setFilter(id)}>{id === "all" ? "ทั้งหมด" : AGENT_LABEL[id]} {count(id)}</button>)}
         <button className={s.button} onClick={() => void load()}>รีเฟรช</button>
