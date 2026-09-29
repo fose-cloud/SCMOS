@@ -288,7 +288,8 @@ test("the route keeps the Home identity guard, and the assistant is a section of
 test("UI keeps read-only boundaries and transient state; no auto AI prompt or raw HTML", () => {
   const source = readFileSync(new URL("../app/scmos/screens/AiControlTower.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /dangerouslySetInnerHTML|localStorage\.|useRemembered|\/api\/risk|\/api\/ai\/invoke|\/api\/ai\/approvals/);
-  assert.match(source, /canViewAudit \? "\/api\/ai\/audit/);
+  // The activity list loads only with ViewAudit; since 29 Sep 2026 its URL carries the §47 search (aiHistory.auditUrl).
+  assert.match(source, /canViewAudit \? auditUrl\(auditQuery, beforeId\) : null/);
   assert.match(source, /canViewDashboard \? "\/api\/dashboard/);
   // Only Operations may bypass question readiness for its separate change-draft path.
   assert.match(source, /!asking.ready && !\(agent === "operations-agent" && isChangeCommand\(message\)\)/);

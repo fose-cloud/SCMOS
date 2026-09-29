@@ -132,6 +132,17 @@ static class AgentScanChecks
             && AiTasksService.SectionOf(V("COMPLETED", "WATCH", "otd-agent")) == "decision",
             "tasks: blocked, then high risk, then carrier escalation, then information needed, then the rest — the most urgent first");
 
+        /* ---------------- the history's searches refuse what they cannot ask ---------------- */
+        check(new DecisionSearch(From: new(2026, 9, 30), To: new(2026, 9, 1)).Problem() is not null
+            && new DecisionSearch(From: new(2025, 1, 1), To: new(2026, 9, 1)).Problem() is not null
+            && new DecisionSearch(Text: new string('x', 81)).Problem() is not null && new DecisionSearch(Customer: "a\u0007").Problem() is not null
+            && new DecisionSearch(Text: "BASF", Carrier: "SHORE", From: new(2026, 9, 1), To: new(2026, 9, 30)).Problem() is null,
+            "history: a range that ends before it starts or runs past a year, and overlong or control-laden words, are refused");
+        check(new AuditSearch(Agent: "otd-agent").Problem() is not null && new AuditSearch(Tool: "delete_shipment").Problem() is not null
+            && new AuditSearch(Result: "maybe").Problem() is not null && new AuditSearch(Key: "a\"b").Problem() is not null
+            && new AuditSearch(Agent: "booking-agent", Tool: "draft_booking", Result: "incomplete", User: "system:agent-pass", Key: "mail:41").Problem() is null,
+            "audit search: only the audit's own agents, tools and results; an evidence key cannot break its quoting");
+
         if (sql) await SqlAsync(check, agents);
     }
 
@@ -429,6 +440,32 @@ static class AgentScanChecks
                     && listedTheirs.Count == open.Count && listedTheirs.All(one => !one.CanAnswer)
                     && listedTeam.Count == open.Count && listedTeam.All(one => one.CanAnswer),
                     "tasks SQL: each listed decision says whether this person may answer it — the owner their own, a colleague none, a supervisor all");
+
+                // The history's search (§47), each filter held against the rows it should find.
+                var all = await db.AiDecisions.AsNoTracking().ToListAsync();
+                var jobs = await db.OperationJobs.AsNoTracking().Select(job => new { job.Key, job.Customer, job.Trucker }).ToListAsync();
+                async Task<IReadOnlyList<AiDecisionView>> Find(DecisionSearch search, string? status = null) =>
+                    (await log.ListAsync(supervisor, status, null, null, null, 1, 200, default, search)).Items;
+                bool OfJob(AiDecision row, Func<string, string, bool> match) =>
+                    row.EntityType == "job" && jobs.Any(job => job.Key == row.EntityId && match(job.Customer, job.Trucker));
+                var byType = await Find(new(Type: "otd_risk"));
+                var byCarrier = await Find(new(Carrier: "shore"));
+                var byCustomer = await Find(new(Customer: "BASF"));
+                var byAnswer = await Find(new(DecidedBy: "op@test.invalid"));
+                var byText = await Find(new(Text: "S-POD"));
+                var closedOnes = await Find(new(), AiDecisionLog.Resolved);
+                check(byType.Count > 0 && byType.Count == all.Count(row => row.DecisionType == "otd_risk")
+                    && closedOnes.Count == all.Count(row => row.Status == AiDecisionLog.Resolved) && closedOnes.Count > 0,
+                    "history SQL: by action and by result — closed decisions are found, not only open ones");
+                check(byCarrier.Count > 0 && byCarrier.Count == all.Count(row => OfJob(row, (_, trucker) => trucker.Contains("SHORE", StringComparison.OrdinalIgnoreCase)))
+                    && byCustomer.Count == all.Count(row => OfJob(row, (customer, _) => customer.Contains("BASF", StringComparison.OrdinalIgnoreCase))),
+                    "history SQL: by the customer and the carrier of the job each decision is about");
+                check(byAnswer.Count > 0 && byAnswer.Count == all.Count(row => row.DecidedBy.Contains("op@test.invalid") || row.HumanChoice.Contains("op@test.invalid"))
+                    && byText.Count > 0 && byText.All(one => one.EntityId.Contains("S-POD") || one.Summary.Contains("S-POD")),
+                    "history SQL: by who answered, and by words or the job key");
+                var tomorrow = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(Formats.Zone).DateTime).AddDays(1);
+                check((await Find(new(From: tomorrow))).Count == 0 && (await Find(new(To: tomorrow))).Count == all.Count,
+                    "history SQL: by Bangkok day");
             }
         }
         finally

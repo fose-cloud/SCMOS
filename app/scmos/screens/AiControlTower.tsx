@@ -15,6 +15,10 @@ import { agentReadiness } from "../agentReadiness";
 import { Assistant } from "./Assistant";
 import { AiGovernancePanel } from "./AiGovernancePanel";
 import { AiFindingsPanel } from "./AiFindingsPanel";
+import { AiHistoryPanel } from "./AiHistoryPanel";
+import {
+  AUDIT_AGENTS, AUDIT_TOOLS, auditUrl, EMPTY_AUDIT_QUERY, queryProblem, RUN_RESULTS, type AuditQuery,
+} from "../aiHistory";
 import { CHANGE_EXAMPLE, isChangeCommand, parseChangeDraft, parseChangeClarification, type ChangeDraft } from "../operationsChangeCommand";
 
 /** Private, short-lived state only: no prompt/evidence in localStorage or shared page caches. */
@@ -324,7 +328,11 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const board = useRemote(canViewDashboard ? "/api/dashboard/today" : null, parseToday);
   const brief = useRemote(canViewDashboard ? "/api/dashboard/briefing" : null, parseBrief);
   const [beforeId, setBeforeId] = useState<number | null>(null);
-  const activity = useRemote(canViewAudit ? "/api/ai/audit?take=8" + (beforeId ? "&beforeId=" + beforeId : "") : null, parseAuditPage);
+  // AI Activity's search (§47): the form as typed, and the query last asked for.
+  const [auditForm, setAuditForm] = useState<AuditQuery>(EMPTY_AUDIT_QUERY);
+  const [auditQuery, setAuditQuery] = useState<AuditQuery>(EMPTY_AUDIT_QUERY);
+  const [auditProblem, setAuditProblem] = useState("");
+  const activity = useRemote(canViewAudit ? auditUrl(auditQuery, beforeId) : null, parseAuditPage);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const detail = useRemote(canViewAudit && selectedRun ? "/api/ai/audit/" + selectedRun : null, parseAuditRun);
   const ready = availability(status.data);
@@ -668,10 +676,36 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
         (Agent Platform foundation, 27 Sep 2026) — for whoever may read the AI audit; changed only by an Administrator. */}
     {canViewAudit && <AiGovernancePanel />}
 
+    {canViewDashboard && <AiHistoryPanel onOpenJob={onOpenJob}
+      onShowRun={canViewAudit ? (runId) => { setSelectedRun(runId); activityPanel.current?.scrollIntoView({ block: "start" }); } : undefined} />}
+
     <section ref={activityPanel} className={s.panel} aria-labelledby="ai-activity">
       <div className={s.sectionTitle}><div><h2 id="ai-activity">AI Activity</h2>
         <p>ประวัติถาวรจาก ai_audit_logs · ตามสิทธิ์ ViewAudit · ไม่มีการเก็บข้อความคำถามหรือคำตอบฉบับเต็ม</p></div>
         {canViewAudit && <button className={s.button} onClick={() => { activity.refresh(); detail.refresh(); }}>รีเฟรช Activity</button>}</div>
+      {canViewAudit && <form className={s.actions + " " + s.governance} data-testid="ai-activity-search" onSubmit={e => {
+        e.preventDefault();
+        const problem = queryProblem(auditForm);
+        setAuditProblem(problem);
+        if (!problem) { setBeforeId(null); setAuditQuery({ ...auditForm }); }
+      }}>
+        <input type="date" aria-label="ตั้งแต่วันที่" value={auditForm.from} onChange={e => setAuditForm(prev => ({ ...prev, from: e.target.value }))} />
+        <input type="date" aria-label="ถึงวันที่" value={auditForm.to} onChange={e => setAuditForm(prev => ({ ...prev, to: e.target.value }))} />
+        <select aria-label="Agent" value={auditForm.agent} onChange={e => setAuditForm(prev => ({ ...prev, agent: e.target.value }))}>
+          <option value="">ทุก Agent</option>{AUDIT_AGENTS.map(one => <option key={one} value={one}>{one}</option>)}
+        </select>
+        <select aria-label="เครื่องมือ" value={auditForm.tool} onChange={e => setAuditForm(prev => ({ ...prev, tool: e.target.value }))}>
+          <option value="">ทุกเครื่องมือ</option>{AUDIT_TOOLS.map(one => <option key={one} value={one}>{one}</option>)}
+        </select>
+        <select aria-label="ผล" value={auditForm.result} onChange={e => setAuditForm(prev => ({ ...prev, result: e.target.value }))}>
+          <option value="">ทุกผล</option>{RUN_RESULTS.map(one => <option key={one} value={one}>{stateName(one)}</option>)}
+        </select>
+        <input aria-label="ผู้เรียก" placeholder="ผู้เรียก" maxLength={160} value={auditForm.user} onChange={e => setAuditForm(prev => ({ ...prev, user: e.target.value }))} />
+        <input aria-label="หลักฐาน" placeholder="งาน / mail:id" maxLength={80} value={auditForm.key} onChange={e => setAuditForm(prev => ({ ...prev, key: e.target.value }))} />
+        <button type="submit" className={s.button + " " + s.primary}>ค้นหา</button>
+        <button type="button" className={s.button} onClick={() => { setAuditForm(EMPTY_AUDIT_QUERY); setAuditProblem(""); setBeforeId(null); setAuditQuery(EMPTY_AUDIT_QUERY); }}>ล้าง</button>
+      </form>}
+      {!!auditProblem && <p role="alert" className={s.error}>{auditProblem}</p>}
       {!canViewAudit ? <Empty>บัญชีนี้ไม่มีสิทธิ์ ViewAudit จึงไม่โหลดประวัติการทำงาน</Empty> :
         <div className={s.activityLayout}>
           <div>{activity.loading ? <Empty>กำลังอ่านประวัติ…</Empty> : activity.error ? <Failure message={activity.error} />

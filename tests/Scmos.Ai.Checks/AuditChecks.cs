@@ -253,6 +253,24 @@ static class AuditChecks
             check(page.Runs.Length == 1 && page.NextBeforeId.HasValue, "D SQL: audit page bounded with continuation");
             var page2 = await reader.PageAsync(Operator, page.NextBeforeId, 1, default);
             check(page.Runs[0].RunId != page2.Runs[0].RunId, "D SQL: continuation does not repeat a run");
+            // The activity search (§47): three runs here — `start` ran query_shipments to its end with job-1 and job-2;
+            // `concurrent` and one more only started, so they are incomplete.
+            async Task<AiAuditRunView[]> Search(AuditSearch search) => (await reader.PageAsync(Operator, null, 25, default, search)).Runs;
+            var everything = await Search(new());
+            var auditDay = DateOnly.FromDateTime(Now.ToOffset(TimeSpan.FromHours(7)).DateTime);
+            check((await Search(new(Tool: "query_shipments"))).Select(one => one.RunId).SequenceEqual([start.RunId])
+                && (await Search(new(Result: "succeeded"))).Select(one => one.RunId).SequenceEqual([start.RunId])
+                && (await Search(new(Result: "incomplete"))) is { Length: > 0 } unfinished && unfinished.All(one => one.RunId != start.RunId)
+                && unfinished.Length == everything.Length - 1,
+                "D SQL: the activity search finds runs by tool and by how they ended — incomplete being a run that never recorded its end");
+            check((await Search(new(Key: "job-2"))).Select(one => one.RunId).SequenceEqual([start.RunId]) && (await Search(new(Key: "job-"))).Length == 0,
+                "D SQL: an evidence key is matched whole — job-2 finds its run, a fragment finds nothing");
+            check((await Search(new(User: "audit-test"))).Length == everything.Length && (await Search(new(User: "nobody"))).Length == 0
+                && (await Search(new(Agent: "data-agent"))).Length == 0 && (await Search(new(Agent: "operations-agent"))).Length == everything.Length
+                && (await Search(new(From: auditDay, To: auditDay))).Length == everything.Length && (await Search(new(From: auditDay.AddDays(1)))).Length == 0,
+                "D SQL: and by who ran it, which agent, and which Bangkok days");
+            try { await reader.PageAsync(Operator, null, 25, default, new AuditSearch(Tool: "delete_shipment")); check(false, "D SQL: an unknown tool is not searched"); }
+            catch (ArgumentException) { check(true, "D SQL: an unknown tool is not searched"); }
             var run = await reader.RunAsync(Operator, start.RunId, default);
             check(run?.Status == "succeeded" && run.ToolStatus == "succeeded" && run.Events.Length == 4
                 && run.Scope == new AiReadScope(false, "OP-A"), "D SQL: run/tool identity scope and states survive reopen");

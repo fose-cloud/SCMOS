@@ -91,16 +91,24 @@ public static class AiGovernanceEndpoints
             return Results.Json(await tasks.CountAsync(user!, token));
         });
 
+        // The history's search too (§47): from/to are Bangkok days (yyyy-MM-dd); type, q, customer, carrier and
+        // decidedBy are matched as written. Nothing here widens who sees what — the list's own scope still applies.
         ai.MapGet("/decisions", async (string? status, string? agent, string? entityType, string? entityId, int? page, int? pageSize,
+            string? from, string? to, string? type, string? q, string? customer, string? carrier, string? decidedBy,
             HttpContext context, IUserAccessor users, AiDecisionLog decisions, CancellationToken token) =>
         {
             context.Response.Headers.CacheControl = "no-store";
             var user = users.Current(context);
             if (!AiPermissionPolicy.Authenticated(user)) return ApiResults.SignInRequired;
             if (!AiDecisionLog.CanList(user)) return ApiResults.Error("AI decisions are for the department's own accounts", 403);
+            DateOnly? Day(string? value) => DateOnly.TryParseExact(value ?? "", "yyyy-MM-dd", out var day) ? day : null;
+            if ((from is { Length: > 0 } && Day(from) is null) || (to is { Length: > 0 } && Day(to) is null))
+                return ApiResults.Error("Dates are yyyy-MM-dd", 400);
+            var search = new DecisionSearch(Day(from), Day(to), type, q, customer, carrier, decidedBy);
+            if (search.Problem() is { } problem) return ApiResults.Error("Invalid search: " + problem, 400);
             var pageNo = Math.Max(1, page ?? 1);
             var size = Math.Clamp(pageSize ?? 50, 1, 200);
-            var (items, total) = await decisions.ListAsync(user!, status, agent, entityType, entityId, pageNo, size, token);
+            var (items, total) = await decisions.ListAsync(user!, status, agent, entityType, entityId, pageNo, size, token, search);
             return Results.Json(new { items, total, page = pageNo, pageSize = size });
         });
 

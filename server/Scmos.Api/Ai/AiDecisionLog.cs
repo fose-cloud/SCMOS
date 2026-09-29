@@ -13,6 +13,25 @@ public sealed record AiDecisionFindings(IReadOnlyList<AgentFinding> Facts, IRead
     IReadOnlyList<AgentFinding> Observations, IReadOnlyList<AgentFinding> Inferences,
     IReadOnlyList<AgentFinding> Recommendations, IReadOnlyList<AgentFinding> BlockingIssues);
 
+/// <summary>
+/// The AI history's search (AI Agent Platform specification §47): by day (Bangkok), what kind of
+/// decision, words in its summary or its job key, the customer or carrier of the job it is about, and who
+/// answered it. Every text is matched as it is written, case aside; a blank is no filter.
+/// </summary>
+public sealed record DecisionSearch(DateOnly? From = null, DateOnly? To = null, string? Type = null, string? Text = null,
+    string? Customer = null, string? Carrier = null, string? DecidedBy = null)
+{
+    public const int MaxText = 80;
+
+    /// <summary>Why the search cannot be run as asked, or null.</summary>
+    public string? Problem() =>
+        From is { } from && To is { } to && to < from ? "the range ends before it starts"
+        : From is { } start && To is { } end && end.DayNumber - start.DayNumber > 366 ? "the range is longer than a year"
+        : new[] { Type, Text, Customer, Carrier, DecidedBy }.Any(one => one is { } value && (value.Length > MaxText || value.Any(char.IsControl)))
+            ? "a filter is too long or holds control characters"
+        : null;
+}
+
 public sealed record AiDecisionView(long Id, string RunId, string AgentId, string DecisionType, string EntityType,
     string EntityId, string Summary, string ResultStatus, string Status, string RiskLevel, decimal? Confidence,
     bool RequiresApproval, bool Shadow, int Autonomy, string PromptVersion, AiDecisionFindings Findings,
@@ -97,7 +116,8 @@ public sealed class AiDecisionLog(ScmosDbContext db, AgentRegistry agents, Audit
         && user!.Can(Capability.ViewDashboard);
 
     public async Task<(IReadOnlyList<AiDecisionView> Items, int Total)> ListAsync(AppUser user, string? status,
-        string? agentId, string? entityType, string? entityId, int page, int size, CancellationToken token)
+        string? agentId, string? entityType, string? entityId, int page, int size, CancellationToken token,
+        DecisionSearch? search = null)
     {
         var query = db.AiDecisions.AsNoTracking();
         // The team's decisions for a role that sees the team; otherwise the person's own jobs, and no one's without an id.
@@ -110,6 +130,29 @@ public sealed class AiDecisionLog(ScmosDbContext db, AgentRegistry agents, Audit
         if (!string.IsNullOrWhiteSpace(agentId)) query = query.Where(row => row.AgentId == agentId.Trim());
         if (!string.IsNullOrWhiteSpace(entityType)) query = query.Where(row => row.EntityType == entityType.Trim());
         if (!string.IsNullOrWhiteSpace(entityId)) query = query.Where(row => row.EntityId == entityId.Trim());
+        if (search is not null)
+        {
+            if (search.From is { } from)
+            {
+                var since = new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue), Formats.Zone);
+                query = query.Where(row => row.CreatedAt >= since);
+            }
+            if (search.To is { } to)
+            {
+                var until = new DateTimeOffset(to.AddDays(1).ToDateTime(TimeOnly.MinValue), Formats.Zone);
+                query = query.Where(row => row.CreatedAt < until);
+            }
+            if (Clean(search.Type) is { } type) query = query.Where(row => row.DecisionType == type);
+            if (Clean(search.Text) is { } text) query = query.Where(row => row.Summary.Contains(text) || row.EntityId.Contains(text));
+            if (Clean(search.DecidedBy) is { } by) query = query.Where(row => row.DecidedBy.Contains(by) || row.HumanChoice.Contains(by));
+            // The customer and the carrier are the job's, read from the register row the decision is about.
+            if (Clean(search.Customer) is { } customer)
+                query = query.Where(row => row.EntityType == "job"
+                    && db.OperationJobs.Any(job => job.Key == row.EntityId && job.Customer.Contains(customer)));
+            if (Clean(search.Carrier) is { } carrier)
+                query = query.Where(row => row.EntityType == "job"
+                    && db.OperationJobs.Any(job => job.Key == row.EntityId && job.Trucker.Contains(carrier)));
+        }
         var total = await query.CountAsync(token);
         var rows = await query.OrderByDescending(row => row.CreatedAt).ThenByDescending(row => row.Id)
             .Skip((page - 1) * size).Take(size).ToListAsync(token);
@@ -152,6 +195,8 @@ public sealed class AiDecisionLog(ScmosDbContext db, AgentRegistry agents, Audit
         catch (DbUpdateConcurrencyException) { return "already_answered"; }
         return "ok";
     }
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     public static AiDecisionView View(AiDecision row)
     {

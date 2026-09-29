@@ -16,6 +16,8 @@ export type Decision = {
   ruleReferences: string[]; createdAt: string; humanChoice: string; overrideReason: string; decidedBy: string;
   /** Whether this person may answer it — the server's rule, so no button is offered that it would refuse. */
   canAnswer: boolean;
+  /** The model run that read it (a Booking draft), or "" for a rule-first agent's; when it was answered; what it rests on. */
+  runId: string; decidedAt: string | null; evidenceReferences: string[];
 };
 export type DecisionPage = { items: Decision[]; total: number };
 
@@ -68,7 +70,10 @@ function decision(v: unknown): v is Decision {
     && (f.facts as Finding[]).every(one => one.source !== null) && (f.ruleResults as Finding[]).every(one => one.source !== null)
     && Array.isArray(v.ruleReferences) && v.ruleReferences.length <= 50 && v.ruleReferences.every(r => text(r, 120))
     && text(v.createdAt, 40) && !Number.isNaN(Date.parse(String(v.createdAt)))
-    && text(v.humanChoice) && text(v.overrideReason) && text(v.decidedBy, 160) && typeof v.canAnswer === "boolean";
+    && text(v.humanChoice) && text(v.overrideReason) && text(v.decidedBy, 160) && typeof v.canAnswer === "boolean"
+    && typeof v.runId === "string" && (v.runId === "" || /^[0-9a-f]{32}$/.test(v.runId))
+    && (v.decidedAt === null || (text(v.decidedAt, 40) && !Number.isNaN(Date.parse(String(v.decidedAt)))))
+    && Array.isArray(v.evidenceReferences) && v.evidenceReferences.length <= 50 && v.evidenceReferences.every(r => text(r, 120));
 }
 
 export function parseDecisions(v: unknown): DecisionPage {
