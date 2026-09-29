@@ -28,6 +28,7 @@ public enum AlertKind
     ActingForColleague,
     CoverArrangedForYou,
     LineMessageWaiting,
+    AiRiskFound,
 }
 
 /// <summary>Critical needs somebody now; Warning needs somebody today; Information is context.</summary>
@@ -79,6 +80,13 @@ public static class Notifications
         // the title says which (see WaitingTitle).
         new(AlertKind.LineMessageWaiting, "Carrier message waiting", "ข้อความจากผู้ขนส่งรอการอนุมัติ",
             AlertLevel.Warning, "เปิดงานแล้วกดอนุมัติในกล่องข้อความ", "myjob"),
+
+        // What the Agent Platform's agents judged HIGH or CRITICAL and nobody has answered yet — the
+        // spec's "the OTD Agent can raise an internal alert" (§73), through the bell every screen already
+        // has rather than a second channel (29 Sep 2026). Counted from the decision log, like every alert
+        // here from current state: answering the finding, or its reason going away, clears it.
+        new(AlertKind.AiRiskFound, "AI risk found", "AI พบงานเสี่ยง",
+            AlertLevel.Warning, "เปิด AI Control Tower แล้วตอบรายการที่เสี่ยง", "ai"),
 
         new(AlertKind.SupplierNotConfirmed, "Supplier not confirmed", "ผู้ขนส่งยังไม่ยืนยัน",
             AlertLevel.Critical, "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ", "myjob"),

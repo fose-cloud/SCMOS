@@ -66,6 +66,19 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             }
         }
 
+        /* ---- 0a. what the agents judged high risk, unanswered ---- */
+        // The decision log's open HIGH/CRITICAL findings — this person's own jobs when narrowed, as the
+        // rest of this feed is. Nothing when the agents are off: they write nothing to count.
+        var risky = db.AiDecisions.AsNoTracking().Where(row => row.Status == Scmos.Api.Ai.AiDecisionLog.Open
+            && (row.RiskLevel == "HIGH" || row.RiskLevel == "CRITICAL"));
+        if (!string.IsNullOrWhiteSpace(ownerId)) risky = risky.Where(row => row.OwnerId == ownerId);
+        var riskLevels = await risky.Select(row => row.RiskLevel).ToListAsync(token);
+        var critical = riskLevels.Count(level => level == "CRITICAL");
+        Add(alerts, AlertKind.AiRiskFound, riskLevels.Count,
+            $"{riskLevels.Count} รายการที่ AI ประเมินว่าเสี่ยงสูง",
+            critical > 0 ? $"วิกฤต {critical} · สูง {riskLevels.Count - critical}" : $"สูง {riskLevels.Count}",
+            "", "decision", critical > 0 ? AlertLevel.Critical : AlertLevel.Warning);
+
         /* ---- 0b. a haulier's message waiting on one of these jobs ---- */
         // From the LINE room or from the carrier's TMS, pinned to one job by
         // the rule and not yet approved or set aside; first, because it is

@@ -466,6 +466,27 @@ static class AgentScanChecks
                 var tomorrow = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(Formats.Zone).DateTime).AddDays(1);
                 check((await Find(new(From: tomorrow))).Count == 0 && (await Find(new(To: tomorrow))).Count == all.Count,
                     "history SQL: by Bangkok day");
+
+                // The OTD Agent's internal alert (§73): the bell counts what the agents judged high risk and nobody answered.
+                var bellCache = new MemoryCache(new MemoryCacheOptions());
+                var bell = new NotificationService(db, new KpiEngine(db, register, new CarrierDirectory(db, bellCache), bellCache,
+                    Options.Create(new PreRunOptions())), register, new DelegationService(db));
+                check(open.All(one => one.RiskLevel is not ("HIGH" or "CRITICAL"))
+                    && !(await bell.BuildAsync(null, default)).Alerts.Any(alert => alert.Kind == "AiRiskFound"),
+                    "alert SQL: with no HIGH or CRITICAL finding open, the bell says nothing about AI");
+                db.AiDecisions.Add(new AiDecision
+                {
+                    AgentId = OtdAgent.Id, DecisionType = OtdAgent.DecisionType, EntityType = "job", EntityId = "S-FINE", OwnerId = "OP-S1",
+                    Summary = "J-S-FINE · เลยเวลาแผน", ResultStatus = AgentResultRules.Completed, Status = AiDecisionLog.Open, RiskLevel = OtdAgent.Critical,
+                    Payload = "{}", RuleReferences = "[]", EvidenceReferences = "[]", Fingerprint = new string('f', 64), PromptVersion = "build:test",
+                    CreatedAt = clock.GetUtcNow(),
+                });
+                await db.SaveChangesAsync();
+                var teamBell = (await bell.BuildAsync(null, default)).Alerts.SingleOrDefault(alert => alert.Kind == "AiRiskFound");
+                var ownerBell = (await bell.BuildAsync("OP-S1", default)).Alerts.SingleOrDefault(alert => alert.Kind == "AiRiskFound");
+                var colleagueBell = (await bell.BuildAsync("OP-S2", default)).Alerts.Any(alert => alert.Kind == "AiRiskFound");
+                check(teamBell is { Screen: "ai", Count: 1, Level: "Critical" } && ownerBell is { Count: 1 } && !colleagueBell,
+                    "alert SQL: a CRITICAL finding rings the bell — critical, opening the AI Control Tower — for the team and the job's owner, not for a colleague");
             }
         }
         finally
