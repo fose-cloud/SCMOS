@@ -208,6 +208,16 @@ public class VehicleTypeService(ScmosDbContext db)
                 UpdatedAt = DateTimeOffset.UtcNow,
             });
         }
-        await db.SaveChangesAsync(token);
+        try { await db.SaveChangesAsync(token); }
+        catch (DbUpdateException)
+        {
+            // Two first readers at once — a fresh or restored database, several screens asking together —
+            // both found the table empty; the other's seed landed first and the unique code index refused
+            // this one. Its rows are the same list, so this copy is dropped and the list read as it stands.
+            // An empty table after that is a real failure, and says so.
+            foreach (var added in db.ChangeTracker.Entries<VehicleTypeRow>().Where(entry => entry.State == EntityState.Added).ToList())
+                added.State = EntityState.Detached;
+            if (!await db.VehicleTypes.AnyAsync(token)) throw;
+        }
     }
 }
