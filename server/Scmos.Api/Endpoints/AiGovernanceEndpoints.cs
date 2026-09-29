@@ -21,6 +21,10 @@ public static class AiGovernanceEndpoints
         [property: JsonRequired] string Reason, [property: JsonRequired] int Revision);
 
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    public sealed record AgentSwitchRequest([property: JsonRequired] string Target, [property: JsonRequired] bool On,
+        [property: JsonRequired] int Revision);
+
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     public sealed record OutcomeRequest([property: JsonRequired] string Outcome, string? Choice, string? Reason);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { MaxDepth = 4 };
@@ -56,6 +60,33 @@ public static class AiGovernanceEndpoints
                 request.ShadowMode, request.Status, request.Reason, request.Revision, token);
             return code == "ok" ? Results.Json(new { saved = true })
                 : Results.Json(new { code, error = "The AI setting was not saved" }, statusCode: code switch
+                {
+                    "forbidden" => 403,
+                    "unknown_agent" => 404,
+                    "conflict" => 409,
+                    "unavailable" => 503,
+                    _ => 400,
+                });
+        });
+
+        // The Control Tower's on/off switch (29 Sep 2026): { target: "agent" | "pass", on, revision }. It holds over
+        // the agent's flag in configuration until switched again — no Portal change, no restart; AI__Enabled off
+        // still stops every agent. Operations keeps its own switch (POST /api/ai/operations-control).
+        ai.MapPut("/agents/{agentId}/switch", async (string agentId, HttpContext context, IUserAccessor users,
+            AiGovernanceService governance, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (!AiPermissionPolicy.Authenticated(user)) return ApiResults.SignInRequired;
+            if (!AiGovernanceService.CanManage(user)) return ApiResults.Error("Administrator only", 403);
+            if (users.Refuses(user!, Capability.AdministerData) is not null)
+                return Results.Json(new { code = "second_factor_required", error = "Second-factor sign-in required" }, statusCode: 403);
+            var body = await ReadAsync<AgentSwitchRequest>(context, token);
+            if (body.Problem is { } problem) return problem;
+            var request = body.Value!;
+            var code = await governance.SwitchAsync(user!, agentId, request.Target, request.On, request.Revision, token);
+            return code == "ok" ? Results.Json(new { saved = true })
+                : Results.Json(new { code, error = "The AI switch was not saved" }, statusCode: code switch
                 {
                     "forbidden" => 403,
                     "unknown_agent" => 404,

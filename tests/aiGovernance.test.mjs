@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  agreementText, AUTONOMY_LABEL, autonomyChoices, costText, GOVERNANCE_STATUS_LABEL, parseGovernance, PLATFORM_CHOICES, saveError,
-  SETTABLE_STATUSES, settingsBody,
+  agreementText, AUTONOMY_LABEL, autonomyChoices, callsModel, costText, GOVERNANCE_STATUS_LABEL, parseGovernance, PLATFORM_CHOICES,
+  saveError, SETTABLE_STATUSES, settingsBody, switchBody, switchOnPlan,
 } from "../app/scmos/aiGovernance.ts";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -15,14 +15,15 @@ const agent = (over = {}) => ({
   lastFailure: "2026-09-27T23:00:00Z", averageMs: 2100, breaker: "Closed",
   usage: { inputTokens24h: 1200, outputTokens24h: 300, cost24h: 0.01, inputTokens30d: 40000, outputTokens30d: 9000, cost30d: 0.15 },
   compared30d: 0, matched30d: 0,
+  switchable: true, on: true, switch: null, pass: "", passOn: false, passSwitch: null,
   ...over,
 });
 const report = (over = {}) => ({
   available: true, canManage: true,
   platform: { autonomy: 4, executionEnabled: true, stopped: false, reason: "", revision: 0, updatedBy: "", updatedAt: null, stored: false },
-  agents: [agent(), agent({ id: "operations-agent", name: "Operations Agent", maxAutonomy: 3, autonomy: 3, effectiveAutonomy: 3 })],
+  agents: [agent(), agent({ id: "operations-agent", name: "Operations Agent", maxAutonomy: 3, autonomy: 3, effectiveAutonomy: 3, switchable: false })],
   promptVersion: "build:65fd552a1b2c", priceCurrency: "USD", pricesConfigured: true,
-  breakerDegradedAfter: 3, breakerPauseAfter: 5, breakerCoolDownMinutes: 10,
+  breakerDegradedAfter: 3, breakerPauseAfter: 5, breakerCoolDownMinutes: 10, aiEnabled: true,
   ...over,
 });
 const rejects = (value) => assert.throws(() => parseGovernance(value), /invalid_response/);
@@ -45,6 +46,41 @@ test("a report that does not match is not drawn", () => {
   rejects(report({ agents: [agent({ breaker: "Melted" })] }));
   rejects(report({ agents: [agent({ compared30d: 2, matched30d: 3 })] }));    // more agreed than compared
   rejects(report({ agents: [agent({ compared30d: undefined })] }));
+  rejects(report({ agents: [agent({ switch: "on" })] }));
+  rejects(report({ agents: [agent({ switchable: false, switch: true })] }));   // a switch stored where there is none
+  rejects(report({ agents: [agent({ pass: "sms" })] }));
+  rejects(report({ agents: [agent({ passOn: true })] }));                      // a pass switch on an agent without a pass
+  rejects(report({ aiEnabled: undefined }));
+});
+
+test("เปิดทั้งหมด turns on every switch still off, a pass one save after its agent, and nothing without a switch", () => {
+  const plan = switchOnPlan([
+    agent({ id: "otd-agent", on: false, revision: 2 }),
+    agent({ id: "communication-agent", on: false, revision: 0, pass: "drafts", passOn: false }),
+    agent({ id: "booking-agent", on: true, revision: 4, pass: "mail", passOn: false }),
+    agent({ id: "data-agent", on: true }),
+    agent({ id: "rate-agent", on: false, switchable: false }),
+  ]);
+  assert.deepEqual(plan, [
+    { id: "otd-agent", target: "agent", revision: 2 },
+    { id: "communication-agent", target: "agent", revision: 0 },
+    { id: "communication-agent", target: "pass", revision: 1 },
+    { id: "booking-agent", target: "pass", revision: 4 },
+  ]);
+  assert.deepEqual(switchBody("pass", true, 3), { target: "pass", on: true, revision: 3 });
+});
+
+test("switching on warns of cost only where the model is called", () => {
+  assert.equal(callsModel("otd-agent", "agent"), false);
+  assert.equal(callsModel("vendor-agent", "agent"), false);
+  assert.equal(callsModel("communication-agent", "pass"), false);   // template drafts
+  assert.equal(callsModel("booking-agent", "pass"), true);          // reading mail
+  assert.equal(callsModel("data-agent", "agent"), true);
+  assert.equal(callsModel("operations-agent", "operations"), true);
+  const panel = read("app/scmos/screens/AiGovernancePanel.tsx");
+  assert.match(panel, /<th>เปิด\/ปิด<\/th>/);
+  assert.match(panel, /\/api\/ai\/agents\/\$\{encodeURIComponent\(id\)\}\/switch/);
+  assert.doesNotMatch(panel, /ปิดใน configuration/);
 });
 
 test("agreement with people reads as matched of compared, or a dash before anything is compared", () => {
@@ -82,7 +118,7 @@ test("a change is sent with its reason trimmed and the revision it was read at",
 test("the panel sits in the Control Tower for audit readers and writes only through the control header", () => {
   const tower = read("app/scmos/screens/AiControlTower.tsx");
   const panel = read("app/scmos/screens/AiGovernancePanel.tsx");
-  assert.match(tower, /\{canViewAudit && <AiGovernancePanel \/>\}/);
+  assert.match(tower, /\{canViewAudit && <AiGovernancePanel operations=\{control\} onOperationsChanged=\{status\.refresh\} \/>\}/);
   assert.match(panel, /"X-SCMOS-AI-Control": "1"/);
   assert.match(panel, /method: "PUT"/);
   assert.match(panel, /report\.canManage &&/);           // controls only when the server says this person may manage

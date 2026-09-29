@@ -62,14 +62,14 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
         return null;
     }
 
-    /// <summary>A specialist's enablement as the orchestrator judges it: the Operations pilot by its control switch (or its flag), every other by its flag.</summary>
+    /// <summary>A specialist's enablement as the orchestrator judges it: the Operations pilot by its control switch (or its flag), every other by the Control Tower's switch or its flag.</summary>
     private async Task<bool> EnabledAsync(AgentDefinition owner, CancellationToken token)
     {
-        if (!await SwitchedOnAsync(owner, token)) return false;
-        // A specialist an administrator paused, or one resting on its breaker, is off for a plan's step too.
-        if (governance is null || options.Value.MockMode) return true;
+        var flag = await SwitchedOnAsync(owner, token);
+        // A specialist switched off, paused by an administrator or resting on its breaker is off for a plan's step too.
+        if (governance is null || options.Value.MockMode) return flag;
         _governance ??= await governance.SnapshotAsync(token);
-        return _governance.Gate(owner, flagEnabled: true, AgentNeed.Run).Allowed;
+        return _governance.Gate(owner, flag, AgentNeed.Run).Allowed;
     }
 
     /// <summary>The governance state, read once for the run so every step is judged against the same one.</summary>

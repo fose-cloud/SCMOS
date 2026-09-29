@@ -45,8 +45,10 @@ revision it was read at — a stale one is refused (409), never overwritten.
 
 Drill, when an agent must stop in Production: set its status to หยุดชั่วคราว
 with a reason — immediate, no restart. To stop all writes: AI ทั้งระบบ →
-อ่านและแนะนำเท่านั้น. To stop everything: หยุด AI ทั้งหมด. The existing flags
-(`AI__…Enabled`) still win: a flag off is off whatever the row says.
+อ่านและแนะนำเท่านั้น. To stop everything: หยุด AI ทั้งหมด. Until 29 Sep 2026 the
+flags (`AI__…Enabled`) always won; since then an agent's **เปิด/ปิด** switch, once
+stored, wins over its flag in either direction, and only `AI__Enabled` stays above
+it ([SCMOS_AI_AGENT_SWITCH.md](SCMOS_AI_AGENT_SWITCH.md)).
 
 ## Configuration (all optional)
 

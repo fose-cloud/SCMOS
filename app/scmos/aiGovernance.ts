@@ -20,6 +20,13 @@ export type AgentGovernance = {
   usage: AgentUsage;
   /** Decisions in 30 days where a person's action can be set against the agent's, and how many agreed. */
   compared30d: number; matched30d: number;
+  /**
+   * The on/off switch (29 Sep 2026): whether this agent has one here, whether it is on, and the stored
+   * choice — null while the flag in the Azure Portal decides. `pass` is its separate scheduled pass, with
+   * its own switch in `passOn`/`passSwitch`.
+   */
+  switchable: boolean; on: boolean; switch: boolean | null;
+  pass: "" | "drafts" | "mail"; passOn: boolean; passSwitch: boolean | null;
 };
 
 export type PlatformGovernance = {
@@ -31,6 +38,8 @@ export type GovernanceReport = {
   available: boolean; canManage: boolean; platform: PlatformGovernance; agents: AgentGovernance[];
   promptVersion: string; priceCurrency: string; pricesConfigured: boolean;
   breakerDegradedAfter: number; breakerPauseAfter: number; breakerCoolDownMinutes: number;
+  /** AI__Enabled — off, every agent is off whatever its switch says. */
+  aiEnabled: boolean;
 };
 
 /** The settable statuses; DEGRADED is the breaker's word and never stored. */
@@ -50,6 +59,38 @@ export const PLATFORM_CHOICES = [
   { autonomy: 0, label: "หยุด AI ทั้งหมด" },
 ] as const;
 
+export const PASS_LABEL: Record<string, string> = { drafts: "ร่างข้อความ", mail: "อ่านอีเมล" };
+
+/** The agents that run on rules alone; every other one — and the Booking Agent's mail — calls the model. */
+const NO_MODEL = ["otd-agent", "validation-agent", "vendor-agent"];
+
+/** Whether switching this on can cost money: a model call per question or per message read. */
+export function callsModel(id: string, target: "agent" | "pass" | "operations"): boolean {
+  return target === "pass" ? id === "booking-agent" : !NO_MODEL.includes(id);
+}
+
+export type SwitchStep = { id: string; target: "agent" | "pass"; revision: number };
+
+/**
+ * Every switch "เปิดทั้งหมด" turns on, in order, each with the revision it will be sent at: an agent's pass
+ * after the agent, one save later. Operations is not here — it keeps its own switch.
+ */
+export function switchOnPlan(agents: AgentGovernance[]): SwitchStep[] {
+  const steps: SwitchStep[] = [];
+  for (const agent of agents) {
+    if (!agent.switchable) continue;
+    let revision = agent.revision;
+    if (!agent.on) steps.push({ id: agent.id, target: "agent", revision: revision++ });
+    if (agent.pass && !agent.passOn) steps.push({ id: agent.id, target: "pass", revision });
+  }
+  return steps;
+}
+
+/** A switch as the API takes it. */
+export function switchBody(target: "agent" | "pass", on: boolean, revision: number) {
+  return { target, on, revision };
+}
+
 export const SAVE_ERRORS: Record<string, string> = {
   forbidden: "Administrator เท่านั้น",
   second_factor_required: "ต้องเข้าสู่ระบบด้วยการยืนยันสองขั้นตอนก่อน",
@@ -59,6 +100,8 @@ export const SAVE_ERRORS: Record<string, string> = {
   invalid_status: "สถานะไม่ถูกต้อง",
   unknown_agent: "ไม่พบ Agent นี้",
   conflict: "มีผู้เปลี่ยนค่าไปแล้ว — รีเฟรชแล้วลองใหม่",
+  not_switchable: "Agent นี้เปิด/ปิดจากที่นี่ไม่ได้",
+  invalid_target: "คำขอไม่ถูกต้อง",
   unavailable: "บันทึกไม่สำเร็จ ลองใหม่",
 };
 
@@ -69,6 +112,7 @@ const whole = (v: unknown, max = Number.MAX_SAFE_INTEGER) => typeof v === "numbe
 const money = (v: unknown) => v === null || typeof v === "number" && Number.isFinite(v) && v >= 0;
 const when = (v: unknown) => v === null || str(v, 40) && !Number.isNaN(Date.parse(String(v)));
 const level = (v: unknown) => whole(v, 4);
+const maybe = (v: unknown) => v === null || typeof v === "boolean";
 
 function usage(v: unknown): v is AgentUsage {
   return obj(v) && ["inputTokens24h", "outputTokens24h", "inputTokens30d", "outputTokens30d"].every(k => whole(v[k]))
@@ -85,7 +129,10 @@ function agent(v: unknown): v is AgentGovernance {
     && (v.failureRate24h === null || typeof v.failureRate24h === "number" && v.failureRate24h >= 0 && v.failureRate24h <= 1)
     && whole(v.consecutiveFailures) && when(v.lastSuccess) && when(v.lastFailure)
     && (v.averageMs === null || whole(v.averageMs)) && ["Closed", "Degraded", "Open", "HalfOpen"].includes(String(v.breaker))
-    && usage(v.usage) && whole(v.compared30d) && whole(v.matched30d) && Number(v.matched30d) <= Number(v.compared30d);
+    && usage(v.usage) && whole(v.compared30d) && whole(v.matched30d) && Number(v.matched30d) <= Number(v.compared30d)
+    && typeof v.switchable === "boolean" && typeof v.on === "boolean" && maybe(v.switch) && (v.switchable || v.switch === null)
+    && ["", "drafts", "mail"].includes(String(v.pass)) && typeof v.passOn === "boolean" && maybe(v.passSwitch)
+    && (v.pass !== "" || v.passOn === false && v.passSwitch === null);
 }
 
 /** "8/10 (80%)", or a dash while nothing has been compared. */
@@ -104,7 +151,8 @@ export function parseGovernance(v: unknown): GovernanceReport {
     && Array.isArray(v.agents) && v.agents.length <= 20 && v.agents.every(agent)
     && new Set(v.agents.map(a => (a as AgentGovernance).id)).size === v.agents.length
     && str(v.promptVersion, 60) && str(v.priceCurrency, 8) && typeof v.pricesConfigured === "boolean"
-    && whole(v.breakerDegradedAfter, 50) && whole(v.breakerPauseAfter, 50) && whole(v.breakerCoolDownMinutes, 240)))
+    && whole(v.breakerDegradedAfter, 50) && whole(v.breakerPauseAfter, 50) && whole(v.breakerCoolDownMinutes, 240)
+    && typeof v.aiEnabled === "boolean"))
     throw new Error("invalid_response");
   return v as unknown as GovernanceReport;
 }

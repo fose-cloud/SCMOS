@@ -1,16 +1,19 @@
 # Running the AI Agent Platform — operations runbook
 
 For whoever turns the agents on, watches them and stops them. Current to
-v2.7.98 (29 Sep 2026). The spec's §63 asks for operations, events,
+v2.7.99 (29 Sep 2026). The spec's §63 asks for operations, events,
 permissions, audit and deployment documents. This page is the operations and
 events part; the rest are linked at the end.
 
 ## What is deployed and what is off
 
-Everything below is in production, and every new agent is **off** until its
-flag is set in the Azure Portal (App Service → Configuration). Changing a
-setting restarts the site for about 90 seconds, so do it outside working
-hours or warn people.
+Everything below is in production, and every new agent is **off** until it is
+switched on. Since v2.7.99 that is done in **AI Control Tower → การกำกับ AI →
+เปิด/ปิด** (Administrator, second factor): at once, no restart, audited.
+**เปิดทั้งหมด** switches on every agent and pass still off. The Portal flags
+below still decide for an agent nobody has switched; a switch, once used, wins
+over its flag until it is switched again. Changing a Portal setting restarts
+the site for about 90 seconds, so do that outside working hours or warn people.
 
 | Agent | What it does | Calls the model? | Setting(s) |
 | --- | --- | --- | --- |
@@ -21,8 +24,10 @@ hours or warn people.
 | Booking, pasted text | Booking text read into the add-job form | yes, one call per **อ่านข้อความ** | `AI__BookingAgentEnabled` |
 | Booking, unplaced mail | Unplaced mail read into drafts | yes, one call per new message (at most 10 a pass) | `AI__BookingMailEnabled` as well; the Outlook mailbox must be connected |
 
-All of them also need `AI__Enabled=true` (already on). The Booking Agent uses
-the OpenAI key the document reader already uses.
+All of them also need `AI__Enabled=true` (already on); off, it stops every
+agent whatever its switch says. The chat agents also need `AI__ChatEnabled`.
+Operations has its own switch (the **เปิด Operations AI** button, also in its
+row). The Booking Agent uses the OpenAI key the document reader already uses.
 
 ## Suggested order
 
@@ -86,10 +91,10 @@ drafts have no owner, so they go to supervisors and above.
 
 | To stop | Do this | Takes effect |
 | --- | --- | --- |
-| One agent | การกำกับ AI → its status **หยุดชั่วคราว** or **ปิด** (Administrator, second factor, reason recorded) | the next pass |
+| One agent | การกำกับ AI → its **เปิด/ปิด** switch to ปิด, or its status **หยุดชั่วคราว** (Administrator, second factor; audited) | at once for questions, the next pass for findings |
 | All AI actions, keep reading and recommending | Platform level → **อ่านและแนะนำเท่านั้น** (L2) | at once |
 | All AI | Platform level → **หยุด AI ทั้งหมด** (L0) | at once |
-| An agent entirely | its setting to `false` in the Portal | after the ~90 s restart |
+| Every agent, from outside the app | `AI__Enabled=false` in the Portal | after the ~90 s restart |
 
 SCMOS works exactly as before with every agent off. The agents write only to
 `ai_decisions` and the AI audit, never to jobs.
@@ -124,15 +129,17 @@ the department's open decisions first:
 
 Deploying is the usual SCMOS release: the API deploys on push to
 `azure-dotnet-migration` (migrations run then), and the web deploy is dispatched
-by hand afterwards. Outside working hours unless asked. The platform added two
-migrations, `AiAgentGovernance` and `AiDecisionLifecycle`; both are forward-only.
+by hand afterwards. Outside working hours unless asked. The platform added three
+migrations: `AiAgentGovernance` and `AiDecisionLifecycle`, both forward-only, and
+`AiAgentSwitch` (v2.7.99), which may be rolled back — the agents then follow their
+flags again.
 
 ## Troubleshooting
 
 | You see | It means |
 | --- | --- |
 | Nothing under งานที่ AI ตรวจพบ | the agents are off, or nothing is wrong |
-| A scan answers `agent_disabled` | a flag is off (or `AI__Enabled`), for Booking mail also `AI__BookingMailEnabled`, or its status is ปิด |
+| A scan answers `agent_disabled` | its switch is ปิด (or, with no switch stored, its flag is off), `AI__Enabled` is off, the pass's own switch (ร่างข้อความ, อ่านอีเมล) is ปิด, or its status is ปิด |
 | `agent_paused` / `agent_maintenance` | its status in การกำกับ AI |
 | `ai_stopped` | the platform level is หยุด AI ทั้งหมด |
 | `agent_circuit_open` | it failed five times in a row and is resting for the cool-down; it resumes by itself |

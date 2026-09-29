@@ -42,8 +42,11 @@ public enum BreakerState
 
 /// <summary>An agent's stored settings, or its defaults when nobody has stored any.</summary>
 /// <param name="Stored">Whether a row exists; false means the defaults below are the code's.</param>
+/// <param name="Enabled">The Control Tower's on/off switch; null follows the flag in configuration.</param>
+/// <param name="PassEnabled">The same for a separate scheduled pass (Communication drafts, Booking mail); null follows its flag.</param>
 public sealed record AgentSetting(string AgentId, AiAutonomy Autonomy, bool ShadowMode, string Status,
-    string Reason = "", int Revision = 0, string UpdatedBy = "", DateTimeOffset? UpdatedAt = null, bool Stored = false);
+    string Reason = "", int Revision = 0, string UpdatedBy = "", DateTimeOffset? UpdatedAt = null, bool Stored = false,
+    bool? Enabled = null, bool? PassEnabled = null);
 
 /// <summary>What the recent runs say about an agent.</summary>
 public sealed record AgentHealth(int Runs, int Failures, int ConsecutiveFailures,
@@ -67,12 +70,19 @@ public sealed record GovernanceGate(bool Allowed, string Code, string Reason, Ai
 /// all of them.
 ///
 /// <para>
-/// The settings narrow what configuration allows and never widen it: an
-/// agent whose flag is off stays off whatever its row says, and no row lifts
-/// an agent above the autonomy its code was built for
+/// No row lifts an agent above the autonomy its code was built for
 /// (<see cref="AgentDefinition.MaxAutonomy"/>). With no rows at all every
 /// agent behaves exactly as it did before the settings existed — that is what
 /// the defaults are for.
+/// </para>
+///
+/// <para>
+/// Since 29 Sep 2026 a row may also switch its agent on or off
+/// (<see cref="SwitchedOn"/>), so turning an agent on no longer needs the
+/// Portal and a restart. That is the one setting that widens what
+/// configuration says, and it stops at the server's own switches:
+/// <c>AI__Enabled</c> off still stops every agent, as
+/// <c>AI__OperationsEmergencyDisabled</c> still stops Operations.
 /// </para>
 /// </summary>
 public static class AgentGovernance
@@ -114,11 +124,25 @@ public static class AgentGovernance
         : health.Breaker is BreakerState.Degraded or BreakerState.HalfOpen ? Degraded
         : Active;
 
+    /// <summary>Whether an agent is switched on: the Control Tower's switch when one is stored, otherwise its flag in configuration.</summary>
+    public static bool SwitchedOn(AgentSetting setting, bool flagEnabled) => setting.Enabled ?? flagEnabled;
+
+    /// <summary>
+    /// Agents the Control Tower's switch does not hold. Operations has had its own switch since
+    /// 8 Sep (<see cref="OperationsControlService"/>) with readiness checks of its own; the other three
+    /// have no executor and no pass behind them yet, so switching one on would run nothing.
+    /// </summary>
+    public static readonly string[] NotSwitchable = ["operations-agent", "rate-agent", "incident-agent", "compliance-agent"];
+
+    public static bool Switchable(AgentDefinition agent) => !NotSwitchable.Contains(agent.Id, StringComparer.Ordinal);
+
     public static GovernanceGate Evaluate(AgentDefinition agent, bool flagEnabled, AgentSetting setting,
         AgentSetting platform, AgentHealth health, AgentNeed need)
     {
         var effective = Effective(agent, setting, platform);
-        if (!flagEnabled) return new(false, "agent_disabled", "This specialist is disabled in configuration.", effective);
+        if (!SwitchedOn(setting, flagEnabled))
+            return new(false, "agent_disabled", setting.Enabled == false
+                ? "This specialist is switched off in the AI Control Tower." : "This specialist is disabled in configuration.", effective);
         if (platform.Autonomy == AiAutonomy.Disabled || platform.Status != Active)
             return new(false, "ai_stopped", "AI is stopped by an administrator. Core SCMOS remains available.", effective);
         switch (setting.Status)

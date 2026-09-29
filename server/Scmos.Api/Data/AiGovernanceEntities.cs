@@ -20,6 +20,13 @@ public sealed class AiAgentConfig
     public int Revision { get; set; }
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
+    /// <summary>
+    /// The agent's on/off switch in the AI Control Tower (29 Sep 2026): null follows its flag in
+    /// configuration, as every agent did before; true or false is an administrator's choice and wins.
+    /// </summary>
+    public bool? Enabled { get; set; }
+    /// <summary>The same for the agent's own scheduled pass where it has a separate one — the Communication Agent's drafts, the Booking Agent's mail.</summary>
+    public bool? PassEnabled { get; set; }
 
     public static void Configure(ModelBuilder model)
     {
@@ -35,6 +42,8 @@ public sealed class AiAgentConfig
             entry.Property(e => e.Revision).HasColumnName("revision").IsConcurrencyToken();
             entry.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasMaxLength(160);
             entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entry.Property(e => e.Enabled).HasColumnName("enabled");
+            entry.Property(e => e.PassEnabled).HasColumnName("pass_enabled");
             entry.ToTable(table =>
             {
                 table.HasCheckConstraint("ai_agent_settings_autonomy_ck", "[autonomy] BETWEEN 0 AND 4");

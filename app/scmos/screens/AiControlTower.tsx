@@ -674,7 +674,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
 
     {/* Autonomy, shadow mode, status, health and cost per agent, and the execution switch
         (Agent Platform foundation, 27 Sep 2026) — for whoever may read the AI audit; changed only by an Administrator. */}
-    {canViewAudit && <AiGovernancePanel />}
+    {canViewAudit && <AiGovernancePanel operations={control} onOperationsChanged={status.refresh} />}
 
     {canViewDashboard && <AiHistoryPanel onOpenJob={onOpenJob}
       onShowRun={canViewAudit ? (runId) => { setSelectedRun(runId); activityPanel.current?.scrollIntoView({ block: "start" }); } : undefined} />}

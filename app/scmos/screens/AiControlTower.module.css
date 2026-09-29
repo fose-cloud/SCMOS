@@ -60,6 +60,8 @@
 .governanceTable { width: 100%; min-width: 1040px; border-collapse: collapse; font-size: 12px; }
 .governanceTable th { text-align: left; padding: 10px; background: #eef3f8; color: #52657a; white-space: nowrap; }
 .governanceTable td { padding: 10px; vertical-align: top; border-top: 1px solid #e6ecf3; line-height: 1.6; }
+.switch { min-width: 56px; min-height: 30px; padding: 4px 10px; }
+.switch[aria-pressed="true"] { background: #e6f5ed; border-color: #8ccaa9; color: #116b43; }
 .governance select, .governance input:not([type="checkbox"]),
 .governanceTable select, .governanceTable input:not([type="checkbox"]) { min-height: 32px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12px; color: var(--ink); background: white; }
 .evidence td:first-child { width: 36%; }

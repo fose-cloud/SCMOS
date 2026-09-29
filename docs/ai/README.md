@@ -16,6 +16,7 @@ and what to watch.
 | Booking Agent (paste and unplaced mail) | [SCMOS_AI_BOOKING_AGENT.md](SCMOS_AI_BOOKING_AGENT.md) |
 | My AI Tasks and the Control Tower cards | [SCMOS_AI_MY_TASKS.md](SCMOS_AI_MY_TASKS.md) |
 | AI history search | [SCMOS_AI_HISTORY.md](SCMOS_AI_HISTORY.md) |
+| The on/off switch in the Control Tower | [SCMOS_AI_AGENT_SWITCH.md](SCMOS_AI_AGENT_SWITCH.md) |
 | Operations runbook | [SCMOS_AI_AGENT_PLATFORM_OPERATIONS.md](SCMOS_AI_AGENT_PLATFORM_OPERATIONS.md) |
 
 ## The first AI specification (Phases 1–9, Sep 2026)

@@ -79,14 +79,21 @@ public sealed record AgentGovernanceView(string Id, string Name, bool FlagEnable
     AgentUsageView Usage,
     // The shadow comparison autonomy is raised on (§66): decisions answered or acted on in 30 days
     // where what a person did can be set against what the agent said, and how many agreed.
-    int Compared30d = 0, int Matched30d = 0);
+    int Compared30d = 0, int Matched30d = 0,
+    // The Control Tower's on/off switch (29 Sep 2026): whether this row has one, whether the agent is on
+    // (under AI__Enabled; Operations by its own switch), and the stored choice — null while the flag in
+    // configuration decides. Pass is the agent's separate scheduled pass, "drafts" or "mail", or ""; PassOn is its own
+    // switch, which runs nothing while the agent is off.
+    bool Switchable = false, bool On = false, bool? Switch = null,
+    string Pass = "", bool PassOn = false, bool? PassSwitch = null);
 
 public sealed record PlatformGovernanceView(int Autonomy, bool ExecutionEnabled, bool Stopped, string Reason, int Revision,
     string UpdatedBy, DateTimeOffset? UpdatedAt, bool Stored);
 
+/// <param name="AiEnabled">AI__Enabled — the server's own switch, above every agent's.</param>
 public sealed record GovernanceReport(bool Available, bool CanManage, PlatformGovernanceView Platform,
     IReadOnlyList<AgentGovernanceView> Agents, string PromptVersion, string PriceCurrency, bool PricesConfigured,
-    int BreakerDegradedAfter, int BreakerPauseAfter, int BreakerCoolDownMinutes);
+    int BreakerDegradedAfter, int BreakerPauseAfter, int BreakerCoolDownMinutes, bool AiEnabled = true);
 
 /// <summary>
 /// The AI platform's governance, from the database: settings rows, the audit's
@@ -94,7 +101,7 @@ public sealed record GovernanceReport(bool Available, bool CanManage, PlatformGo
 /// administrator makes; it decides nothing — <see cref="AgentGovernance"/> does.
 /// </summary>
 public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents, AuditService audit,
-    IOptions<AiOptions> options, TimeProvider clock, ILogger<AiGovernanceService> log) : IAiGovernance
+    IOptions<AiOptions> options, TimeProvider clock, ILogger<AiGovernanceService> log, IOperationsControl? control = null) : IAiGovernance
 {
     /// <summary>How far back the breaker and the day's health look.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromHours(24);
@@ -162,10 +169,16 @@ public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents,
                 .GroupBy(row => row.AgentId)
                 .Select(group => new { AgentId = group.Key, Compared = group.Count(), Matched = group.Count(row => row.HumanMatches == true) })
                 .ToDictionaryAsync(row => row.AgentId, row => (row.Compared, row.Matched), token);
+            // Operations answers to its own switch where one is registered, as the orchestrator judges it.
+            bool? operationsOn = control is null ? null : OperationsControlService.Effective(await control.ReadAsync(token));
 
             var views = agents.All.Select(agent =>
             {
                 var setting = settings.TryGetValue(agent.Id, out var stored) ? stored : AgentGovernance.Default(agent);
+                var flag = AgentRegistry.Enabled(agent, ai);
+                var passFlag = AgentScanner.PassFlag(agent.Id, ai);
+                var on = agent.Id == "operations-agent" && operationsOn is { } operations ? operations
+                    : ai.Enabled && AgentGovernance.SwitchedOn(setting, flag);
                 var health = HealthOf(agent.Id, runs, started);
                 var mine = usage.Where(row => row.AgentId == agent.Id).ToList();
                 // A model without a price makes the total unknown, not smaller: null, shown as "no price set".
@@ -181,18 +194,21 @@ public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents,
                     }
                     return total;
                 }
-                return new AgentGovernanceView(agent.Id, agent.Name, AgentRegistry.Enabled(agent, ai), (int)agent.MaxAutonomy,
+                return new AgentGovernanceView(agent.Id, agent.Name, flag, (int)agent.MaxAutonomy,
                     (int)setting.Autonomy, (int)AgentGovernance.Effective(agent, setting, platform), setting.ShadowMode,
                     setting.Status, AgentGovernance.EffectiveStatus(setting, health), setting.Reason, setting.Revision,
                     setting.UpdatedBy, setting.UpdatedAt, setting.Stored, health.Runs, health.Failures, health.FailureRate,
                     health.ConsecutiveFailures, health.LastSuccess, health.LastFailure, health.AverageMs, health.Breaker.ToString(),
                     new AgentUsageView(mine.Sum(row => row.In24), mine.Sum(row => row.Out24), CostOf(month: false),
                         mine.Sum(row => row.In30), mine.Sum(row => row.Out30), CostOf(month: true)),
-                    agreement.GetValueOrDefault(agent.Id).Compared, agreement.GetValueOrDefault(agent.Id).Matched);
+                    agreement.GetValueOrDefault(agent.Id).Compared, agreement.GetValueOrDefault(agent.Id).Matched,
+                    AgentGovernance.Switchable(agent), on, setting.Enabled,
+                    passFlag is null ? "" : agent.Id == Booking.BookingAgent.Id ? "mail" : "drafts",
+                    passFlag is { } pass && (setting.PassEnabled ?? pass), passFlag is null ? null : setting.PassEnabled);
             }).ToList();
 
             return new GovernanceReport(true, CanManage(user), PlatformView(platform), views, AiBuild.PromptVersion,
-                ai.PriceCurrency, prices.Count > 0, ai.BreakerDegradedAfter, ai.BreakerPauseAfter, ai.BreakerCoolDownMinutes);
+                ai.PriceCurrency, prices.Count > 0, ai.BreakerDegradedAfter, ai.BreakerPauseAfter, ai.BreakerCoolDownMinutes, ai.Enabled);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception problem)
@@ -200,7 +216,7 @@ public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents,
             log.LogWarning(problem, "AI governance report unavailable");
             return new GovernanceReport(false, CanManage(user), PlatformView(AgentGovernance.PlatformDefault), [],
                 AiBuild.PromptVersion, ai.PriceCurrency, prices.Count > 0, ai.BreakerDegradedAfter, ai.BreakerPauseAfter,
-                ai.BreakerCoolDownMinutes);
+                ai.BreakerCoolDownMinutes, ai.Enabled);
         }
     }
 
@@ -265,6 +281,59 @@ public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents,
         }
     }
 
+    /// <summary>
+    /// The Control Tower's on/off switch for one agent (<paramref name="target"/> "agent") or for its separate
+    /// pass ("pass"). Like <see cref="SetAsync"/>: an administrator, the revision read, one audit row in the
+    /// same save. Nothing else on the row changes; a row made for the switch alone starts from the agent's
+    /// defaults. The stored choice holds over the flag in configuration until it is switched again.
+    /// </summary>
+    public async Task<string> SwitchAsync(AppUser user, string agentId, string target, bool on, int revision, CancellationToken token)
+    {
+        if (!CanManage(user)) return "forbidden";
+        if (agents.Find(agentId) is not { } agent) return "unknown_agent";
+        if (target is not ("agent" or "pass")) return "invalid_target";
+        var pass = target == "pass";
+        var passFlag = AgentScanner.PassFlag(agent.Id, options.Value);
+        if (!AgentGovernance.Switchable(agent) || (pass && passFlag is null)) return "not_switchable";
+        if (revision < 0) return "conflict";
+        try
+        {
+            var row = await db.AiAgentConfigs.SingleOrDefaultAsync(one => one.AgentId == agentId, token);
+            if ((row?.Revision ?? 0) != revision) return "conflict";
+            var current = row is null ? AgentGovernance.Default(agent) : Read(row);
+            var stored = pass ? current.PassEnabled : current.Enabled;
+            if (stored == on) return "ok";
+            // The value it had, and where it came from: the switch, or configuration while nothing was stored.
+            var was = stored is { } choice ? choice ? "on" : "off"
+                : (pass ? passFlag!.Value : AgentRegistry.Enabled(agent, options.Value)) ? "on (configuration)" : "off (configuration)";
+
+            if (row is null)
+            {
+                row = new AiAgentConfig
+                {
+                    AgentId = agentId, Autonomy = (int)current.Autonomy, ShadowMode = current.ShadowMode,
+                    Status = current.Status, Reason = "", Revision = 0,
+                };
+                db.AiAgentConfigs.Add(row);
+            }
+            if (pass) row.PassEnabled = on; else row.Enabled = on;
+            row.Revision = checked(row.Revision + 1);
+            row.UpdatedBy = user.Signature;
+            row.UpdatedAt = clock.GetUtcNow();
+            audit.Stage(user, AuditActions.Configure, "ai-agent-settings", agentId, agent.Name, pass ? "pass_enabled" : "enabled",
+                was, on ? "on" : "off", "AI Control Tower switch");
+            await db.SaveChangesAsync(token);
+            return "ok";
+        }
+        catch (DbUpdateException) { return "conflict"; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception problem)
+        {
+            log.LogWarning(problem, "AI switch for {Agent} was not saved", agentId);
+            return "unavailable";
+        }
+    }
+
     private async Task<(AgentSetting Platform, Dictionary<string, AgentSetting> Settings)> SettingsAsync(CancellationToken token)
     {
         var rows = await db.AiAgentConfigs.AsNoTracking().ToListAsync(token);
@@ -276,7 +345,8 @@ public sealed class AiGovernanceService(ScmosDbContext db, AgentRegistry agents,
     }
 
     private static AgentSetting Read(AiAgentConfig row) => new(row.AgentId, (AiAutonomy)Math.Clamp(row.Autonomy, 0, 4),
-        row.ShadowMode, row.Status, row.Reason, row.Revision, row.UpdatedBy, row.UpdatedAt, Stored: true);
+        row.ShadowMode, row.Status, row.Reason, row.Revision, row.UpdatedBy, row.UpdatedAt, Stored: true,
+        Enabled: row.Enabled, PassEnabled: row.PassEnabled);
 
     private sealed record Completion(string AgentId, string RunId, string Status, DateTimeOffset At);
 

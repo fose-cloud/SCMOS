@@ -97,7 +97,23 @@ static class GovernanceChecks
             check(AgentGovernance.Evaluate(data, true, AgentGovernance.Default(data) with { Status = status, Reason = "drill" }, platform, healthy, AgentNeed.Run) is { Allowed: false } refused
                 && refused.Code == code && refused.Reason.Contains("drill"), $"status: {status} refuses with {code} and the administrator's reason");
         check(AgentGovernance.Evaluate(data, false, AgentGovernance.Default(data), platform, healthy, AgentNeed.Run).Code == "agent_disabled",
-            "flags: an agent whose flag is off stays off whatever its settings say");
+            "flags: an agent whose flag is off stays off while no switch is stored");
+        // The Control Tower's switch (29 Sep 2026): stored, it wins over the flag in either direction.
+        check(AgentGovernance.Evaluate(data, false, AgentGovernance.Default(data) with { Enabled = true }, platform, healthy, AgentNeed.Run).Allowed
+            && AgentGovernance.Evaluate(data, true, AgentGovernance.Default(data) with { Enabled = false }, platform, healthy, AgentNeed.Run)
+                is { Allowed: false, Code: "agent_disabled" } switchedOff && switchedOff.Reason.Contains("AI Control Tower"),
+            "switch: on in the Control Tower runs an agent whose flag is off; off stops one whose flag is on, and says where");
+        check(AgentGovernance.Evaluate(data, false, AgentGovernance.Default(data) with { Enabled = true, Status = AgentGovernance.Paused, Reason = "drill" },
+                platform, healthy, AgentNeed.Run).Code == "agent_paused"
+            && AgentGovernance.Evaluate(data, false, AgentGovernance.Default(data) with { Enabled = true }, AgentGovernance.PlatformDefault with { Autonomy = AiAutonomy.Disabled },
+                healthy, AgentNeed.Run).Code == "ai_stopped",
+            "switch: switched on is not past the rest of governance — a paused agent or a stopped platform still refuses");
+        var tools = new ToolRegistry();
+        check(agents.All.Where(agent => !AgentGovernance.Switchable(agent)).Select(agent => agent.Id).Order()
+                .SequenceEqual(["compliance-agent", "incident-agent", "operations-agent", "rate-agent"])
+            && agents.All.Where(agent => !AgentGovernance.Switchable(agent) && agent.Id != operations.Id)
+                .All(agent => !AgentScanner.Agents.Contains(agent.Id) && agent.AllowedTools.All(tool => tools.Find(tool) is null)),
+            "switch: every agent has one but Operations (its own switch) and the three with nothing behind them yet — connect one and this fails");
         check(AgentGovernance.SettingProblem(data, false, 2, AgentGovernance.Degraded, "why") == "invalid_status"
             && AgentGovernance.SettingProblem(data, false, 2, AgentGovernance.Paused, " ") == "reason_required"
             && AgentGovernance.SettingProblem(null, false, 2, AgentGovernance.Active, "why") == "unknown_agent",
@@ -192,6 +208,22 @@ static class GovernanceChecks
         var disabled = await Run(With(), new AiOptions());
         check(disabled.Outcome.Response.Code == "disabled" && disabled.Reads == 0,
             "orchestrator: with AI off in configuration nothing is read at all — SCMOS without AI is unchanged");
+        var flagOff = new AiOptions { Enabled = true, ChatEnabled = true, OperationsAgentEnabled = true };
+        check((await Run(With(), flagOff)).Outcome.Response.Code == "agent_disabled"
+            && (await Run(With(dataSetting: AgentGovernance.Default(data) with { Enabled = true }), flagOff)).Outcome.Response.Code == "not_connected"
+            && (await Run(With(dataSetting: AgentGovernance.Default(data) with { Enabled = false }))).Outcome.Response.Code == "agent_disabled"
+            && (await Run(With(dataSetting: AgentGovernance.Default(data) with { Enabled = true }), new AiOptions { ChatEnabled = true })).Outcome.Response.Code == "disabled",
+            "orchestrator: the Control Tower's switch on runs an agent whose flag is off, off refuses one whose flag is on — AI__Enabled off still stops it");
+        using (var limiter = new AiRunLimiter())
+        {
+            AiAgentStatus DataView(AgentSetting setting, AiOptions options) => new AgentOrchestrator(Options.Create(options), development,
+                new MockAiProvider(development), agents, limiter, NullLogger<AgentOrchestrator>.Instance,
+                governance: new DefaultGovernance(With(dataSetting: setting))).StatusAsync(Admin, default).Result.Agents.Single(view => view.Id == data.Id);
+            check(DataView(AgentGovernance.Default(data) with { Enabled = true }, flagOff) is { Enabled: true, Code: "" }
+                && DataView(AgentGovernance.Default(data) with { Enabled = false }, live) is { Enabled: false, Code: "agent_disabled" }
+                && DataView(AgentGovernance.Default(data) with { Enabled = true }, new AiOptions { Enabled = true }) is { Enabled: false, Code: "agent_disabled" },
+                "status: the chat's agent list follows the Control Tower's switch, under AI__ChatEnabled");
+        }
         using (var limiter = new AiRunLimiter())
         {
             var runtime = new AgentOrchestrator(Options.Create(live), development, new MockAiProvider(development), agents, limiter,

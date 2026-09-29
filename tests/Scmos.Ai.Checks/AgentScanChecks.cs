@@ -405,6 +405,66 @@ static class AgentScanChecks
                 && (await Decisions()).Single(one => one.Id == drafts[2].Id).Status == AiDecisionLog.Resolved,
                 "scan SQL: the POD arrives — the draft that asked for it is resolved, never sent");
 
+            /* ---------------- the Control Tower's on/off switch ---------------- */
+            // 29 Sep 2026: an administrator switches an agent on over its flag in configuration, or off under it —
+            // no Portal change, no restart — and AI__Enabled still stops everything.
+            var flagsOff = new AiOptions { Enabled = true };
+            var switcher = new AppUser("scan-admin", "a@test.invalid", "Admin", Roles.Admin, "AD-S1", "test", true);
+            async Task<string> Switch(string agentId, string target, bool on, AppUser? who = null, int? revision = null)
+            {
+                await using var db = new ScmosDbContext(options);
+                var service = new AiGovernanceService(db, agents, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance),
+                    Options.Create(flagsOff), clock, NullLogger<AiGovernanceService>.Instance);
+                var stored = (await db.AiAgentConfigs.AsNoTracking().SingleOrDefaultAsync(one => one.AgentId == agentId))?.Revision ?? 0;
+                return await service.SwitchAsync(who ?? switcher, agentId, target, on, revision ?? stored, default);
+            }
+            check((await Pass(flagsOff)).All(one => one.Code == "agent_disabled"), "switch SQL: every flag off and nothing switched — nothing runs");
+            check(await Switch(ValidationAgent.Id, "agent", true) == "ok"
+                && (await Pass(flagsOff)) is var switchedOn
+                && switchedOn.Single(one => one.AgentId == ValidationAgent.Id).Code == "ok"
+                && switchedOn.Where(one => one.AgentId != ValidationAgent.Id).All(one => one.Code == "agent_disabled"),
+                "switch SQL: the Validation Agent switched on in the Control Tower runs with its flag off; the others stay off");
+            await using (var db = new ScmosDbContext(options))
+            {
+                var row = await db.AiAgentConfigs.AsNoTracking().SingleAsync(one => one.AgentId == ValidationAgent.Id);
+                var trail = await db.AuditEvents.AsNoTracking().Where(one => one.Entity == "ai-agent-settings" && one.EntityId == ValidationAgent.Id).ToListAsync();
+                check(row is { Enabled: true, PassEnabled: null, Autonomy: 2, ShadowMode: true, Status: AgentGovernance.Active, Revision: 1, Reason: "" }
+                    && trail.Count == 1 && trail[0] is { Field: "enabled", OldValue: "off (configuration)", NewValue: "on", Who: "a@test.invalid" },
+                    "switch SQL: the row starts from the agent's defaults, and the audit says who, from what (configuration's off) to on");
+            }
+            check(await Switch(ValidationAgent.Id, "agent", false, revision: 0) == "conflict"
+                && await Switch(ValidationAgent.Id, "agent", false, who: new AppUser("scan-sv", "sv@test.invalid", "Supervisor", Roles.Supervisor, "SV-S1", "test", true)) == "forbidden"
+                && await Switch("operations-agent", "agent", true) == "not_switchable" && await Switch("rate-agent", "agent", true) == "not_switchable"
+                && await Switch(OtdAgent.Id, "pass", true) == "not_switchable" && await Switch(ValidationAgent.Id, "both", true) == "invalid_target"
+                && await Switch("no-such-agent", "agent", true) == "unknown_agent",
+                "switch SQL: a stale revision, a supervisor, Operations, an agent with nothing behind it, a pass that does not exist — all refused");
+            check(await Switch(ValidationAgent.Id, "agent", false) == "ok"
+                && (await Pass(new AiOptions { Enabled = true, ValidationAgentEnabled = true })).Single(one => one.AgentId == ValidationAgent.Id).Code == "agent_disabled",
+                "switch SQL: switched off in the Control Tower, the Validation Agent stops though its flag is on");
+            check(await Switch(ValidationAgent.Id, "agent", true) == "ok"
+                && (await Pass(new AiOptions { ValidationAgentEnabled = true })).All(one => one.Code == "agent_disabled"),
+                "switch SQL: AI__Enabled off still stops an agent switched on — the server's own switch is above the Control Tower's");
+            check(await Switch(CommunicationAgent.Id, "agent", true) == "ok"
+                && (await Pass(flagsOff)).Single(one => one.AgentId == CommunicationAgent.Id).Code == "agent_disabled"
+                && await Switch(CommunicationAgent.Id, "pass", true) == "ok"
+                && (await Pass(flagsOff)).Single(one => one.AgentId == CommunicationAgent.Id).Code == "ok",
+                "switch SQL: the Communication Agent's drafts wait for their own switch, then run with both flags off");
+            await using (var db = new ScmosDbContext(options))
+            {
+                var service = new AiGovernanceService(db, agents, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance),
+                    Options.Create(flagsOff), clock, NullLogger<AiGovernanceService>.Instance);
+                var report = await service.ReportAsync(switcher, default);
+                AgentGovernanceView View(string id) => report.Agents.Single(one => one.Id == id);
+                check(View(ValidationAgent.Id) is { Switchable: true, On: true, Switch: true, FlagEnabled: false, Pass: "" }
+                    && View(CommunicationAgent.Id) is { On: true, Switch: true, Pass: "drafts", PassOn: true, PassSwitch: true }
+                    && View(BookingAgent.Id) is { On: false, Switch: null, Pass: "mail", PassOn: false, PassSwitch: null }
+                    && View(OtdAgent.Id) is { On: false, Switch: null } && View("operations-agent").Switchable == false
+                    && View("rate-agent") is { Switchable: false, On: false } && report.AiEnabled,
+                    "switch SQL: the report says which agents have a switch, whether each is on, and what is stored");
+            }
+            check(await Switch(ValidationAgent.Id, "agent", false) == "ok" && await Switch(CommunicationAgent.Id, "agent", false) == "ok",
+                "switch SQL: both switched back off for what follows");
+
             /* ---------------- My AI Tasks: the cards and who may answer ---------------- */
             await using (var db = new ScmosDbContext(options))
             {

@@ -47,13 +47,25 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
     public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id, CommunicationAgent.Id, BookingAgent.Id];
 
     /// <summary>
-    /// Whether configuration lets the agent's pass run. The Communication Agent's flag already runs its
-    /// chat read in production, so its drafts need their own switch as well; the Booking Agent's flag
-    /// turns on the pasted-text read, and its pass over mail has a switch of its own.
+    /// The flag of the agent's own pass where it has a separate one, or null where the agent's switch is
+    /// its pass's. The Communication Agent's flag already runs its chat read in production, so its drafts
+    /// need their own switch as well; the Booking Agent's flag turns on the pasted-text read, and its pass
+    /// over mail has a switch of its own.
     /// </summary>
-    public static bool Switched(AgentDefinition agent, AiOptions ai) => ai.Enabled && AgentRegistry.Enabled(agent, ai)
-        && (agent.Id != CommunicationAgent.Id || ai.CommunicationDraftsEnabled)
-        && (agent.Id != BookingAgent.Id || ai.BookingMailEnabled);
+    public static bool? PassFlag(string agentId, AiOptions ai) => agentId switch
+    {
+        CommunicationAgent.Id => ai.CommunicationDraftsEnabled,
+        BookingAgent.Id => ai.BookingMailEnabled,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Whether the agent's pass is switched on: AI__Enabled, then the agent — and its separate pass, where it
+    /// has one — by the Control Tower's switch when one is stored, otherwise by the flag in configuration.
+    /// </summary>
+    public static bool Switched(AgentDefinition agent, AiOptions ai, AgentSetting setting) => ai.Enabled
+        && AgentGovernance.SwitchedOn(setting, AgentRegistry.Enabled(agent, ai))
+        && (PassFlag(agent.Id, ai) is not { } pass || (setting.PassEnabled ?? pass));
 
     public async Task<IReadOnlyList<ScanSummary>> ScanAsync(CancellationToken token, string? only = null)
     {
@@ -65,12 +77,15 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
         foreach (var id in Agents.Where(id => only is null || id == only))
         {
             var agent = agents.Find(id)!;
-            var gate = snapshot.Gate(agent, Switched(agent, ai), AgentNeed.Recommend);
+            var setting = snapshot.SettingOf(agent);
+            // AI__Enabled first, the server's own switch; the gate holds the agent's; a separate pass's switch is the pass's own.
+            var gate = ai.Enabled ? snapshot.Gate(agent, AgentRegistry.Enabled(agent, ai), AgentNeed.Recommend)
+                : new GovernanceGate(false, "agent_disabled", "SCMOS AI is disabled in configuration.", AiAutonomy.Disabled);
+            if (gate.Allowed && !Switched(agent, ai, setting)) gate = new(false, "agent_disabled", "This pass is switched off.", gate.Effective);
             if (!gate.Allowed) { summaries.Add(new(id, gate.Code, 0, 0, 0, 0, 0, 0, 0)); continue; }
             // A background pass can wait for the register; it never takes the stale-while-revalidate
             // answer a person's screen does, so it judges "now" against the register as it is.
             jobs ??= await register.ReadAsync(token);
-            var setting = snapshot.SettingOf(agent);
             if (agent.Id == BookingAgent.Id)
             {
                 // Mail, not the register: the booking pass keeps its own lifecycle (read once, never re-read).

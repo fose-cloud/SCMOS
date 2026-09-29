@@ -152,8 +152,8 @@ static class BookingChecks
             && AgentRegistry.Enabled(booking, new AiOptions { BookingAgentEnabled = true }),
             "booking: the agent recommends at most, starts in shadow, offers nothing in chat, and is off without its own flag");
         check(AgentScanner.Agents.Contains(BookingAgent.Id)
-            && !AgentScanner.Switched(booking, new AiOptions { Enabled = true, BookingAgentEnabled = true })
-            && AgentScanner.Switched(booking, new AiOptions { Enabled = true, BookingAgentEnabled = true, BookingMailEnabled = true }),
+            && !AgentScanner.Switched(booking, new AiOptions { Enabled = true, BookingAgentEnabled = true }, AgentGovernance.Default(booking))
+            && AgentScanner.Switched(booking, new AiOptions { Enabled = true, BookingAgentEnabled = true, BookingMailEnabled = true }, AgentGovernance.Default(booking)),
             "booking: the pasted read's flag alone does not start the pass over mail — that has its own switch");
 
         /* ---------------- the pasted-text read under its controls ---------------- */

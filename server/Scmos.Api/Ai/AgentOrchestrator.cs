@@ -61,14 +61,18 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
             {
                 if (agents.Find(view.Id) is not { } agent) return view;
                 var setting = snapshot.SettingOf(agent);
-                var gate = snapshot.Gate(agent, view.Enabled, AgentNeed.Run);
+                // Operations answers to its own switch, already in the view; every other agent to the Control
+                // Tower's switch or its flag, under AI__Enabled and AI__ChatEnabled.
+                var operations = agent.Id == "operations-agent";
+                var gate = snapshot.Gate(agent, operations ? view.Enabled : AgentRegistry.Enabled(agent, _options), AgentNeed.Run);
+                var enabled = gate.Allowed && (operations || (_options.Enabled && _options.ChatEnabled));
                 return view with
                 {
-                    Enabled = gate.Allowed,
+                    Enabled = enabled,
                     Status = snapshot.Available ? AgentGovernance.EffectiveStatus(setting, snapshot.HealthOf(agent.Id)) : AgentGovernance.Paused,
                     Autonomy = (int)AgentGovernance.Effective(agent, setting, snapshot.Platform),
                     Shadow = setting.ShadowMode,
-                    Code = gate.Allowed ? "" : gate.Code,
+                    Code = enabled ? "" : gate.Allowed ? "agent_disabled" : gate.Code,
                 };
             }).ToArray(),
         };
@@ -139,10 +143,10 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         agent = agents.Resolve(request!);
         if (agent is null) return Reply(400, "unknown_agent", "This page or agent is not registered.");
         if (!AiPermissionPolicy.CanUse(user!, agent)) return Reply(403, "forbidden", "The requested data scope is not available to this account.");
-        if (!controlled && !AgentRegistry.Enabled(agent, _options)) return Reply(503, "agent_disabled", "This specialist is disabled.");
-        // The governance gate (Agent Platform foundation, 27 Sep 2026): the platform's ceiling, the agent's own
+        // The governance gate (Agent Platform foundation, 27 Sep 2026): the Control Tower's switch or the flag in
+        // configuration (Operations, controlled, by its own switch above), the platform's ceiling, the agent's own
         // settings and its circuit breaker, judged before the provider is called or anything is read.
-        var gate = (await SnapshotAsync(token)).Gate(agent, flagEnabled: true, AgentNeed.Run);
+        var gate = (await SnapshotAsync(token)).Gate(agent, flagEnabled: controlled || AgentRegistry.Enabled(agent, _options), AgentNeed.Run);
         if (!gate.Allowed) return Reply(503, gate.Code, gate.Reason);
         // Live mode runs only an agent with a connected executor: Operations, the Data Agent (Phase 2), the Communication Agent (Phase 4), the Document & Invoice Agent (Phase 5).
         var isData = agent.Id == DataAgent.Id;

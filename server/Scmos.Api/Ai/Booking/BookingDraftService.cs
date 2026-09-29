@@ -62,7 +62,10 @@ public sealed class BookingDraftService(IBookingTextReader reader, IAiExecutionA
         if (body.Length > BookingTextReader.MaxText)
             return new(null, $"The text is too long — paste the booking itself, up to {BookingTextReader.MaxText} characters.", StatusCodes.Status413PayloadTooLarge);
         var wanted = BookingVerification.CategoryOf(category);
-        var gate = (await governance.SnapshotAsync(token)).Gate(BookingAgent.Id, ai.Enabled && ai.BookingAgentEnabled, AgentNeed.Recommend);
+        // AI__Enabled is the server's own switch; under it the Control Tower's switch, or the flag, decides.
+        var gate = ai.Enabled
+            ? (await governance.SnapshotAsync(token)).Gate(BookingAgent.Id, ai.BookingAgentEnabled, AgentNeed.Recommend)
+            : new GovernanceGate(false, "agent_disabled", "SCMOS AI is disabled in configuration.", AiAutonomy.Disabled);
         if (!gate.Allowed) return new(null, gate.Reason, StatusCodes.Status503ServiceUnavailable);
         if (!reader.Configured) return new(null, "Booking reading is not configured.", StatusCodes.Status501NotImplemented);
         using var lease = limiter.TryEnter();
