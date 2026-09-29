@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 
 import { apiFetch, setDevUser } from "./scmos/api";
+import { bookingDraftBody, parseBookingDraft, type BookingReading } from "./scmos/bookingDraft";
 import { authorOf, keyingForKey, keyingLabel, nextKeyingFor, type Cover } from "./scmos/keyingFor";
 import { Chrome, type FilterDef, type HeaderAction, type TabItem } from "./scmos/Chrome";
 import { DataTable } from "./scmos/DataTable";
@@ -360,6 +361,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const [aiFields, setAiFields] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState("");
+  // The Booking Agent: a pasted booking text, and the mail draft (a decision) the form was opened from.
+  const [bookingText, setBookingText] = useState("");
+  const [bookingBusy, setBookingBusy] = useState(false);
+  const [bookingMsg, setBookingMsg] = useState("");
+  const [bookingReadings, setBookingReadings] = useState<BookingReading[]>([]);
+  const [bookingMissing, setBookingMissing] = useState<string[]>([]);
+  const [draftDecisionId, setDraftDecisionId] = useState<number | null>(null);
 
   // ---- Excel + saved views ----------------------------------------------
   const [importOpen, setImportOpen] = useState(false);
@@ -467,7 +475,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    */
   const registerNeeded = screenNeedsRegister(screen, tab)
     || gq.trim().length > 0
-    || importOpen;
+    || importOpen
+    // The add-job form writes into the register and offers its lists — opened from the
+    // AI Control Tower (a Booking Agent mail draft) it has to load it there too.
+    || addCat !== null;
   const registerLoadStarted = useRef(false);
   const appMounted = useRef(true);
   /** The newest write this screen has seen, as /api/jobs stamps it. See syncRegister. */
@@ -1649,6 +1660,17 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     }
     setAiFields([]);
     setAiMsg("");
+    setBookingText(""); setBookingMsg(""); setBookingReadings([]); setBookingMissing([]);
+    setDraftDecisionId(null);
+  };
+
+  /** A mail draft from the AI Control Tower, opened as the add-job form with its verified fields filled. */
+  const openBookingDraft = (decisionId: number, cat: string, fields: Record<string, string>) => {
+    startAddJob(cat);
+    setAddForm((prev) => ({ ...prev, ...fields }));
+    setAiFields(Object.keys(fields));
+    setAiMsg("AI กรอก " + Object.keys(fields).length + " ช่องจากอีเมล — ตรวจก่อนบันทึก");
+    setDraftDecisionId(decisionId);
   };
 
   const openImport = () => {
@@ -2316,6 +2338,35 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     touch();
   }
 
+  // ---- Booking Agent: pasted text ------------------------------------------
+  async function bookingRead() {
+    if (bookingBusy || !bookingText.trim()) return;
+    setBookingBusy(true);
+    setBookingMsg("");
+    try {
+      const response = await apiFetch("/api/ai/booking-draft", {
+        method: "POST", headers: { "content-type": "application/json", "X-SCMOS-AI-Control": "1" },
+        body: JSON.stringify(bookingDraftBody(addCat || "IMPORT", bookingText)),
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const error = typeof body === "object" && body !== null && "error" in body ? String((body as { error: unknown }).error) : "";
+        throw new Error(error || "อ่านไม่สำเร็จ");
+      }
+      const draft = parseBookingDraft(body);
+      const keys = Object.keys(draft.fields);
+      setAddForm((prev) => ({ ...prev, ...draft.fields }));
+      setAiFields((prev) => Array.from(new Set([...prev, ...keys])));
+      setBookingReadings(draft.readings);
+      setBookingMissing(draft.missing);
+      setBookingMsg(keys.length ? "กรอก " + keys.length + " ช่องจากข้อความ — ตรวจก่อนบันทึก" : "ไม่พบช่องที่ยืนยันได้จากข้อความนี้");
+    } catch (error) {
+      setBookingMsg(error instanceof Error && error.message !== "invalid_response" ? error.message : "ข้อมูลตอบกลับไม่ตรงรูปแบบ");
+    } finally {
+      setBookingBusy(false);
+    }
+  }
+
   // ---- AI document extraction -------------------------------------------
   async function aiRead(fileList: FileList | null) {
     const list = Array.from(fileList || []).slice(0, 4);
@@ -2733,6 +2784,20 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     setDrawer(key);
     setToast("Job created — " + (job.jobCode || job.jobNo || job.customer) + " assigned to " + job.op);
     touch();
+    // Made from a mail draft: the draft is answered with the job it became — once the job is in the
+    // register, so a draft never names a job whose save failed (it stays open for the next try).
+    if (draftDecisionId !== null) {
+      const id = draftDecisionId;
+      setDraftDecisionId(null);
+      void flushNow().then(async (saved) => {
+        if (!saved.ok) { setToast("บันทึกงานไม่สำเร็จ — ร่าง AI ยังเปิดอยู่"); return; }
+        const response = await apiFetch(`/api/ai/decisions/${id}/outcome`, {
+          method: "POST", headers: { "content-type": "application/json", "X-SCMOS-AI-Control": "1" },
+          body: JSON.stringify({ outcome: "ACCEPTED", choice: key, reason: "" }),
+        });
+        if (!response.ok) setToast("สร้างงานแล้ว แต่บันทึกคำตอบของร่าง AI ไม่สำเร็จ");
+      }).catch(() => setToast("สร้างงานแล้ว แต่บันทึกคำตอบของร่าง AI ไม่สำเร็จ"));
+    }
   }
 
   function saveDelay() {
@@ -3317,7 +3382,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 // in the box, so coming back later does not re-seed it.
                 initialQuestion={aiQuestion}
                 onQuestionTaken={() => setAiQuestion("")}
-                onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }} />
+                onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }}
+                onDraftJob={openBookingDraft} />
             )}
             {screen === "vendor" && <Vendor canRegister={able("EditSuppliers")} canManage={able("ManageSuppliers")} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
@@ -3533,8 +3599,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           onAiDrop={(e) => { e.preventDefault(); setDragOver(false); aiRead(e.dataTransfer.files); }}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
-          onClose={() => { setAddCat(null); setAiFields([]); setAiMsg(""); }}
+          onClose={() => { setAddCat(null); setAiFields([]); setAiMsg(""); setDraftDecisionId(null); }}
           onSave={saveAddJob}
+          booking={{
+            text: bookingText, busy: bookingBusy, message: bookingMsg, readings: bookingReadings, missing: bookingMissing,
+            onText: setBookingText, onRead: () => void bookingRead(),
+          }}
         />
       )}
 

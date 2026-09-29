@@ -7,9 +7,10 @@ import {
   AGENT_LABEL, answerBody, answerError, draftText, inReadingOrder, parseDecisions, RISK_LABEL, RISK_TONE, SENT_CHANNELS,
   type Decision, type Finding,
 } from "../aiFindings";
+import { draftFromDecision, labelOf } from "../bookingDraft";
 import s from "./AiControlTower.module.css";
 
-type Filter = "all" | "otd-agent" | "validation-agent" | "vendor-agent" | "communication-agent";
+type Filter = "all" | "otd-agent" | "validation-agent" | "vendor-agent" | "communication-agent" | "booking-agent";
 
 function List({ title, items }: { title: string; items: Finding[] }) {
   if (items.length === 0) return null;
@@ -27,7 +28,10 @@ function List({ title, items }: { title: string; items: Finding[] }) {
  * otherwise, or not sent — the record of what went out, since SCMOS sends
  * nothing itself. The server decides who may; this only asks.
  */
-export function AiFindingsPanel({ onOpenJob }: { onOpenJob: (key: string) => void }) {
+export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
+  onOpenJob: (key: string) => void;
+  onDraftJob?: (decisionId: number, cat: string, fields: Record<string, string>) => void;
+}) {
   const [items, setItems] = useState<Decision[] | null>(null);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
@@ -100,7 +104,7 @@ export function AiFindingsPanel({ onOpenJob }: { onOpenJob: (key: string) => voi
     <div className={s.sectionTitle}><div><h2 id="ai-findings">งานที่ AI ตรวจพบ</h2>
       {items && <p>{total} รายการรอคำตอบ</p>}</div>
       <div className={s.actions}>
-        {(["all", "otd-agent", "validation-agent", "vendor-agent", "communication-agent"] as const).map(id =>
+        {(["all", "otd-agent", "validation-agent", "vendor-agent", "communication-agent", "booking-agent"] as const).map(id =>
           <button key={id} className={s.button + (filter === id ? " " + s.primary : "")} aria-pressed={filter === id}
             onClick={() => setFilter(id)}>{id === "all" ? "ทั้งหมด" : AGENT_LABEL[id]} {count(id)}</button>)}
         <button className={s.button} onClick={() => void load()}>รีเฟรช</button>
@@ -109,9 +113,11 @@ export function AiFindingsPanel({ onOpenJob }: { onOpenJob: (key: string) => voi
     {error ? <p role="alert" className={s.error}>{error}</p>
       : items === null ? <div className={s.empty}>กำลังอ่าน…</div>
         : shown.length === 0 ? <div className={s.empty}>ไม่มีรายการรอคำตอบ</div>
-          : <ul className={s.list}>{shown.map(item => { const draft = draftText(item); return <li key={item.id} className={s.finding}>
+          : <ul className={s.list}>{shown.map(item => { const draft = draftText(item); const booking = draftFromDecision(item); return <li key={item.id} className={s.finding}>
             <div className={s.findingTop}>
-              <button className={s.link} onClick={() => onOpenJob(item.entityId)}>{item.summary}</button>
+              {item.entityType === "job"
+                ? <button className={s.link} onClick={() => onOpenJob(item.entityId)}>{item.summary}</button>
+                : <strong>{item.summary}</strong>}
               <span className={s.actions}>
                 {item.riskLevel && <span className={s.badge + " " + (s[RISK_TONE[item.riskLevel] ?? "muted"] ?? "")}>{RISK_LABEL[item.riskLevel] ?? item.riskLevel}</span>}
                 <span className={s.badge}>{AGENT_LABEL[item.agentId] ?? item.agentId}</span>
@@ -119,7 +125,16 @@ export function AiFindingsPanel({ onOpenJob }: { onOpenJob: (key: string) => voi
               </span>
             </div>
             <p className={s.findingSource}>{stamp(item.createdAt)}</p>
-            <List title="ข้อเท็จจริง" items={item.findings.facts} />
+            {booking
+              ? <>
+                <List title="ข้อเท็จจริง" items={item.findings.facts.filter(fact => !/\.text#/.test(fact.source ?? ""))} />
+                <div className={s.findingGroup}><strong>ร่างงาน {booking.category}</strong>
+                  <ul className={s.findingList}>{Object.entries(booking.fields).map(([field, value]) =>
+                    <li key={field}>{labelOf(field)}: {value}{booking.quotes[field] && <span className={s.findingSource}>{booking.quotes[field]}</span>}</li>)}</ul>
+                </div>
+                <List title="ไม่รับ" items={item.findings.observations.filter(note => note.source === null)} />
+              </>
+              : <List title="ข้อเท็จจริง" items={item.findings.facts} />}
             <List title="ผลตามกฎ" items={item.findings.ruleResults} />
             <List title="ข้อสันนิษฐาน" items={item.findings.inferences} />
             {draft === null ? <List title="ข้อแนะนำ" items={item.findings.recommendations} />
@@ -135,6 +150,12 @@ export function AiFindingsPanel({ onOpenJob }: { onOpenJob: (key: string) => voi
                 <button className={s.button + " " + s.primary} disabled={busy !== null || !choice.trim() || !reason.trim()}
                   onClick={() => void answer(item.id, "OVERRIDDEN")}>บันทึก</button>
                 <button className={s.button} disabled={busy !== null} onClick={() => setOverriding(null)}>ยกเลิก</button>
+              </div>
+              : booking ? <div className={s.actions}>
+                {onDraftJob && <button className={s.button + " " + s.primary} disabled={busy !== null}
+                  onClick={() => onDraftJob(item.id, booking.category, booking.fields)}>เปิดฟอร์มเพิ่มงาน</button>}
+                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED")}>สร้างงานแล้ว</button>
+                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "DISMISSED")}>ไม่ใช่ booking</button>
               </div>
               : draft === null ? <div className={s.actions}>
                 <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED")}>ถูกต้อง</button>

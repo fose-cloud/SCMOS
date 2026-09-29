@@ -19,6 +19,7 @@ export type DecisionPage = { items: Decision[]; total: number };
 
 export const AGENT_LABEL: Record<string, string> = {
   "otd-agent": "OTD", "validation-agent": "ตรวจข้อมูล", "vendor-agent": "ผู้ขนส่ง", "communication-agent": "ข้อความ",
+  "booking-agent": "Booking",
 };
 
 /** The Communication Agent's drafts: a message for a person to send, answered as sent, sent otherwise, or not sent. */

@@ -15,6 +15,7 @@ Originally Phase D, 2026-09-07; updated 21 September 2026. The currently connect
 | incident-agent | incidents | ViewDashboard |
 | compliance-agent (not connected; the compliance *page* is the Document & Invoice Agent's since Phase 5, so this claims only training — 22 Sep 2026) | training | ManageTraining |
 | management-agent | management, dashboard | ViewDashboard |
+| booking-agent (28 Sep 2026 — [record](SCMOS_AI_BOOKING_AGENT.md); no chat tools or pages; its read `draft_booking` is a dedicated endpoint: pasted booking text into the add-job form, and a pass over unplaced mail into drafts; each field kept only when its quoted words say it; no job created) | — | EditOwnJobs |
 
 All also require recognized server identity, a known internal role and a resolvable read scope. A carrier must wait for a separately reviewed carrier adapter. `ViewTeam` grants team scope; otherwise a nonblank server-resolved OperatorId is required. This is a conservative new-AI boundary, not a change to existing SCMOS role grants or screens. Future domain adapters may require stricter record/field projection.
 

@@ -72,6 +72,12 @@ public sealed class AgentRegistry
             [], [], AiAutonomy.Recommend, shadow: true),
         Define("validation-agent", "Validation Agent", "The register's own checks on the coming week's work — unreadable values, unknown vehicle types, gate-in risk, missing container or seal; rules first, no model", Capability.ViewDashboard,
             [], [], AiAutonomy.Recommend, shadow: true),
+        // The specification's Booking Agent (28 Sep 2026): booking text — pasted into the add-job form, or mail the
+        // matcher left unplaced — read into a draft of the form. The model proposes; Booking.BookingVerification keeps
+        // a field only when the words it cites say it. A person saves the job through the form; nothing is created here.
+        // Its read, draft_booking, is a dedicated endpoint (like extract_document), never a tool offered in chat.
+        Define("booking-agent", "Booking Agent", "Booking requests pasted in, or mail nothing else placed, read into an add-job draft — each field kept only when the words it came from say it; no job created", Capability.EditOwnJobs,
+            [], [], AiAutonomy.Recommend, shadow: true),
         Define("sre-agent", "SRE Agent", "The platform's own health, deployments and failure counts — read and measured, nothing restarted or changed", Capability.AdministerData,
             ["query_platform"], ["sre", "health", "system"]),
     });
@@ -99,6 +105,7 @@ public sealed class AgentRegistry
         "management-agent" => options.ManagementAgentEnabled,
         "otd-agent" => options.OtdAgentEnabled,
         "validation-agent" => options.ValidationAgentEnabled,
+        "booking-agent" => options.BookingAgentEnabled,
         _ => false,
     };
 }

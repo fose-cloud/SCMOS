@@ -65,7 +65,7 @@ static class GovernanceChecks
             "foundation: only the Operations Agent executes with approval by default — its change pilot, as before");
         check(AgentGovernance.ExecutionEnabled(platform), "foundation: the platform's execution switch starts on, as the pilot's own switches decided");
         check(agents.All.Where(agent => agent.DefaultShadow).Select(agent => agent.Id).OrderBy(id => id)
-                .SequenceEqual(["otd-agent", "validation-agent", "vendor-agent"]),
+                .SequenceEqual(["booking-agent", "otd-agent", "validation-agent", "vendor-agent"]),
             "foundation: only the operational agents new to the platform start in shadow — OTD, Validation, and the Carrier Agent under vendor-agent, never connected before; the ten that were live are unchanged");
 
         /* ---------------- autonomy, shadow, status, the switches ---------------- */
@@ -154,7 +154,7 @@ static class GovernanceChecks
             "decisions: BLOCKED and its blocking issues come together or not at all");
         check(AgentResultRules.Problems(Result() with { Status = "DONE" }, known).Count > 0
             && AgentResultRules.Problems(Result() with { Confidence = 1.5m }, known).Count > 0
-            && AgentResultRules.Problems(Result() with { AgentId = "booking-agent" }, known).Count > 0
+            && AgentResultRules.Problems(Result() with { AgentId = "requirement-agent" }, known).Count > 0
             && AgentResultRules.Problems(Result() with { Summary = "bad\u0007bell" }, known).Count > 0
             && AgentResultRules.Problems(Result() with { Inferences = Enumerable.Range(0, 21).Select(i => new AgentFinding($"i{i}")).ToList() }, known).Count > 0
             && AgentResultRules.Problems(Result() with { RequiresApproval = true, Recommendations = [] }, known).Count > 0,
@@ -245,7 +245,7 @@ static class GovernanceChecks
                     "SQL: only an Administrator saves a setting");
                 check(await service.SetAsync(Admin, "data-agent", 1, false, AgentGovernance.Active, "", 0, default) == "reason_required"
                     && await service.SetAsync(Admin, "data-agent", 3, false, AgentGovernance.Active, "why", 0, default) == "autonomy_above_design"
-                    && await service.SetAsync(Admin, "booking-agent", 1, false, AgentGovernance.Active, "why", 0, default) == "unknown_agent",
+                    && await service.SetAsync(Admin, "requirement-agent", 1, false, AgentGovernance.Active, "why", 0, default) == "unknown_agent",
                     "SQL: a setting without a reason, above design, or for no agent is refused");
                 check(await service.SetAsync(Admin, "data-agent", 1, true, AgentGovernance.Paused, "Drill: stop the Data Agent", 0, default) == "ok",
                     "SQL: an Administrator pauses an agent, lowers it to L1 and puts it in shadow");

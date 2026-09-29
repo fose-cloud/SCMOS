@@ -69,7 +69,7 @@ test("the panel shows the four kinds apart, answers through the control header, 
   assert.match(panel, /"X-SCMOS-AI-Control": "1"/);
   assert.match(panel, /\/api\/ai\/decisions\?status=OPEN/);
   assert.match(panel, /disabled=\{busy !== null \|\| !choice\.trim\(\) \|\| !reason\.trim\(\)\}/);
-  assert.match(tower, /\{canViewDashboard && <AiFindingsPanel onOpenJob=\{onOpenJob\} \/>\}/);
+  assert.match(tower, /\{canViewDashboard && <AiFindingsPanel onOpenJob=\{onOpenJob\} onDraftJob=\{onDraftJob\} \/>\}/);
 });
 
 test("a Communication draft is its template's message; any other decision has none", () => {
@@ -92,7 +92,7 @@ test("the panel shows a draft to copy and asks whether it was sent — SCMOS sen
   for (const label of ["ร่างข้อความ", "คัดลอกข้อความ", "ส่งแล้ว", "ส่งข้อความอื่น", "ไม่ส่ง"]) assert.ok(panel.includes(`>${label}<`), label);
   assert.match(panel, /navigator\.clipboard\.writeText/);
   assert.match(panel, /answer\(item\.id, "ACCEPTED", channel\)/);
-  assert.match(panel, /\["all", "otd-agent", "validation-agent", "vendor-agent", "communication-agent"\] as const/);
+  assert.match(panel, /\["all", "otd-agent", "validation-agent", "vendor-agent", "communication-agent", "booking-agent"\] as const/);
   assert.match(panel, /\{item\.riskLevel && <span/);                                // no empty risk badge on a draft
   assert.doesNotMatch(panel, /\/api\/line|push|sendMessage/i);                       // nothing here sends
 });

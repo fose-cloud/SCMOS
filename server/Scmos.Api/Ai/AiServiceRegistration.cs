@@ -44,6 +44,11 @@ public static class AiServiceRegistration
         services.AddScoped<IAgentExecutor<Scmos.Api.Ai.Documents.DocumentExecution>>(sp => sp.GetRequiredService<Scmos.Api.Ai.Documents.DocumentAgent>());
         // The Workspace's document reader, under the same limiter and audit (S4).
         services.AddScoped<Scmos.Api.Ai.Documents.ExtractionRun>();
+        // The Booking Agent's reader and its pasted-text read (28 Sep 2026).
+        services.AddSingleton<Scmos.Api.Ai.Booking.IBookingTextReader, Scmos.Api.Ai.Booking.BookingTextReader>();
+        services.AddScoped<Scmos.Api.Ai.Booking.IKnownCustomers, Scmos.Api.Ai.Booking.RegisterCustomers>();
+        services.AddScoped<Scmos.Api.Ai.Booking.BookingDraftService>();
+        services.AddScoped<Scmos.Api.Ai.Booking.BookingMailPass>();
         services.AddScoped(sp => new Scmos.Api.Ai.Engineering.EngineeringReadService(
             sp.GetService<Scmos.Api.Ai.Engineering.IEngineeringSource>(), sp.GetRequiredService<TimeProvider>()));
         // Phase 6, second increment — the repository's own source, bound only when the department turned it on.

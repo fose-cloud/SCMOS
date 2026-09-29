@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Scmos.Api.Ai.Booking;
 using Scmos.Api.Ai.Carrier;
 using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Otd;
@@ -39,17 +40,20 @@ public sealed record ScanSummary(string AgentId, string Code, int Jobs, int Find
 /// </para>
 /// </summary>
 public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, AgentRegistry agents, IAiGovernance governance,
-    AiDecisionLog decisions, SupplierService suppliers, IOptions<AiOptions> options, TimeProvider clock, ILogger<AgentScanner> log)
+    AiDecisionLog decisions, SupplierService suppliers, IOptions<AiOptions> options, TimeProvider clock, ILogger<AgentScanner> log,
+    BookingMailPass? bookingMail = null)
 {
     /// <summary>The rule-first agents this pass runs, in order.</summary>
-    public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id, CommunicationAgent.Id];
+    public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id, CommunicationAgent.Id, BookingAgent.Id];
 
     /// <summary>
     /// Whether configuration lets the agent's pass run. The Communication Agent's flag already runs its
-    /// chat read in production, so its drafts need their own switch as well.
+    /// chat read in production, so its drafts need their own switch as well; the Booking Agent's flag
+    /// turns on the pasted-text read, and its pass over mail has a switch of its own.
     /// </summary>
     public static bool Switched(AgentDefinition agent, AiOptions ai) => ai.Enabled && AgentRegistry.Enabled(agent, ai)
-        && (agent.Id != CommunicationAgent.Id || ai.CommunicationDraftsEnabled);
+        && (agent.Id != CommunicationAgent.Id || ai.CommunicationDraftsEnabled)
+        && (agent.Id != BookingAgent.Id || ai.BookingMailEnabled);
 
     public async Task<IReadOnlyList<ScanSummary>> ScanAsync(CancellationToken token, string? only = null)
     {
@@ -67,6 +71,14 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
             // answer a person's screen does, so it judges "now" against the register as it is.
             jobs ??= await register.ReadAsync(token);
             var setting = snapshot.SettingOf(agent);
+            if (agent.Id == BookingAgent.Id)
+            {
+                // Mail, not the register: the booking pass keeps its own lifecycle (read once, never re-read).
+                var customers = RegisterCustomers.Of(jobs.Rows);
+                summaries.Add(bookingMail is null ? new(id, "not_connected", 0, 0, 0, 0, 0, 0, 0)
+                    : await bookingMail.PassAsync(agent, setting.ShadowMode, gate.Effective, customers, token));
+                continue;
+            }
             summaries.Add(await PassAsync(agent, jobs, now, setting.ShadowMode, gate.Effective, token));
         }
         return summaries;

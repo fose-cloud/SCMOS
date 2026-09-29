@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Ai;
+using Scmos.Api.Ai.Booking;
 using Scmos.Api.Ai.Carrier;
 using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Otd;
@@ -177,8 +178,8 @@ static class AgentScanChecks
 
             var first = await Pass();
             var rows = await Decisions();
-            check(first.Where(one => one.AgentId is not CarrierAgent.Id and not CommunicationAgent.Id).All(one => one.Code == "ok")
-                && first.Where(one => one.AgentId is CarrierAgent.Id or CommunicationAgent.Id).All(one => one.Code == "agent_disabled")
+            check(first.Where(one => one.AgentId is not CarrierAgent.Id and not CommunicationAgent.Id and not BookingAgent.Id).All(one => one.Code == "ok")
+                && first.Where(one => one.AgentId is CarrierAgent.Id or CommunicationAgent.Id or BookingAgent.Id).All(one => one.Code == "agent_disabled")
                 && first.Single(one => one.AgentId == OtdAgent.Id).Created == 2
                 && first.Single(one => one.AgentId == ValidationAgent.Id).Created == 1 && rows.Count == 3,
                 "scan SQL: the first pass records the late job and the truckless one (OTD) and the unreadable weight (Validation)");

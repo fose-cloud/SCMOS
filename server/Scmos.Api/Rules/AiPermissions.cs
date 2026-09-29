@@ -59,6 +59,8 @@ public static class AiPermissions
         // Carrier Billing Phase 10: a dedicated reviewed Billing Control endpoint,
         // not a general chat tool. It explains supplied deterministic facts only.
         new("analyze_billing", Document, AiPermission.Allow, "อธิบาย Billing risk/variance จากผล Validation ที่ระบบคำนวณแล้ว — เป็นคำแนะนำ ไม่อนุมัติหรือแก้ข้อมูล"),
+        // The Booking Agent (28 Sep 2026): booking text read into an add-job draft, each field checked against its own words.
+        new("draft_booking", Operation, AiPermission.Allow, "อ่านข้อความ booking ที่วางหรืออีเมลที่ยังไม่ได้จับคู่ เป็นร่างฟอร์มเพิ่มงาน — เก็บเฉพาะช่องที่ยืนยันกับข้อความต้นฉบับได้ ผู้ใช้ตรวจก่อนบันทึก"),
         new("analyze_excel", Document, AiPermission.Allow, "อ่านและวิเคราะห์ไฟล์ Excel"),
         new("calculate_kpi", Kpi, AiPermission.Allow, "คำนวณ KPI ทั้ง 8 ตัวตามช่วงเวลา"),
         new("analyze_kpi", Kpi, AiPermission.Allow, "วิเคราะห์แนวโน้มและเปรียบเทียบ KPI"),

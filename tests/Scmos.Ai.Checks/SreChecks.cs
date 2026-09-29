@@ -171,7 +171,7 @@ static class SreChecks
             && !tool.InputSchema.Valid("{\"view\":\"health\",\"days\":null,\"limit\":10,\"resource\":\"scmos-api-3936\"}"), "7: the schema pins the four views and the window; no resource, action or command");
         var agents = new AgentRegistry();
         var agent = agents.Find("sre-agent")!;
-        check(agents.All.Count == 13 && agent.RequiredCapability == Capability.AdministerData && agents.Resolve(new("x", Context: new("health")))?.Id == "sre-agent"
+        check(agents.All.Count == 14 && agent.RequiredCapability == Capability.AdministerData && agents.Resolve(new("x", Context: new("health")))?.Id == "sre-agent"
             && agents.Resolve(new("x", Context: new("system")))?.Id == "sre-agent" && agent.AllowedTools.SequenceEqual(["query_platform"]),
             "7: the eleventh specialist owns the sre, health and system pages and needs the Administrator's capability");
         check(!AgentRegistry.Enabled(agent, new AiOptions()) && AgentRegistry.Enabled(agent, new AiOptions { SreAgentEnabled = true }), "7: off unless its flag is set");

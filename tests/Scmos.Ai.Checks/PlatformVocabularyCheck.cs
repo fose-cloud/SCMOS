@@ -47,10 +47,10 @@ static class PlatformVocabularyCheck
                 $"vocabulary: {tool.Name} is a low-risk read — nothing in the registry may be a write");
         }
 
-        // Every name the audit will accept is a tool that exists. The Workspace extractor and
-        // Phase 10 Billing Control analysis are dedicated endpoints, audited through the platform
-        // but never offered by the general assistant's registry.
-        var dedicated = new[] { "extract_document", "analyze_billing" };
+        // Every name the audit will accept is a tool that exists. The Workspace extractor, the
+        // Phase 10 Billing Control analysis and the Booking Agent's draft (28 Sep 2026) are dedicated
+        // endpoints, audited through the platform but never offered by the general assistant's registry.
+        var dedicated = new[] { "extract_document", "analyze_billing", "draft_booking" };
         foreach (var name in AiAuditRules.KnownTools.Where(name => !dedicated.Contains(name, StringComparer.Ordinal)))
             check(tools.Find(name) is not null, $"vocabulary: the audit's tool {name} is a tool the registry has");
         foreach (var name in dedicated)

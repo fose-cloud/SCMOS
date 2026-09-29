@@ -58,6 +58,14 @@ public sealed class AiOptions
     public bool CommunicationDraftsEnabled { get; set; }
     public int CarrierReminderMinutes { get; set; } = 60;
     public int PodReminderDays { get; set; } = 14;
+    // The Booking Agent (28 Sep 2026): booking text read into an add-job draft, model-proposed and checked
+    // against its own words. BookingAgentEnabled turns on the pasted-text read in the add-job form;
+    // BookingMailEnabled, in addition, the pass over mail the matcher left unplaced — at most
+    // BookingMailPerPass messages a pass, received within BookingMailHours.
+    public bool BookingAgentEnabled { get; set; }
+    public bool BookingMailEnabled { get; set; }
+    public int BookingMailPerPass { get; set; } = 10;
+    public int BookingMailHours { get; set; } = 48;
     public int BreakerDegradedAfter { get; set; } = 3;
     public int BreakerPauseAfter { get; set; } = 5;
     public int BreakerCoolDownMinutes { get; set; } = 10;
@@ -70,5 +78,6 @@ public sealed class AiOptions
         && BreakerDegradedAfter is >= 1 and <= 20 && BreakerPauseAfter >= BreakerDegradedAfter && BreakerPauseAfter <= 50
         && BreakerCoolDownMinutes is >= 1 and <= 240 && PriceCurrency.Length is >= 1 and <= 8
         && AgentScanMinutes is >= 0 and <= 1440 && OtdHighMinutes is >= 1 and <= 720 && OtdWatchMinutes >= OtdHighMinutes && OtdWatchMinutes <= 1440
-        && CarrierReminderMinutes is >= 5 and <= 1440 && PodReminderDays is >= 1 and <= 60;
+        && CarrierReminderMinutes is >= 5 and <= 1440 && PodReminderDays is >= 1 and <= 60
+        && BookingMailPerPass is >= 1 and <= 50 && BookingMailHours is >= 1 and <= 336;
 }

@@ -23,10 +23,23 @@ namespace Scmos.Api.Ai;
 public static class AiAuditRules
 {
     /// <summary>The agents whose runs may be written to the audit — a connected agent, not a registry descriptor. The Data Agent since Phase 2; the Management Agent since Phase 8.</summary>
-    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent", "management-agent"];
+    public static readonly string[] KnownAgents = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent", "sre-agent", "management-agent", "booking-agent"];
 
     /// <summary>The read tools a step may name, with the views each may use.</summary>
-    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "analyze_billing", "query_repository", "read_source", "query_platform"];
+    public static readonly string[] KnownTools = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages", "query_documents", "extract_document", "analyze_billing", "query_repository", "read_source", "query_platform", "draft_booking"];
+
+    /// <summary>
+    /// The one identity a run may carry with no person behind it: the Booking Agent's scheduled pass over
+    /// mail the matcher left unplaced (28 Sep 2026) — its own tool and the <c>mail</c> view only. No account
+    /// can hold the role: roles come from the staff table, and <c>System</c> is not one of <see cref="Roles.All"/>.
+    /// </summary>
+    public const string SystemUser = "system:agent-pass";
+    public const string SystemRole = "System";
+    public static bool IsSystemPass(AiExecutionEvent e) => e.UserId == SystemUser && e.Role == SystemRole
+        && e.AgentId == "booking-agent" && (e.Tool is null ? e.View is null : e.Tool == "draft_booking" && e.View == "mail");
+
+    /// <summary>The Booking Agent's views (28 Sep 2026): the add-job form's category for a paste, <c>mail</c> for the pass over unplaced mail.</summary>
+    public static readonly string[] BookingViews = ["import", "export", "delivery", "mail"];
 
     /// <summary>The platform tool's views (Phase 7).</summary>
     public static readonly string[] PlatformViews = ["health", "deployments", "errors", "requests"];
@@ -86,8 +99,10 @@ public static class AiAuditRules
         var sequence = SequenceOf(e.Event, e.Step);
         var start = e.Event is "run_started" or "tool_started";
         var hasTool = e.Tool is not null;
-        if (!Id(e.RunId) || !Text(e.UserId, 160) || !Roles.All.Any(r => r.Name == e.Role)
-            || e.Role == Roles.Subcontractor || !KnownAgents.Contains(e.AgentId, StringComparer.Ordinal) || sequence == 0
+        if (!Id(e.RunId) || !Text(e.UserId, 160)
+            // A person's role, or the booking pass's own identity — and that identity's id under no other role.
+            || !(IsSystemPass(e) || (e.UserId != SystemUser && Roles.All.Any(r => r.Name == e.Role) && e.Role != Roles.Subcontractor))
+            || !KnownAgents.Contains(e.AgentId, StringComparer.Ordinal) || sequence == 0
             || (e.Event == "run_started" && e.Step is not (null or 0))
             || e.Scope is null || (!e.Scope.Team && !Text(e.Scope.OperatorId, 20))
             || (e.Scope.OperatorId is not null && !Text(e.Scope.OperatorId, 20))
@@ -122,9 +137,12 @@ public static class AiAuditRules
         var extractView = e.View is not null && ExtractViews.Contains(e.View, StringComparer.Ordinal);
         var billingAi = e.Tool == "analyze_billing";
         var billingAiView = e.View is not null && BillingAiViews.Contains(e.View, StringComparer.Ordinal);
+        var booking = e.Tool == "draft_booking";
+        var bookingView = e.View is not null && BookingViews.Contains(e.View, StringComparer.Ordinal);
         if (hasTool ? (e.Limit is null or < 1 or > 50
                 || (messages ? !messageView : documents ? !documentView : extract ? !extractView
                     : billingAi ? !billingAiView
+                    : booking ? !bookingView
                     : engineering ? !engineeringView || e.Limit > 20
                     : sourceRead ? !sourceView
                     : platform ? !platformView

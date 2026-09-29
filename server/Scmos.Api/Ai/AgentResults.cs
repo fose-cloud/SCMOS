@@ -51,7 +51,7 @@ public static class AgentResultRules
     public static readonly string[] RiskLevels = ["", "LOW", "MEDIUM", "HIGH", "CRITICAL", "NORMAL", "WATCH"];
 
     /// <summary>The things a decision may be about.</summary>
-    public static readonly string[] EntityTypes = ["job", "carrier", "billing-invoice", "document", "rfq"];
+    public static readonly string[] EntityTypes = ["job", "carrier", "billing-invoice", "document", "rfq", "email"];
 
     public const int MaxItems = 20;
     public const int MaxText = 400;

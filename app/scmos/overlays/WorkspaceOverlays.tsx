@@ -6,6 +6,7 @@ import { isCancelled, MOVED_BY, wasMoved, type Job, type Masters } from "../ops"
 import { describe } from "../lineReview";
 import { pendingText, pendingWrites, sourceOf, sourcesOf, type LinePending } from "../linePending";
 import { canApproveTogether, correctionText, isReasonProposal, type Correction, type ReasonChoice } from "../corrections";
+import { labelOf, MAX_TEXT, type BookingReading } from "../bookingDraft";
 
 /* ---------------------------------------------------------- job drawer */
 
@@ -503,6 +504,11 @@ export function AddJobModal(p: {
   onDragLeave: (e: DragEvent<HTMLLabelElement>) => void;
   onClose: () => void;
   onSave: () => void;
+  /** The Booking Agent's pasted-text read: only verified fields fill the form; the rest are listed with why. */
+  booking?: {
+    text: string; busy: boolean; message: string; readings: BookingReading[]; missing: string[];
+    onText: (text: string) => void; onRead: () => void;
+  };
 }) {
   const choosing = p.cat === "CHOOSE";
   const required = p.cat === "DELIVERY" ? ["date", "customer", "wh"] : ["date", "customer", "trucker"];
@@ -570,6 +576,34 @@ export function AddJobModal(p: {
                 <input type="file" multiple accept=".pdf,image/*" onChange={p.onAiInput} style={{ display: "none" }} />
               </label>
             </div>
+
+            {p.booking && (
+              <div style={css("padding:10px 22px 0;display:flex;flex-direction:column;gap:8px")} data-testid="booking-paste">
+                <textarea aria-label="ข้อความ booking" placeholder="วางข้อความ booking จากอีเมลหรือ LINE" maxLength={MAX_TEXT}
+                  value={p.booking.text} onChange={(e) => p.booking!.onText(e.target.value)} rows={3}
+                  style={css("width:100%;border:1px solid #D8E0E8;border-radius:4px;background:#F8FAFC;font-size:12.5px;padding:8px 9px;outline:none;resize:vertical;font-family:inherit")} />
+                <div style={css("display:flex;align-items:center;gap:10px;flex-wrap:wrap")}>
+                  <button type="button" onClick={p.booking.onRead} disabled={p.booking.busy || !p.booking.text.trim()}
+                    style={css("height:32px;padding:0 14px;border:1px solid #0A2240;background:#0A2240;color:#fff;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;opacity:" + (p.booking.busy || !p.booking.text.trim() ? ".5" : "1"))}>
+                    {p.booking.busy ? "กำลังอ่าน…" : "อ่านข้อความ"}
+                  </button>
+                  {!!p.booking.message && <span role="status" style={css("font-size:11.5px;color:#475569")}>{p.booking.message}</span>}
+                </div>
+                {(p.booking.readings.length > 0 || p.booking.missing.length > 0) && (
+                  <ul style={css("margin:0;padding-left:18px;font-size:11.5px;line-height:1.6;color:#334155")}>
+                    {p.booking.readings.filter((r) => r.verified).map((r) => (
+                      <li key={"ok-" + r.field}><strong>{labelOf(r.field)}</strong> {r.value} <span style={css("color:#64748B")}>“{r.quote}”</span></li>
+                    ))}
+                    {p.booking.readings.filter((r) => !r.verified && r.proposed).map((r) => (
+                      <li key={"no-" + r.field} style={css("color:#B45309")}>ไม่รับ {labelOf(r.field)}: {r.proposed} — {r.reason}</li>
+                    ))}
+                    {p.booking.missing.length > 0 && (
+                      <li style={css("color:#B42318")}>ยังไม่มี: {p.booking.missing.map(labelOf).join(", ")}</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )}
 
             <div style={css("padding:18px 22px;display:grid;grid-template-columns:repeat(4,1fr);gap:13px")}>
               {fields.map((f) => {

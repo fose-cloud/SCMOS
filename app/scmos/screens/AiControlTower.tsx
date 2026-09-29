@@ -307,6 +307,8 @@ type Props = {
   /** Whether this person may decide the approval queue — a supervisor's act, as on the assistant's own screen before 23 Sep 2026. */
   canApprove: boolean;
   onNavigate: (screen: Screen) => void; onOpenJob: (key: string) => void;
+  /** A Booking Agent mail draft opened as the add-job form, its verified fields filled. */
+  onDraftJob?: (decisionId: number, cat: string, fields: Record<string, string>) => void;
   onToast: (message: string) => void;
   /**
    * A question brought from another screen — the dashboard's rail — placed in
@@ -317,7 +319,7 @@ type Props = {
   onQuestionTaken?: () => void;
 };
 
-export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor, canApprove, onNavigate, onOpenJob, onToast, initialQuestion, onQuestionTaken }: Props) {
+export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor, canApprove, onNavigate, onOpenJob, onDraftJob, onToast, initialQuestion, onQuestionTaken }: Props) {
   const status = useRemote("/api/ai/status", parseStatus);
   const board = useRemote(canViewDashboard ? "/api/dashboard/today" : null, parseToday);
   const brief = useRemote(canViewDashboard ? "/api/dashboard/briefing" : null, parseBrief);
@@ -502,7 +504,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
     </section>}
 
     {/* What the OTD and Validation agents found and nobody has answered (Agent Platform, 28 Sep 2026). */}
-    {canViewDashboard && <AiFindingsPanel onOpenJob={onOpenJob} />}
+    {canViewDashboard && <AiFindingsPanel onOpenJob={onOpenJob} onDraftJob={onDraftJob} />}
 
     <section aria-labelledby="ai-morning">
       <div className={s.sectionTitle}><div><h2 id="ai-morning">Morning Brief</h2>
