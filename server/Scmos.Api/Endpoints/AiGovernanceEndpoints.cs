@@ -81,6 +81,16 @@ public static class AiGovernanceEndpoints
             return Results.Json(summary, statusCode: summary.Code is "ok" or "answered_meanwhile" ? 200 : 503);
         });
 
+        // The Control Tower's cards and My AI Tasks (§43, §44): counts in the decision list's own scope.
+        ai.MapGet("/tasks", async (HttpContext context, IUserAccessor users, AiTasksService tasks, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (!AiPermissionPolicy.Authenticated(user)) return ApiResults.SignInRequired;
+            if (!AiDecisionLog.CanList(user)) return ApiResults.Error("AI tasks are for the department's own accounts", 403);
+            return Results.Json(await tasks.CountAsync(user!, token));
+        });
+
         ai.MapGet("/decisions", async (string? status, string? agent, string? entityType, string? entityId, int? page, int? pageSize,
             HttpContext context, IUserAccessor users, AiDecisionLog decisions, CancellationToken token) =>
         {

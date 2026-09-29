@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Ai;
 using Scmos.Api.Ai.Booking;
+using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Carrier;
 using Scmos.Api.Ai.Communication;
 using Scmos.Api.Ai.Otd;
@@ -117,6 +118,19 @@ static class AgentScanChecks
             "validation: beyond the coming week, and finished work, are not checked");
         check(every.All(result => AgentResultRules.Problems(result, known).Count == 0),
             "scan: every result both agents produced passes the decision contract");
+
+        /* ---------------- My AI Tasks: the section a decision belongs to ---------------- */
+        // The same cases as tests/aiTasks.test.mjs, so the server's rule and the screen's cannot drift apart.
+        AiDecisionView V(string status, string risk, string agent, params string[] refs) => AiDecisionLog.View(new AiDecision
+            { ResultStatus = status, RiskLevel = risk, AgentId = agent, RuleReferences = JsonSerializer.Serialize(refs), Payload = "{}", EvidenceReferences = "[]" });
+        check(AiTasksService.SectionOf(V("BLOCKED", "HIGH", "otd-agent")) == "blocked"
+            && AiTasksService.SectionOf(V("COMPLETED", "CRITICAL", "otd-agent")) == "high_risk"
+            && AiTasksService.SectionOf(V("REQUIRES_HUMAN_REVIEW", "MEDIUM", "vendor-agent", "Carrier.NoEligible")) == "carrier"
+            && AiTasksService.SectionOf(V("COMPLETED", "", "communication-agent", "Template:CARRIER_CONFIRMATION_REMINDER")) == "carrier"
+            && AiTasksService.SectionOf(V("COMPLETED", "", "communication-agent", "Template:POD_REMINDER")) == "decision"
+            && AiTasksService.SectionOf(V("INSUFFICIENT_INFORMATION", "MEDIUM", "validation-agent")) == "information"
+            && AiTasksService.SectionOf(V("COMPLETED", "WATCH", "otd-agent")) == "decision",
+            "tasks: blocked, then high risk, then carrier escalation, then information needed, then the rest — the most urgent first");
 
         if (sql) await SqlAsync(check, agents);
     }
@@ -379,6 +393,43 @@ static class AgentScanChecks
             check(podIn.Single(one => one.AgentId == CommunicationAgent.Id).Resolved == 1
                 && (await Decisions()).Single(one => one.Id == drafts[2].Id).Status == AiDecisionLog.Resolved,
                 "scan SQL: the POD arrives — the draft that asked for it is resolved, never sent");
+
+            /* ---------------- My AI Tasks: the cards and who may answer ---------------- */
+            await using (var db = new ScmosDbContext(options))
+            {
+                var register = new JobRegisterCache(db, new MemoryCache(new MemoryCacheOptions()), NullLogger<JobRegisterCache>.Instance);
+                var tasks = new AiTasksService(db, register, new DefaultGovernance(), agents, clock);
+                var owner = new AppUser("scan-op", "op@test.invalid", "Operator", Roles.Operation, "OP-S1", "test", true);
+                var other = owner with { UserId = "scan-op2", Email = "op2@test.invalid", OperatorId = "OP-S2" };
+                var supervisor = new AppUser("scan-sv", "sv@test.invalid", "Supervisor", Roles.Supervisor, "SV-S1", "test", true);
+                var open = await db.AiDecisions.AsNoTracking().Where(one => one.Status == AiDecisionLog.Open).ToListAsync();
+                var mine = await tasks.CountAsync(owner, default);
+                var theirs = await tasks.CountAsync(other, default);
+                var team = await tasks.CountAsync(supervisor, default);
+                check(open.Count > 0 && team.AiHandling == open.Count && team.NeedsMyDecision == open.Count
+                    && team.HighRisk == open.Count(one => one.RiskLevel is "HIGH" or "CRITICAL")
+                    && team.InformationRequired == open.Count(one => one.ResultStatus == AgentResultRules.InsufficientInformation)
+                    && team.CarrierEscalation == open.Count(one => AiTasksService.IsCarrierEscalation(one.AgentId,
+                        JsonSerializer.Deserialize<string[]>(one.RuleReferences)!))
+                    && team.PendingApproval == 0 && team.AgentFailure == 0 && team.JobsMonitored > 0,
+                    "tasks SQL: a supervisor's cards count the team's open decisions, each card its own kind");
+                // An Operation account sees the team (its read grant) but answers only its own jobs.
+                check(mine.AiHandling == open.Count && mine.NeedsMyDecision == open.Count(one => one.OwnerId == "OP-S1")
+                    && theirs.AiHandling == open.Count && theirs.NeedsMyDecision == 0 && theirs.JobsMonitored == team.JobsMonitored
+                    && mine.PendingApproval == 0 && theirs.PendingApproval == 0,
+                    "tasks SQL: an operator's cards show the team's findings but only their own as waiting on them; approvals are an approver's");
+                var dashboardOnly = new AppUser("scan-mgmt", "mg@test.invalid", "Management", Roles.Management, "", "test", true);
+                check(await tasks.CountAsync(dashboardOnly, default) is { AiHandling: 0, NeedsMyDecision: 0, JobsMonitored: 0 },
+                    "tasks SQL: an account without the team's view and without jobs of its own counts nothing");
+                var log = new AiDecisionLog(db, agents, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance), clock);
+                var (listedMine, _) = await log.ListAsync(owner, "OPEN", null, null, null, 1, 200, default);
+                var (listedTheirs, _) = await log.ListAsync(other, "OPEN", null, null, null, 1, 200, default);
+                var (listedTeam, _) = await log.ListAsync(supervisor, "OPEN", null, null, null, 1, 200, default);
+                check(listedMine.Count == open.Count && listedMine.All(one => one.CanAnswer == (open.Single(row => row.Id == one.Id).OwnerId == "OP-S1"))
+                    && listedTheirs.Count == open.Count && listedTheirs.All(one => !one.CanAnswer)
+                    && listedTeam.Count == open.Count && listedTeam.All(one => one.CanAnswer),
+                    "tasks SQL: each listed decision says whether this person may answer it — the owner their own, a colleague none, a supervisor all");
+            }
         }
         finally
         {

@@ -27,6 +27,8 @@
 .metric h3 { margin: 0; font-size: 12px; font-weight: 600; }
 .metric strong { display: block; margin: 10px 0; font-size: 32px; line-height: 1.2; }
 .metric p { font-size: 11px; line-height: 1.5; margin: 0; color: #63758a; }
+.metricRed { color: #a32218; }
+.metricAmber { color: #935500; }
 .grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .column { display: grid; gap: 20px; min-width: 0; }
 .panel { background: white; border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; scroll-margin-top: 90px; }

@@ -17,7 +17,9 @@ public sealed record AiDecisionView(long Id, string RunId, string AgentId, strin
     string EntityId, string Summary, string ResultStatus, string Status, string RiskLevel, decimal? Confidence,
     bool RequiresApproval, bool Shadow, int Autonomy, string PromptVersion, AiDecisionFindings Findings,
     IReadOnlyList<string> RuleReferences, IReadOnlyList<string> EvidenceReferences, string HumanChoice,
-    bool? HumanMatches, string OverrideReason, string DecidedBy, DateTimeOffset? DecidedAt, DateTimeOffset CreatedAt);
+    bool? HumanMatches, string OverrideReason, string DecidedBy, DateTimeOffset? DecidedAt, DateTimeOffset CreatedAt,
+    // Whether the person reading the list may answer it (CanAnswer) — so the screen offers no button the server refuses.
+    bool CanAnswer = false);
 
 /// <summary>
 /// Where agents write what they concluded and people write what they did about
@@ -111,7 +113,7 @@ public sealed class AiDecisionLog(ScmosDbContext db, AgentRegistry agents, Audit
         var total = await query.CountAsync(token);
         var rows = await query.OrderByDescending(row => row.CreatedAt).ThenByDescending(row => row.Id)
             .Skip((page - 1) * size).Take(size).ToListAsync(token);
-        return (rows.Select(View).ToList(), total);
+        return (rows.Select(row => View(row) with { CanAnswer = CanAnswer(user, row) }).ToList(), total);
     }
 
     /// <summary>Who may answer a decision: a supervisor or above, or the owner of the job it is about.</summary>

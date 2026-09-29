@@ -14,6 +14,8 @@ export type Decision = {
   id: number; agentId: string; decisionType: string; entityType: string; entityId: string; summary: string;
   resultStatus: string; status: string; riskLevel: string; shadow: boolean; autonomy: number; findings: Findings;
   ruleReferences: string[]; createdAt: string; humanChoice: string; overrideReason: string; decidedBy: string;
+  /** Whether this person may answer it — the server's rule, so no button is offered that it would refuse. */
+  canAnswer: boolean;
 };
 export type DecisionPage = { items: Decision[]; total: number };
 
@@ -66,7 +68,7 @@ function decision(v: unknown): v is Decision {
     && (f.facts as Finding[]).every(one => one.source !== null) && (f.ruleResults as Finding[]).every(one => one.source !== null)
     && Array.isArray(v.ruleReferences) && v.ruleReferences.length <= 50 && v.ruleReferences.every(r => text(r, 120))
     && text(v.createdAt, 40) && !Number.isNaN(Date.parse(String(v.createdAt)))
-    && text(v.humanChoice) && text(v.overrideReason) && text(v.decidedBy, 160);
+    && text(v.humanChoice) && text(v.overrideReason) && text(v.decidedBy, 160) && typeof v.canAnswer === "boolean";
 }
 
 export function parseDecisions(v: unknown): DecisionPage {

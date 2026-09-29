@@ -77,6 +77,7 @@ public static class AiServiceRegistration
         services.AddScoped<AiGovernanceService>();
         services.AddScoped<IAiGovernance>(sp => sp.GetRequiredService<AiGovernanceService>());
         services.AddScoped<AiDecisionLog>();
+        services.AddScoped<AiTasksService>();
         services.AddScoped<AgentScanner>();
         services.AddScoped<AgentOrchestrator>();
         services.AddScoped<OperationsControlService>();

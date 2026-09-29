@@ -7,10 +7,12 @@ import {
   AGENT_LABEL, answerBody, answerError, draftText, inReadingOrder, parseDecisions, RISK_LABEL, RISK_TONE, SENT_CHANNELS,
   type Decision, type Finding,
 } from "../aiFindings";
+import { myTasks, parseTasks, TASK_CARDS, type AiTaskCounts } from "../aiTasks";
 import { draftFromDecision, labelOf } from "../bookingDraft";
 import s from "./AiControlTower.module.css";
 
-type Filter = "all" | "otd-agent" | "validation-agent" | "vendor-agent" | "communication-agent" | "booking-agent";
+type Filter = "mine" | "all" | "otd-agent" | "validation-agent" | "vendor-agent" | "communication-agent" | "booking-agent";
+const AGENT_FILTERS = ["otd-agent", "validation-agent", "vendor-agent", "communication-agent", "booking-agent"] as const;
 
 function List({ title, items }: { title: string; items: Finding[] }) {
   if (items.length === 0) return null;
@@ -27,6 +29,10 @@ function List({ title, items }: { title: string; items: Finding[] }) {
  * person to send: copied, then answered as sent (and on which channel), sent
  * otherwise, or not sent — the record of what went out, since SCMOS sends
  * nothing itself. The server decides who may; this only asks.
+ *
+ * Above the list, the Control Tower's cards (spec §43), counted by the server;
+ * "ของฉัน" is My AI Tasks (§44) — only what this person may answer, by section,
+ * the most urgent first. A decision this person may not answer has no buttons.
  */
 export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
   onOpenJob: (key: string) => void;
@@ -34,8 +40,9 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
 }) {
   const [items, setItems] = useState<Decision[] | null>(null);
   const [total, setTotal] = useState(0);
+  const [tasks, setTasks] = useState<AiTaskCounts | null>(null);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("mine");
   const [overriding, setOverriding] = useState<number | null>(null);
   const [choice, setChoice] = useState("");
   const [reason, setReason] = useState("");
@@ -46,6 +53,11 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
 
   const load = useCallback(async () => {
     setError("");
+    // The cards are extra: when they cannot be read the list still is.
+    void apiFetch("/api/ai/tasks", { headers: { accept: "application/json" } })
+      .then(async response => { const body: unknown = await response.json().catch(() => null); return response.ok ? parseTasks(body) : null; })
+      .catch(() => null)
+      .then(counts => { if (alive.current) setTasks(counts); });
     try {
       const response = await apiFetch("/api/ai/decisions?status=OPEN&pageSize=200", { headers: { accept: "application/json" } });
       const body: unknown = await response.json().catch(() => null);
@@ -97,79 +109,105 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
     } finally { if (alive.current) setBusy(null); }
   }
 
-  const shown = (items ?? []).filter(item => filter === "all" || item.agentId === filter);
-  const count = (id: Filter) => (items ?? []).filter(item => id === "all" || item.agentId === id).length;
+  const all = items ?? [];
+  const sections = myTasks(all);
+  const mineCount = sections.reduce((sum, section) => sum + section.items.length, 0);
+  const shown = filter === "mine" ? [] : all.filter(item => filter === "all" || item.agentId === filter);
+  const count = (id: Exclude<Filter, "mine">) => all.filter(item => id === "all" || item.agentId === id).length;
+
+  // A render function, not a component: a component declared here would be a new type every render,
+  // remounting each item — and the override boxes would lose focus on every keystroke.
+  function renderItem(item: Decision) {
+    const draft = draftText(item);
+    const booking = draftFromDecision(item);
+    return <li key={item.id} className={s.finding}>
+      <div className={s.findingTop}>
+        {item.entityType === "job"
+          ? <button className={s.link} onClick={() => onOpenJob(item.entityId)}>{item.summary}</button>
+          : <strong>{item.summary}</strong>}
+        <span className={s.actions}>
+          {item.riskLevel && <span className={s.badge + " " + (s[RISK_TONE[item.riskLevel] ?? "muted"] ?? "")}>{RISK_LABEL[item.riskLevel] ?? item.riskLevel}</span>}
+          <span className={s.badge}>{AGENT_LABEL[item.agentId] ?? item.agentId}</span>
+          {item.shadow && <span className={s.badge}>Shadow</span>}
+        </span>
+      </div>
+      <p className={s.findingSource}>{stamp(item.createdAt)}</p>
+      {booking
+        ? <>
+          <List title="ข้อเท็จจริง" items={item.findings.facts.filter(fact => !/\.text#/.test(fact.source ?? ""))} />
+          <div className={s.findingGroup}><strong>ร่างงาน {booking.category}</strong>
+            <ul className={s.findingList}>{Object.entries(booking.fields).map(([field, value]) =>
+              <li key={field}>{labelOf(field)}: {value}{booking.quotes[field] && <span className={s.findingSource}>{booking.quotes[field]}</span>}</li>)}</ul>
+          </div>
+          <List title="ไม่รับ" items={item.findings.observations.filter(note => note.source === null)} />
+        </>
+        : <List title="ข้อเท็จจริง" items={item.findings.facts} />}
+      <List title="ผลตามกฎ" items={item.findings.ruleResults} />
+      <List title="ข้อสันนิษฐาน" items={item.findings.inferences} />
+      {draft === null ? <List title="ข้อแนะนำ" items={item.findings.recommendations} />
+        : <div className={s.findingGroup}><strong>ร่างข้อความ</strong>
+          <blockquote id={`draft-${item.id}`} className={s.draft}>{draft}</blockquote>
+          <button className={s.button} onClick={() => void copy(item.id, draft)}>คัดลอกข้อความ</button>
+        </div>}
+      {!item.canAnswer ? null
+        : overriding === item.id
+          ? <div className={s.actions + " " + s.governance}>
+            <input aria-label={draft === null ? "สิ่งที่ทำแทน" : "ข้อความที่ส่งแทน"} placeholder={draft === null ? "สิ่งที่ทำแทน" : "ข้อความที่ส่งแทน"}
+              maxLength={400} value={choice} onChange={e => setChoice(e.target.value)} />
+            <input aria-label="เหตุผล" placeholder="เหตุผล" maxLength={400} value={reason} onChange={e => setReason(e.target.value)} />
+            <button className={s.button + " " + s.primary} disabled={busy !== null || !choice.trim() || !reason.trim()}
+              onClick={() => void answer(item.id, "OVERRIDDEN")}>บันทึก</button>
+            <button className={s.button} disabled={busy !== null} onClick={() => setOverriding(null)}>ยกเลิก</button>
+          </div>
+          : booking ? <div className={s.actions}>
+            {onDraftJob && <button className={s.button + " " + s.primary} disabled={busy !== null}
+              onClick={() => onDraftJob(item.id, booking.category, booking.fields)}>เปิดฟอร์มเพิ่มงาน</button>}
+            <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED")}>สร้างงานแล้ว</button>
+            <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "DISMISSED")}>ไม่ใช่ booking</button>
+          </div>
+          : draft === null ? <div className={s.actions}>
+            <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED")}>ถูกต้อง</button>
+            <button className={s.button} disabled={busy !== null} onClick={() => { setOverriding(item.id); setChoice(""); setReason(""); }}>ทำอย่างอื่น</button>
+            <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "DISMISSED")}>ไม่เกี่ยว</button>
+          </div>
+          : <div className={s.actions}>
+            <select aria-label="ส่งทาง" value={channel} onChange={e => setChannel(e.target.value)}>
+              {SENT_CHANNELS.map(one => <option key={one} value={one}>{one}</option>)}
+            </select>
+            <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED", channel)}>ส่งแล้ว</button>
+            <button className={s.button} disabled={busy !== null} onClick={() => { setOverriding(item.id); setChoice(""); setReason(""); }}>ส่งข้อความอื่น</button>
+            <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "DISMISSED")}>ไม่ส่ง</button>
+          </div>}
+    </li>;
+  }
 
   return <section className={s.panel} aria-labelledby="ai-findings" data-testid="ai-findings">
     <div className={s.sectionTitle}><div><h2 id="ai-findings">งานที่ AI ตรวจพบ</h2>
       {items && <p>{total} รายการรอคำตอบ</p>}</div>
       <div className={s.actions}>
-        {(["all", "otd-agent", "validation-agent", "vendor-agent", "communication-agent", "booking-agent"] as const).map(id =>
+        <button className={s.button + (filter === "mine" ? " " + s.primary : "")} aria-pressed={filter === "mine"}
+          onClick={() => setFilter("mine")}>ของฉัน {mineCount}</button>
+        {(["all", ...AGENT_FILTERS] as const).map(id =>
           <button key={id} className={s.button + (filter === id ? " " + s.primary : "")} aria-pressed={filter === id}
             onClick={() => setFilter(id)}>{id === "all" ? "ทั้งหมด" : AGENT_LABEL[id]} {count(id)}</button>)}
         <button className={s.button} onClick={() => void load()}>รีเฟรช</button>
       </div></div>
+    {tasks && <div className={s.metrics} data-testid="ai-task-cards">
+      {TASK_CARDS.map(card => <article key={card.key} className={s.metric}>
+        <h3>{card.label}</h3>
+        <strong className={tasks[card.key] > 0 && card.tone ? (card.tone === "red" ? s.metricRed : s.metricAmber) : undefined}>{tasks[card.key]}</strong>
+      </article>)}
+    </div>}
     {!!message && <p role="status">{message}</p>}
     {error ? <p role="alert" className={s.error}>{error}</p>
       : items === null ? <div className={s.empty}>กำลังอ่าน…</div>
-        : shown.length === 0 ? <div className={s.empty}>ไม่มีรายการรอคำตอบ</div>
-          : <ul className={s.list}>{shown.map(item => { const draft = draftText(item); const booking = draftFromDecision(item); return <li key={item.id} className={s.finding}>
-            <div className={s.findingTop}>
-              {item.entityType === "job"
-                ? <button className={s.link} onClick={() => onOpenJob(item.entityId)}>{item.summary}</button>
-                : <strong>{item.summary}</strong>}
-              <span className={s.actions}>
-                {item.riskLevel && <span className={s.badge + " " + (s[RISK_TONE[item.riskLevel] ?? "muted"] ?? "")}>{RISK_LABEL[item.riskLevel] ?? item.riskLevel}</span>}
-                <span className={s.badge}>{AGENT_LABEL[item.agentId] ?? item.agentId}</span>
-                {item.shadow && <span className={s.badge}>Shadow</span>}
-              </span>
-            </div>
-            <p className={s.findingSource}>{stamp(item.createdAt)}</p>
-            {booking
-              ? <>
-                <List title="ข้อเท็จจริง" items={item.findings.facts.filter(fact => !/\.text#/.test(fact.source ?? ""))} />
-                <div className={s.findingGroup}><strong>ร่างงาน {booking.category}</strong>
-                  <ul className={s.findingList}>{Object.entries(booking.fields).map(([field, value]) =>
-                    <li key={field}>{labelOf(field)}: {value}{booking.quotes[field] && <span className={s.findingSource}>{booking.quotes[field]}</span>}</li>)}</ul>
-                </div>
-                <List title="ไม่รับ" items={item.findings.observations.filter(note => note.source === null)} />
-              </>
-              : <List title="ข้อเท็จจริง" items={item.findings.facts} />}
-            <List title="ผลตามกฎ" items={item.findings.ruleResults} />
-            <List title="ข้อสันนิษฐาน" items={item.findings.inferences} />
-            {draft === null ? <List title="ข้อแนะนำ" items={item.findings.recommendations} />
-              : <div className={s.findingGroup}><strong>ร่างข้อความ</strong>
-                <blockquote id={`draft-${item.id}`} className={s.draft}>{draft}</blockquote>
-                <button className={s.button} onClick={() => void copy(item.id, draft)}>คัดลอกข้อความ</button>
-              </div>}
-            {overriding === item.id
-              ? <div className={s.actions + " " + s.governance}>
-                <input aria-label={draft === null ? "สิ่งที่ทำแทน" : "ข้อความที่ส่งแทน"} placeholder={draft === null ? "สิ่งที่ทำแทน" : "ข้อความที่ส่งแทน"}
-                  maxLength={400} value={choice} onChange={e => setChoice(e.target.value)} />
-                <input aria-label="เหตุผล" placeholder="เหตุผล" maxLength={400} value={reason} onChange={e => setReason(e.target.value)} />
-                <button className={s.button + " " + s.primary} disabled={busy !== null || !choice.trim() || !reason.trim()}
-                  onClick={() => void answer(item.id, "OVERRIDDEN")}>บันทึก</button>
-                <button className={s.button} disabled={busy !== null} onClick={() => setOverriding(null)}>ยกเลิก</button>
-              </div>
-              : booking ? <div className={s.actions}>
-                {onDraftJob && <button className={s.button + " " + s.primary} disabled={busy !== null}
-                  onClick={() => onDraftJob(item.id, booking.category, booking.fields)}>เปิดฟอร์มเพิ่มงาน</button>}
-                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED")}>สร้างงานแล้ว</button>
-                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "DISMISSED")}>ไม่ใช่ booking</button>
-              </div>
-              : draft === null ? <div className={s.actions}>
-                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED")}>ถูกต้อง</button>
-                <button className={s.button} disabled={busy !== null} onClick={() => { setOverriding(item.id); setChoice(""); setReason(""); }}>ทำอย่างอื่น</button>
-                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "DISMISSED")}>ไม่เกี่ยว</button>
-              </div>
-              : <div className={s.actions}>
-                <select aria-label="ส่งทาง" value={channel} onChange={e => setChannel(e.target.value)}>
-                  {SENT_CHANNELS.map(one => <option key={one} value={one}>{one}</option>)}
-                </select>
-                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "ACCEPTED", channel)}>ส่งแล้ว</button>
-                <button className={s.button} disabled={busy !== null} onClick={() => { setOverriding(item.id); setChoice(""); setReason(""); }}>ส่งข้อความอื่น</button>
-                <button className={s.button} disabled={busy !== null} onClick={() => void answer(item.id, "DISMISSED")}>ไม่ส่ง</button>
-              </div>}
-          </li>; })}</ul>}
+        : filter === "mine"
+          ? sections.length === 0 ? <div className={s.empty}>ไม่มีรายการรอคำตอบ</div>
+            : sections.map(section => <div key={section.id} className={s.findingGroup}>
+              <h3>{section.label} {section.items.length}</h3>
+              <ul className={s.list}>{section.items.map(renderItem)}</ul>
+            </div>)
+          : shown.length === 0 ? <div className={s.empty}>ไม่มีรายการรอคำตอบ</div>
+            : <ul className={s.list}>{shown.map(renderItem)}</ul>}
   </section>;
 }

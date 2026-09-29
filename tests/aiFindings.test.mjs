@@ -16,7 +16,7 @@ const decision = (over = {}) => ({
     recommendations: [{ text: "ติดต่อ SHORE เพื่อยืนยันเวลาถึงจริง", source: null }], blockingIssues: [],
   },
   ruleReferences: ["OTD.PAST_WINDOW_NO_ARRIVAL"], evidenceReferences: ["job:J1"], humanChoice: "", humanMatches: null,
-  overrideReason: "", decidedBy: "", decidedAt: null, createdAt: "2026-09-28T03:00:00Z",
+  overrideReason: "", decidedBy: "", decidedAt: null, createdAt: "2026-09-28T03:00:00Z", canAnswer: true,
   ...over,
 });
 const page = (items) => ({ items, total: items.length, page: 1, pageSize: 200 });
@@ -38,6 +38,7 @@ test("a decision that mixes or loses its evidence is not drawn", () => {
   rejects(page([missingList]));                                        // the four kinds are always there, apart
   rejects(page([decision({ riskLevel: "SEVERE" })]));
   rejects(page([decision({ entityId: "" })]));
+  rejects(page([decision({ canAnswer: "yes" })]));                                    // whether I may answer is the server's yes or no
   rejects({ items: [decision()], total: 0 });                           // total below what was sent
 });
 
@@ -52,7 +53,7 @@ test("the most serious come first, then the newest", () => {
 
 test("the Carrier Agent's recommendations are a filter of their own, named for what they are about", () => {
   assert.equal(AGENT_LABEL["vendor-agent"], "ผู้ขนส่ง");
-  assert.match(read("app/scmos/screens/AiFindingsPanel.tsx"), /\["all", "otd-agent", "validation-agent", "vendor-agent", /);
+  assert.match(read("app/scmos/screens/AiFindingsPanel.tsx"), /const AGENT_FILTERS = \["otd-agent", "validation-agent", "vendor-agent", /);
 });
 
 test("an answer is sent trimmed; an override carries what was done and why", () => {
@@ -92,7 +93,8 @@ test("the panel shows a draft to copy and asks whether it was sent — SCMOS sen
   for (const label of ["ร่างข้อความ", "คัดลอกข้อความ", "ส่งแล้ว", "ส่งข้อความอื่น", "ไม่ส่ง"]) assert.ok(panel.includes(`>${label}<`), label);
   assert.match(panel, /navigator\.clipboard\.writeText/);
   assert.match(panel, /answer\(item\.id, "ACCEPTED", channel\)/);
-  assert.match(panel, /\["all", "otd-agent", "validation-agent", "vendor-agent", "communication-agent", "booking-agent"\] as const/);
+  assert.match(panel, /const AGENT_FILTERS = \["otd-agent", "validation-agent", "vendor-agent", "communication-agent", "booking-agent"\] as const/);
+  assert.match(panel, /\(\["all", \.\.\.AGENT_FILTERS\] as const\)/);
   assert.match(panel, /\{item\.riskLevel && <span/);                                // no empty risk badge on a draft
   assert.doesNotMatch(panel, /\/api\/line|push|sendMessage/i);                       // nothing here sends
 });
