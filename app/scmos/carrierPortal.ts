@@ -14,6 +14,16 @@ export const CARRIER_VIEW: Partial<Record<Screen, CarrierView>> = {
   carrierrates: "rates", carrierbilling: "billing", carrierkpi: "kpi",
 };
 
+/** The carrier's own jobs, cut to the dashboard's fields, with its name and how many offers wait. */
+export type CarrierDashboardJobs = { supplierName: string; jobs: Record<string, string>[]; offered: number };
+
+export function parseCarrierDashboardJobs(v: unknown): CarrierDashboardJobs {
+  if (!(obj(v) && text(v.supplierName, 200) && count(v.offered) && Array.isArray(v.jobs) && v.jobs.length <= 50000
+    && v.jobs.every(job => obj(job) && Object.entries(job).every(([k, value]) => k.length <= 40 && text(value, 2000)))))
+    throw new Error("invalid_response");
+  return v as unknown as CarrierDashboardJobs;
+}
+
 export type Band = { label: string; min: number; max: number; position: number };
 export type Lane = {
   id: number; service: string; customer: string; from: string; to: string; county: string; remark: string;

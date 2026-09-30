@@ -239,6 +239,46 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
     }
 
     /// <summary>
+    /// The register fields the department's dashboard counts by (30 Sep 2026), for the carrier's own
+    /// Dashboard: when, what, where, who carries it, its state and times, and the carrier's own price.
+    /// Not the operators' remarks, the edit history, or anything the register keeps about other work.
+    /// </summary>
+    public static readonly string[] DashboardFields =
+    [
+        "key", "id", "cat", "date", "planTime", "status", "customer", "trucker", "type", "product", "weight",
+        "destination", "plant", "province", "wh", "cyYard", "returnLoc", "emptyReturn", "container", "seal",
+        "booking", "jobCode", "abs", "jobNo", "arrDate", "arrTime", "licence", "driver", "contact",
+        "origDate", "moveReason", "cancelReason", "closingDate", "closingTime", "reason", "op", "opId",
+        "cost", "returnLoad", "returnFinished", "pickupPlan", "pickupTime",
+    ];
+
+    /// <summary>
+    /// This carrier's own jobs as the register holds them — the rows its portal counts as its work (the
+    /// confirmed assignment, or the register's carrier where the job has no assignment history), each cut to
+    /// <see cref="DashboardFields"/>. The department's dashboard, fed these, draws the same figures for
+    /// one company.
+    /// </summary>
+    public async Task<CarrierDashboardJobs> DashboardJobsAsync(Supplier company, CancellationToken token)
+    {
+        var portal = await ReadForAsync(company, token);
+        var keys = portal.Accepted.Select(job => job.Key).ToHashSet(StringComparer.Ordinal);
+        var (json, _) = await jobs.LoadAsync(token);
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("jobs", out var all) || all.ValueKind != System.Text.Json.JsonValueKind.Array)
+            return new(company.Name, [], portal.Offered.Count);
+        var rows = new List<Dictionary<string, string>>();
+        foreach (var row in all.EnumerateArray())
+        {
+            if (!keys.Contains(Field(row, "key"))) continue;
+            rows.Add(DashboardFields.ToDictionary(name => name, name => Field(row, name), StringComparer.Ordinal));
+        }
+        return new(company.Name, rows, portal.Offered.Count);
+    }
+
+    /// <param name="Offered">Jobs offered to it and not yet answered — what its NEW job screen waits on.</param>
+    public record CarrierDashboardJobs(string SupplierName, IReadOnlyList<Dictionary<string, string>> Jobs, int Offered);
+
+    /// <summary>
     /// Accepting a job makes it operationally available immediately. Truck and
     /// driver details are optional here and remain a separate Phase 3 action;
     /// existing callers that send them continue to write them in the same call.

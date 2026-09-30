@@ -10,7 +10,7 @@ import { dowOf, pad } from "../util";
 import { PeriodBar } from "../PeriodBar";
 import { FilterPickMany } from "../FilterPickMany";
 import { ALL_DASHBOARD_FILTERS, dashboardOptions, filterDashboardJobs, type DashboardFilters } from "../dashboardFilters";
-import { ControlTower } from "./ControlTower";
+import { ControlTower, type CarrierMode } from "./ControlTower";
 
 /**
  * The dashboard's two calculated tabs, on one navy canvas:
@@ -54,6 +54,8 @@ type Props = {
   onAsk: (question: string) => void;
   /** Opens the KPI screen, where the full scorecard is. */
   onOpenKpi?: () => void;
+  /** A carrier's own Dashboard: its jobs only, its measures, its own screens — see ControlTower. */
+  carrier?: CarrierMode;
 };
 
 const CAT_COLOUR: Record<string, string> = { IMPORT: "#5cc0f7", EXPORT: "#3ddc97", DELIVERY: "#f2b13c" };
@@ -257,6 +259,7 @@ export function Dashboard({ jobs, allJobs, filters, onFilters, period, onPeriod,
             onImport={p.onImport}
             onExport={p.onExport}
             onAsk={p.onAsk}
+            carrier={p.carrier}
             onOpenKpi={onOpenKpi}
           />}
     </div>

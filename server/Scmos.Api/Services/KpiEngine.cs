@@ -564,6 +564,9 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     /// The KPI headline is the average of the same weighted carrier totals the
     /// detail table shows. There is deliberately no second supplier formula.
     /// </summary>
+    /// <summary>The same measure over a scorecard somebody else has cut — a carrier's own line, for its dashboard.</summary>
+    public static Measure SupplierPerformanceOf(IReadOnlyList<CarrierScore> scorecard) => SupplierPerformance(scorecard);
+
     private static Measure SupplierPerformance(IReadOnlyList<CarrierScore> scorecard)
     {
         var scored = scorecard.Where(entry => entry.Weighted is not null).ToList();

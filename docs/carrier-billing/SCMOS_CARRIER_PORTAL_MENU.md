@@ -1,6 +1,6 @@
 # The Subcontractor's own menu
 
-v2.8.0, 29 Sep 2026. Asked for by the department lead: a Subcontractor
+v2.8.0, 29 Sep 2026; Capacity and the department-style Dashboard in v2.8.1, 30 Sep 2026. Asked for by the department lead: a Subcontractor
 account gets a dashboard of its own company, and a menu of Workspace (NEW job,
 My job, Postpone), Rate, Billing and KPI. The KPI must show only that
 carrier's own figures.
@@ -9,10 +9,11 @@ carrier's own figures.
 
 | Entry | What it shows | Reads |
 | --- | --- | --- |
-| Dashboard | The company, then cards: new jobs waiting, today's jobs, in progress, waiting for a truck, postponed/cancelled, on-time this month (and the score), then the billing cards | `/api/carrier`, `/api/carrier/kpi`, `/api/carrier-billing/*` |
+| Dashboard | The department's own Dashboard (Executive and Operational tabs, every card and panel), counted over this company's jobs and measures; the hero names the company, its tiles lead to the carrier's screens (the NEW job tile shows how many offers wait); no TODAY tab and no AI briefing, which are the department's day | `/api/carrier/dashboard/jobs`, `/api/carrier/dashboard/measures` |
 | Workspace → NEW job | Jobs the carrier keyed in itself for Leschaco to confirm, then jobs Leschaco offered to accept or decline | `/api/carrier/job-requests`, `/api/carrier` |
 | Workspace → My job | The schedule, as before (today, tomorrow, 7 days, calendar, waiting for a truck, in progress, done) | `/api/carrier` |
 | Workspace → Postpone | Its jobs cancelled, or moved from the date first planned (the Workspace's own CANCEL/MOVED rule); a cancelled job is shown, not worked | `/api/carrier` |
+| Capacity | Trucks free and already promised per day and vehicle, which it records itself (saying a day again corrects it); beside each, its own Leschaco jobs for that day — not the department's demand | `/api/carrier/capacity` |
 | Rate | Its contracted lanes of the rate book, every vehicle on every fuel band, read only | `/api/carrier/rates` |
 | Billing | Billing, as before | `/api/carrier-billing/*` |
 | KPI | Its line of the contract scorecard and its on-time delivery, by month or year, with the monthly trend | `/api/carrier/kpi` |
@@ -25,6 +26,24 @@ supplier stays that supplier's, whatever it is spelled. The quotes and the
 surcharge list are not included. KPI: measured over the carrier's own jobs, and
 only its own line of the scorecard is returned. No other carrier's score, no
 ranking, no department figure.
+
+## The Dashboard: the department's, for one company
+
+The carrier's Dashboard is the same component the department uses (`Dashboard` →
+`ControlTower`), in carrier mode:
+
+- The jobs come from `/api/carrier/dashboard/jobs`: the carrier's own rows
+  (as its portal counts them), cut to the fields the dashboard counts by
+  (`CarrierService.DashboardFields`). The operators' remarks and edit history
+  are not sent. The browser prepares them exactly as it prepares the register.
+- The measures come from `/api/carrier/dashboard/measures`: the KPI engine
+  under a TRUCKER scope of the carrier's names, **then cut again**.
+  - The engine's scorecard adds any carrier an issue names without a job, so a
+    scoped report can still carry another carrier. Supplier performance, which
+    averages and lists the scorecard, is rebuilt from the carrier's own line,
+    trend included.
+  - The suppliers list and scorecard keep only the carrier.
+  - The department's issue counts and "cases outside the filter" note are removed.
 
 ## Jobs a carrier keys in
 
@@ -55,10 +74,13 @@ was let through:
 - `/api/kpi`, `/api/kpi/measures`, `/api/kpi/excel`: every carrier's scorecard;
 - `/api/suppliers`: every supplier with its score, tax id and compliance files;
 - `/api/dashboard/*` and `/api/risk`: the department's figures;
+- `/api/capacity` (v2.8.1): every carrier's fleet; its POST took the supplier
+  from the request under `EditOwnJobs`, which a carrier holds, so a carrier
+  could have written another's capacity;
 - the bell: "on-time below target" over every carrier's jobs.
 
 None of these is a carrier's screen, so `Rules/CarrierBoundary.cs` now answers
-a carrier 403 on the first four. The bell answers a carrier with nothing. The
+a carrier 403 on the first five. The bell answers a carrier with nothing. The
 rate book (`/api/rates`) already refused carriers and still does.
 
 Still open, not changed here: other routes guarded only by sign-in or by

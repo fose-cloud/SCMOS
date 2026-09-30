@@ -20,7 +20,7 @@ test("a Subcontractor's menu is its own: Dashboard, Workspace (NEW job, My job, 
 test("the app draws the carrier's menu and its screens only for a carrier account", () => {
   const app = read("app/SCMOSApp.tsx");
   assert.match(app, /carrier=\{isCarrier\}/);
-  assert.match(app, /isCarrier && CARRIER_SCREENS\.includes\(screen\) && <CarrierPortal/);
+  assert.match(app, /isCarrier && screen !== "carrier" && CARRIER_SCREENS\.includes\(screen\) && <CarrierPortal/);
   const chrome = read("app/scmos/Chrome.tsx");
   assert.match(chrome, /if \(p\.carrier\) return/);
 });
@@ -126,4 +126,23 @@ test("a capacity answer is read as sent â€” spare is available less committed â€
   assert.equal(registerDate("2026-10-01"), "01/10/2026");
   assert.equal(registerDate("01/10/2026"), "");
   assert.equal(isoDay("01/10/2026"), "2026-10-01");
+});
+
+test("a carrier's Dashboard is the department's, fed its own jobs and measures", async () => {
+  const { parseCarrierDashboardJobs } = await import("../app/scmos/carrierPortal.ts");
+  const { TAB_DEFS } = await import("../app/scmos/nav.ts");
+  assert.deepEqual(TAB_DEFS.carrier, ["Executive", "Operational"]);            // TODAY is the department's day
+  const body = { supplierName: "ALPHA TRANSPORT", offered: 2, jobs: [{ key: "A-1", id: "A-1", status: "COMPLETED", date: "15/09/2026" }] };
+  assert.equal(parseCarrierDashboardJobs(body).jobs.length, 1);
+  assert.throws(() => parseCarrierDashboardJobs({ ...body, jobs: [{ key: 5 }] }), /invalid_response/);
+  const wrapper = read("app/scmos/screens/CarrierDashboard.tsx");
+  assert.match(wrapper, /"\/api\/carrier\/dashboard\/jobs"/);
+  assert.match(wrapper, /<Dashboard/);
+  assert.doesNotMatch(wrapper, /\/api\/kpi|\/api\/dashboard\/|\/api\/jobs/);
+  const tower = read("app/scmos/screens/ControlTower.tsx");
+  assert.match(tower, /p\.carrier \? "\/api\/carrier\/dashboard\/measures" : "\/api\/kpi\/measures"/);
+  assert.match(tower, /const brief = useBrief\(!p\.carrier\);/);                    // the department's briefing is not read
+  assert.match(tower, /\{!p\.carrier && <aside className="ct-rail"/);
+  const app = read("app/SCMOSApp.tsx");
+  assert.match(app, /isCarrier && screen === "carrier" && \(\n\s+<CarrierDashboard/);
 });

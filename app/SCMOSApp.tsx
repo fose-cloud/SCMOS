@@ -109,6 +109,7 @@ import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
 import { CARRIER_VIEW } from "./scmos/carrierPortal";
 import { CarrierRequestsPanel } from "./scmos/screens/CarrierRequestsPanel";
+import { CarrierDashboard } from "./scmos/screens/CarrierDashboard";
 import type { CarrierJobRequest } from "./scmos/carrierJobRequests";
 import { Training } from "./scmos/screens/Training";
 import { Outlook } from "./scmos/screens/Outlook";
@@ -3004,7 +3005,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         screen={screen}
         // The control tower keeps the navy it was designed on; every working
         // screen is paper. Asked for by the department on 14 September.
-        canvas={screen === "dashboard" ? "dark" : "light"}
+        canvas={screen === "dashboard" || (isCarrier && screen === "carrier") ? "dark" : "light"}
         onNavigate={go}
         navCounts={navCounts}
         allowed={isCarrier ? CARRIER_SCREENS : undefined}
@@ -3319,7 +3320,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "outlook" && (
               <Outlook canDecide={able("EditAnyJob")} onToast={setToast} />
             )}
-            {isCarrier && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
+            {/* A carrier's Dashboard is the department's, over its own jobs; its other screens are the portal's. */}
+            {isCarrier && screen === "carrier" && (
+              <CarrierDashboard period={period} onPeriod={setPeriod} filters={dashboardFilters} onFilters={setDashboardFilters}
+                tab={activeTab} userName={profile.full || me.full || me.name} onNavigate={go} />
+            )}
+            {isCarrier && screen !== "carrier" && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
               onNavigate={go} onToast={setToast} />}
             {!isCarrier && screen === "carrier" && <CarrierPortal view="dashboard" onToast={setToast} />}
             {screen === "training" && (

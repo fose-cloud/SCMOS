@@ -49,7 +49,7 @@ test("both tabs and Excel use the same filtered data, drill preserves dimensions
   assert.doesNotMatch(tower, /ไม่ได้กรองตาม CUSTOMER \/ TRUCKER/);
   assert.match(tower, /if \(filters\.customer && filters\.customer !== "ALL"\) query\.set\("customer", filters\.customer\);/);
   assert.match(tower, /if \(filters\.trucker && filters\.trucker !== "ALL"\) query\.set\("trucker", filters\.trucker\);/);
-  assert.match(tower, /useReport\(period, p\.filters\)/);
+  assert.match(tower, /useReport\(period, p\.filters, /);   // the carrier's dashboard passes its own measures route (30 Sep 2026)
   const endpoint = readFileSync(new URL("../server/Scmos.Api/Endpoints/KpiEndpoints.cs", import.meta.url), "utf8");
   assert.match(endpoint, /KpiScope\.Parse\(customer, trucker\)/);
 });

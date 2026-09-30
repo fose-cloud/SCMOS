@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Scmos.Api.Auth;
 using Scmos.Api.Rules;
 
@@ -48,5 +49,66 @@ public class CarrierPortalReads(CarrierService carriers, RateService rates, KpiE
             .FirstOrDefault();
         var onTime = report.Measures.FirstOrDefault(measure => measure.Id == nameof(MeasureId.OnTimeDelivery));
         return new CarrierKpiView(company.Id, company.Name, period.Year, period.Month, onTime, score);
+    }
+
+    /// <summary>
+    /// The department dashboard's measures, for the carrier's own Dashboard (30 Sep 2026): the same report
+    /// the department's reads, over this carrier's jobs — and then cut again where the engine counts wider
+    /// than its scope. Supplier performance averages every carrier on the scorecard, and an issue that names
+    /// a haulier without a job can put another carrier there, so it is rebuilt from this carrier's line
+    /// alone, trend included; the suppliers list keeps only this carrier; the issue counts and the
+    /// "cases outside the filter" note are the department's, so they go.
+    /// </summary>
+    public async Task<KpiEngineReport?> DashboardMeasuresAsync(AppUser user, Period period, bool trend, CancellationToken token)
+    {
+        var company = await carriers.CompanyOfAsync(user, token);
+        if (company is null) return null;
+        var names = await carriers.NamesOfAsync(company, token);
+        var lookup = await directory.ReadAsync(token);
+        var scope = new KpiScope([], names.ToList());
+        bool Mine(string carrier) => names.Any(name => lookup.Same(carrier, name));
+        IReadOnlyList<CarrierScore> Own(KpiEngineReport one) => (one.Scorecard ?? []).Where(line => Mine(line.Carrier)).ToList();
+
+        var report = trend ? await kpi.BuildWithTrendAsync(period, scope, token) : await kpi.BuildAsync(period, scope, token);
+        var own = Own(report);
+        var measures = new List<Measure>();
+        foreach (var measure in report.Measures)
+        {
+            if (measure.Id == nameof(MeasureId.SupplierPerformance))
+            {
+                var mine = KpiEngine.SupplierPerformanceOf(own);
+                List<TrendPoint>? points = null;
+                if (measure.Trend is { } months)
+                {
+                    points = [];
+                    foreach (var point in months)
+                    {
+                        var parts = point.Period.Split('-');
+                        var line = parts.Length == 2 ? Own(await kpi.BuildAsync(new Period(parts[0], parts[1], ""), scope, token)).FirstOrDefault() : null;
+                        points.Add(new TrendPoint(point.Period, line?.Weighted is { } weighted ? Math.Round(weighted, 1) : null, line?.Shipments ?? 0));
+                    }
+                }
+                measures.Add(mine with { Target = measure.Target, MeetsTarget = mine.Value is { } value && measure.Target is { } target ? value >= target : null, Trend = points });
+                continue;
+            }
+            measures.Add(measure with { Note = Outside.Replace(measure.Note, "") });
+        }
+        return report with
+        {
+            Measures = measures,
+            Suppliers = report.Suppliers.Where(line => Mine(line.Carrier)).ToList(),
+            Scorecard = own,
+            UnattributedIssues = 0,
+            IssuesInPeriod = 0,
+        };
+    }
+
+    /// <summary>A count of the department's cases outside the scope, which the engine appends to two notes.</summary>
+    private static readonly Regex Outside = new(@" · ไม่นับเคสที่ไม่ได้ผูกกับงานในขอบเขต \d+ เคส", RegexOptions.Compiled);
+
+    public async Task<CarrierService.CarrierDashboardJobs?> DashboardJobsAsync(AppUser user, CancellationToken token)
+    {
+        var company = await carriers.CompanyOfAsync(user, token);
+        return company is null ? null : await carriers.DashboardJobsAsync(company, token);
     }
 }

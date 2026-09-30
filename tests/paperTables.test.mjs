@@ -60,7 +60,8 @@ test("every screen but the control tower is drawn on paper", () => {
   const app = readFileSync(new URL("../app/SCMOSApp.tsx", import.meta.url), "utf8");
   const chrome = readFileSync(new URL("../app/scmos/Chrome.tsx", import.meta.url), "utf8");
   const sheet = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(app, /canvas=\{screen === "dashboard" \? "dark" : "light"\}/);
+  // The carrier's Dashboard is the same control tower, over one company (30 Sep 2026).
+  assert.match(app, /canvas=\{screen === "dashboard" \|\| \(isCarrier && screen === "carrier"\) \? "dark" : "light"\}/);
   assert.match(chrome, /<main className=\{dark \? undefined : "paper"\}/);
   // The stylesheet's own retoned rules are put back under paper.
   for (const rule of [".paper .sc-card {", ".paper .ghost-btn:hover", ".paper .row-hover:hover", ".paper #scmos-screen-toolbar"]) {

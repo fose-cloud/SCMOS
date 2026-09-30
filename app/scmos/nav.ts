@@ -312,6 +312,9 @@ export const TAB_DEFS: Record<string, string[]> = {
   // Operational now, which is one fewer tab and one fewer place for the same
   // figures to be maintained.
   dashboard: ["Executive", "TODAY", "Operational"],
+  // A carrier's Dashboard is the department's two calculated tabs over its own jobs (30 Sep 2026);
+  // TODAY is the department's day, read over every carrier.
+  carrier: ["Executive", "Operational"],
   booking: ["Booking Queue", "Carrier Escalation", "SLA"],
   // Supplier and CAR/PAR read the real register now, and both carry their own
   // controls. Tabs that narrowed the demo table would be buttons that do

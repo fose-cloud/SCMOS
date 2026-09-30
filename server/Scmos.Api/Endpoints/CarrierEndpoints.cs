@@ -63,6 +63,28 @@ public static class CarrierEndpoints
             return view is null ? NotACarrier() : Results.Json(view);
         });
 
+        // The carrier's own Dashboard (30 Sep 2026): the department's dashboard, fed this company's jobs and
+        // this company's measures — the same figures, for one carrier.
+        group.MapGet("/dashboard/jobs", async (HttpContext context, IUserAccessor users, CarrierPortalReads reads,
+            CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var jobs = await reads.DashboardJobsAsync(user, token);
+            return jobs is null ? NotACarrier() : Results.Json(jobs);
+        });
+
+        group.MapGet("/dashboard/measures", async (string? year, string? month, string? day, bool? trend, HttpContext context,
+            IUserAccessor users, CarrierPortalReads reads, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var report = await reads.DashboardMeasuresAsync(user, new Period(Part(year, 4), Part(month, 2), Part(day, 2)), trend == true, token);
+            return report is null ? NotACarrier() : Results.Json(report);
+        });
+
         // The carrier's own Capacity (30 Sep 2026): what it says it has free per day and vehicle, beside its own
         // Leschaco jobs. The supplier is the account's — the department's /api/capacity took it from the body,
         // so a carrier could have written another's; carriers are refused there now (CarrierBoundary).
@@ -159,6 +181,13 @@ public static class CarrierEndpoints
                     status = result.Written?.GetValueOrDefault("status") })
                 : ApiResults.Error(result.Message, Status(result.Code));
         });
+    }
+
+    /// <summary>A period part as the dashboard sends it: digits of the right length, or nothing ("ALL" is nothing).</summary>
+    private static string Part(string? value, int length)
+    {
+        var text = (value ?? "").Trim();
+        return text.Length == length && text.All(char.IsAsciiDigit) ? text : "";
     }
 
     private static IResult NotACarrier() => ApiResults.Error(

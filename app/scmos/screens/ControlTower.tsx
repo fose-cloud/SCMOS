@@ -73,7 +73,7 @@ const MINIMUM_SAMPLE = 5;
  * chosen: the measured cards narrowed the same way as every count beside
  * them, by the engine, not by the browser.
  */
-function useReport(period: Period, filters: DashboardFilters): { report: Report | null; failed: boolean } {
+function useReport(period: Period, filters: DashboardFilters, path: string): { report: Report | null; failed: boolean } {
   const query = new URLSearchParams({ trend: "true" });
   if (period.year && period.year !== "ALL") query.set("year", period.year);
   if (period.month && period.month !== "ALL") query.set("month", period.month);
@@ -82,7 +82,7 @@ function useReport(period: Period, filters: DashboardFilters): { report: Report 
   if (filters.trucker && filters.trucker !== "ALL") query.set("trucker", filters.trucker);
   const search = query.toString();
 
-  const [report, setReport] = useRemembered<Report>("controlTower:" + search);
+  const [report, setReport] = useRemembered<Report>("controlTower:" + path + "?" + search);
   // Which request failed, so a failure for one period does not outlive the
   // move to another, and nothing has to be reset synchronously in the effect.
   const [failedFor, setFailedFor] = useState<string | null>(null);
@@ -91,7 +91,7 @@ function useReport(period: Period, filters: DashboardFilters): { report: Report 
     let alive = true;
     (async () => {
       try {
-        const response = await apiFetch(`/api/kpi/measures?${search}`, { headers: { accept: "application/json" } });
+        const response = await apiFetch(`${path}?${search}`, { headers: { accept: "application/json" } });
         if (!alive) return;
         if (!response.ok) { setFailedFor(search); return; }
         const body = await response.json() as Report;
@@ -99,7 +99,7 @@ function useReport(period: Period, filters: DashboardFilters): { report: Report 
       } catch { if (alive) setFailedFor(search); }
     })();
     return () => { alive = false; };
-  }, [search, setReport]);
+  }, [path, search, setReport]);
 
   return { report, failed: failedFor === search && !report };
 }
@@ -108,10 +108,11 @@ function useReport(period: Period, filters: DashboardFilters): { report: Report 
 type Finding = { urgency: "Now" | "Soon" | "Watch" | "Records"; kind: string; headline: string; detail: string; count: number; screen: string };
 type Brief = { today: string; quiet: string; findings: Finding[] };
 
-function useBrief(): Brief | null {
+function useBrief(enabled = true): Brief | null {
   const [brief, setBrief] = useRemembered<Brief>("briefing");
   useEffect(() => {
     let alive = true;
+    if (!enabled) return;
     (async () => {
       try {
         const reply = await apiFetch("/api/dashboard/briefing", { headers: { accept: "application/json" } });
@@ -121,8 +122,8 @@ function useBrief(): Brief | null {
       } catch { /* keep the last briefing; an unreachable API is not a quiet morning */ }
     })();
     return () => { alive = false; };
-  }, [setBrief]);
-  return brief ?? null;
+  }, [enabled, setBrief]);
+  return enabled ? brief ?? null : null;
 }
 
 /* -------------------------------------------------------------- pieces */
@@ -338,14 +339,23 @@ type Props = {
   onExport: () => void;
   onAsk: (question: string) => void;
   onOpenKpi?: () => void;
+  /**
+   * A carrier's own Dashboard (30 Sep 2026): the same screen over one company's jobs, its measures from
+   * /api/carrier/dashboard/measures, its tiles leading to its own screens, and without the department's
+   * morning briefing, which is read over every carrier's work.
+   */
+  carrier?: CarrierMode;
 };
+
+/** The company the dashboard is for, and how many jobs are offered to it and not yet answered. */
+export type CarrierMode = { company: string; offered: number };
 
 export function ControlTower(p: Props) {
   const { s, period, onDrill } = p;
   const total = s.jobs.length;
   const monthly = period.month !== "ALL" && period.day === "ALL";
 
-  const { report, failed } = useReport(period, p.filters);
+  const { report, failed } = useReport(period, p.filters, p.carrier ? "/api/carrier/dashboard/measures" : "/api/kpi/measures");
   const measure = (id: string) => report?.measures.find((m) => m.id === id);
 
   /* ---- clock, on the client only: a server-rendered time is the server's ---- */
@@ -529,7 +539,7 @@ export function ControlTower(p: Props) {
   ];
 
   /* ---- the rail ---- */
-  const brief = useBrief();
+  const brief = useBrief(!p.carrier);
   const [rail, setRail] = useState(true);
   const [question, setQuestion] = useState("");
   const hour = clock ? Number(clock.time.slice(0, 2)) : 9;
@@ -579,7 +589,7 @@ export function ControlTower(p: Props) {
             <div style={css("display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap")}>
               <div style={css("display:flex;flex-direction:column;gap:2px")}>
                 <span style={css("font-size:40px;font-weight:700;letter-spacing:.02em;line-height:1;color:#fff;text-shadow:0 2px 18px rgba(0,0,0,.6)")}>SCMOS</span>
-                <span style={css(`font-size:16px;font-weight:600;letter-spacing:.03em;color:${BLUE}`)}>SMART LOGISTICS CONTROL TOWER</span>
+                <span style={css(`font-size:16px;font-weight:600;letter-spacing:.03em;color:${BLUE}`)}>{p.carrier ? p.carrier.company || "—" : "SMART LOGISTICS CONTROL TOWER"}</span>
               </div>
               <div style={css("display:flex;align-items:center;gap:16px;font-size:12.5px;color:#cfe3f4;flex-wrap:wrap")}>
                 <span style={css(`font-family:${MONO};color:#e6f1fa`)}>{clock ? `${clock.date}  ${clock.time}` : "—"}</span>
@@ -593,18 +603,18 @@ export function ControlTower(p: Props) {
 
         <div style={css("display:flex;flex-direction:column;gap:10px")}>
           <div style={css("display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;flex:1")}>
-            {tile("+ New Job", ICON.plus, p.onNewJob)}
-            {tile("Import Excel", ICON.down, p.onImport)}
-            {tile("Export Excel", ICON.up, p.onExport)}
+            {tile(p.carrier ? (p.carrier.offered > 0 ? `NEW job · รอตอบ ${p.carrier.offered}` : "+ NEW job") : "+ New Job", ICON.plus, p.onNewJob, !!p.carrier && p.carrier.offered > 0)}
+            {p.carrier ? tile("My job", ICON.truck, () => p.onOpen("carriermyjob")) : tile("Import Excel", ICON.down, p.onImport)}
+            {p.carrier ? tile("Capacity", ICON.report, () => p.onOpen("carriercapacity")) : tile("Export Excel", ICON.up, p.onExport)}
           </div>
           <div style={css("display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;flex:1")}>
-            {tile("AI Assistant", ICON.spark, () => p.onOpen("ai"), true)}
-            {tile("Create Report", ICON.report, () => p.onOpen("reports"))}
+            {p.carrier ? tile("KPI", ICON.spark, () => p.onOpen("carrierkpi"), true) : tile("AI Assistant", ICON.spark, () => p.onOpen("ai"), true)}
+            {p.carrier ? tile("Billing", ICON.file, () => p.onOpen("carrierbilling")) : tile("Create Report", ICON.report, () => p.onOpen("reports"))}
           </div>
         </div>
       </div>
 
-      <div className="ct-body">
+      <div className="ct-body" style={p.carrier ? css("grid-template-columns:minmax(0,1fr)") : undefined}>
         <div style={css("display:flex;flex-direction:column;gap:12px;min-width:0")}>
 
           {/* ------------------------------------------------ measured */}
@@ -876,7 +886,7 @@ export function ControlTower(p: Props) {
         </div>
 
         {/* ------------------------------------------------ the rail */}
-        <aside className="ct-rail" style={css(`position:sticky;top:12px;background:${BG};border:1px solid rgba(74,148,214,.24);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:13px`)}>
+        {!p.carrier && <aside className="ct-rail" style={css(`position:sticky;top:12px;background:${BG};border:1px solid rgba(74,148,214,.24);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:13px`)}>
           <div style={css("display:flex;align-items:center;gap:8px")}>
             <svg width="19" height="19" viewBox="0 0 16 16" fill={BLUE} aria-hidden="true">{ICON.spark}</svg>
             <span style={css(`flex:1;font-size:13px;font-weight:600;color:${INK}`)}>SCMOS AI Co-Pilot</span>
@@ -930,7 +940,7 @@ export function ControlTower(p: Props) {
               </form>
             </>
           )}
-        </aside>
+        </aside>}
       </div>
     </div>
   );

@@ -128,7 +128,7 @@ static class CarrierPortalChecks
             };
             setup.OperationJobs.AddRange(
                 Stored(Job("A-ON-1", "ALPHA")), Stored(Job("A-ON-2", "ALPHA TRANSPORT")),
-                Stored(Job("A-LATE", "ALPHA", ("arrTime", "09:30"))),
+                Stored(Job("A-LATE", "ALPHA", ("arrTime", "09:30"), ("remark", "internal note, not for the carrier"))),
                 Stored(Job("A-MOVED", "ALPHA", ("status", "SUPPLIER_CONFIRMED"), ("origDate", "10/09/2026"), ("arrDate", ""), ("arrTime", ""))),
                 Stored(Job("A-CANCEL", "ALPHA", ("status", "CANCELLED"), ("arrDate", ""), ("arrTime", ""))),
                 Stored(Job("B-LATE-1", "BRAVO LOGISTICS", ("arrTime", "10:00"))),
@@ -185,9 +185,37 @@ static class CarrierPortalChecks
                 && portal.Accepted.All(job => job.Key.StartsWith("A-")),
                 "carrier portal SQL: Postpone holds Alpha's cancelled job and the one moved from 10/09 — and only Alpha's jobs");
 
+            /* ---------------- the carrier's own Dashboard ---------------- */
+            // An issue that names Bravo and no job: the scorecard puts Bravo on the sheet even under Alpha's scope.
+            db.OperationalIssues.Add(new OperationalIssue { Code = "OI-T1", FoundOn = "16/09/2026", Reporter = "BRAVO LOGISTICS",
+                Detail = "late report", Category = "การรายงาน", Severity = "Low" });
+            await db.SaveChangesAsync();
+            await register.ReadAsync(default);
+            var alphaCompany = (await carriers.CompanyOfAsync(userA, default))!;
+            var namesA = await carriers.NamesOfAsync(alphaCompany, default);
+            var dashJobs = await carriers.DashboardJobsAsync(alphaCompany, default);
+            check(dashJobs.SupplierName == "ALPHA TRANSPORT" && dashJobs.Jobs.Select(job => job["key"]).Order()
+                    .SequenceEqual(["A-CANCEL", "A-LATE", "A-MOVED", "A-ON-1", "A-ON-2"])
+                && dashJobs.Jobs.All(job => !job.ContainsKey("remark") && !job.ContainsKey("hist") && job.Keys.All(CarrierService.DashboardFields.Contains))
+                && dashJobs.Jobs.Single(job => job["key"] == "A-LATE")["arrTime"] == "09:30",
+                "carrier dashboard SQL: its own jobs only, cut to the dashboard's fields — no operator's remark, no history");
+            var rawScope = await new KpiEngine(db, register, directory, cache, Options.Create(new PreRunOptions()))
+                .BuildAsync(new Period("2026", "09", ""), new KpiScope([], namesA.ToList()), default);
+            var dashA = (await reads.DashboardMeasuresAsync(userA, new Period("2026", "09", ""), true, default))!;
+            var perf = dashA.Measures.Single(measure => measure.Id == nameof(MeasureId.SupplierPerformance));
+            var dashText = JsonSerializer.Serialize(dashA);
+            check((rawScope.Scorecard ?? []).Any(line => line.Carrier == "BRAVO LOGISTICS")
+                && !dashText.Contains("BRAVO") && dashA.Scorecard!.All(line => line.Carrier == "ALPHA TRANSPORT")
+                && dashA.Suppliers.All(line => line.Carrier == "ALPHA TRANSPORT") && perf.Breakdown.All(entry => entry.Label == "ALPHA TRANSPORT")
+                && dashA is { UnattributedIssues: 0, IssuesInPeriod: 0 }
+                && dashA.Measures.Single(measure => measure.Id == nameof(MeasureId.OnTimeDelivery)) is { Base: 3 },
+                "carrier dashboard SQL: the engine's scoped scorecard still names Bravo off an issue; the carrier's answer does not, anywhere");
+            check(await reads.DashboardMeasuresAsync(admin, new Period("2026", "09", ""), false, default) is null
+                && await reads.DashboardJobsAsync(admin, default) is null,
+                "carrier dashboard SQL: an account that is not a carrier's gets no company's dashboard");
+
             /* ---------------- the carrier's own Capacity ---------------- */
             var capacity = new CapacityService(db);
-            var namesA = await carriers.NamesOfAsync((await carriers.CompanyOfAsync(userA, default))!, default);
             var namesB = await carriers.NamesOfAsync((await carriers.CompanyOfAsync(userB, default))!, default);
             check((await capacity.ReportAsync(alpha.Id, "15/09/2026", "40f", 5, 2, "sub-a", default)).Ok
                 && (await capacity.ReportAsync(bravo.Id, "15/09/2026", "40F", 9, 9, "sub-b", default)).Ok
