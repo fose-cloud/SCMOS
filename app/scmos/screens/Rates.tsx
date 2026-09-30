@@ -335,7 +335,8 @@ export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, on
           </span>
         </div>
 
-        <ZoomBox>
+        {/* No zoom slider on Rate Management, at the department's request (30 Sep 2026). */}
+        <ZoomBox zoomable={false}>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead>
               <tr>
@@ -507,7 +508,7 @@ function Surcharges({ book }: { book: RateBook }) {
         <span style={css("font-size:11.5px;font-weight:400;color:#94A3B8")}>จากชีท Remark ของฟอร์มกลาง</span>
       </button>
       {open && (
-        <div style={css("border-top:1px solid #E9EFF5")}><ZoomBox>
+        <div style={css("border-top:1px solid #E9EFF5")}><ZoomBox zoomable={false}>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead>
               <tr>{["บริการ", "รายการ", "สกุล", "อัตรา", "หน่วย"].map((h) => (

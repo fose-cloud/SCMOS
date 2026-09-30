@@ -79,6 +79,8 @@ test("the screens the department asked the zoom off stay without it", () => {
     ["app/scmos/screens/LineReview.tsx", /<ZoomBox zoomable=\{false\}>[\s\S]*<ZoomBox capped=\{false\} zoomable=\{false\}>/],
     // A Subcontractor's KPI, on 30 Sep 2026 — the department's KPI has none either.
     ["app/scmos/screens/CarrierKpi.tsx", /<ZoomBox capped=\{false\} zoomable=\{false\}>/],
+    // Rate Management, on 30 Sep 2026 — both its tables.
+    ["app/scmos/screens/Rates.tsx", /<ZoomBox zoomable=\{false\}>[\s\S]*<ZoomBox zoomable=\{false\}>/],
   ]) {
     assert.match(readFileSync(path, "utf8"), pattern, path);
   }
