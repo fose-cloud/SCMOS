@@ -7,10 +7,10 @@ import type { Screen } from "./nav";
  * the account's company; these only refuse an answer of the wrong shape.
  */
 
-export type CarrierView = "dashboard" | "new" | "myjob" | "postpone" | "rates" | "billing" | "kpi";
+export type CarrierView = "dashboard" | "new" | "myjob" | "postpone" | "capacity" | "rates" | "billing" | "kpi";
 
 export const CARRIER_VIEW: Partial<Record<Screen, CarrierView>> = {
-  carrier: "dashboard", carriernew: "new", carriermyjob: "myjob", carrierpostpone: "postpone",
+  carrier: "dashboard", carriernew: "new", carriermyjob: "myjob", carrierpostpone: "postpone", carriercapacity: "capacity",
   carrierrates: "rates", carrierbilling: "billing", carrierkpi: "kpi",
 };
 
@@ -109,4 +109,36 @@ export function filterLanes(lanes: Lane[], service: string, query: string): Lane
   return lanes.filter(one => (!service || one.service === service)
     && words.every(word => [one.service, one.customer, one.from, one.to, one.county, one.remark]
       .some(field => field.toLowerCase().includes(word))));
+}
+
+export type CapacityCell = {
+  date: string; vehicleType: string; reported: boolean; available: number; committed: number; jobs: number;
+  updatedBy: string; updatedAt: string | null; spare: number;
+};
+export type CarrierCapacity = { supplierId: number; supplierName: string; dates: string[]; vehicleTypes: string[]; cells: CapacityCell[] };
+
+const dateText = (v: unknown) => typeof v === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(v);
+function capacityCell(v: unknown): v is CapacityCell {
+  return obj(v) && dateText(v.date) && text(v.vehicleType, 20) && typeof v.reported === "boolean" && count(v.available)
+    && count(v.committed) && count(v.jobs) && text(v.updatedBy, 160) && (v.updatedAt === null || text(v.updatedAt, 40))
+    && num(v.spare) && v.spare === Number(v.available) - Number(v.committed);
+}
+
+export function parseCarrierCapacity(v: unknown): CarrierCapacity {
+  if (!(obj(v) && count(v.supplierId) && text(v.supplierName, 200) && Array.isArray(v.dates) && v.dates.length <= 31
+    && v.dates.every(dateText) && Array.isArray(v.vehicleTypes) && v.vehicleTypes.length <= 20 && v.vehicleTypes.every(t => text(t, 20))
+    && Array.isArray(v.cells) && v.cells.length <= 1000 && v.cells.every(capacityCell))) throw new Error("invalid_response");
+  return v as unknown as CarrierCapacity;
+}
+
+/** A date input's yyyy-mm-dd as the register writes it, dd/mm/yyyy; empty when it is not a date. */
+export function registerDate(isoDay: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDay.trim());
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
+}
+
+/** The reverse, for filling a date input from a row. */
+export function isoDay(registerDay: string): string {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(registerDay.trim());
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : "";
 }

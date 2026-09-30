@@ -30,11 +30,11 @@ static class CarrierPortalChecks
             && !CarrierEndpoints.ValidPeriod("26", "09", out _) && !CarrierEndpoints.ValidPeriod("2026", "13", out _)
             && !CarrierEndpoints.ValidPeriod("2026", "9", out _) && !CarrierEndpoints.ValidPeriod("2026 OR 1=1", "09", out _),
             "carrier portal: the KPI period is a year and a month (or the whole year), nothing else");
-        check(new[] { "/api/kpi", "/api/kpi/measures", "/api/KPI/excel", "/api/suppliers", "/api/suppliers/3", "/api/dashboard/today", "/api/risk" }
+        check(new[] { "/api/kpi", "/api/kpi/measures", "/api/KPI/excel", "/api/suppliers", "/api/suppliers/3", "/api/dashboard/today", "/api/risk", "/api/capacity" }
                 .All(path => CarrierBoundary.Refuses(new Microsoft.AspNetCore.Http.PathString(path)))
-            && !new[] { "/api/carrier/kpi", "/api/carrier/rates", "/api/carrier-billing/cases", "/api/kpix", "/api/documents", "/api/me", "/health" }
+            && !new[] { "/api/carrier/kpi", "/api/carrier/rates", "/api/carrier/capacity", "/api/carrier-billing/cases", "/api/kpix", "/api/documents", "/api/me", "/health" }
                 .Any(path => CarrierBoundary.Refuses(new Microsoft.AspNetCore.Http.PathString(path))),
-            "carrier boundary: the department's KPI, Supplier Register, dashboard and risk refuse a carrier; its own routes do not");
+            "carrier boundary: the department's KPI, Supplier Register, dashboard, risk and capacity board refuse a carrier; its own routes do not");
 
         Dictionary<string, string> Import(params (string Field, string Value)[] set)
         {
@@ -184,6 +184,24 @@ static class CarrierPortalChecks
                 && portal.Accepted.Single(job => job.Key == "A-MOVED").OrigDate == "10/09/2026"
                 && portal.Accepted.All(job => job.Key.StartsWith("A-")),
                 "carrier portal SQL: Postpone holds Alpha's cancelled job and the one moved from 10/09 — and only Alpha's jobs");
+
+            /* ---------------- the carrier's own Capacity ---------------- */
+            var capacity = new CapacityService(db);
+            var namesA = await carriers.NamesOfAsync((await carriers.CompanyOfAsync(userA, default))!, default);
+            var namesB = await carriers.NamesOfAsync((await carriers.CompanyOfAsync(userB, default))!, default);
+            check((await capacity.ReportAsync(alpha.Id, "15/09/2026", "40f", 5, 2, "sub-a", default)).Ok
+                && (await capacity.ReportAsync(bravo.Id, "15/09/2026", "40F", 9, 9, "sub-b", default)).Ok
+                && (await capacity.ReportAsync(alpha.Id, "15/09/2026", "40F", 4, 1, "sub-a", default)).Ok
+                && !(await capacity.ReportAsync(alpha.Id, "2026-09-15", "40F", 1, 0, "sub-a", default)).Ok,
+                "carrier capacity SQL: reported per day and vehicle; saying it again corrects it; the register's date form only");
+            var capA = await capacity.ReadForSupplierAsync(alpha.Id, alpha.Name, namesA, "14/09/2026", 3, default);
+            var capB = await capacity.ReadForSupplierAsync(bravo.Id, bravo.Name, namesB, "14/09/2026", 3, default);
+            var fortyA = capA.Cells.Single(cell => cell.Date == "15/09/2026" && cell.VehicleType == "40F");
+            check(fortyA is { Reported: true, Available: 4, Committed: 1, Spare: 3 } && fortyA.Jobs == 4
+                && capA.Cells.Count == 1 && capA.Dates.SequenceEqual(["14/09/2026", "15/09/2026", "16/09/2026"])
+                && capB.Cells.Single(cell => cell.Date == "15/09/2026") is { Available: 9, Jobs: 3 }
+                && !JsonSerializer.Serialize(capA).Contains("BRAVO") && !JsonSerializer.Serialize(capB).Contains("ALPHA"),
+                "carrier capacity SQL: each carrier reads its own fleet beside its own jobs (not cancelled) — never the other's fleet or the department's demand");
 
             /* ---------------- jobs a carrier keys in, for the department to confirm ---------------- */
             var requests = new CarrierJobRequestService(db, carriers, audit, TimeProvider.System);

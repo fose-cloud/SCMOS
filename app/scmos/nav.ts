@@ -7,7 +7,7 @@ export type Screen =
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
   | "carrierapi" | "oilrate"
   // The Subcontractor's own menu (29 Sep 2026) — see CARRIER_NAV.
-  | "carrierwork" | "carriernew" | "carriermyjob" | "carrierpostpone" | "carrierrates" | "carrierbilling" | "carrierkpi";
+  | "carrierwork" | "carriernew" | "carriermyjob" | "carrierpostpone" | "carriercapacity" | "carrierrates" | "carrierbilling" | "carrierkpi";
 
 /**
  * The menu, in the order the work happens.
@@ -182,7 +182,7 @@ export const NAV_TAGS: Partial<Record<Screen, string>> = {};
  * refusal, which looks like a broken system rather than a boundary working as
  * intended. Their own jobs are the whole of what they came for.
  */
-export const CARRIER_SCREENS: Screen[] = ["carrier", "carriernew", "carriermyjob", "carrierpostpone", "carrierrates", "carrierbilling", "carrierkpi"];
+export const CARRIER_SCREENS: Screen[] = ["carrier", "carriernew", "carriermyjob", "carrierpostpone", "carriercapacity", "carrierrates", "carrierbilling", "carrierkpi"];
 
 /**
  * The carrier's menu, in the shape the department's own is in (asked for on
@@ -194,6 +194,8 @@ export const CARRIER_SCREENS: Screen[] = ["carrier", "carriernew", "carriermyjob
 export const CARRIER_NAV: [Screen, string, string, number[][]][] = [
   ["carrier", "Dashboard", "แดชบอร์ดบริษัท", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
   ["carrierwork", "Workspace", "งานของบริษัท", [[2, 3, 12, 3], [2, 8, 12, 2], [2, 12, 8, 2]]],
+  // Added 30 Sep 2026: what the carrier has free per day and vehicle, beside its own Leschaco jobs.
+  ["carriercapacity", "Capacity", "กำลังรถของบริษัท", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
   ["carrierrates", "Rate", "อัตราค่าขนส่งของบริษัท", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
   ["carrierbilling", "Billing", "วางบิล", [[2, 4, 12, 8], [4, 7, 4, 2]]],
   ["carrierkpi", "KPI", "ผลการประเมินของบริษัท", [[2, 9, 3, 5], [6.5, 5, 3, 9], [11, 2, 3, 12]]],
@@ -272,6 +274,7 @@ export const META: Record<string, string> = {
   carriernew: "NEW job",
   carriermyjob: "My job",
   carrierpostpone: "Postpone",
+  carriercapacity: "Capacity",
   carrierrates: "Rate",
   carrierbilling: "Billing",
   carrierkpi: "KPI",

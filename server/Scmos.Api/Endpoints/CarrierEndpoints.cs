@@ -19,6 +19,7 @@ public static class CarrierEndpoints
     public record DeclineBody(long? RequestId, string? ReasonCode, string? Remark, string? Reason = null);
     public record ResourcesBody(int TruckId, int? TrailerId, int DriverId);
     public record StatusBody(string? Type, DateTimeOffset? At, string? Remark);
+    public record CapacityBody(string? Date, string? VehicleType, int Available, int Committed);
 
     public static void MapCarrier(this IEndpointRouteBuilder routes)
     {
@@ -60,6 +61,37 @@ public static class CarrierEndpoints
                 return ApiResults.Error("ระบุปี (yyyy) และเดือน (MM) ให้ถูกต้อง", StatusCodes.Status400BadRequest);
             var view = await reads.KpiAsync(user, period, token);
             return view is null ? NotACarrier() : Results.Json(view);
+        });
+
+        // The carrier's own Capacity (30 Sep 2026): what it says it has free per day and vehicle, beside its own
+        // Leschaco jobs. The supplier is the account's — the department's /api/capacity took it from the body,
+        // so a carrier could have written another's; carriers are refused there now (CarrierBoundary).
+        group.MapGet("/capacity", async (string? from, int? days, HttpContext context, IUserAccessor users,
+            CarrierService carriers, CapacityService capacity, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var company = await carriers.CompanyOfAsync(user, token);
+            if (company is null) return NotACarrier();
+            var names = await carriers.NamesOfAsync(company, token);
+            return Results.Json(await capacity.ReadForSupplierAsync(company.Id, company.Name, names, from, days ?? 14, token));
+        });
+
+        group.MapPost("/capacity", async ([FromBody] CapacityBody body, HttpContext context, IUserAccessor users,
+            CarrierService carriers, CapacityService capacity, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var company = await carriers.CompanyOfAsync(user, token);
+            if (company is null) return NotACarrier();
+            var result = await capacity.ReportAsync(company.Id, (body.Date ?? "").Trim(), body.VehicleType ?? "",
+                body.Available, body.Committed, user.Signature, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+            await audit.RecordAsync(user, AuditActions.Update, "capacity",
+                $"{company.Id} · {body.Date} · {body.VehicleType}", result.Message,
+                body.VehicleType ?? "", "", $"ว่าง {body.Available} · รับไว้ {body.Committed}", "ผู้ขนส่งแจ้งกำลังรถเอง", token);
+            return Results.Json(new { message = result.Message });
         });
 
         group.MapPost("/{jobKey}/accept", async (string jobKey, [FromBody] AcceptBody body,

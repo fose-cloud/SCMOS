@@ -26,6 +26,17 @@ public record CapacityBoard(
 
 public record CapacityResult(bool Ok, string Message);
 
+/// <param name="Reported">Whether the carrier has said anything for this day and vehicle.</param>
+/// <param name="Jobs">Its own Leschaco jobs on this day for this vehicle — not the department's demand.</param>
+public record CarrierCapacityCell(string Date, string VehicleType, bool Reported, int Available, int Committed,
+    int Jobs, string UpdatedBy, DateTimeOffset? UpdatedAt)
+{
+    public int Spare => Available - Committed;
+}
+
+public record CarrierCapacityView(int SupplierId, string SupplierName, IReadOnlyList<string> Dates,
+    IReadOnlyList<string> VehicleTypes, IReadOnlyList<CarrierCapacityCell> Cells);
+
 /// <summary>
 /// What the fleet can carry, against what has been planned.
 ///
@@ -95,6 +106,53 @@ public class CapacityService(ScmosDbContext db)
         }).ToList();
 
         return new CapacityBoard(byDay, cells, VehicleTypes, rows.Count > 0);
+    }
+
+    /// <summary>
+    /// One carrier's own capacity, for the Subcontractor's Capacity screen (30 Sep 2026): what it reported
+    /// for each day and vehicle, and beside it its own Leschaco jobs for that day and vehicle — never the
+    /// department's demand, which is every carrier's work, and never another carrier's row.
+    /// </summary>
+    public async Task<CarrierCapacityView> ReadForSupplierAsync(int supplierId, string supplierName,
+        IReadOnlySet<string> names, string? from, int days, CancellationToken token)
+    {
+        var start = Formats.IsDate(from ?? "") ? from! : DateTimeOffset.UtcNow.ToOffset(Formats.Zone).ToString("dd/MM/yyyy");
+        var startNumber = Formats.DateNumber(start);
+        var wanted = Enumerable.Range(0, Math.Clamp(days, 1, 31))
+            .Select(offset => DateOf(startNumber, offset)).Where(date => date.Length > 0).ToList();
+        var wantedNumbers = wanted.Select(Formats.DateNumber).ToHashSet();
+
+        var rows = (await db.SupplierCapacities.AsNoTracking().Where(row => row.SupplierId == supplierId).ToListAsync(token))
+            .Where(row => wantedNumbers.Contains(Formats.DateNumber(row.Date))).ToList();
+
+        // Its own jobs: the register's rows under a name it trades by, not cancelled.
+        var spellings = names.ToList();
+        var mine = (await db.OperationJobs.AsNoTracking()
+                .Where(job => spellings.Contains(job.Trucker))
+                .Select(job => job.Data).ToListAsync(token))
+            .Select(JobRecord.From).OfType<JobRecord>()
+            .Where(job => wantedNumbers.Contains(Formats.DateNumber(job.Date)) && !WorkspaceTabs.IsCancelled(job.Status))
+            .ToList();
+        var jobs = new Dictionary<(string Date, string Vehicle), int>();
+        foreach (var job in mine)
+        {
+            var vehicle = VehicleOf(job.Type);
+            if (vehicle.Length == 0) continue;
+            var key = (job.Date.Trim(), vehicle);
+            jobs[key] = jobs.GetValueOrDefault(key) + 1;
+        }
+
+        // A row for everything reported, and for every day and vehicle it has jobs on but reported nothing.
+        var keys = rows.Select(row => (Date: row.Date.Trim(), Vehicle: row.VehicleType))
+            .Concat(jobs.Keys).Distinct()
+            .OrderBy(key => Formats.DateNumber(key.Date)).ThenBy(key => Array.IndexOf(VehicleTypes, key.Vehicle)).ToList();
+        var cells = keys.Select(key =>
+        {
+            var row = rows.FirstOrDefault(one => one.Date.Trim() == key.Date && one.VehicleType == key.Vehicle);
+            return new CarrierCapacityCell(key.Date, key.Vehicle, row is not null, row?.Available ?? 0, row?.Committed ?? 0,
+                jobs.GetValueOrDefault(key), row?.UpdatedBy ?? "", row?.UpdatedAt);
+        }).ToList();
+        return new CarrierCapacityView(supplierId, supplierName, wanted, VehicleTypes, cells);
     }
 
     /// <summary>

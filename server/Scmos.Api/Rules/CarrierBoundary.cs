@@ -17,7 +17,9 @@ namespace Scmos.Api.Rules;
 /// </summary>
 public static class CarrierBoundary
 {
-    public static readonly string[] DepartmentOnly = ["/api/kpi", "/api/suppliers", "/api/dashboard", "/api/risk"];
+    // /api/capacity since 30 Sep 2026: it showed every carrier's fleet, and its POST took the supplier from
+    // the request body — a carrier's own Capacity is /api/carrier/capacity, supplier from the account.
+    public static readonly string[] DepartmentOnly = ["/api/kpi", "/api/suppliers", "/api/dashboard", "/api/risk", "/api/capacity"];
 
     public static bool Refuses(PathString path) =>
         DepartmentOnly.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase));

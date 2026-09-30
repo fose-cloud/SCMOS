@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CARRIER_VIEW, filterLanes, parseCarrierKpi, parseCarrierRates, percentText } from "../app/scmos/carrierPortal.ts";
+import { CARRIER_VIEW, filterLanes, isoDay, parseCarrierCapacity, parseCarrierKpi, parseCarrierRates, percentText, registerDate } from "../app/scmos/carrierPortal.ts";
 import { CARRIER_NAV, CARRIER_SCREENS, CARRIER_SUB_NAV, HEADINGS, NAV, SUB_NAV } from "../app/scmos/nav.ts";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("a Subcontractor's menu is its own: Dashboard, Workspace (NEW job, My job, Postpone), Rate, Billing, KPI", () => {
-  assert.deepEqual(CARRIER_NAV.map(([, label]) => label), ["Dashboard", "Workspace", "Rate", "Billing", "KPI"]);
+  assert.deepEqual(CARRIER_NAV.map(([, label]) => label), ["Dashboard", "Workspace", "Capacity", "Rate", "Billing", "KPI"]);
   assert.deepEqual(CARRIER_SUB_NAV.carrierwork.map(([, label]) => label), ["NEW job", "My job", "Postpone"]);
   assert.ok(HEADINGS.includes("carrierwork"));
   // Every page a carrier may open is one of its own, and each has a view.
@@ -34,6 +34,13 @@ test("Rate and KPI read the carrier's own endpoints and nothing of the departmen
     assert.doesNotMatch(source, /\/api\/rates|\/api\/kpi[/?]|\/api\/jobs/);
     assert.doesNotMatch(source, /method: "(POST|PUT|DELETE)"/);   // read only
   }
+});
+
+test("Capacity reads and writes the carrier's own route only, never the department's board", () => {
+  const capacity = read("app/scmos/screens/CarrierCapacity.tsx");
+  assert.match(capacity, /"\/api\/carrier\/capacity\?days=14"/);
+  assert.match(capacity, /apiFetch\("\/api\/carrier\/capacity", \{\n\s+method: "POST"/);
+  assert.doesNotMatch(capacity, /\/api\/capacity|supplierId/);   // the company is the account's, never sent
 });
 
 const rates = (over = {}) => ({
@@ -108,4 +115,15 @@ test("a request opened in the department is the ordinary add-job form, confirmed
   assert.match(app, /isWorkspace && !isCarrier && able\("EditOwnJobs"\) && \(\n\s+<CarrierRequestsPanel/);
   const portal = read("app/scmos/screens/CarrierPortal.tsx");
   assert.match(portal, /view === "new" && <CarrierJobRequests/);
+});
+
+test("a capacity answer is read as sent — spare is available less committed — and dates convert both ways", () => {
+  const cell = { date: "01/10/2026", vehicleType: "40F", reported: true, available: 5, committed: 2, jobs: 1, updatedBy: "a@carrier.test", updatedAt: "2026-09-30T02:00:00Z", spare: 3 };
+  const ok = { supplierId: 3, supplierName: "ALPHA TRANSPORT", dates: ["01/10/2026"], vehicleTypes: ["4W", "40F"], cells: [cell] };
+  assert.equal(parseCarrierCapacity(ok).cells[0].spare, 3);
+  assert.throws(() => parseCarrierCapacity({ ...ok, cells: [{ ...cell, spare: 4 }] }), /invalid_response/);
+  assert.throws(() => parseCarrierCapacity({ ...ok, cells: [{ ...cell, date: "2026-10-01" }] }), /invalid_response/);
+  assert.equal(registerDate("2026-10-01"), "01/10/2026");
+  assert.equal(registerDate("01/10/2026"), "");
+  assert.equal(isoDay("01/10/2026"), "2026-10-01");
 });

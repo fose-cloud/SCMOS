@@ -7,6 +7,7 @@ import type { Screen } from "../nav";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import type { BillingCase, BillingControlTowerView } from "./BillingControl";
+import { CarrierCapacity } from "./CarrierCapacity";
 import { CarrierJobRequests } from "./CarrierJobRequests";
 import { CarrierKpi } from "./CarrierKpi";
 import { CarrierRates } from "./CarrierRates";
@@ -71,12 +72,13 @@ type Props = { view: CarrierView; onNavigate?: (screen: Screen) => void; onToast
 
 /**
  * The carrier's screens, one per entry of its menu (29 Sep 2026): Dashboard,
- * NEW job, My job, Postpone, Rate, Billing, KPI. Rate and KPI read their own
- * endpoints; the rest share the portal's one read of this company's work.
+ * NEW job, My job, Postpone, Capacity, Rate, Billing, KPI. Capacity, Rate and
+ * KPI read their own endpoints; the rest share the portal's one read of this company's work.
  */
 export function CarrierPortal(props: Props) {
   if (props.view === "rates") return <CarrierRates />;
   if (props.view === "kpi") return <CarrierKpi />;
+  if (props.view === "capacity") return <CarrierCapacity onToast={props.onToast} />;
   return <CarrierWork {...props} />;
 }
 
