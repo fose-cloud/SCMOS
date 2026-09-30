@@ -14,6 +14,7 @@ import { prep, flagJob, type Job, type Ops, type RawOps } from "./scmos/ops";
 import { categoryForNewRow } from "./scmos/newRowCategory";
 import { ALL_DASHBOARD_FILTERS, filterDashboardJobs } from "./scmos/dashboardFilters";
 import { bookingStats } from "./scmos/booking";
+import { parseCarrierDashboardJobs } from "./scmos/carrierPortal";
 import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
@@ -49,7 +50,7 @@ import { expand, monthsCovered, type DieselDay } from "./scmos/dieselMonth";
 import { sheetToday } from "./scmos/rateSheetDrafts";
 import { priceTrip } from "./scmos/tripPricing";
 import { Chemours, OIL_TAB } from "./scmos/screens/Chemours";
-import { OperationalIssues } from "./scmos/screens/OperationalIssues";
+import { OperationalIssues, RaiseOperationalIssue } from "./scmos/screens/OperationalIssues";
 import type { NewIssue } from "./scmos/issues";
 import { JobRotation } from "./scmos/screens/JobRotation";
 import { Today } from "./scmos/screens/Today";
@@ -394,6 +395,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   // ---- data --------------------------------------------------------------
   const db = useMemo(() => buildDb(), []);
   const [ops, setOps] = useState<Ops | null>(null);
+  /** Live count beside the carrier's NEW job menu entry. */
+  const [carrierNewJobs, setCarrierNewJobs] = useState(0);
   /** How the plan is getting to the database, reported in the workspace header. */
   const [sync, setSync] = useState<{ state: "idle" | "waking" | "stale" | "saving" | "saved" | "error" | "off"; at: string; message: string }>(
     { state: "idle", at: "", message: "" },
@@ -968,6 +971,36 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   useEffect(() => {
     if (isCarrier && !CARRIER_SCREENS.includes(screen)) setScreen(CARRIER_SCREENS[0]);
   }, [isCarrier, screen]);
+
+  // Keep the rail useful even while the carrier is working on another page.
+  // Focus/visibility refreshes make a newly assigned job visible immediately
+  // when the user returns; the short poll covers assignments arriving while
+  // SCMOS stays open on screen.
+  useEffect(() => {
+    if (!isCarrier) return;
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const response = await apiFetch("/api/carrier/dashboard/jobs", { headers: { accept: "application/json" } });
+        const body: unknown = await response.json().catch(() => null);
+        if (!response.ok) return;
+        const parsed = parseCarrierDashboardJobs(body);
+        if (alive) setCarrierNewJobs(parsed.offered);
+      } catch { /* The current badge stays visible through a transient read failure. */ }
+    };
+    const onFocus = () => { void refresh(); };
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 30_000);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [isCarrier]);
 
   // A heading is not a page. Anything that still points at one — a stored
   // landing preference from before Workspace became a section, a drill-down
@@ -1696,13 +1729,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const navCounts: Record<string, number> = useMemo(() => {
     const jobs = ops?.jobs ?? [];
     const counts: Record<string, number> = {};
+    if (isCarrier && carrierNewJobs > 0) counts.carriernew = carrierNewJobs;
     if (!jobs.length) return counts;
     const stages = bookingStats(jobs);
     counts.booking =
       stages["no-carrier"].length + stages["no-plate"].length + stages["no-driver"].length;
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ops, revision]);
+  }, [ops, revision, isCarrier, carrierNewJobs]);
 
   // ---- actions -----------------------------------------------------------
   const go = (next: Screen) => {
@@ -3407,7 +3441,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 tab={activeTab} userName={profile.full || me.full || me.name} onNavigate={go} />
             )}
             {isCarrier && screen !== "carrier" && screen !== "carriermyjob" && screen !== "carrierpostpone" && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
-              onNavigate={go} onToast={setToast} />}
+              onNavigate={go} onToast={setToast} onNewJobCount={setCarrierNewJobs} />}
             {!isCarrier && screen === "carrier" && <CarrierPortal view="dashboard" onToast={setToast} />}
             {screen === "training" && (
               <Training onToast={setToast} canManageRegister={able("ManageTraining")}
@@ -3649,7 +3683,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           onClose={() => setDrawer(null)}
           onRaiseIssue={() => {
             const now = new Date();
-            setIssueDraft({
+            const draft: NewIssue = {
               detail: "",
               jobKey: drawerJob.key,
               // The reference as the issue log writes it, so the row reads the
@@ -3666,9 +3700,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               driver: drawerJob.driver || "",
               containerNo: drawerJob.container || "",
               licence: drawerJob.licence || "",
-            });
+            };
+            setIssueDraft(draft);
             setDrawer(null);
-            go("issues");
+            // An internal user works the full issue register. A carrier stays
+            // on its own workspace and gets the create-only modal, so it can
+            // report this job without seeing anybody else's issue log.
+            if (!isCarrier) go("issues");
             setToast("เปิดฟอร์มแจ้งปัญหาของงาน " + (drawerJob.jobCode || drawerJob.customer));
           }}
           onEdit={() => {
@@ -3716,6 +3754,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           onApply={(change) => applyJobChange(changingJob, changing.mode, change)}
           onClose={() => setChanging(null)}
         />
+      )}
+
+      {isCarrier && issueDraft && (
+        <RaiseOperationalIssue key={issueDraft.jobKey || issueDraft.jobRef || "carrier-issue"}
+          jobs={ops?.jobs ?? []}
+          prefill={issueDraft}
+          onClose={() => setIssueDraft(null)}
+          onToast={setToast} />
       )}
 
       {addCat && ops && (

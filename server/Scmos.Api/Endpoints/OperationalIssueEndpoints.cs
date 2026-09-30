@@ -42,7 +42,12 @@ public static class OperationalIssueEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            return Results.Json(await issues.FormAsync(token));
+            var form = await issues.FormAsync(token);
+            // A carrier needs the controlled vocabulary to report a problem,
+            // not the department's staff directory. Ownership defaults to the
+            // signed-in account when the field is omitted.
+            if (CarrierTenantContext.IsCarrier(user)) form = form with { Owners = [] };
+            return Results.Json(form);
         });
 
         // What the scorecard would count this entry under, if nobody says.
@@ -70,6 +75,9 @@ public static class OperationalIssueEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            if (CarrierTenantContext.IsCarrier(user))
+                return ApiResults.Error("บัญชีผู้ขนส่งเปิดได้เฉพาะฟอร์มแจ้งปัญหาของงานตัวเอง",
+                    StatusCodes.Status403Forbidden);
             if (!user.Can(Capability.ViewDashboard))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูรายงานปัญหา", StatusCodes.Status403Forbidden);
 
@@ -81,6 +89,9 @@ public static class OperationalIssueEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            if (CarrierTenantContext.IsCarrier(user))
+                return ApiResults.Error("บัญชีผู้ขนส่งไม่มีสิทธิ์ดูสรุปปัญหาของทุกบริษัท",
+                    StatusCodes.Status403Forbidden);
             if (!user.Can(Capability.ViewDashboard))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดูรายงานปัญหา", StatusCodes.Status403Forbidden);
 
@@ -88,13 +99,19 @@ public static class OperationalIssueEndpoints
         });
 
         group.MapPost("", async ([FromBody] IssueBody? body, HttpContext context,
-            IUserAccessor users, OperationalIssueService issues, CancellationToken token) =>
+            IUserAccessor users, OperationalIssueService issues, CarrierDocumentAccess access,
+            CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             if (!Writes(user))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์บันทึกปัญหา", StatusCodes.Status403Forbidden);
             if (body is null) return ApiResults.Error("ไม่มีข้อมูล", StatusCodes.Status400BadRequest);
+            if (CarrierTenantContext.IsCarrier(user)
+                && (string.IsNullOrWhiteSpace(body.JobKey)
+                    || !await access.CanUseJobAsync(user, body.JobKey, token)))
+                return ApiResults.Error("บันทึกปัญหาได้เฉพาะงานของบริษัทขนส่งที่ผูกกับบัญชีนี้",
+                    StatusCodes.Status403Forbidden);
 
             var result = await issues.RaiseAsync(Build(body, user), user.Signature, token);
             return result.Ok
@@ -104,12 +121,17 @@ public static class OperationalIssueEndpoints
 
         group.MapPatch("/{id:long}", async (long id, [FromBody] Dictionary<string, string>? fields,
             HttpContext context, IUserAccessor users, OperationalIssueService issues,
+            CarrierDocumentAccess access,
             CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             if (!Writes(user))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขปัญหา", StatusCodes.Status403Forbidden);
+            if (CarrierTenantContext.IsCarrier(user)
+                && !await access.CanUseIssueAsync(user, id, token))
+                return ApiResults.Error("แก้ไขได้เฉพาะปัญหาของงานบริษัทขนส่งที่ผูกกับบัญชีนี้",
+                    StatusCodes.Status403Forbidden);
             if (fields is null || fields.Count == 0)
                 return ApiResults.Error("ไม่มีข้อมูลให้แก้ไข", StatusCodes.Status400BadRequest);
 
@@ -127,6 +149,9 @@ public static class OperationalIssueEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            if (CarrierTenantContext.IsCarrier(user))
+                return ApiResults.Error("บัญชีผู้ขนส่งไม่สามารถนำเข้ารายการปัญหาแบบกลุ่ม",
+                    StatusCodes.Status403Forbidden);
             if (!Writes(user))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์นำเข้าปัญหา", StatusCodes.Status403Forbidden);
 

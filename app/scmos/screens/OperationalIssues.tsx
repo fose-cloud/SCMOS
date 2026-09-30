@@ -48,6 +48,57 @@ const SEVERITY_TONE: Record<string, string> = {
   "ต่ำ": "#5C7285",
 };
 
+/**
+ * Carrier-safe entry point for reporting a problem from its own job drawer.
+ * It deliberately renders only the new-issue form: the department's issue log
+ * can contain other carriers' jobs and must never be mounted in a carrier
+ * session. The API applies the same job-ownership boundary on save.
+ */
+export function RaiseOperationalIssue({ jobs, prefill, onClose, onToast }: {
+  jobs: Job[];
+  prefill: NewIssue;
+  onClose: () => void;
+  onToast: (message: string) => void;
+}) {
+  const [form, setForm] = useState<IssueForm | null>(null);
+  const [draft, setDraft] = useState<NewIssue>(prefill);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { void loadIssueForm().then((answer) => answer && setForm(answer)); }, []);
+
+  async function save() {
+    if (!draft.detail.trim()) { onToast("ต้องกรอกรายละเอียดปัญหา"); return; }
+    setBusy(true);
+    const result = await raiseIssue(draft);
+    setBusy(false);
+    if (!result.ok) { onToast("บันทึกไม่สำเร็จ — " + result.message); return; }
+    onToast(result.message || "บันทึก Operation Issue แล้ว");
+    onClose();
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="เปิด Operation Issue"
+      style={css("position:fixed;inset:0;z-index:85;background:rgba(7,26,49,.56);padding:28px;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto")}>
+      <div style={css("width:min(1080px,100%);display:flex;flex-direction:column;gap:0;box-shadow:0 24px 70px rgba(7,26,49,.35)")}>
+        <div style={css("background:#0A2240;color:#fff;border-radius:7px 7px 0 0;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px")}>
+          <div>
+            <div style={css("font-size:14px;font-weight:700")}>เปิด Operation Issue</div>
+            <div style={css("font-size:11px;color:#9FC0DE;margin-top:2px")}>แจ้งปัญหาสำหรับงานนี้ ข้อมูลรถและเลขงานถูกเติมให้อัตโนมัติ</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิดฟอร์ม Operation Issue"
+            style={css("width:30px;height:30px;border:1px solid #34587C;background:#0E2B4F;color:#D6E7F7;border-radius:4px;cursor:pointer")}>✕</button>
+        </div>
+        {form
+          ? <AddIssue form={form} jobs={jobs} draft={draft} editingCode=""
+              onCancel={onClose}
+              onField={(key, value) => setDraft((was) => ({ ...was, [key]: value }))}
+              onSave={() => { void save(); }} busy={busy} />
+          : <div style={css("background:#fff;border-radius:0 0 7px 7px;padding:28px;text-align:center;color:#64748B;font-size:12px")}>กำลังเปิดแบบฟอร์ม…</div>}
+      </div>
+    </div>
+  );
+}
+
 export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefillTaken, onEscalate, onToast }: {
   /**
    * A haulier to open the log on, handed over from the carrier scorecard.

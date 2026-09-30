@@ -14,7 +14,7 @@ export function JobDrawer(p: {
   job: Job;
   mine: boolean;
   canEdit: boolean;
-  /** A carrier's drawer (30 Sep 2026): the job to read and its cells to fill — moving, cancelling, deleting and raising issues are the department's. */
+  /** A carrier's drawer: the job to read and its cells to fill. Destructive job actions remain the department's; reporting an issue is available to both sides. */
   carrier?: boolean;
   onClose: () => void;
   onEdit: () => void;
@@ -328,10 +328,11 @@ export function JobDrawer(p: {
             and the person who notices is often not the person holding the
             job. The issue carries the job key, so it attaches exactly
             rather than by matching a number somebody re-typed. */}
-        {!p.carrier && <button className="ghost-btn" onClick={p.onRaiseIssue}
-          style={css("height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
-          แจ้งปัญหา · Operation Issue
-        </button>}
+        <button className="ghost-btn" onClick={p.onRaiseIssue}
+          title="เปิดฟอร์ม Operation Issue พร้อมผูกกับงานนี้"
+          style={css("flex:1 1 170px;height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
+          เปิด Operation Issue
+        </button>
         {/*
           A CAR/PAR is not raised from here any more.
           
