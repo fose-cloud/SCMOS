@@ -509,6 +509,13 @@ function CarrierBilling({ items, issuer, busy, setBusy, onToast, onRefresh }: {
   const editable = (status: string) => ["DRAFT", "BLOCKED", "RETURNED", "DISPUTED"].includes(status);
   /** The case whose invoice form is open (30 Sep 2026). */
   const [opened, setOpened] = useState<number | null>(null);
+  /** Billing cards start open, but can be folded without losing any draft state. */
+  const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
+  const toggleCard = (caseId: number) => setCollapsed((was) => {
+    const next = new Set(was);
+    if (next.has(caseId)) next.delete(caseId); else next.add(caseId);
+    return next;
+  });
   async function createDraft(caseId: number) {
     if (busy) return;
     setBusy(true);
@@ -598,9 +605,15 @@ function CarrierBilling({ items, issuer, busy, setBusy, onToast, onRefresh }: {
           </div></div>
         {!item.invoice && <button disabled={busy} onClick={() => void createDraft(item.id)}
           style={css("height:31px;padding:0 14px;border:0;background:#0A5C97;color:#fff;border-radius:4px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;opacity:" + (busy ? ".55" : "1"))}>สร้าง Invoice Draft</button>}
+        {item.invoice && <button type="button" aria-expanded={!collapsed.has(item.id)}
+          aria-label={`${collapsed.has(item.id) ? "เปิด" : "ย่อ"}รายละเอียดใบแจ้งหนี้ ${item.jobCode || item.jobKey}`}
+          onClick={() => toggleCard(item.id)}
+          style={css("height:31px;padding:0 12px;border:1px solid #94A3B8;background:#fff;color:#334155;border-radius:4px;font:inherit;font-size:11.5px;font-weight:650;cursor:pointer;white-space:nowrap") }>
+          {collapsed.has(item.id) ? "+ เปิดรายละเอียด" : "− ย่อรายละเอียด"}
+        </button>}
       </div>
 
-      {item.invoice && <div
+      {item.invoice && !collapsed.has(item.id) && <div
         style={css("margin-top:12px;padding-top:12px;border-top:1px solid #E9EFF5;display:flex;flex-direction:column;gap:10px")}>
         <div style={css("display:flex;gap:9px;align-items:center;flex-wrap:wrap")}>
           <button type="button" onClick={() => setOpened(item.id)}

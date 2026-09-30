@@ -244,10 +244,13 @@ const SIGN = "border:1px solid #111827;padding:10px;text-align:center;vertical-a
 
 /** Printing shows the paper alone, its fields as plain text. */
 const PRINT = `@media print {
-  @page { size: A4; margin: 10mm; }
+  /* Chrome draws the date/title and URL/page number inside the @page margin.
+     Leave that margin at zero so its print furniture has nowhere to appear,
+     then put the invoice's 10 mm paper margin back as document padding. */
+  @page { size: A4; margin: 0; }
   body * { visibility: hidden !important; }
   .scmos-invoice, .scmos-invoice * { visibility: visible !important; }
-  .scmos-invoice { position: absolute; left: 0; top: 0; width: 100%; max-width: none !important; }
+  .scmos-invoice { position: absolute; left: 0; top: 0; width: 100%; max-width: none !important; box-sizing: border-box; padding: 10mm; }
   .scmos-invoice .no-print { display: none !important; }
   .scmos-invoice input, .scmos-invoice textarea { border: none !important; background: transparent !important; padding: 0 !important; }
   .scmos-invoice input::placeholder, .scmos-invoice textarea::placeholder { color: transparent !important; }

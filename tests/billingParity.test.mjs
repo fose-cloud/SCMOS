@@ -36,6 +36,14 @@ test("the invoice's lines are the server's, in the same order", () => {
   assert.match(server, /public const decimal WithholdingRate = 0\.01m;/);
 });
 
+test("the printed invoice suppresses browser headers and footers without losing its paper margin", () => {
+  const form = readFileSync("app/scmos/screens/CarrierInvoice.tsx", "utf8");
+  const print = form.slice(form.indexOf("const PRINT ="));
+  assert.match(print, /@page \{ size: A4; margin: 0; \}/);
+  assert.match(print, /\.scmos-invoice \{[^}]*box-sizing: border-box;[^}]*padding: 10mm;/);
+  assert.doesNotMatch(print, /@page \{[^}]*margin: 10mm/);
+});
+
 test("a job's vehicle, its lane's fit and the lane's price are the fixture's — Booking's own answers", async () => {
   const { vehicleForType, laneScore } = await import("../app/scmos/rateMatch.ts");
   const { priceFor } = await import("../app/scmos/rates.ts");

@@ -54,6 +54,14 @@ test("billing documents reuse Blob Storage metadata and retain case and invoice 
   assert.match(portal, /\+ เพิ่มเอกสาร/);
 });
 
+test("each carrier billing card can be folded and reopened without closing the page", () => {
+  assert.match(portal, /const \[collapsed, setCollapsed\] = useState<Set<number>>/);
+  assert.match(portal, /aria-expanded=\{!collapsed\.has\(item\.id\)\}/);
+  assert.match(portal, /\+ เปิดรายละเอียด/);
+  assert.match(portal, /− ย่อรายละเอียด/);
+  assert.match(portal, /item\.invoice && !collapsed\.has\(item\.id\) && <div/);
+});
+
 test("internal and carrier screens read the real billing API with no demo warning", () => {
   assert.match(control, /\/api\/carrier-billing\/cases/);
   assert.match(portal, /สร้าง Invoice Draft/);
