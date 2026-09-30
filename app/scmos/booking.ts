@@ -1,6 +1,7 @@
 import { canonicalCarrier, priceFor, type RateBook, type RateLane } from "./rates";
 import { dnum } from "./util";
 import { STATUS_RE } from "./theme";
+import { laneScore, vehicleForType } from "./rateMatch";
 import type { Job } from "./ops";
 
 /**
@@ -65,40 +66,10 @@ export function missing(job: Job): string[] {
   return gaps;
 }
 
-/* ----------------------------------------------------------- vehicle types */
-
-/**
- * The plan's container wording onto the rate cards' vocabulary.
- *
- * The workbooks write the same truck eight ways — 1X6WH', 1X6W, 1x6 WH,
- * 6 WHEEL — because five operators typed them by hand over a month. The rate
- * cards call all of those 6W, and a booking cannot be priced until the two
- * agree.
- */
-export function vehicleForType(type: string): string {
-  const value = (type ?? "").toUpperCase().replace(/\s+/g, " ").trim();
-  if (!value) return "";
-
-  const dg = /\bDG\b/.test(value);
-  // No word boundary before the digits: the plan writes 1X20', 1X6WH', 1x40 HQ,
-  // so the number that matters always follows a letter, and \b never fires there.
-  const wheels = /(\d{1,2})\s*W(?:H|HEELS?)?\b/.exec(value);
-
-  let base = "";
-  if (/TK|TANK|ISO/.test(value)) base = "ISO TANK";
-  else if (/REEFER|RF\b/.test(value)) base = /40/.test(value) ? "40RF" : "20RF";
-  else if (wheels) base = `${Number(wheels[1])}W`;
-  else if (/40/.test(value)) base = "40F";
-  else if (/20/.test(value)) base = "20F";
-
-  if (!base) return "";
-  // A tank or a reefer is quoted as one thing; the DG split only exists on dry
-  // boxes and flatbeds.
-  if (base === "ISO TANK") return base;
-  return dg ? `${base} DG` : base;
-}
-
 /* ------------------------------------------------------------ carrier picks */
+
+// Where Booking's screen reads it from; the rule itself lives in rateMatch.ts.
+export { vehicleForType } from "./rateMatch";
 
 export type Candidate = {
   carrier: string;
@@ -107,25 +78,6 @@ export type Candidate = {
   /** How the lane was matched, so a suggestion can be judged rather than trusted. */
   match: "lane" | "carrier-only";
 };
-
-const STOP = /\b(co|ltd|company|limited|thailand|th|inc|plc|จำกัด|บริษัท|มหาชน)\b/gi;
-
-function tokens(value: string): string[] {
-  return (value ?? "")
-    .toLowerCase()
-    .replace(STOP, " ")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .split(" ")
-    .filter((word) => word.length > 2);
-}
-
-/** Token overlap, 0–1. Used to suggest a lane, never to pick one silently. */
-function overlap(a: string[], b: string[]): number {
-  if (!a.length || !b.length) return 0;
-  const set = new Set(b);
-  const shared = a.filter((word) => set.has(word)).length;
-  return shared / Math.min(a.length, b.length);
-}
 
 /**
  * Which carriers could take this job, and what each would charge.
@@ -141,17 +93,13 @@ export function candidatesFor(job: Job, book: RateBook | null, diesel: number): 
   const vehicle = vehicleForType(job.type);
   if (!vehicle) return [];
 
-  const wanted = tokens(`${job.customer} ${job.destination || job.plant || ""}`);
   const best = new Map<string, Candidate>();
 
   for (const lane of book.lanes) {
     const price = priceFor(lane, vehicle, book.bands, diesel);
     if (price === null) continue;
 
-    const score = Math.max(
-      overlap(wanted, tokens(`${lane.customer} ${lane.to}`)),
-      overlap(wanted, tokens(`${lane.customer} ${lane.from}`)),
-    );
+    const score = laneScore(job, lane);
     if (score < 0.5) continue;
 
     const held = best.get(lane.carrier);

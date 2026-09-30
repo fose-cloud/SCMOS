@@ -1,0 +1,494 @@
+{
+  "about": "Read by tests/billingParity.test.mjs (app/scmos/dieselMonth.ts, invoiceLines.ts, rateMatch.ts, rates.ts priceFor) and tests/Scmos.Ai.Checks/BillingParityChecks.cs (Rules/DieselMonth.cs, InvoiceLines.cs, RateMatch.cs): the same inputs, the same answers, on both sides. The vehicles, lane scores and prices are Booking's own answers.",
+  "diesel": {
+    "changes": [
+      {
+        "date": "28/04/2025",
+        "price": 37.5
+      },
+      {
+        "date": "08/05/2025",
+        "price": 34.94
+      },
+      {
+        "date": "22/05/2025",
+        "price": 35.79
+      },
+      {
+        "date": "23/05/2025",
+        "price": 36.69
+      },
+      {
+        "date": "03/07/2026",
+        "price": 33.44
+      },
+      {
+        "date": "08/07/2026",
+        "price": 32.94
+      }
+    ],
+    "cases": [
+      {
+        "month": "05/2025",
+        "until": "",
+        "average": 36.05,
+        "days": 31,
+        "closed": true
+      },
+      {
+        "month": "03/2025",
+        "until": "",
+        "average": null,
+        "days": 0,
+        "closed": false
+      },
+      {
+        "month": "07/2026",
+        "until": "15/07/2026",
+        "average": 33.61,
+        "days": 15,
+        "closed": false
+      },
+      {
+        "month": "06/2026",
+        "until": "",
+        "average": 36.69,
+        "days": 30,
+        "closed": true
+      }
+    ]
+  },
+  "invoice": {
+    "lines": [
+      {
+        "code": "TRANSPORT_CHARGE",
+        "quantity": 1,
+        "unitPrice": 7879
+      },
+      {
+        "code": "KNOCK_DOOR",
+        "quantity": 0,
+        "unitPrice": 0
+      },
+      {
+        "code": "GATE_FEE",
+        "quantity": 1,
+        "unitPrice": 100
+      },
+      {
+        "code": "LIFT_OFF",
+        "quantity": 1,
+        "unitPrice": 963
+      }
+    ],
+    "totals": {
+      "transport": 7879,
+      "reimbursement": 1063,
+      "total": 8942,
+      "withholding": 78.79,
+      "net": 8863.21
+    }
+  },
+  "vehicles": [
+    {
+      "type": "1X40'",
+      "vehicle": "40F"
+    },
+    {
+      "type": "1X20'",
+      "vehicle": "20F"
+    },
+    {
+      "type": "1X6WH'",
+      "vehicle": "6W"
+    },
+    {
+      "type": "1x6 WH",
+      "vehicle": "6W"
+    },
+    {
+      "type": "6 WHEEL",
+      "vehicle": "6W"
+    },
+    {
+      "type": "1X40' HQ",
+      "vehicle": "40F"
+    },
+    {
+      "type": "1X20' RF",
+      "vehicle": "20RF"
+    },
+    {
+      "type": "1X40 REEFER",
+      "vehicle": "40RF"
+    },
+    {
+      "type": "1X20' TK",
+      "vehicle": "ISO TANK"
+    },
+    {
+      "type": "1X40' DG",
+      "vehicle": "40F DG"
+    },
+    {
+      "type": "4W",
+      "vehicle": "4W"
+    },
+    {
+      "type": "10W DG",
+      "vehicle": "10W DG"
+    },
+    {
+      "type": "",
+      "vehicle": ""
+    },
+    {
+      "type": "PICKUP",
+      "vehicle": ""
+    },
+    {
+      "type": "1x10WH",
+      "vehicle": "10W"
+    },
+    {
+      "type": "1X45'",
+      "vehicle": ""
+    }
+  ],
+  "laneScores": [
+    {
+      "customer": "L'OREAL",
+      "destination": "DC.KM39",
+      "plant": "",
+      "laneCustomer": "L'OREAL",
+      "from": "LAEM CHABANG",
+      "to": "L'OREAL T PARK",
+      "score": 0.5
+    },
+    {
+      "customer": "L'OREAL",
+      "destination": "DC.KM39",
+      "plant": "",
+      "laneCustomer": "LOTUS ASIA EXPORT",
+      "from": "LAEM CHABANG",
+      "to": "LOTUS ASIA NONG YAI",
+      "score": 0
+    },
+    {
+      "customer": "L'OREAL",
+      "destination": "DC.KM39",
+      "plant": "",
+      "laneCustomer": "BASF",
+      "from": "LCB",
+      "to": "RAYONG",
+      "score": 0
+    },
+    {
+      "customer": "L'OREAL",
+      "destination": "DC.KM39",
+      "plant": "",
+      "laneCustomer": "ไทยพาณิชย์",
+      "from": "LCB",
+      "to": "บางนา",
+      "score": 0
+    },
+    {
+      "customer": "LOTUS ASIA",
+      "destination": "LOTUS NONG YAI",
+      "plant": "",
+      "laneCustomer": "L'OREAL",
+      "from": "LAEM CHABANG",
+      "to": "L'OREAL T PARK",
+      "score": 0
+    },
+    {
+      "customer": "LOTUS ASIA",
+      "destination": "LOTUS NONG YAI",
+      "plant": "",
+      "laneCustomer": "LOTUS ASIA EXPORT",
+      "from": "LAEM CHABANG",
+      "to": "LOTUS ASIA NONG YAI",
+      "score": 1
+    },
+    {
+      "customer": "LOTUS ASIA",
+      "destination": "LOTUS NONG YAI",
+      "plant": "",
+      "laneCustomer": "BASF",
+      "from": "LCB",
+      "to": "RAYONG",
+      "score": 0
+    },
+    {
+      "customer": "LOTUS ASIA",
+      "destination": "LOTUS NONG YAI",
+      "plant": "",
+      "laneCustomer": "ไทยพาณิชย์",
+      "from": "LCB",
+      "to": "บางนา",
+      "score": 0
+    },
+    {
+      "customer": "BASF",
+      "destination": "",
+      "plant": "Map Ta Phut",
+      "laneCustomer": "L'OREAL",
+      "from": "LAEM CHABANG",
+      "to": "L'OREAL T PARK",
+      "score": 0
+    },
+    {
+      "customer": "BASF",
+      "destination": "",
+      "plant": "Map Ta Phut",
+      "laneCustomer": "LOTUS ASIA EXPORT",
+      "from": "LAEM CHABANG",
+      "to": "LOTUS ASIA NONG YAI",
+      "score": 0
+    },
+    {
+      "customer": "BASF",
+      "destination": "",
+      "plant": "Map Ta Phut",
+      "laneCustomer": "BASF",
+      "from": "LCB",
+      "to": "RAYONG",
+      "score": 0.5
+    },
+    {
+      "customer": "BASF",
+      "destination": "",
+      "plant": "Map Ta Phut",
+      "laneCustomer": "ไทยพาณิชย์",
+      "from": "LCB",
+      "to": "บางนา",
+      "score": 0
+    },
+    {
+      "customer": "บริษัท ไทยพาณิชย์ จำกัด",
+      "destination": "บางนา",
+      "plant": "",
+      "laneCustomer": "L'OREAL",
+      "from": "LAEM CHABANG",
+      "to": "L'OREAL T PARK",
+      "score": 0
+    },
+    {
+      "customer": "บริษัท ไทยพาณิชย์ จำกัด",
+      "destination": "บางนา",
+      "plant": "",
+      "laneCustomer": "LOTUS ASIA EXPORT",
+      "from": "LAEM CHABANG",
+      "to": "LOTUS ASIA NONG YAI",
+      "score": 0
+    },
+    {
+      "customer": "บริษัท ไทยพาณิชย์ จำกัด",
+      "destination": "บางนา",
+      "plant": "",
+      "laneCustomer": "BASF",
+      "from": "LCB",
+      "to": "RAYONG",
+      "score": 0
+    },
+    {
+      "customer": "บริษัท ไทยพาณิชย์ จำกัด",
+      "destination": "บางนา",
+      "plant": "",
+      "laneCustomer": "ไทยพาณิชย์",
+      "from": "LCB",
+      "to": "บางนา",
+      "score": 1
+    }
+  ],
+  "prices": {
+    "bandMax": [
+      29.99,
+      32.99,
+      36.29,
+      39.91
+    ],
+    "cases": [
+      {
+        "row": [
+          5000,
+          5150,
+          5305,
+          5465
+        ],
+        "diesel": 28,
+        "price": 5000
+      },
+      {
+        "row": [
+          5000,
+          5150,
+          5305,
+          5465
+        ],
+        "diesel": 31.2,
+        "price": 5150
+      },
+      {
+        "row": [
+          5000,
+          5150,
+          5305,
+          5465
+        ],
+        "diesel": 33.61,
+        "price": 5305
+      },
+      {
+        "row": [
+          5000,
+          5150,
+          5305,
+          5465
+        ],
+        "diesel": 36.29,
+        "price": 5305
+      },
+      {
+        "row": [
+          5000,
+          5150,
+          5305,
+          5465
+        ],
+        "diesel": 38,
+        "price": 5465
+      },
+      {
+        "row": [
+          5000,
+          5150,
+          5305,
+          5465
+        ],
+        "diesel": 45,
+        "price": 5465
+      },
+      {
+        "row": [
+          null,
+          6180,
+          null,
+          6557
+        ],
+        "diesel": 28,
+        "price": 6180
+      },
+      {
+        "row": [
+          null,
+          6180,
+          null,
+          6557
+        ],
+        "diesel": 31.2,
+        "price": 6180
+      },
+      {
+        "row": [
+          null,
+          6180,
+          null,
+          6557
+        ],
+        "diesel": 33.61,
+        "price": 6557
+      },
+      {
+        "row": [
+          null,
+          6180,
+          null,
+          6557
+        ],
+        "diesel": 36.29,
+        "price": 6557
+      },
+      {
+        "row": [
+          null,
+          6180,
+          null,
+          6557
+        ],
+        "diesel": 38,
+        "price": 6557
+      },
+      {
+        "row": [
+          null,
+          6180,
+          null,
+          6557
+        ],
+        "diesel": 45,
+        "price": 6557
+      },
+      {
+        "row": [
+          4400,
+          null,
+          null,
+          null
+        ],
+        "diesel": 28,
+        "price": 4400
+      },
+      {
+        "row": [
+          4400,
+          null,
+          null,
+          null
+        ],
+        "diesel": 31.2,
+        "price": 4400
+      },
+      {
+        "row": [
+          4400,
+          null,
+          null,
+          null
+        ],
+        "diesel": 33.61,
+        "price": 4400
+      },
+      {
+        "row": [
+          4400,
+          null,
+          null,
+          null
+        ],
+        "diesel": 36.29,
+        "price": 4400
+      },
+      {
+        "row": [
+          4400,
+          null,
+          null,
+          null
+        ],
+        "diesel": 38,
+        "price": 4400
+      },
+      {
+        "row": [
+          4400,
+          null,
+          null,
+          null
+        ],
+        "diesel": 45,
+        "price": 4400
+      }
+    ]
+  }
+}

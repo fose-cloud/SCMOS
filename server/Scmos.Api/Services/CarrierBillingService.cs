@@ -14,14 +14,37 @@ public record BillingInvoiceView(long Id, string InvoiceNumber, string InvoiceDa
     IReadOnlyList<BillingChargeView> AdditionalCharges, int ReviewCycle,
     DateTimeOffset? ReviewSubmittedAt, DateTimeOffset? ReviewDecidedAt, DateTimeOffset? OnlineApprovedAt,
     int? ReviewAgeMinutes, int? ReviewDecisionMinutes, IReadOnlyList<BillingReviewEventView> ReviewEvents,
-    OriginalPackageView? OriginalPackage);
+    OriginalPackageView? OriginalPackage,
+    // The invoice form's (30 Sep 2026), appended so every reader of the fields above is unchanged.
+    int CreditTermDays = 30, string DueDate = "", string PoNumber = "", string JobNo = "", string PaymentNote = "",
+    string PreparedBy = "", decimal WithholdingAmount = 0, decimal NetAmount = 0, IReadOnlyList<BillingLineView>? Lines = null);
+
+/// <summary>One line of the invoice form; see <see cref="InvoiceLines"/>.</summary>
+public record BillingLineView(string Code, decimal Quantity, decimal UnitPrice, decimal Amount, string Description, string Detail);
+
+/// <summary>What the invoice form prints about the job: its date and kind, the trucking order, the route, the box.</summary>
+public record BillingJobView(string JobDate, string JobType, string TruckingOrder, string JobNo, string CustomerPo,
+    string Route, string Container, string ContainerType, string Licence, string Customer);
+
+/// <summary>The carrier's letterhead on its invoice, from the Supplier Register; and who it bills.</summary>
+public record BillingIssuerView(string Name, string Address, string TaxId, string Telephone, string Fax, string Email,
+    int CreditTermDays, InvoiceParty BillTo);
+
+/// <summary>A line of the invoice form as saved.</summary>
+public record BillingLineInput(string? Code, decimal Quantity, decimal UnitPrice, string? Description, string? Detail);
+
+/// <summary>The invoice form's own fields; null lines keep the draft's earlier one-figure shape (the Carrier API's).</summary>
+public record BillingInvoiceForm(int? CreditTermDays, string? PoNumber, string? JobNo, string? PaymentNote,
+    string? PreparedBy, IReadOnlyList<BillingLineInput>? Lines);
 
 public record BillingCaseView(long Id, string JobKey, string JobCode, string Customer,
     string Category, int SupplierId, string Supplier, string Status,
     DateTimeOffset DeliveryCompletedAt, string SlaRuleCode, string SlaStartDay,
     int? SlaTargetWorkingDays, string SlaStartDate, string SlaDueDate,
     string SlaState, int? DaysRemaining, string SlaIssueCode, string SlaIssue,
-    BillingInvoiceView? Invoice, IReadOnlyList<DocumentView> Documents);
+    BillingInvoiceView? Invoice, IReadOnlyList<DocumentView> Documents,
+    // The job as the invoice prints it, and its price by the carrier's Rate (30 Sep 2026).
+    BillingJobView? Job = null, ContractRateQuote? ContractRate = null);
 
 public record BillingMutation(bool Ok, string Code, string Message,
     BillingCaseView? Case = null, BillingInvoiceView? Invoice = null, bool Replayed = false);
@@ -259,7 +282,26 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
 
     public async Task<BillingMutation> UpdateDraftForAsync(AppUser user, int supplierId, long invoiceId,
         string invoiceNumber, string invoiceDate, string currency, decimal subtotal,
-        decimal taxAmount, CancellationToken token)
+        decimal taxAmount, CancellationToken token) =>
+        await UpdateDraftForAsync(user, supplierId, invoiceId, invoiceNumber, invoiceDate, currency, subtotal, taxAmount, null, token);
+
+    public async Task<BillingMutation> UpdateDraftAsync(AppUser user, long invoiceId, string invoiceNumber,
+        string invoiceDate, string currency, decimal subtotal, decimal taxAmount, BillingInvoiceForm? form, CancellationToken token)
+    {
+        var tenant = await CarrierAsync(user, token);
+        if (tenant is null) return Denied();
+        return await UpdateDraftForAsync(user, tenant.SupplierId, invoiceId, invoiceNumber, invoiceDate, currency,
+            subtotal, taxAmount, form, token);
+    }
+
+    /// <summary>
+    /// A draft saved. With the invoice form's lines (30 Sep 2026) the amounts are worked out here, never taken
+    /// from the caller: the subtotal is the lines' total, the withholding 1% of the transportation charge, the
+    /// net what is left — <see cref="InvoiceLines"/>. Without them, the one-figure draft the Carrier API sends.
+    /// </summary>
+    public async Task<BillingMutation> UpdateDraftForAsync(AppUser user, int supplierId, long invoiceId,
+        string invoiceNumber, string invoiceDate, string currency, decimal subtotal,
+        decimal taxAmount, BillingInvoiceForm? form, CancellationToken token)
     {
         var invoice = await db.BillingInvoices.FirstOrDefaultAsync(row =>
             row.Id == invoiceId && row.SupplierId == supplierId, token);
@@ -286,14 +328,45 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         if (number.Length > 0 && await db.BillingInvoices.AsNoTracking().AnyAsync(row =>
                 row.SupplierId == supplierId && row.InvoiceNumber == number && row.Id != invoice.Id, token))
             return new(false, "DUPLICATE_INVOICE_NUMBER", "เลขที่ใบแจ้งหนี้นี้มีอยู่แล้ว");
+        if (form is not null && FormProblem(form) is { } problem) return Invalid(problem);
 
         var before = $"{invoice.InvoiceNumber}|{invoice.InvoiceDate}|{invoice.Currency}|{invoice.TotalAmount}";
         invoice.InvoiceNumber = number;
         invoice.InvoiceDate = date;
         invoice.Currency = money;
-        invoice.Subtotal = decimal.Round(subtotal, 2, MidpointRounding.AwayFromZero);
         invoice.TaxAmount = decimal.Round(taxAmount, 2, MidpointRounding.AwayFromZero);
+        List<BillingInvoiceLine> kept = [];
+        if (form?.Lines is { } lines)
+        {
+            // Updated in place by code — the unique (invoice, code) index never sees a line twice.
+            var held = await db.BillingInvoiceLines.Where(row => row.InvoiceId == invoice.Id).ToListAsync(token);
+            foreach (var (line, position) in lines.Select((line, i) => (line, i)))
+            {
+                var code = (line.Code ?? "").Trim();
+                var row = held.FirstOrDefault(one => one.Code == code);
+                if (row is null) { row = new BillingInvoiceLine { InvoiceId = invoice.Id, Code = code }; db.BillingInvoiceLines.Add(row); }
+                row.Position = position;
+                row.Quantity = decimal.Round(line.Quantity, 2, MidpointRounding.AwayFromZero);
+                row.UnitPrice = decimal.Round(line.UnitPrice, 2, MidpointRounding.AwayFromZero);
+                row.Amount = InvoiceLines.Amount(row.Quantity, row.UnitPrice);
+                row.Description = (line.Description ?? "").Trim();
+                row.Detail = (line.Detail ?? "").Trim();
+                kept.Add(row);
+            }
+            db.BillingInvoiceLines.RemoveRange(held.Where(one => !kept.Contains(one)));
+            var totals = InvoiceLines.Totals(kept.Select(one => (one.Code, one.Quantity, one.UnitPrice)));
+            invoice.Subtotal = totals.Total;
+            invoice.WithholdingAmount = totals.Withholding;
+            invoice.CreditTermDays = form.CreditTermDays ?? invoice.CreditTermDays;
+            invoice.PoNumber = (form.PoNumber ?? "").Trim();
+            invoice.JobNo = (form.JobNo ?? "").Trim();
+            invoice.PaymentNote = (form.PaymentNote ?? "").Trim();
+            invoice.PreparedBy = (form.PreparedBy ?? "").Trim();
+        }
+        else invoice.Subtotal = decimal.Round(subtotal, 2, MidpointRounding.AwayFromZero);
         invoice.TotalAmount = invoice.Subtotal + invoice.TaxAmount;
+        invoice.NetAmount = invoice.TotalAmount - invoice.WithholdingAmount;
+        invoice.DueDate = invoice.InvoiceDate?.AddDays(invoice.CreditTermDays);
         invoice.UpdatedBy = user.Signature;
         invoice.UpdatedAt = DateTimeOffset.UtcNow;
         audit.Stage(user, AuditActions.Update, "billing-invoice", invoice.Id.ToString(),
@@ -301,7 +374,44 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             $"{invoice.InvoiceNumber}|{invoice.InvoiceDate}|{invoice.Currency}|{invoice.TotalAmount}",
             ChannelOf(user), AuditSourceOf(user));
         await db.SaveChangesAsync(token);
-        return new(true, "OK", "บันทึกใบวางบิลฉบับร่างแล้ว", Invoice: Describe(invoice));
+        return new(true, "OK", "บันทึกใบวางบิลฉบับร่างแล้ว", Invoice: Describe(invoice, lines: form?.Lines is null
+            ? await db.BillingInvoiceLines.AsNoTracking().Where(row => row.InvoiceId == invoice.Id).ToListAsync(token) : kept));
+    }
+
+    /// <summary>What is wrong with the invoice form as sent, or null.</summary>
+    public static string? FormProblem(BillingInvoiceForm form)
+    {
+        if (form.CreditTermDays is < 0 or > 365) return "เครดิตเทอมต้องอยู่ระหว่าง 0–365 วัน";
+        if ((form.PoNumber ?? "").Trim().Length > 80 || (form.JobNo ?? "").Trim().Length > 80) return "P/O NO. และ JOB NO. ยาวได้ไม่เกิน 80 ตัวอักษร";
+        if ((form.PaymentNote ?? "").Trim().Length > 500) return "หมายเหตุการชำระเงินยาวได้ไม่เกิน 500 ตัวอักษร";
+        if ((form.PreparedBy ?? "").Trim().Length > 120) return "ชื่อผู้จัดทำยาวได้ไม่เกิน 120 ตัวอักษร";
+        if (form.Lines is not { } lines) return null;
+        if (lines.Count > InvoiceLines.All.Length) return "รายการในใบแจ้งหนี้มากเกินไป";
+        var codes = lines.Select(line => (line.Code ?? "").Trim()).ToList();
+        if (codes.Any(code => InvoiceLines.Of(code) is null)) return "มีรายการที่ไม่อยู่ในแบบฟอร์มใบแจ้งหนี้";
+        if (codes.Distinct().Count() != codes.Count) return "รายการในใบแจ้งหนี้ซ้ำกัน";
+        foreach (var line in lines)
+        {
+            if (line.Quantity is < 0 or > 100_000 || line.UnitPrice is < 0 or > 100_000_000) return "จำนวนหรือราคาต่อหน่วยไม่อยู่ในช่วงที่รับได้";
+            if ((line.Description ?? "").Trim().Length > 300 || (line.Detail ?? "").Trim().Length > 300) return "รายละเอียดยาวได้ไม่เกิน 300 ตัวอักษร";
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The carrier's letterhead for its invoice, from the Supplier Register, and who it bills. The credit term is
+    /// the register's credit term where it names a number of days, else 30. Null for an account not a carrier's.
+    /// </summary>
+    public async Task<BillingIssuerView?> IssuerAsync(AppUser user, CancellationToken token)
+    {
+        var tenant = await CarrierAsync(user, token);
+        if (tenant is null) return null;
+        var supplier = await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(row => row.Id == tenant.SupplierId, token);
+        if (supplier is null) return null;
+        var digits = new string((supplier.CreditTerm ?? "").Where(char.IsAsciiDigit).ToArray());
+        var term = int.TryParse(digits, out var days) && days is > 0 and <= 365 ? days : 30;
+        return new(supplier.LegalName.Trim().Length > 0 ? supplier.LegalName.Trim() : supplier.Name, supplier.Address,
+            supplier.TaxId, supplier.Telephone, supplier.Fax, supplier.Email, term, InvoiceLines.BillTo);
     }
 
     public async Task<BillingMutation> AddDocumentAsync(AppUser user, long invoiceId,
@@ -414,6 +524,18 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             .Where(row => invoiceIds.Contains(row.InvoiceId)).ToDictionaryAsync(row => row.InvoiceId, token);
         var held = await db.Documents.AsNoTracking().Where(row => row.BillingCaseId != null
                 && ids.Contains(row.BillingCaseId.Value)).OrderBy(row => row.UploadedAt).ToListAsync(token);
+        var lineRows = await db.BillingInvoiceLines.AsNoTracking().Where(row => invoiceIds.Contains(row.InvoiceId))
+            .OrderBy(row => row.Position).ToListAsync(token);
+        var lines = lineRows.GroupBy(row => row.InvoiceId).ToDictionary(group => group.Key, group => group.ToList());
+        // Each carrier's jobs priced by its own Rate — one read of its rate book for all of them.
+        var quotes = new Dictionary<string, ContractRateQuote>(StringComparer.Ordinal);
+        var supplierRows = await db.Suppliers.AsNoTracking().Where(row => supplierIds.Contains(row.Id)).ToListAsync(token);
+        foreach (var supplier in supplierRows)
+        {
+            var theirs = cases.Where(row => row.SupplierId == supplier.Id)
+                .Select(row => jobs.GetValueOrDefault(row.JobKey)).OfType<OperationJob>().ToList();
+            foreach (var (key, quote) in await ContractRates.QuoteAsync(db, supplier, theirs, token)) quotes[key] = quote;
+        }
         var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(Thailand).DateTime);
 
         return cases.Select(row =>
@@ -422,7 +544,8 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             var link = links.FirstOrDefault(one => one.BillingCaseId == row.Id);
             var invoice = link is not null && invoices.TryGetValue(link.InvoiceId, out var found)
                 ? Describe(found, validations.GetValueOrDefault(found.Id, []), charges.GetValueOrDefault(found.Id, []),
-                    reviews.GetValueOrDefault(found.Id, []), originalPackages.GetValueOrDefault(found.Id)) : null;
+                    reviews.GetValueOrDefault(found.Id, []), originalPackages.GetValueOrDefault(found.Id),
+                    lines.GetValueOrDefault(found.Id, [])) : null;
             var state = BillingSlaState.Of(today, row.SlaDueDate);
             return new BillingCaseView(row.Id, row.JobKey, job?.JobCode ?? row.JobKey,
                 job?.Customer ?? "", job?.Cat ?? "", row.SupplierId,
@@ -433,8 +556,36 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
                 row.SlaDueDate is null ? null : row.SlaDueDate.Value.DayNumber - today.DayNumber,
                 row.SlaIssueCode, row.SlaIssue, invoice,
                 held.Where(document => document.BillingCaseId == row.Id)
-                    .Select(DocumentService.Describe).ToList());
+                    .Select(DocumentService.Describe).ToList(),
+                job is null ? null : JobOf(job), quotes.GetValueOrDefault(row.JobKey));
         }).ToList();
+    }
+
+    /// <summary>
+    /// The job as the invoice prints it: the date and kind, the trucking order (the job code), Leschaco's job number,
+    /// the route — yard, destination, return — and the box: size, container number, plate.
+    /// </summary>
+    public static BillingJobView JobOf(OperationJob job)
+    {
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(job.Data);
+            var root = json.RootElement;
+            string Get(string name) => root.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String
+                ? (value.GetString() ?? "").Trim() : "";
+            static bool Filled(string value) => value.Length > 0 && value is not ("-" or "—" or "–");
+            var destination = Filled(Get("destination")) ? Get("destination") : Get("plant");
+            var route = string.Join("-", new[] { Get("cyYard"), destination, Get("returnLoc") }.Where(Filled));
+            var jobNo = new[] { Get("abs"), Get("jobNo"), Get("booking") }.FirstOrDefault(Filled) ?? "";
+            var date = Get("date");
+            var iso = date.Length == 10 && date[2] == '/' && date[5] == '/' ? $"{date[6..]}-{date[3..5]}-{date[..2]}" : "";
+            return new(iso, job.Cat, job.JobCode, jobNo, Get("customerPo"), route,
+                Filled(Get("container")) ? Get("container") : "", Get("type"), Filled(Get("licence")) ? Get("licence") : "", job.Customer);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new("", job.Cat, job.JobCode, "", "", "", "", "", "", job.Customer);
+        }
     }
 
     private async Task<CarrierTenant?> CarrierAsync(AppUser user, CancellationToken token) =>
@@ -460,7 +611,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
 
     private static BillingInvoiceView Describe(BillingInvoice row, IReadOnlyList<BillingValidationView>? results = null,
         IReadOnlyList<BillingChargeView>? charges = null, IReadOnlyList<BillingReviewEventView>? reviews = null,
-        OriginalDocumentPackage? originalPackage = null) => new(row.Id,
+        OriginalDocumentPackage? originalPackage = null, IReadOnlyList<BillingInvoiceLine>? lines = null) => new(row.Id,
         row.InvoiceNumber, row.InvoiceDate?.ToString("yyyy-MM-dd") ?? "", row.Currency,
         row.Subtotal, row.TaxAmount, row.TotalAmount, row.Status, row.UpdatedAt, results ?? [], charges ?? [],
         row.ReviewCycle, row.ReviewSubmittedAt, row.ReviewDecidedAt, row.OnlineApprovedAt,
@@ -468,7 +619,11 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             : (int)Math.Max(0, (DateTimeOffset.UtcNow - row.ReviewSubmittedAt.Value).TotalMinutes),
         row.ReviewSubmittedAt is null || row.ReviewDecidedAt is null ? null
             : (int)Math.Max(0, (row.ReviewDecidedAt.Value - row.ReviewSubmittedAt.Value).TotalMinutes), reviews ?? [],
-        originalPackage is null ? null : OriginalDocumentService.View(originalPackage));
+        originalPackage is null ? null : OriginalDocumentService.View(originalPackage),
+        row.CreditTermDays, row.DueDate?.ToString("yyyy-MM-dd") ?? "", row.PoNumber, row.JobNo, row.PaymentNote, row.PreparedBy,
+        row.WithholdingAmount, row.NetAmount == 0 && row.WithholdingAmount == 0 ? row.TotalAmount : row.NetAmount,
+        (lines ?? []).OrderBy(line => line.Position).Select(line => new BillingLineView(line.Code, line.Quantity, line.UnitPrice,
+            line.Amount, line.Description, line.Detail)).ToList());
 
     private static BillingMutation Denied() =>
         new(false, "NO_CARRIER", "บัญชีนี้ไม่ได้ผูกกับบริษัทผู้รับเหมา");

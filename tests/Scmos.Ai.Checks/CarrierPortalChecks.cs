@@ -466,6 +466,43 @@ static class CarrierPortalChecks
                 && bindings == 7 && await follower.SweepAsync(scheduler, default) == 0,
                 "register SQL: the sweep bills every COMPLETED job closed before, a page at a time, once — the cancelled one not");
 
+            /* ---------------- the Billing Case's price by Rate, and the invoice form (30 Sep 2026) ---------------- */
+            // Alpha's BASF lane quotes a 40' box on two bands; September's diesel averages 34.50 — the second band.
+            db.RatePrices.AddRange(new RatePrice { LaneId = lanes[0].Id, Vehicle = "40F", BandPosition = 0, Price = 6800 },
+                new RatePrice { LaneId = lanes[0].Id, Vehicle = "40F", BandPosition = 1, Price = 7000 });
+            db.DieselPrices.Add(new DieselPrice { EffectiveDate = "01/09/2026", Price = 34.50m, Source = "test", RecordedBy = "test", RecordedAt = now });
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+            var alphaCases = (await billing.ListForCarrierAsync(alpha.Id, default)).Items;
+            var onOne = alphaCases.Single(item => item.JobKey == "A-ON-1");
+            check(onOne.ContractRate is { Amount: 7000m, Vehicle: "40F", DieselFrom: "month", DieselMonth: "09/2026", Reason: "" }
+                && onOne.ContractRate.Diesel == 34.50m && onOne.ContractRate.Lane.Contains("RAYONG-A1")
+                && onOne.Job is { JobType: "IMPORT", TruckingOrder: "J-A-ON-1", Container: "TEMU5246902", Licence: "70-1111", JobDate: "2026-09-15" }
+                && alphaCases.Where(item => item.JobKey.StartsWith("B-")).Count() == 0,
+                "billing SQL: a case shows the job's price by the carrier's own Rate — 40' box, September's average diesel, its lane's band");
+            var draft = await billing.CreateDraftForAsync(userA, alpha.Id, onOne.Id, default);
+            var sample = new BillingInvoiceForm(30, "PO-1", "L09436", "โอนเข้าบัญชี กสิกรไทย", "P. Surasak",
+            [
+                new BillingLineInput(InvoiceLines.TransportCharge, 1, 7879, "C1C2-BASF-KRC", "1X40' TEMU5246902 70-1111"),
+                new BillingLineInput("GATE_FEE", 1, 100, "", ""), new BillingLineInput("LIFT_OFF", 1, 963, "", ""),
+            ]);
+            var saved = await billing.UpdateDraftForAsync(userA, alpha.Id, draft.Invoice!.Id, "LES69-09-319", "2026-09-29", "THB", 1, 0, sample, default);
+            check(saved is { Ok: true, Invoice: { Subtotal: 8942m, TotalAmount: 8942m, WithholdingAmount: 78.79m, NetAmount: 8863.21m, DueDate: "2026-10-29", JobNo: "L09436" } }
+                && saved.Invoice.Lines!.Count == 3 && saved.Invoice.Lines.Single(line => line.Code == "LIFT_OFF").Amount == 963m,
+                "billing SQL: the invoice form's lines are totalled on the server — 8,942.00, 78.79 withheld on the transport only, 8,863.21 net, due in 30 days");
+            var fewer = await billing.UpdateDraftForAsync(userA, alpha.Id, draft.Invoice.Id, "LES69-09-319", "2026-09-29", "THB", 0, 0,
+                sample with { Lines = [new BillingLineInput(InvoiceLines.TransportCharge, 1, 7879, "", ""), new BillingLineInput("GATE_FEE", 2, 50, "", "")] }, default);
+            var bad = await billing.UpdateDraftForAsync(userA, alpha.Id, draft.Invoice.Id, "LES69-09-319", "2026-09-29", "THB", 0, 0,
+                sample with { Lines = [new BillingLineInput("TIP", 1, 50, "", "")] }, default);
+            check(fewer is { Ok: true, Invoice.NetAmount: 7900.21m } && fewer.Invoice.Lines!.Count == 2
+                && await db.BillingInvoiceLines.CountAsync(row => row.InvoiceId == draft.Invoice.Id) == 2
+                && bad is { Ok: false, Code: "INVALID" },
+                "billing SQL: saved again, the lines are the form's — one dropped, one changed — and a line not on the form is refused");
+            var submitted = await billing.SubmitForAsync(userA, alpha.Id, draft.Invoice.Id, default);
+            var rateCheck = submitted.Results.Single(result => result.Step == "CONTRACT_RATE");
+            check(rateCheck is { Code: "CONTRACT_RATE_MISMATCH", Blocking: false, ExpectedAmount: 7000m, ActualAmount: 7879m },
+                "billing SQL: the invoice check holds 1.1 against the same Rate figure the case showed, and a different price is flagged, not refused");
+
             var billedKeys = await registerJobs.BilledAsync(["A-ON-1", "N-2", "N-4"], default);
             var jobsBefore = await db.OperationJobs.CountAsync();
             var removed = await registerJobs.ClearAsync(default);

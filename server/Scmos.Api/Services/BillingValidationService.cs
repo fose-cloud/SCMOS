@@ -120,7 +120,11 @@ public class BillingValidationService(ScmosDbContext db, AuditService audit)
         var approvedCharges = charges.Where(x => x.Status is "APPROVED" or "PARTIALLY_APPROVED").Sum(x => x.ApprovedAmount ?? 0m);
 
         var rate = await ResolveRateAsync(supplier, job, facts, workDate, token);
-        var baseClaim = invoice.Subtotal - approvedCharges;
+        // The invoice form (30 Sep 2026) states the transportation charge as its own line, 1.1: that is the claim
+        // the contract rate prices. A one-figure draft is still its subtotal less the approved extras.
+        var transportLine = await db.BillingInvoiceLines.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.InvoiceId == invoice.Id && x.Code == InvoiceLines.TransportCharge, token);
+        var baseClaim = transportLine?.Amount ?? invoice.Subtotal - approvedCharges;
         var rateRule = BillingValidationRules.Rate(rate.Matches, rate.Expected, baseClaim);
         Add("CONTRACT_RATE", rateRule, "RatePrice", rate.PriceId?.ToString() ?? "", rate.Version,
             rate.Source, workDate);
@@ -190,26 +194,19 @@ public class BillingValidationService(ScmosDbContext db, AuditService audit)
         return rows.Select(Describe).ToList();
     }
 
+    /// <summary>
+    /// The job's contract rate — the same figure its Billing Case shows and its invoice form fills 1.1 with
+    /// (<see cref="ContractRates"/>, 30 Sep 2026). It used to match the job's raw container wording against the
+    /// rate book's vehicles and its destination letter for letter, so a real job hardly ever found its lane.
+    /// </summary>
     private async Task<RateResolution> ResolveRateAsync(Supplier supplier, OperationJob job, JobFacts facts,
         DateOnly effective, CancellationToken token)
     {
-        if (facts.Vehicle.Length == 0 || facts.Diesel is null) return new(0, null, null, "", "", "");
-        var bands = await db.FuelBands.AsNoTracking().OrderBy(x => x.Position).ToListAsync(token);
-        var band = RateService.BandFor(bands.Select(x => new BandView(x.Label, x.MinPrice, x.MaxPrice, x.Position)).ToList(), facts.Diesel.Value);
-        if (band < 0) return new(0, null, null, "", "", "");
-        var lanes = await db.RateLanes.AsNoTracking().Where(x => x.SupplierId == supplier.Id || x.SupplierId == null).ToListAsync(token);
-        lanes = lanes.Where(x => (x.SupplierId == supplier.Id || AnyCarrier(x.Carrier, supplier.Name))
-            && Match(x.Customer, job.Customer) && Match(x.Service, facts.Service)
-            && PlaceMatch(x.ToPlace, facts.Destination)).ToList();
-        var ids = lanes.Select(x => x.Id).ToList();
-        var prices = await db.RatePrices.AsNoTracking().Where(x => ids.Contains(x.LaneId)
-            && x.BandPosition == band).ToListAsync(token);
-        prices = prices.Where(x => Equal(x.Vehicle, facts.Vehicle)).ToList();
-        if (prices.Count != 1) return new(prices.Count, null, null, "", "", "");
-        var price = prices[0]; var lane = lanes.Single(x => x.Id == price.LaneId);
-        return new(1, price.Price, price.Id, lane.SourceFile,
-            lane.PromotedAt?.ToString("O", CultureInfo.InvariantCulture) ?? lane.SourceFile,
-            $"rate_lanes/{lane.Id}; band={band}; service={lane.Service}");
+        var quote = (await ContractRates.QuoteAsync(db, supplier, [job], token))[job.Key];
+        return quote.Amount is { } amount
+            ? new(1, amount, quote.PriceId, quote.Version, quote.Source,
+                $"rate_lanes/{quote.LaneId}; band={quote.Band}; diesel={quote.Diesel} ({quote.DieselFrom})")
+            : new(quote.Reason == "many" ? quote.Matches : 0, null, null, "", "", quote.Reason);
     }
 
     private static BillingValidationView Describe(BillingValidationResult x) => new(x.Sequence, x.Step, x.Code,
@@ -221,8 +218,6 @@ public class BillingValidationService(ScmosDbContext db, AuditService audit)
     private static bool Match(string rule, string value) => string.IsNullOrWhiteSpace(rule) || Equal(rule, value);
     private static bool Equal(string? a, string? b) => Key(a) == Key(b);
     private static string Key(string? value) => new((value ?? "").Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
-    private static bool PlaceMatch(string rule, string value) => string.IsNullOrWhiteSpace(rule) || Key(rule) == Key(value);
-    private static bool AnyCarrier(string list, string name) => list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(x => Equal(x, name));
     private static DateOnly? ParseDate(string value) => DateOnly.TryParseExact(value, ["dd/MM/yyyy", "yyyy-MM-dd"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : null;
     private record RateResolution(int Matches, decimal? Expected, long? PriceId, string Version, string Source, string Detail);
     private record JobFacts(string Destination, string Vehicle, string Service, decimal? Diesel)

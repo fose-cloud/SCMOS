@@ -73,6 +73,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<BillingSlaRule> BillingSlaRules => Set<BillingSlaRule>();
     public DbSet<BillingCase> BillingCases => Set<BillingCase>();
     public DbSet<BillingInvoice> BillingInvoices => Set<BillingInvoice>();
+    public DbSet<BillingInvoiceLine> BillingInvoiceLines => Set<BillingInvoiceLine>();
     public DbSet<BillingInvoiceJobLink> BillingInvoiceJobLinks => Set<BillingInvoiceJobLink>();
     public DbSet<BillingRequirementRule> BillingRequirementRules => Set<BillingRequirementRule>();
     public DbSet<BillingRequirementSnapshot> BillingRequirementSnapshots => Set<BillingRequirementSnapshot>();

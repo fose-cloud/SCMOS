@@ -16,7 +16,20 @@ export type BillingInvoice = {
   finance?: FinanceRecord | null;
   validationResults: BillingValidation[];
   additionalCharges: BillingCharge[];
+  // The invoice form's (30 Sep 2026); absent on a draft saved before it.
+  creditTermDays?: number; dueDate?: string; poNumber?: string; jobNo?: string; paymentNote?: string;
+  preparedBy?: string; withholdingAmount?: number; netAmount?: number; lines?: BillingLine[];
 };
+export type BillingLine = { code: string; quantity: number; unitPrice: number; amount: number; description: string; detail: string };
+/** The job as the invoice prints it. */
+export type BillingJob = { jobDate: string; jobType: string; truckingOrder: string; jobNo: string; customerPo: string;
+  route: string; container: string; containerType: string; licence: string; customer: string };
+/** The job's price by its carrier's Rate (server: Services/ContractRates.cs). */
+export type ContractRate = { amount: number | null; matches: number; vehicle: string; band: string; diesel: number | null;
+  dieselFrom: string; dieselMonth: string; dieselClosed: boolean; lane: string; reason: string };
+/** A carrier's letterhead, and who its invoices are made out to. */
+export type BillingIssuer = { name: string; address: string; taxId: string; telephone: string; fax: string; email: string;
+  creditTermDays: number; billTo: { name: string; address: string; taxId: string } };
 export type BillingReviewEvent = { id: number; cycle: number; action: string; fromStatus: string;
   toStatus: string; reasonCode: string; remark: string; actorName: string; at: string };
 export type OriginalPackage = { id: number; status: string; sentDate: string; courier: string;
@@ -48,6 +61,7 @@ export type BillingCase = {
   slaRuleCode: string; slaStartDay: string; slaTargetWorkingDays: number | null;
   slaStartDate: string; slaDueDate: string; slaState: string; daysRemaining: number | null;
   slaIssueCode: string; slaIssue: string; invoice: BillingInvoice | null; documents: BillingDocument[];
+  job?: BillingJob | null; contractRate?: ContractRate | null;
 };
 
 export type BillingControlTowerMetrics = {

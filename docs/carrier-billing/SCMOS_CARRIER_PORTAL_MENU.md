@@ -136,6 +136,58 @@ including those closed before, and the due date runs from the real delivery.
   (409, "ยกเลิกงานแทน"). Clearing the register or a person's jobs keeps it and
   says how many were kept.
 
+## Billing: the price by Rate, and the invoice form
+
+Asked for on 30 Sep 2026.
+
+**The price.** Every Billing Case shows what the job costs by the carrier's
+own Rate (`BillingCaseView.ContractRate`, `Services/ContractRates.cs`). It uses
+the rate book's own rules, the way Booking prices a job:
+
+- the job's container wording becomes a vehicle (`1X40'` is `40F`);
+- the carrier's lanes that fit the job's customer and destination at Booking's
+  bar (0.5), taking the best fit, and breaking a tie with the job's
+  IMPORT/EXPORT in the lane's names;
+- the band that lane quotes for the diesel figure: the cheapest band whose
+  ceiling covers it, else its top band;
+- the diesel figure is the job's own, else the average of the month it ran in.
+
+When there is no price, the case says why: no vehicle, no diesel for the
+month, no lane, not quoted, or several lanes at different prices. The invoice
+check (`CONTRACT_RATE`) uses the same figure.
+
+**The invoice form.** "เปิดใบแจ้งหนี้" opens the carrier's invoice for the job,
+laid out as the department lead's sample ใบแจ้งหนี้. Printing it gives the
+paper itself.
+
+- The carrier's letterhead comes from the Supplier Register: legal name,
+  address, tax ID, phone, fax, email. The credit term also comes from there,
+  else 30 days.
+- Leschaco (Thailand) Ltd. (Head Office), with its address and tax ID, is the
+  party billed (`InvoiceLines.BillTo`).
+- JOB NO., P/O NO., the job date, job type and trucking order come from the
+  job. The due date is the invoice date plus the credit term.
+- 1.1 is the transportation charge. It is filled from the Rate figure and can
+  be edited. A different figure is flagged to the department at review and is
+  not refused.
+- 1.2–1.4 are knock door, chassis detention and waiting time. Section 2 is the
+  reimbursements: gate fee, gate charge, cleaning, repair, lift on, lift off.
+  None needs approval or a receipt (the department's decision).
+- Withholding tax is 1% of the transportation charge only. The net is the
+  total less it.
+
+The server works every amount out again on save (`Rules/InvoiceLines.cs`);
+the lines are kept in `billing_invoice_lines`. Migration `CarrierInvoiceForm`
+is additive. A one-figure draft, as the Carrier API sends it, still saves as
+before. The contract-rate results are no longer blocking. Not found, several
+lanes and a different figure are all flagged exceptions the reviewer decides.
+
+**Held to one answer.** The web's `dieselMonth.ts`, `invoiceLines.ts` and
+`rateMatch.ts` (Booking's vehicle and lane-fit rules, moved out of
+`booking.ts`) and the server's `DieselMonth`, `InvoiceLines` and `RateMatch`
+read `tests/fixtures/billing-parity.json`. The sample invoice's own figures are
+in it: 8,942.00, less 78.79, is 8,863.21.
+
 ## Jobs a carrier keys in
 
 The carrier fills the add-job form's own fields for IMPORT, EXPORT or

@@ -10,8 +10,10 @@ namespace Scmos.Api.Endpoints;
 
 public static class CarrierBillingEndpoints
 {
+    /// <summary>A draft as saved; the form's fields (30 Sep 2026) are optional, so the one-figure draft still reads.</summary>
     public record DraftInput(string? InvoiceNumber, string? InvoiceDate, string? Currency,
-        decimal Subtotal, decimal TaxAmount);
+        decimal Subtotal, decimal TaxAmount, int? CreditTermDays = null, string? PoNumber = null, string? JobNo = null,
+        string? PaymentNote = null, string? PreparedBy = null, IReadOnlyList<BillingLineInput>? Lines = null);
     public record ChargeInput(string? ChargeType, decimal RequestedAmount, string? Currency,
         string? Reason, long? EvidenceDocumentId);
     public record ReviewInput(string? Action, string? ReasonCode, string? Remark);
@@ -57,7 +59,9 @@ public static class CarrierBillingEndpoints
             return result.Ok
                 ? Results.Json(new { items = result.Items, canReceiveOriginal = receiptPolicy.CanReceive(user),
                     originalReceiptConfigured = receiptPolicy.IsConfigured,
-                    finance = finance.Availability(user) })
+                    finance = finance.Availability(user),
+                    // The carrier's letterhead and who it bills, for its invoice form (30 Sep 2026); null for the department.
+                    issuer = await billing.IssuerAsync(user, token) })
                 : ApiResults.Error(result.Message, StatusCodes.Status403Forbidden);
         });
 
@@ -77,9 +81,11 @@ public static class CarrierBillingEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            var form = body.Lines is null ? null
+                : new BillingInvoiceForm(body.CreditTermDays, body.PoNumber, body.JobNo, body.PaymentNote, body.PreparedBy, body.Lines);
             var result = await billing.UpdateDraftAsync(user, invoiceId,
                 body.InvoiceNumber ?? "", body.InvoiceDate ?? "", body.Currency ?? "THB",
-                body.Subtotal, body.TaxAmount, token);
+                body.Subtotal, body.TaxAmount, form, token);
             return Reply(result);
         });
 

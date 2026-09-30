@@ -58,6 +58,42 @@ public class BillingInvoice
     public DateTimeOffset? OnlineApprovedAt { get; set; }
     public int ReviewCycle { get; set; }
     public byte[] RowVersion { get; set; } = [];
+
+    // The invoice form's own fields (30 Sep 2026, laid out as the department lead's sample ใบแจ้งหนี้).
+    /// <summary>Days the department has to pay, counted from the invoice date.</summary>
+    public int CreditTermDays { get; set; } = 30;
+    public DateOnly? DueDate { get; set; }
+    /// <summary>The customer's P/O number, when there is one.</summary>
+    public string PoNumber { get; set; } = "";
+    /// <summary>Leschaco's job number, as the invoice's JOB NO. box names it.</summary>
+    public string JobNo { get; set; } = "";
+    /// <summary>How the carrier asks to be paid — the cheque and bank lines at the foot of its form.</summary>
+    public string PaymentNote { get; set; } = "";
+    /// <summary>Who at the carrier prepared the invoice.</summary>
+    public string PreparedBy { get; set; } = "";
+    /// <summary>Withholding tax deducted: 1% of the transportation charge (<see cref="Rules.InvoiceLines"/>).</summary>
+    public decimal WithholdingAmount { get; set; }
+    /// <summary>What the carrier is paid: the total less the withholding tax.</summary>
+    public decimal NetAmount { get; set; }
+}
+
+/// <summary>
+/// One line of a carrier's invoice (30 Sep 2026): a code from <see cref="Rules.InvoiceLines"/>, how many, at what.
+/// The amount is kept as worked out when saved, so the paper and the row always read the same.
+/// </summary>
+public class BillingInvoiceLine
+{
+    public long Id { get; set; }
+    public long InvoiceId { get; set; }
+    public string Code { get; set; } = "";
+    public int Position { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal Amount { get; set; }
+    /// <summary>1.1's route line, as printed under the trucking order.</summary>
+    public string Description { get; set; } = "";
+    /// <summary>1.1's container line: size, container number, plate.</summary>
+    public string Detail { get; set; } = "";
 }
 
 /// <summary>
@@ -141,11 +177,38 @@ public static class CarrierBillingModel
             entry.Property(row => row.OnlineApprovedAt).HasColumnName("online_approved_at");
             entry.Property(row => row.ReviewCycle).HasColumnName("review_cycle").HasDefaultValue(0);
             entry.Property(row => row.RowVersion).HasColumnName("row_version").IsRowVersion();
+            entry.Property(row => row.CreditTermDays).HasColumnName("credit_term_days").HasDefaultValue(30);
+            entry.Property(row => row.DueDate).HasColumnName("due_date").HasColumnType("date");
+            entry.Property(row => row.PoNumber).HasColumnName("po_number").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(row => row.JobNo).HasColumnName("job_no").HasMaxLength(80).HasDefaultValue("");
+            entry.Property(row => row.PaymentNote).HasColumnName("payment_note").HasMaxLength(500).HasDefaultValue("");
+            entry.Property(row => row.PreparedBy).HasColumnName("prepared_by").HasMaxLength(120).HasDefaultValue("");
+            entry.Property(row => row.WithholdingAmount).HasColumnName("withholding_amount").HasPrecision(18, 2).HasDefaultValue(0m);
+            entry.Property(row => row.NetAmount).HasColumnName("net_amount").HasPrecision(18, 2).HasDefaultValue(0m);
             entry.HasIndex(row => new { row.SupplierId, row.Status }).HasDatabaseName("billing_invoices_supplier_status_idx");
             entry.HasIndex(row => new { row.SupplierId, row.InvoiceNumber }).IsUnique()
                 .HasFilter("[invoice_number] <> ''").HasDatabaseName("billing_invoices_supplier_number_idx");
             entry.HasOne<Supplier>().WithMany().HasForeignKey(row => row.SupplierId)
                 .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_billing_invoices_suppliers_supplier_id");
+        });
+
+        model.Entity<BillingInvoiceLine>(entry =>
+        {
+            entry.ToTable("billing_invoice_lines", table => table.HasCheckConstraint(
+                "billing_invoice_lines_amounts_ck", "[quantity] >= 0 AND [unit_price] >= 0 AND [amount] >= 0"));
+            entry.HasKey(row => row.Id);
+            entry.Property(row => row.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(row => row.InvoiceId).HasColumnName("invoice_id");
+            entry.Property(row => row.Code).HasColumnName("code").HasMaxLength(40);
+            entry.Property(row => row.Position).HasColumnName("position");
+            entry.Property(row => row.Quantity).HasColumnName("quantity").HasPrecision(18, 2);
+            entry.Property(row => row.UnitPrice).HasColumnName("unit_price").HasPrecision(18, 2);
+            entry.Property(row => row.Amount).HasColumnName("amount").HasPrecision(18, 2);
+            entry.Property(row => row.Description).HasColumnName("description").HasMaxLength(300).HasDefaultValue("");
+            entry.Property(row => row.Detail).HasColumnName("detail").HasMaxLength(300).HasDefaultValue("");
+            entry.HasIndex(row => new { row.InvoiceId, row.Code }).IsUnique().HasDatabaseName("billing_invoice_lines_invoice_code_idx");
+            entry.HasOne<BillingInvoice>().WithMany().HasForeignKey(row => row.InvoiceId)
+                .OnDelete(DeleteBehavior.Cascade).HasConstraintName("FK_billing_invoice_lines_invoices_invoice_id");
         });
 
         model.Entity<BillingInvoiceJobLink>(entry =>

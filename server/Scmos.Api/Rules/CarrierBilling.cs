@@ -75,10 +75,12 @@ public static class BillingValidationRules
     public static BillingRuleResult Document(bool present, bool blocking) => present
         ? new("DOCUMENT_PRESENT", BillingValidationCategory.Pass, false, "Required document is present")
         : new("MISSING_REQUIRED_DOCUMENT", blocking ? BillingValidationCategory.Blocked : BillingValidationCategory.Exception, blocking, "Required document is missing");
+    // Flagged for the reviewer, never blocking (30 Sep 2026): the carrier may bill a figure other than its Rate,
+    // or one no Rate covers, and the department decides at review — the department lead's decision.
     public static BillingRuleResult Rate(int matches, decimal? expected, decimal claimed) => matches switch {
-        0 => new("CONTRACT_RATE_NOT_FOUND", BillingValidationCategory.Blocked, true, "No contracted rate applies"),
-        > 1 => new("MULTIPLE_RATE_MATCH", BillingValidationCategory.Blocked, true, "Multiple contracted rates apply"),
-        _ when expected != claimed => new("CONTRACT_RATE_MISMATCH", BillingValidationCategory.Exception, true, "Claim does not match contracted rate", expected, claimed),
+        0 => new("CONTRACT_RATE_NOT_FOUND", BillingValidationCategory.Exception, false, "No contracted rate applies"),
+        > 1 => new("MULTIPLE_RATE_MATCH", BillingValidationCategory.Exception, false, "Multiple contracted rates apply"),
+        _ when expected != claimed => new("CONTRACT_RATE_MISMATCH", BillingValidationCategory.Exception, false, "Claim does not match contracted rate", expected, claimed),
         _ => new("CONTRACT_RATE_MATCH", BillingValidationCategory.Pass, false, "Claim matches contracted rate", expected, claimed),
     };
     public static BillingRuleResult Charge(bool approved) => approved
