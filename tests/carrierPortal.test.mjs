@@ -25,6 +25,35 @@ test("the app draws the carrier's menu and its screens only for a carrier accoun
   assert.match(chrome, /if \(p\.carrier\) return/);
 });
 
+test("NEW job carries a live offered-work badge in the carrier rail", () => {
+  const app = read("app/SCMOSApp.tsx");
+  const portal = read("app/scmos/screens/CarrierPortal.tsx");
+  const chrome = read("app/scmos/Chrome.tsx");
+  assert.match(app, /counts\.carriernew = carrierNewJobs/);
+  assert.match(app, /setInterval\(\(\) => \{ void refresh\(\); \}, 30_000\)/);
+  assert.match(app, /visibilitychange/);
+  assert.match(app, /onNewJobCount=\{setCarrierNewJobs\}/);
+  assert.match(portal, /onNewJobCount\?\.\(portalBody\.offered\.length\)/);
+  assert.match(chrome, /const count = p\.navCounts\[key\]/);
+});
+
+test("the job drawer opens a prefilled Operation Issue from the job", () => {
+  const app = read("app/SCMOSApp.tsx");
+  const drawer = read("app/scmos/overlays/WorkspaceOverlays.tsx");
+  const issues = read("app/scmos/screens/OperationalIssues.tsx");
+  const endpoint = read("server/Scmos.Api/Endpoints/OperationalIssueEndpoints.cs");
+  assert.match(drawer, />\s*เปิด Operation Issue\s*</);
+  assert.match(drawer, /onClick=\{p\.onRaiseIssue\}/);
+  assert.doesNotMatch(drawer, /!p\.carrier && <button className="ghost-btn" onClick=\{p\.onRaiseIssue\}/);
+  assert.match(app, /jobKey: drawerJob\.key/);
+  assert.match(app, /if \(!isCarrier\) go\("issues"\)/);
+  assert.match(app, /<RaiseOperationalIssue/);
+  assert.match(issues, /export function RaiseOperationalIssue/);
+  assert.match(issues, /render(s|ing)? only the new-issue form/i);
+  assert.match(endpoint, /access\.CanUseJobAsync\(user, body\.JobKey, token\)/);
+  assert.match(endpoint, /บัญชีผู้ขนส่งไม่มีสิทธิ์ดูสรุปปัญหาของทุกบริษัท/);
+});
+
 test("Rate and KPI read the carrier's own endpoints and nothing of the department's", () => {
   const rates = read("app/scmos/screens/CarrierRates.tsx");
   const kpi = read("app/scmos/screens/CarrierKpi.tsx");
@@ -178,7 +207,8 @@ test("a carrier's status choices are its own steps ahead, the same steps the ser
   assert.deepEqual(carrierStatusChoices("delivered", ladder), ["CONTAINER_RETURNED", "COMPLETED"]);
   const drawer = read("app/scmos/overlays/WorkspaceOverlays.tsx");
   assert.match(drawer, /p\.canEdit && !p\.carrier && !isCancelled\(j\)/);       // no moving or cancelling a job
-  assert.match(drawer, /\{!p\.carrier && <button className="ghost-btn" onClick=\{p\.onRaiseIssue\}/);
+  assert.match(drawer, /<button className="ghost-btn" onClick=\{p\.onRaiseIssue\}/); // but may report its own issue
+  assert.doesNotMatch(drawer, /\{!p\.carrier && <button className="ghost-btn" onClick=\{p\.onRaiseIssue\}/);
 });
 
 test("a fuel band the lanes shown leave empty is no column on the carrier's Rate", async () => {

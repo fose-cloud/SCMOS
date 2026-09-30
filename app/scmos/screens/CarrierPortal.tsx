@@ -70,7 +70,13 @@ function jobDateKey(value: string) {
   return `${local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
 }
 
-type Props = { view: CarrierView; onNavigate?: (screen: Screen) => void; onToast: (message: string) => void };
+type Props = {
+  view: CarrierView;
+  onNavigate?: (screen: Screen) => void;
+  onToast: (message: string) => void;
+  /** Keeps the NEW job rail badge in step with answers made on this screen. */
+  onNewJobCount?: (count: number) => void;
+};
 
 /**
  * The carrier's screens, one per entry of its menu (29 Sep 2026): Dashboard,
@@ -84,7 +90,7 @@ export function CarrierPortal(props: Props) {
   return <CarrierWork {...props} />;
 }
 
-function CarrierWork({ view, onNavigate, onToast }: Props) {
+function CarrierWork({ view, onNavigate, onToast, onNewJobCount }: Props) {
   const [portal, setPortal] = useRemembered<Portal>("carrier-portal");
   const [refused, setRefused] = useState("");
   // The menu entry decides what shows; Postpone is a narrower schedule, worked the same way.
@@ -117,7 +123,9 @@ function CarrierWork({ view, onNavigate, onToast }: Props) {
       setRefused(body.error || `เปิดหน้างานไม่ได้ (${response.status})`);
       return;
     }
-    setPortal(await response.json() as Portal);
+    const portalBody = await response.json() as Portal;
+    setPortal(portalBody);
+    onNewJobCount?.(portalBody.offered.length);
     setRefused("");
     const billingBody = await billingResponse.json().catch(() => ({})) as { items?: BillingCase[]; issuer?: BillingIssuer | null; error?: string };
     if (billingResponse.ok) { setBilling(billingBody.items ?? []); setIssuer(billingBody.issuer ?? null); }
@@ -130,7 +138,7 @@ function CarrierWork({ view, onNavigate, onToast }: Props) {
       const kpiResponse = await apiFetch("/api/carrier/kpi", { headers: { accept: "application/json" } });
       try { if (kpiResponse.ok) setKpi(parseCarrierKpi(await kpiResponse.json())); } catch { setKpi(null); }
     }
-  }, [onToast, setPortal, view]);
+  }, [onNewJobCount, onToast, setPortal, view]);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
   // in a microtask rather than while this body does — the rule cannot see
