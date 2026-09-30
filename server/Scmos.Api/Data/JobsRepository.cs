@@ -261,9 +261,19 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
     {
         // One read of the directory for the whole batch. A per-row lookup would
         // be two thousand queries to answer the same question two thousand times.
-        _directory = await db.Staff.AsNoTracking()
-            .Select(person => new { person.Id, person.Name })
-            .ToDictionaryAsync(person => person.Name, person => person.Id, StringComparer.OrdinalIgnoreCase, token);
+        //
+        // Two people may share a name. On 30 Sep 2026 two staff rows named SHORE
+        // made this a dictionary with one key twice, and every save in the
+        // register answered 500 from 17:14 until the fix. A name two people hold
+        // names nobody in particular, so it maps to no one — as an unknown name
+        // does (see IdForName: an unassigned job is visible, a misassigned one
+        // is not).
+        _directory = (await db.Staff.AsNoTracking()
+                .Select(person => new { person.Id, person.Name })
+                .ToListAsync(token))
+            .GroupBy(person => person.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Key.Length > 0 && group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single().Id, StringComparer.OrdinalIgnoreCase);
 
         var now = DateTimeOffset.UtcNow;
         LastChanges = [];

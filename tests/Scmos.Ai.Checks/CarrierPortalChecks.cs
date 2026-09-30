@@ -365,6 +365,19 @@ static class CarrierPortalChecks
                 return (await carriers.ReadAsync(user, default))!;
             }
 
+            // Two people with one name (30 Sep 2026: two SHORE rows made every save in production answer 500). The save
+            // goes through; a job naming only that operator gets no owner, rather than one of the two at random.
+            StaffMember Namesake(string id) => new()
+            {
+                Id = id, Email = id.ToLowerInvariant() + "@staff.test", Name = id == "OP-S1" ? "SHORE" : "Shore", Account = id.ToLowerInvariant(),
+                Role = Roles.Operation, Active = true, CreatedBy = "test", CreatedAt = now, UpdatedBy = "test", UpdatedAt = now,
+            };
+            db.Staff.AddRange(Namesake("OP-S1"), Namesake("OP-S2"));
+            await db.SaveChangesAsync();
+            var namesake = await Keyed(Job("N-0", "", ("op", "Shore"), ("opId", ""), ("status", "RECEIVED")));
+            check(namesake is { Offered: 0 } && await db.OperationJobs.AsNoTracking().Where(row => row.Key == "N-0").Select(row => row.OwnerId).SingleAsync() == "",
+                "register SQL: two staff sharing a name no longer stop the save, and a job naming only that name is left unassigned");
+
             var fresh = await Keyed(Job("N-1", "ALPHA", ("status", "RECEIVED"), ("arrDate", ""), ("arrTime", "")));
             var offeredA = await PortalOf(userA);
             check(fresh is { Offered: 1, Withdrawn: 0, Billed: 0 }
