@@ -200,7 +200,22 @@ test("the register asks the carrier, bills what closes, and keeps SCMOS's own me
   assert.match(program, /AddScoped<RegisterCarrierFollower>\(\)/);
   assert.match(program, /AddHostedService<BillingCaseSweep>\(\)/);
   // A binding SCMOS writes to bill a job is not the carrier's answer.
-  assert.match(read("server/Scmos.Api/Services/KpiEngine.cs"), /row\.ReasonCode != CarrierAssignment\.RegisterBinding/);
-  assert.match(read("server/Scmos.Api/Services/CarrierBillingControlTowerService.cs"), /row\.ReasonCode != CarrierAssignment\.RegisterBinding/);
+  assert.match(read("server/Scmos.Api/Services/KpiEngine.cs"), /Where\(row => CarrierAssignment\.IsCarriersOwn\(row\.ReasonCode\)\)/);
+  assert.match(read("server/Scmos.Api/Services/CarrierBillingControlTowerService.cs"), /Where\(row => CarrierAssignment\.IsCarriersOwn\(row\.ReasonCode\)\)/);
   assert.match(read("server/Scmos.Api/Services/CarrierBillingService.cs"), /assignment \?\?= await BindAsync\(actor, supplier, job, token\);/);
+});
+
+test("a job's owner may accept for its carrier, from the job's drawer, and only the owner", () => {
+  const app = read("app/SCMOSApp.tsx");
+  assert.match(app, /apiFetch\(`\/api\/jobs\/\$\{encodeURIComponent\(drawer\)\}\/carrier-ask`/);
+  assert.match(app, /apiFetch\(`\/api\/jobs\/\$\{encodeURIComponent\(key\)\}\/carrier-ask\/accept`, \{ method: "POST" \}\)/);
+  assert.match(app, /onAcceptForCarrier=\{canEditJob\(drawerJob\) \? \(\) => acceptForCarrier\(drawerJob\.key\) : undefined\}/);
+  assert.match(app, /if \(!drawer \|\| isCarrier\) return;/);                       // a carrier's own drawer never asks
+  const drawer = read("app/scmos/overlays/WorkspaceOverlays.tsx");
+  assert.match(drawer, /\{!p\.carrier && p\.carrierAsk && p\.onAcceptForCarrier && \(/);
+  assert.match(drawer, /`รับงานแทน \$\{p\.carrierAsk\.carrier\}`/);
+  const endpoints = read("server/Scmos.Api/Endpoints/JobsEndpoints.cs");
+  assert.match(endpoints, /MapPost\("\/\{key\}\/carrier-ask\/accept"[\s\S]*?CarrierTenantContext\.IsCarrier\(user\)[\s\S]*?OthersJobsAsync\(\[key\]/);
+  // The owner's yes is not the carrier's answer: acceptance measures leave it out.
+  assert.match(read("server/Scmos.Api/Rules/CarrierAssignment.cs"), /IsCarriersOwn\(string reasonCode\) => reasonCode is not \(RegisterBinding or OwnerAccepted\)/);
 });

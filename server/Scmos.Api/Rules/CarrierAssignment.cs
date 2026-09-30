@@ -73,6 +73,15 @@ public static class CarrierAssignment
     /// <summary>The reason code on an ask confirmed because the carrier keyed the job itself (a carrier job request).</summary>
     public const string CarrierRequested = "CARRIER_REQUESTED";
 
+    /// <summary>
+    /// The reason code on an ask the job's owner in the department accepted for the carrier (30 Sep 2026) —
+    /// the carrier said yes outside SCMOS. Not the carrier's answer in SCMOS: acceptance measures leave it out.
+    /// </summary>
+    public const string OwnerAccepted = "ACCEPTED_BY_OWNER";
+
+    /// <summary>Whether a row is a carrier's own answer, for the measures of how carriers answer.</summary>
+    public static bool IsCarriersOwn(string reasonCode) => reasonCode is not (RegisterBinding or OwnerAccepted);
+
     public static bool IsActive(string outcome) => outcome is Pending or Confirmed;
 
     /// <summary>An outcome that closes a request, so the next carrier may be asked.</summary>

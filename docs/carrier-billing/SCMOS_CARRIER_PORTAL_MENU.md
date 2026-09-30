@@ -102,6 +102,16 @@ the write.
     named.
   - A job the carrier keyed itself (a carrier job request) is confirmed when
     Leschaco approves it, and is not asked again.
+- The job's owner (or a delegate, or anyone who may edit any job) may accept
+  for the carrier when it said yes outside SCMOS. The button is
+  **รับงานแทน {carrier}** in the job's drawer (`GET /api/jobs/{key}/carrier-ask`,
+  `POST /api/jobs/{key}/carrier-ask/accept`).
+  - It goes through the carrier's own acceptance, so the job moves to the
+    carrier's My job and reads SUPPLIER_CONFIRMED.
+  - The ask is marked `ACCEPTED_BY_OWNER`. Acceptance measures leave it out,
+    like a binding, since it is not the carrier's answer in SCMOS.
+  - Setting the status in the grid is not an acceptance: the job waits in the
+    carrier's NEW job until the carrier or the owner accepts it.
 
 ## Every COMPLETED job has a Billing Case
 
@@ -193,6 +203,7 @@ A new carrier screen that needs another route adds it to
   - a carrier swapped and one removed;
   - a refusal on the bell until the next carrier;
   - a carrier's own request confirmed on approval;
+  - a status set in the grid not accepting, and the owner accepting for the carrier;
   - a case on COMPLETED dated by arrival;
   - a legacy job completed in the carrier's My job, bound and billed;
   - the sweep paged and run once;

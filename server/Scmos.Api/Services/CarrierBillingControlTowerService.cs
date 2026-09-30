@@ -137,11 +137,13 @@ public class CarrierBillingControlTowerService(ScmosDbContext db, CarrierTenantC
                 invoice?.InvoiceNumber ?? ""));
         }
 
-        // A binding SCMOS wrote when a job closed is not a carrier's answer (30 Sep 2026).
         var assignmentQuery = db.SupplierRequests.AsNoTracking().Where(row =>
-            row.RequestedAt >= fromAt && row.RequestedAt < untilAt && row.ReasonCode != CarrierAssignment.RegisterBinding);
+            row.RequestedAt >= fromAt && row.RequestedAt < untilAt);
         if (supplierId is { } assignmentSupplier) assignmentQuery = assignmentQuery.Where(row => row.SupplierId == assignmentSupplier);
-        var assignments = await assignmentQuery.ToListAsync(token);
+        // Only the carriers' own answers: not a binding SCMOS wrote when a job closed, nor a yes the job's
+        // owner gave for the carrier (30 Sep 2026).
+        var assignments = (await assignmentQuery.ToListAsync(token))
+            .Where(row => CarrierAssignment.IsCarriersOwn(row.ReasonCode)).ToList();
         var assignmentJobs = assignments.Select(row => row.JobKey).Distinct().ToList();
         var assignmentJobRows = await db.OperationJobs.AsNoTracking().Where(row => assignmentJobs.Contains(row.Key))
             .ToDictionaryAsync(row => row.Key, token);

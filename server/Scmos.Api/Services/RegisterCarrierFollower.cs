@@ -26,7 +26,8 @@ public record RegisterFollowResult(int Offered, int Withdrawn, int Billed);
 /// <para>
 /// And back in SCMOS: a job asked about and not yet that far reads WAITING_SUPPLIER in the department's
 /// register; the carrier's yes moves it to SUPPLIER_CONFIRMED (<see cref="CarrierService.AcceptAssignmentAsync"/>);
-/// its no raises the bell's "ผู้ขนส่งไม่รับงาน" until another carrier is named.
+/// its no raises the bell's "ผู้ขนส่งไม่รับงาน" until another carrier is named. The job's owner may accept for
+/// the carrier (<see cref="AcceptForCarrierAsync"/>); changing the status in the grid does not.
 /// </para>
 ///
 /// <para>
@@ -36,8 +37,8 @@ public record RegisterFollowResult(int Offered, int Withdrawn, int Billed);
 /// delivery date).
 /// </para>
 /// </summary>
-public class RegisterCarrierFollower(ScmosDbContext db, JobsRepository jobs, CarrierBillingService billing,
-    CarrierWebhookQueue webhooks, AuditService audit, ILogger<RegisterCarrierFollower> log)
+public class RegisterCarrierFollower(ScmosDbContext db, JobsRepository jobs, CarrierService carriers,
+    CarrierBillingService billing, CarrierWebhookQueue webhooks, AuditService audit, ILogger<RegisterCarrierFollower> log)
 {
     private static readonly TimeSpan Thailand = TimeSpan.FromHours(7);
 
@@ -127,6 +128,44 @@ public class RegisterCarrierFollower(ScmosDbContext db, JobsRepository jobs, Car
             after = keys[^1];
         }
         return opened;
+    }
+
+    /// <summary>The ask on a job still waiting for its carrier's answer, or null.</summary>
+    public Task<SupplierRequest?> PendingAskAsync(string key, CancellationToken token) =>
+        db.SupplierRequests.AsNoTracking().Where(row => row.JobKey == key && row.Outcome == CarrierAssignment.Pending)
+            .OrderByDescending(row => row.Id).FirstOrDefaultAsync(token);
+
+    /// <summary>
+    /// The job's owner accepts the waiting ask for its carrier (30 Sep 2026: the carrier said yes outside SCMOS).
+    /// The carrier's own acceptance does the work — the job goes to the carrier's My job and reads
+    /// SUPPLIER_CONFIRMED in SCMOS unless it is already further on — and the ask is marked as the owner's,
+    /// <see cref="CarrierAssignment.OwnerAccepted"/>. Who may do it is the caller's check.
+    /// </summary>
+    public async Task<(bool Ok, string Message, int Status)> AcceptForCarrierAsync(AppUser user, string key, CancellationToken token)
+    {
+        var ask = await PendingAskAsync(key, token);
+        if (ask is null) return (false, "งานนี้ไม่มีคำขอที่รอผู้ขนส่งกดรับ", StatusCodes.Status409Conflict);
+        var supplierId = ask.SupplierId ?? await ResolveAsync(ask.Carrier, token);
+        var company = supplierId is null ? null
+            : await db.Suppliers.AsNoTracking().FirstOrDefaultAsync(row => row.Id == supplierId, token);
+        if (company is null) return (false, $"ไม่พบ {ask.Carrier} ใน Supplier Register", StatusCodes.Status409Conflict);
+
+        var statusBefore = await db.OperationJobs.AsNoTracking().Where(row => row.Key == key)
+            .Select(row => new { row.Status, row.JobCode }).FirstOrDefaultAsync(token);
+        var accepted = await carriers.AcceptAssignmentAsync(company, key, ask.Id, "", "", "", "", "", user.Signature, token);
+        if (!accepted.Ok) return (false, accepted.Message, StatusCodes.Status409Conflict);
+
+        var row = await db.SupplierRequests.FirstAsync(one => one.Id == ask.Id, token);
+        row.ReasonCode = CarrierAssignment.OwnerAccepted;
+        row.Reason = $"เจ้าของงานรับงานแทน {ask.Carrier}";
+        audit.Stage(user, AuditActions.Update, "carrier-assignment", ask.Id.ToString(), key,
+            "outcome", CarrierAssignment.Pending, CarrierAssignment.Confirmed, row.Reason);
+        if (accepted.Written?.GetValueOrDefault("status") is { } status && statusBefore is not null
+            && !string.Equals(status, statusBefore.Status, StringComparison.OrdinalIgnoreCase))
+            audit.Stage(user, AuditActions.StatusChange, "job", key, statusBefore.JobCode.Length > 0 ? statusBefore.JobCode : key,
+                AuditActions.For("status")?.Label ?? "status", statusBefore.Status, status, row.Reason);
+        await db.SaveChangesAsync(token);
+        return (true, $"รับงานแทน {ask.Carrier} แล้ว — งานอยู่ใน My job ของผู้ขนส่ง", StatusCodes.Status200OK);
     }
 
     /// <summary>The carrier named on a job, as the Supplier Register knows it, or null.</summary>

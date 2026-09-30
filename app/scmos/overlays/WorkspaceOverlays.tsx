@@ -33,12 +33,18 @@ export function JobDrawer(p: {
   onCorrectionAct?: (what: { id: number } | { jobKey: string }, how?: "apply" | "reject", value?: string) => Promise<void> | void;
   /** The reasons an owner may pick for a late shipment, from the rule's catalogue; empty until read. */
   reasonChoices?: ReasonChoice[];
+  /** The ask waiting for this job's carrier to accept in its NEW job (30 Sep 2026); null when there is none. */
+  carrierAsk?: { carrier: string } | null;
+  /** The owner accepts it for the carrier, who said yes outside SCMOS; absent when this person may not. */
+  onAcceptForCarrier?: () => Promise<void> | void;
 }) {
   const { job: j } = p;
   // The message whose approval is out with the API. Its buttons are quiet
   // until the answer comes: two clicks on อนุมัติ on 17 Sep 2026 — the first
   // gave no visible sign — approved the message twice.
   const [acting, setActing] = useState<number | null>(null);
+  // Quiet while the API answers, like the message approvals below: one click, one acceptance.
+  const [accepting, setAccepting] = useState(false);
   const act = async (id: number, what: "apply" | "dismiss") => {
     if (acting !== null) return;
     setActing(id);
@@ -279,6 +285,16 @@ export function JobDrawer(p: {
         >
           {p.canEdit ? "Edit inline in table" : "View only"}
         </button>
+        {!p.carrier && p.carrierAsk && p.onAcceptForCarrier && (
+          <button className="ghost-btn" disabled={accepting}
+            onClick={async () => {
+              setAccepting(true);
+              try { await p.onAcceptForCarrier?.(); } finally { setAccepting(false); }
+            }}
+            style={css("height:34px;padding:0 13px;border:1px solid #BFDCC9;background:#F3FBF6;color:#16794C;border-radius:4px;font-size:12.5px;font-weight:600;cursor:" + (accepting ? "wait" : "pointer"))}>
+            {accepting ? "กำลังรับงาน…" : `รับงานแทน ${p.carrierAsk.carrier}`}
+          </button>
+        )}
         {/*
           Duplicate and Reassign were taken off this row on 2026-09-01. Both had
           a second way in that does the same work from the grid, where the job

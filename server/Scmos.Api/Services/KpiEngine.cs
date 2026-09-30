@@ -218,9 +218,10 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
 
         var keys = jobs.Select(job => job.Key).ToHashSet();
 
-        // A binding SCMOS wrote when a job closed is not a carrier's answer (30 Sep 2026).
-        var requests = await db.SupplierRequests.AsNoTracking()
-            .Where(row => row.ReasonCode != CarrierAssignment.RegisterBinding).ToListAsync(token);
+        // Only the carriers' own answers: not a binding SCMOS wrote when a job closed, nor a yes the job's
+        // owner gave for the carrier (30 Sep 2026).
+        var requests = (await db.SupplierRequests.AsNoTracking().ToListAsync(token))
+            .Where(row => CarrierAssignment.IsCarriersOwn(row.ReasonCode)).ToList();
         var preRuns = await db.PreRunChecks.AsNoTracking().ToListAsync(token);
         var delays = await db.DelayRecords.AsNoTracking().ToListAsync(token);
         var cases = await db.IncidentCases.AsNoTracking().ToListAsync(token);

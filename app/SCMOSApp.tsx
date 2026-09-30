@@ -1194,6 +1194,39 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     await Promise.all([loadLinePending(), syncRef.current()]);
   };
 
+  /**
+   * The ask waiting for the open drawer's job's carrier (30 Sep 2026), read when the drawer opens: a job keyed
+   * with a carrier waits for it to accept in its NEW job, and the job's owner may accept for it.
+   */
+  const [drawerAsk, setDrawerAsk] = useState<{ key: string; carrier: string } | null>(null);
+  useEffect(() => {
+    setDrawerAsk(null);
+    if (!drawer || isCarrier) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const response = await apiFetch(`/api/jobs/${encodeURIComponent(drawer)}/carrier-ask`, { headers: { accept: "application/json" } });
+        const body = await response.json().catch(() => null) as { ask?: { carrier?: string } | null } | null;
+        if (alive && response.ok && body?.ask?.carrier) setDrawerAsk({ key: drawer, carrier: body.ask.carrier });
+      } catch { /* no button, as when nothing waits */ }
+    })();
+    return () => { alive = false; };
+  }, [drawer, isCarrier]);
+
+  /** The owner accepts the waiting ask for the carrier; the job moves to the carrier's My job, the row follows. */
+  const acceptForCarrier = async (key: string) => {
+    try {
+      const response = await apiFetch(`/api/jobs/${encodeURIComponent(key)}/carrier-ask/accept`, { method: "POST" });
+      const answer = await response.json().catch(() => null) as { message?: string; error?: string } | null;
+      setToast(answer?.message ?? answer?.error ?? `รับงานแทนไม่สำเร็จ (${response.status})`);
+      // A 409 means it was answered meanwhile — by the carrier or a second click: nothing waits any more.
+      if (response.ok || response.status === 409) setDrawerAsk(null);
+    } catch (error) {
+      setToast("รับงานแทนไม่สำเร็จ: " + (error instanceof Error ? error.message : String(error)));
+    }
+    await syncRef.current();
+  };
+
   /** What the dashboard reports on: the register narrowed to the chosen period. */
   const periodJobs = useMemo(
     () => filterPeriod(ops?.jobs ?? [], period),
@@ -3604,6 +3637,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           corrections={correctionsByJob[drawerJob.key] ?? []}
           reasonChoices={reasonChoices}
           onCorrectionAct={canEditJob(drawerJob) ? correctionAct : undefined}
+          carrierAsk={drawerAsk?.key === drawerJob.key ? drawerAsk : null}
+          onAcceptForCarrier={canEditJob(drawerJob) ? () => acceptForCarrier(drawerJob.key) : undefined}
           onClose={() => setDrawer(null)}
           onRaiseIssue={() => {
             const now = new Date();

@@ -341,7 +341,7 @@ static class CarrierPortalChecks
 
             /* ---------------- the register asks the carrier, and bills what closes (30 Sep 2026) ---------------- */
             var registerJobs = new JobsRepository(db, register);
-            var follower = new RegisterCarrierFollower(db, registerJobs, billing,
+            var follower = new RegisterCarrierFollower(db, registerJobs, carriers, billing,
                 new CarrierWebhookQueue(db, NullLogger<CarrierWebhookQueue>.Instance), audit, NullLogger<RegisterCarrierFollower>.Instance);
             async Task<RegisterFollowResult> Keyed(params JsonObject[] rows)
             {
@@ -409,6 +409,24 @@ static class CarrierPortalChecks
             await Keyed(Job("N-4", "ALPHA", ("status", JobStatus.WaitingSupplier)));
             check(!quiet && no.Ok && rung && !await Declined() && (await PortalOf(userA)).Offered.Any(job => job.Key == "N-4"),
                 "register SQL: a carrier's no rings the department's bell until another carrier is named, and that one is asked");
+
+            await Keyed(Job("N-6", "ALPHA", ("status", "RECEIVED")));
+            var marked = await Keyed(Job("N-6", "ALPHA", ("status", JobStatus.SupplierConfirmed)));
+            var stillAsked = (await PortalOf(userA)).Offered.Any(job => job.Key == "N-6");
+            var forCarrier = await follower.AcceptForCarrierAsync(staff, "N-6", default);
+            var ownerYes = await db.SupplierRequests.AsNoTracking().SingleAsync(row => row.JobKey == "N-6");
+            check(marked is { Offered: 0 } && stillAsked && forCarrier.Ok
+                && ownerYes is { Outcome: CarrierAssignment.Confirmed, ReasonCode: CarrierAssignment.OwnerAccepted, RespondedBy: "op@test.invalid" }
+                && (await PortalOf(userA)).Accepted.Any(job => job.Key == "N-6")
+                && (await grid.ReadAsync(userA, default))!.Jobs.Any(job => job["key"] == "N-6")
+                && (await follower.AcceptForCarrierAsync(staff, "N-6", default)) is { Ok: false, Status: 409 }
+                && !CarrierAssignment.IsCarriersOwn(ownerYes.ReasonCode),
+                "register SQL: a status set in the grid is not an acceptance; the owner's 'accept for the carrier' is — the job is in its My job, marked the owner's");
+            await Keyed(Job("N-7", "BRAVO LOGISTICS", ("status", "RECEIVED")));
+            var confirmedN7 = await follower.AcceptForCarrierAsync(staff, "N-7", default);
+            check(confirmedN7.Ok && (await Row("N-7"))["status"] == JobStatus.SupplierConfirmed
+                && (await PortalOf(userB)).Accepted.Any(job => job.Key == "N-7") && (await PortalOf(userA)).Accepted.All(job => job.Key != "N-7"),
+                "register SQL: accepted for the carrier, SCMOS reads SUPPLIER_CONFIRMED and only that carrier holds it");
 
             var ownAsk = await requests.CreateAsync(userA, "import", fields, "", default);
             await Keyed(Job("N-5", "ALPHA TRANSPORT", ("status", "RECEIVED")));

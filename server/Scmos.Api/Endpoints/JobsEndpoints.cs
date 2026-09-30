@@ -278,6 +278,38 @@ public static class JobsEndpoints
             });
         });
 
+        // A job's ask still waiting for its carrier, for the owner's drawer (30 Sep 2026): who, since when.
+        group.MapGet("/{key}/carrier-ask", async (string key, HttpContext context, IUserAccessor users,
+            RegisterCarrierFollower follower, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (CarrierTenantContext.IsCarrier(user))
+                return ApiResults.Error("ข้อมูลนี้เป็นของแผนก", StatusCodes.Status403Forbidden);
+            context.Response.Headers.CacheControl = "no-store";
+            var ask = await follower.PendingAskAsync(key, token);
+            return Results.Json(new { ask = ask is null ? null : new { id = ask.Id, carrier = ask.Carrier, requestedAt = ask.RequestedAt } });
+        });
+
+        // The job's owner accepts the waiting ask for its carrier (30 Sep 2026), who said yes outside SCMOS:
+        // the job goes to the carrier's My job. The owner's, as for any edit of the job — or a delegate's.
+        group.MapPost("/{key}/carrier-ask/accept", async (string key, HttpContext context, IUserAccessor users,
+            DelegationService delegations, JobsRepository jobs, RegisterCarrierFollower follower, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (CarrierTenantContext.IsCarrier(user) || (!user.Can(Capability.EditOwnJobs) && !user.Can(Capability.EditAnyJob)))
+                return ApiResults.Error("บัญชีนี้รับงานแทนผู้ขนส่งไม่ได้", StatusCodes.Status403Forbidden);
+            if (!user.Can(Capability.EditAnyJob))
+            {
+                var acting = await delegations.ActingForAsync(user.OperatorId, token);
+                if ((await jobs.OthersJobsAsync([key], user.OperatorId, token, acting)).Count > 0)
+                    return ApiResults.Error("รับงานแทนได้เฉพาะเจ้าของงาน", StatusCodes.Status403Forbidden);
+            }
+            var (ok, message, status) = await follower.AcceptForCarrierAsync(user, key, token);
+            return ok ? Results.Json(new { message }) : ApiResults.Error(message, status);
+        });
+
         // DELETE never infers a body, so it has to be asked for by name. The
         // workspace sends one: either the keys to remove or `all` to wipe.
         group.MapDelete("", async ([FromBody] DeleteRequest? body, HttpContext context, IUserAccessor users,
