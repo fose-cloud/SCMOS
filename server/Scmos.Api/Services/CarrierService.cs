@@ -349,6 +349,12 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
             ["trucker"] = ours.Carrier,
             ["status"] = JobStatus.SupplierConfirmed,
         };
+        // A job the department has already moved past the carrier's yes keeps its place (30 Sep 2026:
+        // every job keyed with a carrier is now asked, and the department often runs ahead of the answer).
+        var confirmedLadder = JobStatus.For(fields?.GetValueOrDefault("cat", "") ?? "");
+        if (Array.FindIndex(confirmedLadder, value => string.Equals(value, JobStatus.Canonical(jobStatus), StringComparison.OrdinalIgnoreCase))
+            > Array.IndexOf(confirmedLadder, JobStatus.SupplierConfirmed))
+            writes.Remove("status");
         // The box and the seal are not the acceptance; they are offered to
         // empty cells, and a cell the department keyed differently stops the
         // whole call before the request is answered.

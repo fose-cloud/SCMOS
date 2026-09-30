@@ -30,6 +30,7 @@ public enum AlertKind
     LineMessageWaiting,
     AiRiskFound,
     CarrierJobRequested,
+    CarrierDeclined,
 }
 
 /// <summary>Critical needs somebody now; Warning needs somebody today; Information is context.</summary>
@@ -94,6 +95,11 @@ public static class Notifications
         // the team's view only — and never on a carrier's own, which is always narrowed.
         new(AlertKind.CarrierJobRequested, "Carrier job request", "ผู้ขนส่งแจ้งงานใหม่",
             AlertLevel.Warning, "เปิด Operation Workspace แล้วยืนยันหรือไม่รับงานที่ผู้ขนส่งแจ้ง", "myjob"),
+
+        // A carrier asked to take a job — named on it in the register, or asked from the workflow — said no
+        // in its NEW job, and nobody has named another since (30 Sep 2026). The job still needs a truck.
+        new(AlertKind.CarrierDeclined, "Carrier declined a job", "ผู้ขนส่งไม่รับงาน",
+            AlertLevel.Critical, "เลือกผู้ขนส่งรายใหม่ในตารางงาน", "myjob"),
 
         new(AlertKind.SupplierNotConfirmed, "Supplier not confirmed", "ผู้ขนส่งยังไม่ยืนยัน",
             AlertLevel.Critical, "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ", "myjob"),

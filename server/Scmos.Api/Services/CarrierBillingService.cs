@@ -69,6 +69,9 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
             .Where(row => row.JobKey == job.Key && row.Outcome == CarrierAssignment.Confirmed
                 && row.SupplierId == supplier.Id)
             .OrderByDescending(row => row.Id).FirstOrDefaultAsync(token);
+        // A job the carrier holds without a confirmed ask of its own — keyed before asks existed, or
+        // closed before it answered — is bound to it here, once, so it can be billed (30 Sep 2026).
+        assignment ??= await BindAsync(actor, supplier, job, token);
         if (assignment is null) return (null, false);
         var now = DateTimeOffset.UtcNow;
         var record = new BillingCase
@@ -94,6 +97,47 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         audit.Stage(actor, AuditActions.Register, "billing-case", job.Key, job.JobCode,
             "status", "", record.Status, $"Delivery Complete · {ChannelOf(actor)}", AuditSourceOf(actor));
         return (record, true);
+    }
+
+    /// <summary>
+    /// A confirmed assignment for a job this carrier holds without one: its own ask still open is
+    /// confirmed, or one is written. Null — nothing written — while another carrier holds an open or
+    /// confirmed ask on the job. SCMOS writes it, not the carrier, so it carries
+    /// <see cref="CarrierAssignment.RegisterBinding"/> and no answer time: acceptance measures leave it out.
+    /// A legacy confirmed row written under the carrier's name (no supplier id) is used as it is.
+    /// </summary>
+    private async Task<SupplierRequest?> BindAsync(AppUser actor, Supplier supplier, OperationJob job, CancellationToken token)
+    {
+        var aliases = await db.SupplierAliases.AsNoTracking().Where(row => row.SupplierId == supplier.Id)
+            .Select(row => row.Alias).ToListAsync(token);
+        var names = new HashSet<string>(aliases.Append(supplier.Name).Append(supplier.Code)
+            .Select(name => name.Trim()).Where(name => name.Length > 0), StringComparer.OrdinalIgnoreCase);
+        var history = await db.SupplierRequests.Where(row => row.JobKey == job.Key).ToListAsync(token);
+        bool Ours(SupplierRequest row) => CarrierAssignment.BelongsTo(row.SupplierId, row.Carrier, supplier.Id, names);
+        var active = history.Where(row => CarrierAssignment.IsActive(row.Outcome)).ToList();
+        if (active.Any(row => !Ours(row))) return null;
+        if (active.FirstOrDefault(row => row.Outcome == CarrierAssignment.Confirmed) is { } legacy) return legacy;
+
+        var bound = active.FirstOrDefault(row => row.Outcome == CarrierAssignment.Pending);
+        if (bound is null)
+        {
+            bound = new SupplierRequest
+            {
+                JobKey = job.Key, SupplierId = supplier.Id, Rank = history.Count == 0 ? 1 : history.Max(row => row.Rank) + 1,
+                Carrier = job.Trucker.Trim().Length > 0 ? job.Trucker.Trim() : supplier.Name,
+                RequestedBy = actor.Signature, RequestedAt = DateTimeOffset.UtcNow,
+            };
+            db.SupplierRequests.Add(bound);
+        }
+        bound.Outcome = CarrierAssignment.Confirmed;
+        bound.ReasonCode = CarrierAssignment.RegisterBinding;
+        bound.Reason = "ผูกกับผู้ขนส่งในทะเบียนงานเมื่อปิดงาน เพื่อวางบิล";
+        bound.RespondedBy = actor.Signature;
+        audit.Stage(actor, AuditActions.Assign, "carrier-assignment", job.Key, job.JobCode,
+            "outcome", "", CarrierAssignment.Confirmed, bound.Reason, AuditSourceOf(actor));
+        // Saved now: the case below names it by id.
+        await db.SaveChangesAsync(token);
+        return bound;
     }
 
     public async Task<(bool Ok, string Message, IReadOnlyList<BillingCaseView> Items)> ListAsync(
@@ -397,7 +441,7 @@ public class CarrierBillingService(ScmosDbContext db, BusinessCalendarService ca
         CarrierTenantContext.IsCarrier(user) ? await tenants.ResolveAsync(user, token) : null;
 
     private static string ChannelOf(AppUser user) => user.Source == "carrier-api"
-        ? "Carrier API" : "Carrier Portal";
+        ? "Carrier API" : CarrierTenantContext.IsCarrier(user) ? "Carrier Portal" : "SCMOS";
 
     private static string AuditSourceOf(AppUser user) => user.Source == "carrier-api"
         ? EventSource.CarrierApi : "web";

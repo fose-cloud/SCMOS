@@ -10,6 +10,13 @@ using Scmos.Api.Auth;
 namespace Scmos.Api.Data;
 
 /// <summary>
+/// A job whose carrier or status a save changed, as the register held it before and after — what the
+/// carrier offer and the Billing Case follow (30 Sep 2026). <see cref="Created"/> when the save added it.
+/// </summary>
+public record RegisterChange(string Key, string TruckerBefore, string TruckerAfter, string StatusBefore,
+    string StatusAfter, bool Created);
+
+/// <summary>
 /// The register, read and written.
 ///
 /// The workspace holds the job model; this only persists it. Queryable fields
@@ -37,6 +44,12 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
 
     /// <summary>Operator name to owner id, read once per save. See SaveAsync.</summary>
     private Dictionary<string, string> _directory = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The jobs the last <see cref="SaveAsync"/> added, or whose carrier or status it changed — read in the
+    /// same round trip as the write, before it, so "before" is what the register held. Empty until a save.
+    /// </summary>
+    public IReadOnlyList<RegisterChange> LastChanges { get; private set; } = [];
 
     /// <summary>
     /// The owner id for an operator name off a plan workbook, or empty when the
@@ -253,6 +266,7 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
             .ToDictionaryAsync(person => person.Name, person => person.Id, StringComparer.OrdinalIgnoreCase, token);
 
         var now = DateTimeOffset.UtcNow;
+        LastChanges = [];
         var table = BuildTable(jobs, by, now);
         if (table.Rows.Count == 0) return (0, now);
 
@@ -282,6 +296,27 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
                         bulk.ColumnMappings.Add(column.ColumnName, column.ColumnName);
                     await bulk.WriteToServerAsync(table, token);
                 }
+
+                // What this save changes about each job's carrier and status, read against the rows it is
+                // about to replace (30 Sep 2026). The carrier offer and the Billing Case act on it.
+                var changes = new List<RegisterChange>();
+                await using (var read = connection.CreateCommand())
+                {
+                    read.CommandText = """
+                        SELECT source.[key], ISNULL(target.trucker, N''), source.trucker,
+                               ISNULL(target.status, N''), source.status,
+                               CASE WHEN target.[key] IS NULL THEN 1 ELSE 0 END
+                        FROM #incoming AS source
+                        LEFT JOIN operation_jobs AS target ON target.[key] = source.[key]
+                        WHERE target.[key] IS NULL OR target.trucker <> source.trucker OR target.status <> source.status;
+                        """;
+                    read.CommandTimeout = 120;
+                    await using var rows = await read.ExecuteReaderAsync(token);
+                    while (await rows.ReadAsync(token))
+                        changes.Add(new RegisterChange(rows.GetString(0), rows.GetString(1), rows.GetString(2),
+                            rows.GetString(3), rows.GetString(4), rows.GetInt32(5) == 1));
+                }
+                LastChanges = changes;
 
                 // UPDATE then INSERT rather than MERGE: the same result, without
                 // MERGE's long tail of concurrency bugs on SQL Server.
@@ -386,6 +421,19 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
         return (builder.ToString(), rows.Count);
     }
 
+    /// <summary>
+    /// Which of these jobs a Billing Case holds. A case is a carrier's bill, kept by a foreign key the
+    /// database refuses to break, so such a job is never deleted — deleting it answered 500 (30 Sep 2026).
+    /// </summary>
+    public async Task<List<string>> BilledAsync(IReadOnlyList<string> keys, CancellationToken token)
+    {
+        var billed = new List<string>();
+        foreach (var chunk in keys.Select(key => Text(key, 80)).Where(key => key.Length > 0).Distinct().Chunk(1000))
+            billed.AddRange(await db.BillingCases.AsNoTracking().Where(row => chunk.Contains(row.JobKey))
+                .Select(row => row.JobKey).ToListAsync(token));
+        return billed;
+    }
+
     public async Task<int> DeleteAsync(IReadOnlyList<string> keys, CancellationToken token)
     {
         var wanted = keys.Select(key => Text(key, 80)).Where(key => key.Length > 0).Distinct().ToList();
@@ -436,14 +484,17 @@ public partial class JobsRepository(ScmosDbContext db, JobRegisterCache register
             query = query.Where(job => job.WorkDate.EndsWith(suffix));
         }
 
-        var removed = await query.ExecuteDeleteAsync(token);
+        // A job a Billing Case holds stays — see BilledAsync. The caller reports how many.
+        var removed = await query.Where(job => !db.BillingCases.Any(row => row.JobKey == job.Key)).ExecuteDeleteAsync(token);
         if (removed > 0) register.Invalidate();
         return removed;
     }
 
+    /// <summary>Empties the register, except the jobs a Billing Case holds (see <see cref="BilledAsync"/>).</summary>
     public async Task<int> ClearAsync(CancellationToken token)
     {
-        var removed = await db.OperationJobs.ExecuteDeleteAsync(token);
+        var removed = await db.OperationJobs.Where(job => !db.BillingCases.Any(row => row.JobKey == job.Key))
+            .ExecuteDeleteAsync(token);
         if (removed > 0) register.Invalidate();
         return removed;
     }

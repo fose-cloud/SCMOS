@@ -26,7 +26,8 @@ public record CarrierJobRequestResult(bool Ok, string Code, string Message, long
 /// own (<see cref="BookingVerification.Fields"/>), so a request opens into the
 /// form without translation, and the form's save is the only way into the register.
 /// </summary>
-public class CarrierJobRequestService(ScmosDbContext db, CarrierService carriers, AuditService audit, TimeProvider clock)
+public class CarrierJobRequestService(ScmosDbContext db, CarrierService carriers, JobsRepository jobs, AuditService audit,
+    TimeProvider clock)
 {
     /// <summary>How many requests one carrier may have waiting at once.</summary>
     public const int MaxPending = 50;
@@ -137,7 +138,38 @@ public class CarrierJobRequestService(ScmosDbContext db, CarrierService carriers
         if (row is null) return new(false, "not_found", "ไม่พบคำขอนี้");
         if (row.Status != CarrierJobRequest.Pending) return new(false, "closed", "คำขอนี้ถูกตอบไปแล้ว");
         row.JobKey = key;
-        return await SettleAsync(user, row, CarrierJobRequest.Approved, "", "ยืนยันงานที่ผู้ขนส่งแจ้ง → " + key, revision, token);
+        // The form's save asked the carrier named on it to accept (RegisterCarrierFollower). When that is the
+        // carrier that keyed the job, it said yes when it asked: the ask is confirmed and the job is in its My job.
+        var ask = await db.SupplierRequests.FirstOrDefaultAsync(one => one.JobKey == key
+            && one.Outcome == CarrierAssignment.Pending && one.SupplierId == row.SupplierId, token);
+        if (ask is not null)
+        {
+            ask.Outcome = CarrierAssignment.Confirmed;
+            ask.ReasonCode = CarrierAssignment.CarrierRequested;
+            ask.Reason = "ผู้ขนส่งแจ้งงานนี้เอง";
+            ask.RespondedAt = clock.GetUtcNow();
+            ask.RespondedBy = row.CreatedBy;
+            audit.Stage(user, AuditActions.Update, "carrier-assignment", ask.Id.ToString(), key,
+                "outcome", CarrierAssignment.Pending, CarrierAssignment.Confirmed, ask.Reason);
+        }
+        var settled = await SettleAsync(user, row, CarrierJobRequest.Approved, "", "ยืนยันงานที่ผู้ขนส่งแจ้ง → " + key, revision, token);
+        // The department's register says so, as a carrier's yes in its NEW job does.
+        if (settled.Ok && ask is not null) await ConfirmedAsync(user, key, token);
+        return settled;
+    }
+
+    /// <summary>A job not yet as far as its carrier's yes now is: SUPPLIER_CONFIRMED, audited. Later statuses stay.</summary>
+    private async Task ConfirmedAsync(AppUser user, string key, CancellationToken token)
+    {
+        var job = await db.OperationJobs.AsNoTracking().FirstOrDefaultAsync(one => one.Key == key, token);
+        if (job is null) return;
+        var ladder = JobStatus.For(job.Cat);
+        var at = Array.IndexOf(ladder, JobStatus.Canonical(job.Status));
+        if (at < 0 || at >= Array.IndexOf(ladder, JobStatus.SupplierConfirmed)) return;
+        if (!await jobs.PatchAsync(key, new Dictionary<string, string> { ["status"] = JobStatus.SupplierConfirmed },
+                user.Signature, token)) return;
+        await audit.RecordAsync(user, AuditActions.StatusChange, "job", key, job.JobCode.Length > 0 ? job.JobCode : key,
+            AuditActions.For("status")?.Label ?? "status", job.Status, JobStatus.SupplierConfirmed, "ผู้ขนส่งแจ้งงานนี้เอง", token);
     }
 
     public async Task<CarrierJobRequestResult> RejectAsync(AppUser user, long id, string? reason, int revision, CancellationToken token)

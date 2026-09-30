@@ -92,6 +92,29 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
                 "", "carrier-job-request");
         }
 
+        /* ---- 0a''. a carrier said no, and nobody else is asked yet ---- */
+        // The job's latest ask rejected and no ask open, on an open job of this view (30 Sep 2026).
+        var refusedKeys = await db.SupplierRequests.AsNoTracking()
+            .Where(row => row.Outcome == CarrierAssignment.Rejected).Select(row => row.JobKey).Distinct().ToListAsync(token);
+        if (refusedKeys.Count > 0)
+        {
+            var openJobs = jobs.Where(job => !JobStatus.IsClosedOut(JobStatus.Canonical(job.Status)))
+                .ToDictionary(job => job.Key, StringComparer.Ordinal);
+            var candidates = refusedKeys.Where(openJobs.ContainsKey).ToList();
+            var asked = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var chunk in candidates.Chunk(1000))
+                asked.UnionWith(await db.SupplierRequests.AsNoTracking()
+                    .Where(row => chunk.Contains(row.JobKey)
+                        && (row.Outcome == CarrierAssignment.Pending || row.Outcome == CarrierAssignment.Confirmed))
+                    .Select(row => row.JobKey).ToListAsync(token));
+            var declined = candidates.Where(key => !asked.Contains(key)).ToList();
+            Add(alerts, AlertKind.CarrierDeclined, declined.Count,
+                $"{declined.Count} งานที่ผู้ขนส่งไม่รับ ต้องหาผู้ขนส่งใหม่",
+                string.Join(" · ", declined.Select(key => openJobs[key].Trucker.Trim()).Where(name => name.Length > 0)
+                    .GroupBy(name => name, StringComparer.OrdinalIgnoreCase).Select(group => $"{group.Key} {group.Count()}").Take(4)),
+                declined.Count > 0 ? declined[0] : "", "job");
+        }
+
         /* ---- 0b. a haulier's message waiting on one of these jobs ---- */
         // From the LINE room or from the carrier's TMS, pinned to one job by
         // the rule and not yet approved or set aside; first, because it is

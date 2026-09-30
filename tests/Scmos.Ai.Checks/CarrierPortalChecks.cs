@@ -306,7 +306,7 @@ static class CarrierPortalChecks
                 "carrier my job SQL: what changed since a stamp is its own rows only, with its own count");
 
             /* ---------------- jobs a carrier keys in, for the department to confirm ---------------- */
-            var requests = new CarrierJobRequestService(db, carriers, audit, TimeProvider.System);
+            var requests = new CarrierJobRequestService(db, carriers, new JobsRepository(db, register), audit, TimeProvider.System);
             var staff = new AppUser("op", "op@test.invalid", "Operator", Roles.Operation, "OP-C1", "test", true);
             var fields = new Dictionary<string, string> { ["customer"] = "BASF", ["date"] = "02/10/2026", ["type"] = "1X40'", ["destination"] = "LKB", ["planTime"] = "" };
             var created = await requests.CreateAsync(userA, "import", fields, "call before loading", default);
@@ -338,6 +338,115 @@ static class CarrierPortalChecks
             check(trail.Select(one => one.NewValue).SequenceEqual([CarrierJobRequest.Pending, CarrierJobRequest.Approved, CarrierJobRequest.Pending, CarrierJobRequest.Rejected])
                 && trail[1].Reason.Contains("A-ON-1"),
                 "carrier requests SQL: every step is in the audit — keyed, approved with its job, keyed, refused");
+
+            /* ---------------- the register asks the carrier, and bills what closes (30 Sep 2026) ---------------- */
+            var registerJobs = new JobsRepository(db, register);
+            var follower = new RegisterCarrierFollower(db, registerJobs, billing,
+                new CarrierWebhookQueue(db, NullLogger<CarrierWebhookQueue>.Instance), audit, NullLogger<RegisterCarrierFollower>.Instance);
+            async Task<RegisterFollowResult> Keyed(params JsonObject[] rows)
+            {
+                await registerJobs.SaveAsync(rows.Select(row => JsonSerializer.SerializeToElement(row)).ToList(), staff.Signature, default);
+                var followed = await follower.FollowAsync(registerJobs.LastChanges, staff, default);
+                await register.ReadAsync(default);
+                return followed;
+            }
+            // The portal and the bell read the register as it was a moment ago while it is read again behind
+            // them (stale-while-revalidate); a check reads it afresh first.
+            async Task<CarrierService.Portal> PortalOf(AppUser user)
+            {
+                await register.ReadAsync(default);
+                return (await carriers.ReadAsync(user, default))!;
+            }
+
+            var fresh = await Keyed(Job("N-1", "ALPHA", ("status", "RECEIVED"), ("arrDate", ""), ("arrTime", "")));
+            var offeredA = await PortalOf(userA);
+            check(fresh is { Offered: 1, Withdrawn: 0, Billed: 0 }
+                && offeredA.Offered.Any(job => job.Key == "N-1") && offeredA.Accepted.All(job => job.Key != "N-1")
+                && (await grid.ReadAsync(userA, default))!.Jobs.All(job => job["key"] != "N-1")
+                && (await Row("N-1"))["status"] == JobStatus.WaitingSupplier,
+                "register SQL: a job keyed with a carrier is that carrier's NEW job, not its My job, and reads WAITING_SUPPLIER in SCMOS");
+            var yes = await carriers.AcceptAssignmentAsync(alpha, "N-1", null, "", "", "", "", "", userA.Signature, default);
+            check(yes.Ok && (await PortalOf(userA)).Accepted.Any(job => job.Key == "N-1")
+                && (await grid.ReadAsync(userA, default))!.Jobs.Any(job => job["key"] == "N-1")
+                && (await Row("N-1"))["status"] == JobStatus.SupplierConfirmed,
+                "register SQL: accepted, it moves to the carrier's My job, and SCMOS reads SUPPLIER_CONFIRMED");
+
+            var ahead = await Keyed(Job("N-2", "ALPHA", ("status", "DISPATCHED")));
+            var aheadYes = await carriers.AcceptAssignmentAsync(alpha, "N-2", null, "", "", "", "", "", userA.Signature, default);
+            check(ahead.Offered == 1 && aheadYes.Ok && (await Row("N-2"))["status"] == JobStatus.Dispatched,
+                "register SQL: a job the department already moved on keeps its status when asked and when accepted");
+            var respelled = await Keyed(Job("N-1", "ALPHA TRANSPORT", ("status", JobStatus.SupplierConfirmed), ("arrDate", ""), ("arrTime", "")));
+            var untouched = await Keyed(Job("A-ON-1", "ALPHA", ("remark", "edited by the department")));
+            check(respelled is { Offered: 0, Withdrawn: 0 } && (await PortalOf(userA)).Accepted.Any(job => job.Key == "N-1")
+                && untouched is { Offered: 0, Withdrawn: 0, Billed: 0 } && (await PortalOf(userA)).Accepted.Any(job => job.Key == "A-ON-1"),
+                "register SQL: the same company spelled another way asks nobody again, and a job it held by name stays its own");
+
+            await Keyed(Job("N-3", "ALPHA", ("status", "RECEIVED")));
+            var swapped = await Keyed(Job("N-3", "BRAVO LOGISTICS", ("status", JobStatus.WaitingSupplier)));
+            var asks = await db.SupplierRequests.AsNoTracking().Where(row => row.JobKey == "N-3").OrderBy(row => row.Id).ToListAsync();
+            check(swapped is { Offered: 1, Withdrawn: 1 } && (await PortalOf(userA)).Offered.All(job => job.Key != "N-3")
+                && (await PortalOf(userB)).Offered.Any(job => job.Key == "N-3") && asks.Count == 2
+                && asks[0] is { Outcome: CarrierAssignment.Superseded, ReasonCode: CarrierAssignment.RegisterChanged }
+                && asks[1] is { Outcome: CarrierAssignment.Pending, Rank: 2 },
+                "register SQL: another carrier named closes the first ask and asks the second");
+            var takenOff = await Keyed(Job("N-3", "", ("status", JobStatus.WaitingSupplier)));
+            check(takenOff is { Offered: 0, Withdrawn: 1 } && (await PortalOf(userB)).Offered.All(job => job.Key != "N-3"),
+                "register SQL: the carrier taken off the job, its ask is closed");
+
+            await Keyed(Job("N-4", "BRAVO LOGISTICS", ("status", "RECEIVED")));
+            var bellCache = new MemoryCache(new MemoryCacheOptions());
+            var bell = new NotificationService(db, new KpiEngine(db, register, new CarrierDirectory(db, bellCache), bellCache,
+                Options.Create(new PreRunOptions())), register, new DelegationService(db));
+            async Task<bool> Declined()
+            {
+                await register.ReadAsync(default);
+                return (await bell.BuildAsync(null, default)).Alerts
+                    .Any(alert => alert.Kind == nameof(AlertKind.CarrierDeclined) && alert.TargetId == "N-4");
+            }
+            var quiet = await Declined();
+            var no = await carriers.DeclineAssignmentAsync(bravo, "N-4", null, "NO_TRUCK", "", userB.Signature, default);
+            var rung = await Declined();
+            await Keyed(Job("N-4", "ALPHA", ("status", JobStatus.WaitingSupplier)));
+            check(!quiet && no.Ok && rung && !await Declined() && (await PortalOf(userA)).Offered.Any(job => job.Key == "N-4"),
+                "register SQL: a carrier's no rings the department's bell until another carrier is named, and that one is asked");
+
+            var ownAsk = await requests.CreateAsync(userA, "import", fields, "", default);
+            await Keyed(Job("N-5", "ALPHA TRANSPORT", ("status", "RECEIVED")));
+            db.ChangeTracker.Clear();
+            var approved = await requests.ApproveAsync(staff, ownAsk.Id!.Value, "N-5", 0, default);
+            var own = await db.SupplierRequests.AsNoTracking().SingleAsync(row => row.JobKey == "N-5");
+            check(approved.Ok && own is { Outcome: CarrierAssignment.Confirmed, ReasonCode: CarrierAssignment.CarrierRequested, RespondedBy: "sub-a@carrier.test" }
+                && (await Row("N-5"))["status"] == JobStatus.SupplierConfirmed && (await PortalOf(userA)).Accepted.Any(job => job.Key == "N-5"),
+                "register SQL: a job the carrier keyed itself, saved and approved, is in its My job without asking it again");
+
+            var closedOut = await Keyed(Job("N-1", "ALPHA TRANSPORT", ("status", JobStatus.Completed), ("arrDate", "28/09/2026"), ("arrTime", "10:00")));
+            var caseN1 = await db.BillingCases.AsNoTracking().SingleOrDefaultAsync(row => row.JobKey == "N-1");
+            check(closedOut.Billed == 1 && caseN1 is { } && caseN1.SupplierId == alpha.Id
+                && caseN1.DeliveryCompletedAt == new DateTimeOffset(2026, 9, 28, 3, 0, 0, TimeSpan.Zero)
+                && (await billing.ListForCarrierAsync(alpha.Id, default)).Items.Any(item => item.JobKey == "N-1")
+                && (await billing.ListForCarrierAsync(bravo.Id, default)).Items.All(item => item.JobKey != "N-1"),
+                "register SQL: closed COMPLETED in SCMOS, the carrier's Billing Case opens, due from the real delivery");
+
+            var finished = await grid.SaveAsync(userA, [Sent(new { key = "A-MOVED", status = "COMPLETED" })], default);
+            var movedCase = await db.BillingCases.AsNoTracking().SingleOrDefaultAsync(row => row.JobKey == "A-MOVED");
+            var binding = movedCase is null ? null : await db.SupplierRequests.AsNoTracking().SingleOrDefaultAsync(row => row.Id == movedCase.AssignmentId);
+            check(finished.Ok && movedCase is { } && binding is { Outcome: CarrierAssignment.Confirmed, ReasonCode: CarrierAssignment.RegisterBinding },
+                "register SQL: a job the carrier held by name, completed in its own My job, is bound to it and billed");
+
+            var scheduler = new AppUser("scheduler", "", "SCMOS", "System", "", "system", Recognised: true);
+            var swept = await follower.SweepAsync(scheduler, default, page: 2);
+            var billedNow = await db.BillingCases.AsNoTracking().Select(row => row.JobKey).ToListAsync();
+            var bindings = await db.SupplierRequests.AsNoTracking().CountAsync(row => row.ReasonCode == CarrierAssignment.RegisterBinding);
+            check(swept == 6 && billedNow.Order().SequenceEqual(["A-LATE", "A-MOVED", "A-ON-1", "A-ON-2", "B-LATE-1", "B-LATE-2", "B-LATE-3", "N-1"])
+                && bindings == 7 && await follower.SweepAsync(scheduler, default) == 0,
+                "register SQL: the sweep bills every COMPLETED job closed before, a page at a time, once — the cancelled one not");
+
+            var billedKeys = await registerJobs.BilledAsync(["A-ON-1", "N-2", "N-4"], default);
+            var jobsBefore = await db.OperationJobs.CountAsync();
+            var removed = await registerJobs.ClearAsync(default);
+            check(billedKeys.SequenceEqual(["A-ON-1"]) && removed == jobsBefore - billedNow.Count
+                && await db.OperationJobs.CountAsync() == billedNow.Count,
+                "register SQL: a job with a Billing Case is never deleted — named by key, and kept when the register is cleared");
         }
         finally
         {

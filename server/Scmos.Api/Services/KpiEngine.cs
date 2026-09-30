@@ -218,7 +218,9 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
 
         var keys = jobs.Select(job => job.Key).ToHashSet();
 
-        var requests = await db.SupplierRequests.AsNoTracking().ToListAsync(token);
+        // A binding SCMOS wrote when a job closed is not a carrier's answer (30 Sep 2026).
+        var requests = await db.SupplierRequests.AsNoTracking()
+            .Where(row => row.ReasonCode != CarrierAssignment.RegisterBinding).ToListAsync(token);
         var preRuns = await db.PreRunChecks.AsNoTracking().ToListAsync(token);
         var delays = await db.DelayRecords.AsNoTracking().ToListAsync(token);
         var cases = await db.IncidentCases.AsNoTracking().ToListAsync(token);

@@ -137,8 +137,9 @@ public class CarrierBillingControlTowerService(ScmosDbContext db, CarrierTenantC
                 invoice?.InvoiceNumber ?? ""));
         }
 
+        // A binding SCMOS wrote when a job closed is not a carrier's answer (30 Sep 2026).
         var assignmentQuery = db.SupplierRequests.AsNoTracking().Where(row =>
-            row.RequestedAt >= fromAt && row.RequestedAt < untilAt);
+            row.RequestedAt >= fromAt && row.RequestedAt < untilAt && row.ReasonCode != CarrierAssignment.RegisterBinding);
         if (supplierId is { } assignmentSupplier) assignmentQuery = assignmentQuery.Where(row => row.SupplierId == assignmentSupplier);
         var assignments = await assignmentQuery.ToListAsync(token);
         var assignmentJobs = assignments.Select(row => row.JobKey).Distinct().ToList();

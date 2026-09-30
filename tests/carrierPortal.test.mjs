@@ -191,3 +191,16 @@ test("a fuel band the lanes shown leave empty is no column on the carrier's Rate
   assert.deepEqual(pricedBands(bands, []), []);
   assert.match(read("app/scmos/screens/CarrierRates.tsx"), /const bands = pricedBands\(rates\.bands, shown\);/);
 });
+
+test("the register asks the carrier, bills what closes, and keeps SCMOS's own measures clean", () => {
+  const endpoints = read("server/Scmos.Api/Endpoints/JobsEndpoints.cs");
+  assert.match(endpoints, /var followed = await follower\.FollowAsync\(jobs\.LastChanges, user, token\);/);
+  assert.match(endpoints, /var billed = await jobs\.BilledAsync\(wanted, token\);[\s\S]*?StatusCodes\.Status409Conflict/);
+  const program = read("server/Scmos.Api/Program.cs");
+  assert.match(program, /AddScoped<RegisterCarrierFollower>\(\)/);
+  assert.match(program, /AddHostedService<BillingCaseSweep>\(\)/);
+  // A binding SCMOS writes to bill a job is not the carrier's answer.
+  assert.match(read("server/Scmos.Api/Services/KpiEngine.cs"), /row\.ReasonCode != CarrierAssignment\.RegisterBinding/);
+  assert.match(read("server/Scmos.Api/Services/CarrierBillingControlTowerService.cs"), /row\.ReasonCode != CarrierAssignment\.RegisterBinding/);
+  assert.match(read("server/Scmos.Api/Services/CarrierBillingService.cs"), /assignment \?\?= await BindAsync\(actor, supplier, job, token\);/);
+});

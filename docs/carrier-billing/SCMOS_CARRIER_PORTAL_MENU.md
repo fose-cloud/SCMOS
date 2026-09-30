@@ -11,7 +11,7 @@ carrier's own figures.
 | Entry | What it shows | Reads |
 | --- | --- | --- |
 | Dashboard | The department's own Dashboard (Executive and Operational tabs, every card and panel), counted over this company's jobs and measures; the hero names the company, its tiles lead to the carrier's screens (the NEW job tile shows how many offers wait); no TODAY tab and no AI briefing, which are the department's day | `/api/carrier/dashboard/jobs`, `/api/carrier/dashboard/measures` |
-| Workspace → NEW job | Jobs the carrier keyed in itself for Leschaco to confirm, then jobs Leschaco offered to accept or decline | `/api/carrier/job-requests`, `/api/carrier` |
+| Workspace → NEW job | Jobs the carrier keyed in itself for Leschaco to confirm, then jobs Leschaco offered to accept or decline — every job keyed in SCMOS with this carrier on it | `/api/carrier/job-requests`, `/api/carrier` |
 | Workspace → My job | The department's Operation Workspace grid (MY JOBS, PENDING, COMPLETED), over the carrier's own jobs; only the field cells can be edited | `/api/carrier/jobs` |
 | Workspace → Postpone | Its jobs cancelled, or moved from the date first planned (the Workspace's own CANCEL/MOVED rule); a cancelled job is shown, not worked | `/api/carrier` |
 | Capacity | Trucks free and already promised per day and vehicle, which it records itself (saying a day again corrects it); beside each, its own Leschaco jobs for that day — not the department's demand | `/api/carrier/capacity` |
@@ -77,6 +77,55 @@ PENDING, COMPLETED), search, saved views, Excel export and undo. What differs:
 
 Postpone still shows the schedule's own list.
 
+## NEW job first, then My job — and back in SCMOS
+
+Asked for on 30 Sep 2026: a job created in SCMOS for a carrier shows in that
+carrier's NEW job, and moves to its My job only after it accepts.
+`RegisterCarrierFollower` runs after every save of the department's register
+(`PUT /api/jobs`). It reads what the save changed about each job's carrier and
+status; `JobsRepository.LastChanges` is read in the same round trip, before
+the write.
+
+- A registered carrier named on an open job (keyed with it, or named later) is
+  asked: a pending `supplier_requests` row, like the workflow's "ขอรถ". Its
+  TMS webhook hears of it.
+- Another carrier named instead: the open ask is closed (`superseded`,
+  `REGISTER_CARRIER_CHANGED`) and the new carrier is asked. The name taken off:
+  the ask is closed. The same company under another spelling asks nobody again.
+- A job with no ask history, keyed before this, stays in the carrier's My job
+  by name, as before. A closed job is never offered.
+- Back in SCMOS:
+  - A job asked about reads **WAITING_SUPPLIER** when it was not that far yet.
+  - The carrier's accept moves it to **SUPPLIER_CONFIRMED**. A job the
+    department already moved past that keeps its status.
+  - A refusal raises the bell's **ผู้ขนส่งไม่รับงาน** until another carrier is
+    named.
+  - A job the carrier keyed itself (a carrier job request) is confirmed when
+    Leschaco approves it, and is not asked again.
+
+## Every COMPLETED job has a Billing Case
+
+The department decided on 30 Sep 2026: a job closed COMPLETED opens its
+carrier's Billing Case, whoever closed it. That covers all such jobs,
+including those closed before, and the due date runs from the real delivery.
+
+- On save, `PUT /api/jobs` opens the case for a job it moves to COMPLETED.
+  The carrier's own My job opens it through its status step.
+- `BillingCaseSweep` runs every `Billing:SweepMinutes` (30, 0 = off; the first
+  run is 4 minutes after start). It catches every other road to COMPLETED (LINE,
+  TMS, corrections, imports). Its first runs bill the jobs closed before.
+- A case needs a confirmed assignment. When the carrier holds the job without
+  one (keyed before asks existed, or closed before it answered),
+  `CarrierBillingService` binds it once. The binding is confirmed, with reason
+  `REGISTER_BINDING` and no answer time. The KPI engine and the billing control
+  tower leave these rows out, since they are not the carrier's answer.
+- Due date: the job's arrival date and time (Thai time), otherwise its plan
+  date and time, never later than now. Old jobs therefore open already overdue,
+  as decided.
+- A job with a Billing Case is never deleted. Deleting it by key is refused
+  (409, "ยกเลิกงานแทน"). Clearing the register or a person's jobs keeps it and
+  says how many were kept.
+
 ## Jobs a carrier keys in
 
 The carrier fills the add-job form's own fields for IMPORT, EXPORT or
@@ -137,6 +186,17 @@ A new carrier screen that needs another route adds it to
   My job covers: the read and the delta cut to its own rows, another carrier's
   job refused, only field cells landing, the audit, and a bad plate, phone,
   status or closed job refused. It also covers a status moved along the ladder.
+  The register checks cover:
+  - a keyed job in NEW job and not My job, and WAITING_SUPPLIER;
+  - accept to My job and SUPPLIER_CONFIRMED, and a later status kept;
+  - a re-spelling and a legacy job untouched;
+  - a carrier swapped and one removed;
+  - a refusal on the bell until the next carrier;
+  - a carrier's own request confirmed on approval;
+  - a case on COMPLETED dated by arrival;
+  - a legacy job completed in the carrier's My job, bound and billed;
+  - the sweep paged and run once;
+  - billed jobs kept from delete and clear.
 - Web: `tests/carrierPortal.test.mjs` (menu, reads, parsing, the request
   opened as the add-job form, My job's editable cells and status choices against
   the server's).

@@ -60,6 +60,19 @@ public static class CarrierAssignment
     public static readonly string[] Outcomes =
         [Pending, Confirmed, Rejected, Cancelled, Expired, Superseded, LegacyNoResponse];
 
+    /// <summary>
+    /// The reason code on a confirmed assignment SCMOS wrote itself, binding a job the register gives a
+    /// carrier to that carrier when the job closed COMPLETED without one (30 Sep 2026: every COMPLETED
+    /// job is billed). Not the carrier's answer: acceptance measures leave it out.
+    /// </summary>
+    public const string RegisterBinding = "REGISTER_BINDING";
+
+    /// <summary>The reason code on an ask closed because the register came to name another carrier, or none.</summary>
+    public const string RegisterChanged = "REGISTER_CARRIER_CHANGED";
+
+    /// <summary>The reason code on an ask confirmed because the carrier keyed the job itself (a carrier job request).</summary>
+    public const string CarrierRequested = "CARRIER_REQUESTED";
+
     public static bool IsActive(string outcome) => outcome is Pending or Confirmed;
 
     /// <summary>An outcome that closes a request, so the next carrier may be asked.</summary>

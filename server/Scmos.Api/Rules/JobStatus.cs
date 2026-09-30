@@ -112,6 +112,16 @@ public static class JobStatus
 
     public static bool IsClosedOut(string status) => status is Completed or Cancelled;
 
+    /// <summary>A status as the ladder names it: the code itself in any case, or what an old label means.</summary>
+    public static string Canonical(string status)
+    {
+        var upper = Formats.Clean(status).ToUpperInvariant();
+        return IsControlled(upper) ? upper : FromLegacy(status);
+    }
+
+    /// <summary>How COMPLETED is written in the register's status column — the code, or the old label.</summary>
+    public static readonly string[] CompletedSpellings = [Completed, "Delivery Completed"];
+
     /* ------------------------------------------------------------- mapping */
 
     /// <summary>

@@ -124,6 +124,7 @@ builder.Services.AddScoped<CarrierService>();
 builder.Services.AddScoped<CarrierPortalReads>();
 builder.Services.AddScoped<CarrierJobRequestService>();
 builder.Services.AddScoped<CarrierRegisterService>();
+builder.Services.AddScoped<RegisterCarrierFollower>();
 builder.Services.AddScoped<CarrierTenantContext>();
 builder.Services.AddScoped<CarrierDocumentAccess>();
 builder.Services.AddScoped<BusinessCalendarService>();
@@ -163,6 +164,9 @@ builder.Services.AddHostedService<CorrectionScheduler>();
 builder.Services.AddHostedService<Scmos.Api.Ai.AgentScanScheduler>();
 // The register snapshot, built once at startup so the first reader after a deploy does not wait for it.
 builder.Services.AddHostedService<RegisterWarmup>();
+// Every COMPLETED job with a registered carrier gets its Billing Case, whoever closed it; the first runs
+// bill the jobs closed before 30 Sep 2026. Off with Billing__SweepMinutes=0.
+builder.Services.AddHostedService<BillingCaseSweep>();
 builder.Services.AddScoped<JobTransferService>();
 builder.Services.AddScoped<OperationalIssueService>();
 builder.Services.AddScoped<RotationService>();

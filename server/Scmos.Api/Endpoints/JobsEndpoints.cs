@@ -197,7 +197,7 @@ public static class JobsEndpoints
         });
 
         group.MapPut("", async (SaveRequest body, HttpContext context, IUserAccessor users,
-            DelegationService delegations,
+            DelegationService delegations, RegisterCarrierFollower follower,
             JobsRepository jobs, AuditService audit, CancellationToken token) =>
         {
             var user = users.Current(context);
@@ -267,7 +267,15 @@ public static class JobsEndpoints
                     token, source: "import");
             }
 
-            return Results.Json(new { saved, updatedAt = at.ToUniversalTime().ToString("O") });
+            // A carrier named on a job is asked to accept it (its NEW job), and a job closed COMPLETED opens
+            // the carrier's Billing Case (30 Sep 2026). After the write: the save stands whatever this finds.
+            var followed = await follower.FollowAsync(jobs.LastChanges, user, token);
+
+            return Results.Json(new
+            {
+                saved, updatedAt = at.ToUniversalTime().ToString("O"),
+                offered = followed.Offered, withdrawn = followed.Withdrawn, billed = followed.Billed,
+            });
         });
 
         // DELETE never infers a body, so it has to be asked for by name. The
@@ -291,10 +299,12 @@ public static class JobsEndpoints
                     return weak;
 
                 var (_, count) = await jobs.LoadAsync(token);
-                await jobs.ClearAsync(token);
+                var cleared = await jobs.ClearAsync(token);
+                // A job a carrier has a Billing Case on stays (30 Sep 2026); the trail says how many.
+                var kept = count - cleared;
                 await audit.RecordAsync(user, AuditActions.BulkReplace, "register", "", "ทะเบียนงาน",
-                    "", $"{count} งาน", "0", (body.Reason ?? "").Trim(), token);
-                return Results.Json(new { cleared = true });
+                    "", $"{count} งาน", kept > 0 ? $"{kept} (มีเคสวางบิล)" : "0", (body.Reason ?? "").Trim(), token);
+                return Results.Json(new { cleared = true, kept });
             }
 
             var owner = (body?.OwnerId ?? "").Trim();
@@ -343,6 +353,14 @@ public static class JobsEndpoints
                         $"ลบไม่ได้ — {others.Count} งานในชุดนี้เป็นของผู้อื่น",
                         StatusCodes.Status403Forbidden);
             }
+
+            // A carrier's bill is kept against the job (30 Sep 2026): a job with a Billing Case is
+            // cancelled, never deleted. Refused whole, before anything goes.
+            var billed = await jobs.BilledAsync(wanted, token);
+            if (billed.Count > 0)
+                return ApiResults.Error(
+                    $"ลบไม่ได้ — {billed.Count} งานในชุดนี้มีเคสวางบิลของผู้ขนส่งแล้ว (ยกเลิกงานแทน)",
+                    StatusCodes.Status409Conflict);
 
             // Snapshotted first so the trail can say which job was removed rather
             // than only its key — a deleted row cannot be looked up afterwards.
