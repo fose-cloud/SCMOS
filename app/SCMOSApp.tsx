@@ -107,6 +107,9 @@ import { correctionsByKey, mergeMarks, type Correction, type ReasonChoice } from
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
+import { CARRIER_VIEW } from "./scmos/carrierPortal";
+import { CarrierRequestsPanel } from "./scmos/screens/CarrierRequestsPanel";
+import type { CarrierJobRequest } from "./scmos/carrierJobRequests";
 import { Training } from "./scmos/screens/Training";
 import { Outlook } from "./scmos/screens/Outlook";
 import { Login } from "./scmos/overlays/Login";
@@ -368,6 +371,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const [bookingReadings, setBookingReadings] = useState<BookingReading[]>([]);
   const [bookingMissing, setBookingMissing] = useState<string[]>([]);
   const [draftDecisionId, setDraftDecisionId] = useState<number | null>(null);
+  // A job a carrier keyed in, open as the add-job form: settled with the job once that job is saved.
+  const [carrierRequest, setCarrierRequest] = useState<{ id: number; revision: number } | null>(null);
+  const [carrierRequestsKey, setCarrierRequestsKey] = useState(0);
 
   // ---- Excel + saved views ----------------------------------------------
   const [importOpen, setImportOpen] = useState(false);
@@ -586,7 +592,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   // ---- derived -----------------------------------------------------------
   const isDetail = sel !== null;
   const metaKey = isDetail ? "detail" : screen;
-  const meta = META[metaKey] ?? "";
+  const metaOf = META[metaKey] ?? "";
 
   // The header search is a launcher now, not a filter: it opens the record where
   // it lives instead of quietly narrowing whatever table happens to be on screen.
@@ -925,6 +931,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * indistinguishable from an outage.
    */
   const isCarrier = (identity?.role || base.role) === "Subcontractor";
+  // "carrier" is the department's view of the portal ("งานของบริษัท") and a carrier's own Dashboard.
+  const meta = isCarrier && screen === "carrier" ? "Dashboard" : metaOf;
 
   // The default landing screen is the dashboard, which a carrier may not open.
   // Without this they arrive on a screen that is not in their own menu, and the
@@ -1662,6 +1670,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     setAiMsg("");
     setBookingText(""); setBookingMsg(""); setBookingReadings([]); setBookingMissing([]);
     setDraftDecisionId(null);
+    setCarrierRequest(null);
   };
 
   /** A mail draft from the AI Control Tower, opened as the add-job form with its verified fields filled. */
@@ -1671,6 +1680,14 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     setAiFields(Object.keys(fields));
     setAiMsg("AI กรอก " + Object.keys(fields).length + " ช่องจากอีเมล — ตรวจก่อนบันทึก");
     setDraftDecisionId(decisionId);
+  };
+
+  /** A job a carrier keyed in, opened as the add-job form with its fields and the carrier filled. */
+  const openCarrierRequest = (request: CarrierJobRequest) => {
+    startAddJob(request.category);
+    setAddForm((prev) => ({ ...prev, ...request.fields, trucker: request.supplierName }));
+    setAiMsg(`งานที่ ${request.supplierName} แจ้งเข้ามา — ตรวจก่อนบันทึก`);
+    setCarrierRequest({ id: request.id, revision: request.revision });
   };
 
   const openImport = () => {
@@ -1734,6 +1751,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         { label: "+ ADD JOB", style: BTN_PRIMARY, go: () => startAddJob(lockedCat ?? "CHOOSE") },
       ];
     }
+    // A carrier's screens carry their own buttons; the department's header actions work on its register.
+    if (CARRIER_SCREENS.includes(screen)) return [];
     if (screen === "chemours") {
       // The same importer the workspace uses — it reads the delivery workbook
       // now — and the add form opened straight on DELIVERY, because that is the
@@ -2798,6 +2817,20 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         if (!response.ok) setToast("สร้างงานแล้ว แต่บันทึกคำตอบของร่าง AI ไม่สำเร็จ");
       }).catch(() => setToast("สร้างงานแล้ว แต่บันทึกคำตอบของร่าง AI ไม่สำเร็จ"));
     }
+    // Made from a carrier's request: confirmed with the job it became, once that job is in the register.
+    if (carrierRequest !== null) {
+      const asked = carrierRequest;
+      setCarrierRequest(null);
+      void flushNow().then(async (saved) => {
+        if (!saved.ok) { setToast("บันทึกงานไม่สำเร็จ — คำขอของผู้ขนส่งยังรออยู่"); return; }
+        const response = await apiFetch(`/api/carrier-job-requests/${asked.id}/approve`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jobKey: key, revision: asked.revision }),
+        });
+        setToast(response.ok ? "สร้างงานและยืนยันให้ผู้ขนส่งแล้ว" : "สร้างงานแล้ว แต่ยืนยันคำขอของผู้ขนส่งไม่สำเร็จ");
+        setCarrierRequestsKey((n) => n + 1);
+      }).catch(() => setToast("สร้างงานแล้ว แต่ยืนยันคำขอของผู้ขนส่งไม่สำเร็จ"));
+    }
   }
 
   function saveDelay() {
@@ -2975,6 +3008,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         onNavigate={go}
         navCounts={navCounts}
         allowed={isCarrier ? CARRIER_SCREENS : undefined}
+        carrier={isCarrier}
         collapsed={collapsed}
         onToggleSidebar={() => setCollapsed((c) => !c)}
         gq={gq}
@@ -3139,6 +3173,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               />
             )}
 
+            {isWorkspace && !isCarrier && able("EditOwnJobs") && (
+              <CarrierRequestsPanel onOpen={openCarrierRequest} onToast={setToast} refreshKey={carrierRequestsKey} />
+            )}
             {isWorkspace && (workspaceOps
               ? <Workspace
                   ops={workspaceOps}
@@ -3282,7 +3319,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "outlook" && (
               <Outlook canDecide={able("EditAnyJob")} onToast={setToast} />
             )}
-            {screen === "carrier" && <CarrierPortal onToast={setToast} />}
+            {isCarrier && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
+              onNavigate={go} onToast={setToast} />}
+            {!isCarrier && screen === "carrier" && <CarrierPortal view="dashboard" onToast={setToast} />}
             {screen === "training" && (
               <Training onToast={setToast} canManageRegister={able("ManageTraining")}
                 registerCustomers={[...new Set((ops?.jobs ?? [])
@@ -3599,7 +3638,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           onAiDrop={(e) => { e.preventDefault(); setDragOver(false); aiRead(e.dataTransfer.files); }}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
-          onClose={() => { setAddCat(null); setAiFields([]); setAiMsg(""); setDraftDecisionId(null); }}
+          onClose={() => { setAddCat(null); setAiFields([]); setAiMsg(""); setDraftDecisionId(null); setCarrierRequest(null); }}
           onSave={saveAddJob}
           booking={{
             text: bookingText, busy: bookingBusy, message: bookingMsg, readings: bookingReadings, missing: bookingMissing,

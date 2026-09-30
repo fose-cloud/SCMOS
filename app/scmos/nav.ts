@@ -5,7 +5,9 @@ export type Screen =
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
-  | "carrierapi" | "oilrate";
+  | "carrierapi" | "oilrate"
+  // The Subcontractor's own menu (29 Sep 2026) — see CARRIER_NAV.
+  | "carrierwork" | "carriernew" | "carriermyjob" | "carrierpostpone" | "carrierrates" | "carrierbilling" | "carrierkpi";
 
 /**
  * The menu, in the order the work happens.
@@ -144,7 +146,7 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
  * still navigated would open a page with nothing on it, and the only way to
  * learn that is to click it.
  */
-export const HEADINGS: Screen[] = ["workspace", "partners", "commercial", "quality", "integrations"];
+export const HEADINGS: Screen[] = ["workspace", "partners", "commercial", "quality", "integrations", "carrierwork"];
 
 /**
  * How the rail is sectioned — the department's own menu design, 14 Sep 2026.
@@ -180,7 +182,33 @@ export const NAV_TAGS: Partial<Record<Screen, string>> = {};
  * refusal, which looks like a broken system rather than a boundary working as
  * intended. Their own jobs are the whole of what they came for.
  */
-export const CARRIER_SCREENS: Screen[] = ["carrier"];
+export const CARRIER_SCREENS: Screen[] = ["carrier", "carriernew", "carriermyjob", "carrierpostpone", "carrierrates", "carrierbilling", "carrierkpi"];
+
+/**
+ * The carrier's menu, in the shape the department's own is in (asked for on
+ * 29 Sep 2026): a dashboard of its own company, its work, its rates, billing
+ * and KPI. Every one of these reads `/api/carrier…`, which answers for the
+ * account's company alone — none of them is the department's screen of the
+ * same name with fewer rows.
+ */
+export const CARRIER_NAV: [Screen, string, string, number[][]][] = [
+  ["carrier", "Dashboard", "แดชบอร์ดบริษัท", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
+  ["carrierwork", "Workspace", "งานของบริษัท", [[2, 3, 12, 3], [2, 8, 12, 2], [2, 12, 8, 2]]],
+  ["carrierrates", "Rate", "อัตราค่าขนส่งของบริษัท", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
+  ["carrierbilling", "Billing", "วางบิล", [[2, 4, 12, 8], [4, 7, 4, 2]]],
+  ["carrierkpi", "KPI", "ผลการประเมินของบริษัท", [[2, 9, 3, 5], [6.5, 5, 3, 9], [11, 2, 3, 12]]],
+];
+export const CARRIER_SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]][]>> = {
+  carrierwork: [
+    ["carriernew", "NEW job", "งานใหม่", [[2, 2, 12, 12], [7, 4, 2, 8], [4, 7, 8, 2]]],
+    ["carriermyjob", "My job", "งานของฉัน", [[2, 2, 12, 4], [2, 8, 5, 6], [9, 8, 5, 2], [9, 12, 5, 2]]],
+    ["carrierpostpone", "Postpone", "เลื่อน / ยกเลิก", [[2, 3, 5, 10], [9, 3, 5, 4], [9, 9, 5, 4], [2, 2, 12, 1]]],
+  ],
+};
+export const CARRIER_ALL_NAV: [Screen, string, string, number[][]][] = [
+  ...CARRIER_NAV,
+  ...Object.values(CARRIER_SUB_NAV).flat(),
+];
 
 /** Every screen in the menu, parents and children alike. */
 export const ALL_NAV: [Screen, string, string, number[][]][] = [
@@ -241,6 +269,12 @@ export const META: Record<string, string> = {
   quality: "Incident & CAR/PAR",
   training: "Customer Training Control",
   carrier: "งานของบริษัท",
+  carriernew: "NEW job",
+  carriermyjob: "My job",
+  carrierpostpone: "Postpone",
+  carrierrates: "Rate",
+  carrierbilling: "Billing",
+  carrierkpi: "KPI",
   loreal: "L'OREAL Truck Report",
   // The four integration screens say what they are waiting for themselves,
   // from externalSystems.ts; these are only the page headings above them.

@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { badge, css } from "./theme";
 import { APP_ENVIRONMENT, APP_VERSION } from "./version";
 import { onFetching } from "./api";
-import { ALL_NAV, HEADINGS, NAV, NAV_GROUPS, NAV_TAGS, SUB_NAV, type Screen } from "./nav";
+import { ALL_NAV, CARRIER_ALL_NAV, CARRIER_NAV, CARRIER_SUB_NAV, HEADINGS, NAV, NAV_GROUPS, NAV_TAGS, SUB_NAV, type Screen } from "./nav";
 import { NavGlyph } from "./navIcons";
 import { StatGlyph } from "./StatCard";
 import { tabIconFor } from "./statIcons";
@@ -59,6 +59,8 @@ type Props = {
    * out of the rail entirely rather than shown and refused.
    */
   allowed?: Screen[];
+  /** A carrier's account: its own menu (CARRIER_NAV) rather than the department's. */
+  carrier?: boolean;
   collapsed: boolean;
   onToggleSidebar: () => void;
   gq: string;
@@ -252,7 +254,7 @@ export function Chrome(p: Props) {
     line: "rgba(74,148,214,.32)", crumb: "#7fa8ca", title: "#fff",
     tab: "#8fb4d4", tabOn: "#fff", tabOnBg: "#1668ab", tabOnLine: "#1668ab",
   };
-  const glyph = ALL_NAV.find(([key]) => key === p.screen);
+  const glyph = (p.carrier ? CARRIER_ALL_NAV : ALL_NAV).find(([key]) => key === p.screen);
 
   return (
     <div style={css("display:flex;flex-direction:column;height:100vh;min-height:100vh;overflow:hidden;color:#16232F")}>
@@ -472,14 +474,15 @@ export function Chrome(p: Props) {
 
             <div style={css("flex:1;overflow-y:auto;overflow-x:hidden;padding:" + (p.collapsed ? "8px 0" : "10px 8px 12px"))}>
               {(() => {
-                const allowed = (key: Screen) => !p.allowed || p.allowed.includes(key);
+                const allowed = (key: Screen) => !p.allowed || p.allowed.includes(key) || (!!p.carrier && HEADINGS.includes(key));
+                const subNav = p.carrier ? CARRIER_SUB_NAV : SUB_NAV;
                 const entry = (row: [Screen, string, string, number[][]], depth: 0 | 1) => {
                   const [key, label, th, rects] = row;
                   const heading = HEADINGS.includes(key);
                   const active = p.screen === key && !heading;
                   const count = p.navCounts[key];
                   const tag = NAV_TAGS[key];
-                  const children = (SUB_NAV[key] ?? []).filter(([child]) => allowed(child));
+                  const children = (subNav[key] ?? []).filter(([child]) => allowed(child));
                   const onChild = children.some(([child]) => child === p.screen);
                   // The user's own choice wins; otherwise open when this branch is
                   // where they are. A dropdown that collapses out from under the
@@ -559,6 +562,8 @@ export function Chrome(p: Props) {
                   );
                 };
 
+                // A carrier's menu has no sections: five entries, in the order the work goes.
+                if (p.carrier) return <>{CARRIER_NAV.filter(([key]) => allowed(key)).map((row) => entry(row, 0))}</>;
                 const top = NAV.filter(([key]) => allowed(key));
                 const dashboard = top.find(([key]) => key === "dashboard");
                 const grouped = new Set(NAV_GROUPS.flatMap((g) => g.keys));

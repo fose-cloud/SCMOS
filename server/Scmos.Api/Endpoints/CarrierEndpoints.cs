@@ -38,6 +38,30 @@ public static class CarrierEndpoints
                 : Results.Json(portal);
         });
 
+        // The carrier's own Rate and KPI screens (29 Sep 2026): its lanes of the rate book, read only, and
+        // its line of the scorecard over its own jobs. Both are cut to the account's company on the server.
+        group.MapGet("/rates", async (HttpContext context, IUserAccessor users, CarrierPortalReads reads,
+            CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var view = await reads.RatesAsync(user, token);
+            return view is null ? NotACarrier() : Results.Json(view);
+        });
+
+        group.MapGet("/kpi", async (string? year, string? month, HttpContext context, IUserAccessor users,
+            CarrierPortalReads reads, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!ValidPeriod(year, month, out var period))
+                return ApiResults.Error("ระบุปี (yyyy) และเดือน (MM) ให้ถูกต้อง", StatusCodes.Status400BadRequest);
+            var view = await reads.KpiAsync(user, period, token);
+            return view is null ? NotACarrier() : Results.Json(view);
+        });
+
         group.MapPost("/{jobKey}/accept", async (string jobKey, [FromBody] AcceptBody body,
             HttpContext context, IUserAccessor users, CarrierService carriers, AuditService audit,
             CancellationToken token) =>
@@ -103,6 +127,22 @@ public static class CarrierEndpoints
                     status = result.Written?.GetValueOrDefault("status") })
                 : ApiResults.Error(result.Message, Status(result.Code));
         });
+    }
+
+    private static IResult NotACarrier() => ApiResults.Error(
+        "บัญชีนี้ไม่ใช่บัญชีผู้รับเหมา หรือยังไม่ได้ผูกกับบริษัท — ให้ผู้ดูแลระบบตั้งค่าให้ก่อน",
+        StatusCodes.Status403Forbidden);
+
+    /// <summary>A year, and a month or none for the whole year; nothing given is the current month in Bangkok.</summary>
+    public static bool ValidPeriod(string? year, string? month, out Period period)
+    {
+        var now = DateTimeOffset.UtcNow.ToOffset(Formats.Zone);
+        var y = string.IsNullOrWhiteSpace(year) ? now.Year.ToString("0000") : year.Trim();
+        var m = string.IsNullOrWhiteSpace(year) && string.IsNullOrWhiteSpace(month) ? now.Month.ToString("00") : (month ?? "").Trim();
+        if (m is "ALL") m = "";
+        period = new Period(y, m, "");
+        return y.Length == 4 && int.TryParse(y, out var yy) && yy is >= 2000 and <= 2100
+            && (m.Length == 0 || (m.Length == 2 && int.TryParse(m, out var mm) && mm is >= 1 and <= 12));
     }
 
     private static int Status(string code) => code switch

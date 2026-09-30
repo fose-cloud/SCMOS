@@ -69,10 +69,13 @@ public static class WorkspaceTabs
     /// times it moves afterwards — which is the point. A customer who has moved
     /// one shipment four times should not fall off this list on the fifth.
     /// </summary>
-    public static bool WasMoved(JobView job)
+    public static bool WasMoved(JobView job) => WasMoved(job.OrigDate, job.Date);
+
+    /// <summary>The same test from the two dates, for a caller holding the register's fields — the carrier's Postpone list.</summary>
+    public static bool WasMoved(string origDate, string date)
     {
-        var from = job.OrigDate.Trim();
-        return from.Length > 0 && !string.Equals(from, job.Date.Trim(), StringComparison.Ordinal);
+        var from = origDate.Trim();
+        return from.Length > 0 && !string.Equals(from, date.Trim(), StringComparison.Ordinal);
     }
 
     /// <summary>

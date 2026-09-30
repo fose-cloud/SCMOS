@@ -29,6 +29,7 @@ public enum AlertKind
     CoverArrangedForYou,
     LineMessageWaiting,
     AiRiskFound,
+    CarrierJobRequested,
 }
 
 /// <summary>Critical needs somebody now; Warning needs somebody today; Information is context.</summary>
@@ -87,6 +88,12 @@ public static class Notifications
         // here from current state: answering the finding, or its reason going away, clears it.
         new(AlertKind.AiRiskFound, "AI risk found", "AI พบงานเสี่ยง",
             AlertLevel.Warning, "เปิด AI Control Tower แล้วตอบรายการที่เสี่ยง", "ai"),
+
+        // A job a carrier keyed in itself, waiting for somebody in the department to open it as the
+        // add-job form and save it, or refuse it (29 Sep 2026). Nobody owns it yet, so it is counted on
+        // the team's view only — and never on a carrier's own, which is always narrowed.
+        new(AlertKind.CarrierJobRequested, "Carrier job request", "ผู้ขนส่งแจ้งงานใหม่",
+            AlertLevel.Warning, "เปิด Operation Workspace แล้วยืนยันหรือไม่รับงานที่ผู้ขนส่งแจ้ง", "myjob"),
 
         new(AlertKind.SupplierNotConfirmed, "Supplier not confirmed", "ผู้ขนส่งยังไม่ยืนยัน",
             AlertLevel.Critical, "ติดต่อผู้ขนส่ง หรือส่งต่อรายถัดไปตามลำดับ", "myjob"),

@@ -42,7 +42,10 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         string ArrDate = "", string ArrTime = "", string Seal = "", DateTimeOffset? RespondedAt = null,
         string AssignmentOutcome = "", bool OperationalAvailable = false,
         IReadOnlyList<CarrierOperationView>? Operations = null,
-        IReadOnlyList<DocumentView>? Pods = null);
+        IReadOnlyList<DocumentView>? Pods = null,
+        // The carrier's Postpone list (29 Sep 2026): the date first planned, and whether the job is
+        // cancelled or was moved from it — the workspace's own CANCEL / MOVED rule, not a second one.
+        string OrigDate = "", bool Postponed = false);
 
     public record Portal(
         int SupplierId, string SupplierName,
@@ -113,7 +116,7 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
     /// is for. Matching on the registered name alone would hide a carrier's own
     /// jobs from them and look like the boundary was working.
     /// </summary>
-    private async Task<HashSet<string>> NamesOfAsync(Supplier company, CancellationToken token)
+    public async Task<HashSet<string>> NamesOfAsync(Supplier company, CancellationToken token)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -730,7 +733,9 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
             ArrDate: Field(row, "arrDate"), ArrTime: Field(row, "arrTime"), Seal: Field(row, "seal"),
             RespondedAt: request?.RespondedAt,
             AssignmentOutcome: request?.Outcome ?? "legacy",
-            OperationalAvailable: request is null || request.Outcome == CarrierAssignment.Confirmed);
+            OperationalAvailable: request is null || request.Outcome == CarrierAssignment.Confirmed,
+            OrigDate: Field(row, "origDate"),
+            Postponed: WorkspaceTabs.IsCancelled(Field(row, "status")) || WorkspaceTabs.WasMoved(Field(row, "origDate"), Field(row, "date")));
 
     /// <summary>Whether a carrier's write came through the Carrier TMS API rather than the portal.</summary>
     private static bool ViaApi(AppUser user) => user.Source == "carrier-api";

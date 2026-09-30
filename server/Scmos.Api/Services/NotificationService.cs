@@ -79,6 +79,19 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             critical > 0 ? $"วิกฤต {critical} · สูง {riskLevels.Count - critical}" : $"สูง {riskLevels.Count}",
             "", "decision", critical > 0 ? AlertLevel.Critical : AlertLevel.Warning);
 
+        /* ---- 0a'. jobs a carrier keyed in, waiting for the department ---- */
+        // Owned by nobody until somebody saves one, so only the team's view counts them.
+        if (string.IsNullOrWhiteSpace(ownerId))
+        {
+            var requested = await db.CarrierJobRequests.AsNoTracking()
+                .Where(row => row.Status == CarrierJobRequest.Pending)
+                .Select(row => row.SupplierName).ToListAsync(token);
+            Add(alerts, AlertKind.CarrierJobRequested, requested.Count,
+                $"{requested.Count} งานที่ผู้ขนส่งแจ้งเข้ามา รอยืนยัน",
+                string.Join(" · ", requested.GroupBy(name => name).Select(group => $"{group.Key} {group.Count()}").Take(4)),
+                "", "carrier-job-request");
+        }
+
         /* ---- 0b. a haulier's message waiting on one of these jobs ---- */
         // From the LINE room or from the carrier's TMS, pinned to one job by
         // the rule and not yet approved or set aside; first, because it is

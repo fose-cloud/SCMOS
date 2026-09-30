@@ -121,6 +121,8 @@ builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
+builder.Services.AddScoped<CarrierPortalReads>();
+builder.Services.AddScoped<CarrierJobRequestService>();
 builder.Services.AddScoped<CarrierTenantContext>();
 builder.Services.AddScoped<CarrierDocumentAccess>();
 builder.Services.AddScoped<BusinessCalendarService>();
@@ -455,6 +457,20 @@ app.UseExceptionHandler();
 app.UseMiddleware<Scmos.Api.Ai.Sre.RequestTelemetryMiddleware>();
 if (allowedOrigins.Length > 0) app.UseCors();
 app.UseRateLimiter();
+// The department's figures are not a carrier's — see Rules/CarrierBoundary.cs. The account is read only for those routes.
+app.Use(async (context, next) =>
+{
+    if (CarrierBoundary.Refuses(context.Request.Path)
+        && context.RequestServices.GetRequiredService<IUserAccessor>().Current(context) is { } user
+        && CarrierTenantContext.IsCarrier(user))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        context.Response.Headers.CacheControl = "no-store";
+        await context.Response.WriteAsJsonAsync(new { error = "ข้อมูลนี้เป็นของแผนก — ข้อมูลของบริษัทคุณอยู่ในเมนูของบริษัท" });
+        return;
+    }
+    await next();
+});
 
 app.MapHealthChecks("/health");
 app.MapMe();
@@ -474,6 +490,7 @@ app.MapCapacity();
 app.MapCorrections();
 app.MapVehicleTypes();
 app.MapCarrier();
+app.MapCarrierJobRequests();
 app.MapCarrierApi();
 app.MapCarrierBillingFoundation();
 app.MapCarrierBilling();

@@ -92,9 +92,7 @@ public class RateService(ScmosDbContext db)
     public async Task<RateBookView> ReadAsync(string? carrier, string? service, string? source,
         CancellationToken token)
     {
-        var bands = await db.FuelBands.AsNoTracking().OrderBy(band => band.Position)
-            .Select(band => new BandView(band.Label, band.MinPrice, band.MaxPrice, band.Position))
-            .ToListAsync(token);
+        var bands = await BandsAsync(token);
 
         var query = db.RateLanes.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(carrier) && carrier != "All")
@@ -103,13 +101,56 @@ public class RateService(ScmosDbContext db)
             query = query.Where(lane => lane.Service == service);
 
         var lanes = await query.ToListAsync(token);
+        var width = bands.Count == 0 ? 0 : bands.Max(band => band.Position) + 1;
+        var (views, priceCount) = await PricedAsync(lanes, width, token);
+
+        if (!Is(source, RateSources.Carrier))
+        {
+            var quoted = await QuotedLanesAsync(carrier, service, bands, width, token);
+            views = Is(source, RateSources.Quotation) ? quoted : [.. views, .. quoted];
+        }
+
+        var surcharges = await db.RateSurcharges.AsNoTracking().ToListAsync(token);
+        return new RateBookView(bands, views, surcharges, priceCount);
+
+        static bool Is(string? value, string what) =>
+            string.Equals(value, what, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// One carrier's own contracted lanes, for the Subcontractor's Rate screen (29 Sep 2026) — read
+    /// only. A lane is theirs when it was written against their supplier, or, written against none,
+    /// under a name they trade by; never another carrier's row, never the rate sheet's quotes, and
+    /// not the surcharge list, which is the book's rather than any one carrier's.
+    /// </summary>
+    public async Task<RateBookView> ReadForSupplierAsync(int supplierId, IReadOnlyCollection<string> names,
+        CancellationToken token)
+    {
+        var bands = await BandsAsync(token);
+        var spellings = names.ToList();
+        var lanes = await db.RateLanes.AsNoTracking()
+            .Where(lane => lane.SupplierId == supplierId || (lane.SupplierId == null && spellings.Contains(lane.Carrier)))
+            .OrderBy(lane => lane.Service).ThenBy(lane => lane.Customer).ThenBy(lane => lane.FromPlace).ThenBy(lane => lane.ToPlace)
+            .ToListAsync(token);
+        var width = bands.Count == 0 ? 0 : bands.Max(band => band.Position) + 1;
+        var (views, priceCount) = await PricedAsync(lanes, width, token);
+        return new RateBookView(bands, views, [], priceCount);
+    }
+
+    private async Task<List<BandView>> BandsAsync(CancellationToken token) =>
+        await db.FuelBands.AsNoTracking().OrderBy(band => band.Position)
+            .Select(band => new BandView(band.Label, band.MinPrice, band.MaxPrice, band.Position))
+            .ToListAsync(token);
+
+    /// <summary>The lanes as rate-book rows: each vehicle's price on each band.</summary>
+    private async Task<(List<LaneView> Views, int PriceCount)> PricedAsync(List<RateLane> lanes, int width, CancellationToken token)
+    {
         var laneIds = lanes.Select(lane => lane.Id).ToHashSet();
 
         var prices = await db.RatePrices.AsNoTracking()
             .Where(price => laneIds.Contains(price.LaneId))
             .ToListAsync(token);
 
-        var width = bands.Count == 0 ? 0 : bands.Max(band => band.Position) + 1;
         var byLane = prices.GroupBy(price => price.LaneId)
             .ToDictionary(group => group.Key, group => group.ToList());
 
@@ -132,18 +173,7 @@ public class RateService(ScmosDbContext db)
             return new LaneView(lane.Id, lane.SupplierId, lane.Carrier, lane.Service, lane.Customer,
                 lane.FromPlace, lane.ToPlace, lane.County, lane.Remark, table);
         }).ToList();
-
-        if (!Is(source, RateSources.Carrier))
-        {
-            var quoted = await QuotedLanesAsync(carrier, service, bands, width, token);
-            views = Is(source, RateSources.Quotation) ? quoted : [.. views, .. quoted];
-        }
-
-        var surcharges = await db.RateSurcharges.AsNoTracking().ToListAsync(token);
-        return new RateBookView(bands, views, surcharges, prices.Count);
-
-        static bool Is(string? value, string what) =>
-            string.Equals(value, what, StringComparison.OrdinalIgnoreCase);
+        return (views, prices.Count);
     }
 
     /// <summary>

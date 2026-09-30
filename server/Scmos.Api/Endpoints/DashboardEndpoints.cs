@@ -94,6 +94,9 @@ public static class DashboardEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
+            // A carrier's bell carries none of the department's alerts: they are read over the whole register —
+            // the on-time rate below target counts every carrier's jobs — and its own figures are on its own screens.
+            if (CarrierTenantContext.IsCarrier(user)) return Results.Json(new AlertFeed([], 0, 0, 0));
 
             // Someone who cannot see the team's work should not be told about it
             // through the alert feed either — the feed is a view of the register,

@@ -2,9 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { parseCarrierKpi, percentText, type CarrierKpi as Kpi, type CarrierView } from "../carrierPortal";
+import type { Screen } from "../nav";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import type { BillingCase, BillingControlTowerView } from "./BillingControl";
+import { CarrierJobRequests } from "./CarrierJobRequests";
+import { CarrierKpi } from "./CarrierKpi";
+import { CarrierRates } from "./CarrierRates";
 
 /**
  * The carrier's own screen.
@@ -27,6 +32,8 @@ type CarrierJob = {
   requestedAt: string | null; licence: string; driver: string; contact: string;
   assignmentOutcome?: string; operationalAvailable?: boolean;
   operations?: Operation[]; pods?: Pod[];
+  /** The date first planned, and whether the job is cancelled or was moved from it — the server's rule. */
+  origDate?: string; postponed?: boolean;
 };
 
 type Operation = { id: number; kind: string; from: string; to: string; note: string; by: string; recordedAt: string; eventAt: string | null };
@@ -60,10 +67,25 @@ function jobDateKey(value: string) {
   return `${local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
 }
 
-export function CarrierPortal({ onToast }: { onToast: (message: string) => void }) {
+type Props = { view: CarrierView; onNavigate?: (screen: Screen) => void; onToast: (message: string) => void };
+
+/**
+ * The carrier's screens, one per entry of its menu (29 Sep 2026): Dashboard,
+ * NEW job, My job, Postpone, Rate, Billing, KPI. Rate and KPI read their own
+ * endpoints; the rest share the portal's one read of this company's work.
+ */
+export function CarrierPortal(props: Props) {
+  if (props.view === "rates") return <CarrierRates />;
+  if (props.view === "kpi") return <CarrierKpi />;
+  return <CarrierWork {...props} />;
+}
+
+function CarrierWork({ view, onNavigate, onToast }: Props) {
   const [portal, setPortal] = useRemembered<Portal>("carrier-portal");
   const [refused, setRefused] = useState("");
-  const [tab, setTab] = useState<"new" | "schedule" | "billing">("new");
+  // The menu entry decides what shows; Postpone is a narrower schedule, worked the same way.
+  const tab = view === "new" ? "new" : view === "myjob" || view === "postpone" ? "schedule" : view === "billing" ? "billing" : "dashboard";
+  const [kpi, setKpi] = useState<Kpi | null>(null);
   const [billing, setBilling] = useState<BillingCase[]>([]);
   const [tower, setTower] = useState<BillingControlTowerView | null>(null);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("active");
@@ -97,7 +119,12 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     const towerBody = await towerResponse.json().catch(() => ({})) as BillingControlTowerView & { error?: string };
     if (towerResponse.ok) setTower(towerBody);
     else onToast(towerBody.error ?? `เปิด Carrier Control Dashboard ไม่สำเร็จ (${towerResponse.status})`);
-  }, [onToast, setPortal]);
+    // The dashboard's KPI cards: this month, the same read as the KPI screen.
+    if (view === "dashboard") {
+      const kpiResponse = await apiFetch("/api/carrier/kpi", { headers: { accept: "application/json" } });
+      try { if (kpiResponse.ok) setKpi(parseCarrierKpi(await kpiResponse.json())); } catch { setKpi(null); }
+    }
+  }, [onToast, setPortal, view]);
 
   // Fetching on mount. Every setState inside is after an await, so it runs
   // in a microtask rather than while this body does — the rule cannot see
@@ -192,19 +219,30 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
     if (scheduleView === "completed") return status === "COMPLETED";
     return status !== "COMPLETED" && status !== "CANCELLED";
   });
-  const rows = tab === "new" ? portal.offered : tab === "schedule" ? scheduleRows : [];
+  const postponed = schedule.filter((job) => job.postponed);
+  const rows = tab === "new" ? portal.offered : view === "postpone" ? postponed : tab === "schedule" ? scheduleRows : [];
+  const active = schedule.filter((job) => !["COMPLETED", "CANCELLED"].includes(job.status.trim().toUpperCase()));
+  const go = (screen: Screen) => onNavigate?.(screen);
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:14px 17px")}>
         <div style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>บริษัทของคุณ</div>
         <div style={css("font-size:16px;font-weight:700;color:#0F2B46;margin-top:2px")}>{portal.supplierName}</div>
-        <div style={css("font-size:12px;color:#7B8CA0;margin-top:3px;line-height:1.6")}>
-          หน้านี้แสดงเฉพาะงานที่ถูกส่งมาให้บริษัทนี้ และงานที่บริษัทนี้รับไปแล้วเท่านั้น
-        </div>
       </div>
 
-      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px") }>
+      {tab === "dashboard" && <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px")}>
+        <CarrierMetric label="งานใหม่รอตอบ" value={portal.offered.length} note="NEW job" tone="#0A5C97" onClick={() => go("carriernew")} />
+        <CarrierMetric label="งานวันนี้" value={schedule.filter((job) => jobDateKey(job.date) === today && job.status.trim().toUpperCase() !== "CANCELLED").length}
+          note="My job" tone="#16794C" onClick={() => go("carriermyjob")} />
+        <CarrierMetric label="กำลังดำเนินการ" value={active.length} note="My job" tone="#16794C" onClick={() => go("carriermyjob")} />
+        <CarrierMetric label="รอจัดรถ" value={active.filter((job) => !job.licence.trim()).length} note="My job" tone="#B42318" onClick={() => go("carriermyjob")} />
+        <CarrierMetric label="เลื่อน / ยกเลิก" value={postponed.length} note="Postpone" tone="#B45309" onClick={() => go("carrierpostpone")} />
+        <CarrierMetric label="ส่งตรงเวลา เดือนนี้" value={percentText(kpi?.onTime?.available ? kpi.onTime.value : null)}
+          note={kpi?.score?.weighted == null ? "KPI" : `คะแนนรวม ${kpi.score.weighted.toFixed(1)}`} tone="#0A5C97" onClick={() => go("carrierkpi")} />
+      </div>}
+
+      {(tab === "dashboard" || tab === "billing") && <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px") }>
         <CarrierMetric label="Carrier Acceptance" value={tower?.metrics.carrierAcceptancePercent == null ? "—" : `${tower.metrics.carrierAcceptancePercent.toFixed(1)}%`}
           note={`รอตอบ ${tower?.metrics.carrierAcceptancePending ?? portal.offered.length}`} tone="#16794C" />
         <CarrierMetric label="Truck Assignment Pending" value={tower?.metrics.truckAssignmentPending ?? 0} note="รับงานแล้วแต่ยังไม่มีรถ" tone="#B42318" />
@@ -215,26 +253,11 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
           note="ผ่านตั้งแต่รอบแรก" tone="#16794C" />
         <CarrierMetric label="Original Pending" value={tower?.metrics.originalPending ?? 0}
           note={`เฉลี่ย ${tower?.metrics.averageOriginalPendingDays ?? 0} วัน`} tone="#B45309" />
-      </div>
+      </div>}
 
-      <div style={css("display:flex;gap:7px")}>
-        {([["new", "งานใหม่", portal.offered.length], ["schedule", "ตารางงาน", (portal.schedule ?? portal.accepted).length],
-          ["billing", "วางบิล", billing.length]] as const)
-          .map(([id, label, count]) => {
-            const on = tab === id;
-            return (
-              <button key={id} onClick={() => setTab(id)}
-                style={css("height:33px;padding:0 15px;border:1px solid " + (on ? "#0A2240" : "#D3DBE3") +
-                  ";background:" + (on ? "#0A2240" : "#fff") + ";color:" + (on ? "#fff" : "#3F5265") +
-                  ";border-radius:5px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit")}>
-                {label} <span style={css("opacity:.75")}>{count}</span>
-              </button>
-            );
-          })}
-      </div>
-
-      {tab === "schedule" && (
+      {view === "myjob" && (
         <div style={css("display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:9px 10px")}>
+          <span style={css("font-size:11.5px;font-weight:650;color:#0F2B46;margin-right:4px")}>ตารางงาน</span>
           {([
             ["today", "วันนี้"], ["tomorrow", "พรุ่งนี้"], ["week", "7 วัน"],
             ["calendar", "ปฏิทิน"], ["unassigned", "รอจัดรถ"], ["active", "กำลังดำเนินการ"], ["completed", "เสร็จแล้ว"],
@@ -255,17 +278,22 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
         </div>
       )}
 
+      {view === "new" && <CarrierJobRequests onToast={onToast} />}
+      {view === "new" && <div style={css("font-size:13.5px;font-weight:650;color:#0F2B46;margin-top:4px")}>งานที่ Leschaco ส่งมาให้รับ</div>}
+
       {tab === "billing" && <CarrierBilling items={billing} busy={busy} setBusy={setBusy}
         onToast={onToast} onRefresh={load} />}
 
-      {tab !== "billing" && rows.length === 0 && (
+      {(tab === "new" || tab === "schedule") && rows.length === 0 && (
         <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>
-          {tab === "new" ? "ยังไม่มีงานใหม่ส่งเข้ามา" : "ไม่พบงานในมุมมองนี้"}
+          {tab === "new" ? "ยังไม่มีงานใหม่ส่งเข้ามา" : view === "postpone" ? "ไม่มีงานที่ถูกเลื่อนหรือยกเลิก" : "ไม่พบงานในมุมมองนี้"}
         </div>
       )}
 
       {rows.map((job) => {
         const editing = open === job.key;
+        // A cancelled job is shown on Postpone to be known about, not worked: no truck, no status, no POD.
+        const workable = tab === "schedule" && job.status.trim().toUpperCase() !== "CANCELLED";
         return (
           <div key={job.key} style={css("background:#fff;border:1px solid " + (editing ? "#9CC2E8" : "#E3E8EE") + ";border-radius:6px;padding:14px 17px")}>
             <div style={css("display:flex;gap:14px;justify-content:space-between;flex-wrap:wrap;align-items:flex-start")}>
@@ -273,6 +301,9 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
                 <div style={css("font-size:13.5px;font-weight:650;color:#0F2B46")}>
                   {job.customer} · {job.jobCode || job.key}
                 </div>
+                {view === "postpone" && <div style={css("font-size:12px;font-weight:650;margin-top:4px;color:" + (job.status.trim().toUpperCase() === "CANCELLED" ? "#B42318" : "#B45309"))}>
+                  {job.status.trim().toUpperCase() === "CANCELLED" ? "ยกเลิก" : `เลื่อนจาก ${job.origDate || "—"} เป็น ${job.date || "—"}`}
+                </div>}
                 <div style={css("font-size:12.5px;color:#5A6B7D;margin-top:4px;line-height:1.75")}>
                   วันที่ {job.date || "—"} · {job.type || "—"} · ลานตู้ {job.cyYard || "—"} · ปลายทาง {job.destination || "—"}
                   <br />
@@ -284,7 +315,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
                     {job.licence || "—"} · {job.driver || "—"} · {job.contact || "—"}
                   </div>
                 )}
-                {tab === "schedule" && !job.licence && !job.driver && (
+                {workable && !job.licence && !job.driver && (
                   <div style={css("font-size:12px;color:#B45309;margin-top:5px;font-weight:600")}>รอจัดรถและคนขับ</div>
                 )}
               </div>
@@ -299,7 +330,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
               )}
             </div>
 
-            {tab === "schedule" && (
+            {workable && (
               <div style={css("margin-top:11px")}>
                 <button onClick={() => {
                     const opening = operate !== job.key;
@@ -312,7 +343,7 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
               </div>
             )}
 
-            {tab === "schedule" && operate === job.key && (
+            {workable && operate === job.key && (
               <div style={css("margin-top:12px;padding-top:12px;border-top:1px solid #E9EFF5;display:flex;flex-direction:column;gap:13px")}>
                 <div>
                   <div style={css("font-size:12px;font-weight:650;color:#0F2B46;margin-bottom:7px")}>จัดรถและคนขับจากทะเบียนบริษัท</div>
@@ -424,12 +455,18 @@ export function CarrierPortal({ onToast }: { onToast: (message: string) => void 
   );
 }
 
-function CarrierMetric({ label, value, note, tone }: { label: string; value: number | string; note: string; tone: string }) {
-  return <div style={css(`background:#fff;border:1px solid #E3E8EE;border-top:3px solid ${tone};border-radius:5px;padding:9px 11px`) }>
+function CarrierMetric({ label, value, note, tone, onClick }: {
+  label: string; value: number | string; note: string; tone: string; onClick?: () => void;
+}) {
+  const box = `background:#fff;border:1px solid #E3E8EE;border-top:3px solid ${tone};border-radius:5px;padding:9px 11px;text-align:left;font-family:inherit;`;
+  const inner = <>
     <div style={css("font-size:10px;color:#7B8CA0;font-weight:650")}>{label}</div>
     <div style={css("font-size:20px;color:#0F2B46;font-weight:700;font-family:'IBM Plex Mono',monospace;margin-top:3px")}>{value}</div>
     <div style={css("font-size:9.5px;color:#94A3B8;margin-top:2px")}>{note}</div>
-  </div>;
+  </>;
+  return onClick
+    ? <button type="button" onClick={onClick} style={css(box + "cursor:pointer;width:100%")}>{inner}</button>
+    : <div style={css(box)}>{inner}</div>;
 }
 
 function Field({ label, width, value, onChange, placeholder }: {

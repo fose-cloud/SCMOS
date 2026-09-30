@@ -267,6 +267,7 @@ await AgentScanChecks.RunAsync(Check, args.Contains("--write-local-db"));
 CarrierAgentChecks.Run(Check);
 CommunicationDraftChecks.Run(Check);
 await BookingChecks.RunAsync(Check, args.Contains("--write-local-db"));
+await CarrierPortalChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));
 Console.WriteLine($"All {count} AI foundation/Operations/audit checks passed. No production data or live OpenAI calls.");
 
