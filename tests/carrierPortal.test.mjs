@@ -101,9 +101,9 @@ test("the requests answer is read as sent, and refused when its shape is wrong",
 
 test("a request opened in the department is the ordinary add-job form, confirmed only after the job is saved", () => {
   const app = read("app/SCMOSApp.tsx");
-  assert.match(app, /const openCarrierRequest = \(request: CarrierJobRequest\) => \{\n    startAddJob\(request\.category\);/);
+  assert.match(app, /const openCarrierRequest = \(request: CarrierJobRequest\) => \{\n {4}startAddJob\(request\.category\);/);
   assert.match(app, /trucker: request\.supplierName/);
-  assert.match(app, /void flushNow\(\)\.then\(async \(saved\) => \{\n        if \(!saved\.ok\) \{ setToast\("บันทึกงานไม่สำเร็จ — คำขอของผู้ขนส่งยังรออยู่"\); return; \}/);
+  assert.match(app, /void flushNow\(\)\.then\(async \(saved\) => \{\n {8}if \(!saved\.ok\) \{ setToast\("บันทึกงานไม่สำเร็จ — คำขอของผู้ขนส่งยังรออยู่"\); return; \}/);
   assert.match(app, /\/api\/carrier-job-requests\/\$\{asked\.id\}\/approve/);
   assert.match(app, /isWorkspace && !isCarrier && able\("EditOwnJobs"\) && \(\n\s+<CarrierRequestsPanel/);
   const portal = read("app/scmos/screens/CarrierPortal.tsx");
