@@ -970,6 +970,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.BillingInvoiceId).HasColumnName("billing_invoice_id");
             entry.Property(e => e.IssueId).HasColumnName("issue_id");
             entry.Property(e => e.DriverId).HasColumnName("driver_id");
+            entry.Property(e => e.TruckId).HasColumnName("truck_id");
+            entry.Property(e => e.FleetDriverId).HasColumnName("fleet_driver_id");
             entry.Property(e => e.Folder).HasColumnName("folder").HasMaxLength(30);
             entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.Year).HasColumnName("year").HasMaxLength(4).HasDefaultValue("");
@@ -991,6 +993,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => e.BillingCaseId).HasDatabaseName("document_billing_case_idx");
             entry.HasIndex(e => e.BillingInvoiceId).HasDatabaseName("document_billing_invoice_idx");
             entry.HasIndex(e => e.IssueId).HasDatabaseName("document_issue_idx");
+            entry.HasIndex(e => e.TruckId).HasDatabaseName("document_truck_idx");
+            entry.HasIndex(e => e.FleetDriverId).HasDatabaseName("document_fleet_driver_idx");
             entry.HasOne<BillingCase>().WithMany().HasForeignKey(e => e.BillingCaseId)
                 .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_documents_billing_cases_billing_case_id");
             entry.HasOne<BillingInvoice>().WithMany().HasForeignKey(e => e.BillingInvoiceId)
@@ -1100,6 +1104,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.VehicleType).HasMaxLength(20).HasDefaultValue("");
             e.Property(x => x.RegistrationExpiry).HasMaxLength(20).HasDefaultValue("");
             e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("active");
+            e.Property(x => x.Kind).HasMaxLength(10).HasDefaultValue(FleetDocuments.Head);
+            e.Property(x => x.CreatedBy).HasMaxLength(120).HasDefaultValue("");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_truck_idx");
         });
 
@@ -1112,6 +1118,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.LicenceExpiry).HasMaxLength(20).HasDefaultValue("");
             e.Property(x => x.TrainingExpiry).HasMaxLength(20).HasDefaultValue("");
             e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("active");
+            e.Property(x => x.CreatedBy).HasMaxLength(120).HasDefaultValue("");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_driver_idx");
         });
 

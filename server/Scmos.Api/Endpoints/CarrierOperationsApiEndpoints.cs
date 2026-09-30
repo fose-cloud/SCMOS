@@ -46,7 +46,7 @@ public static class CarrierOperationsApiEndpoints
             var trucks = await db.SupplierTrucks.AsNoTracking()
                 .Where(row => row.SupplierId == who.Company.Id && row.Status == "active")
                 .OrderBy(row => row.Plate)
-                .Select(row => new { row.Id, row.Plate, row.VehicleType, row.DgCapable, row.RegistrationExpiry })
+                .Select(row => new { row.Id, row.Plate, row.Kind, row.VehicleType, row.DgCapable, row.RegistrationExpiry })
                 .ToListAsync(token);
             var drivers = await db.SupplierDrivers.AsNoTracking()
                 .Where(row => row.SupplierId == who.Company.Id && row.Status == "active")

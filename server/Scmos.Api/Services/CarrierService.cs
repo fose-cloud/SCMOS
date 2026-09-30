@@ -23,7 +23,7 @@ namespace Scmos.Api.Services;
 public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterCache register, CarrierTenantContext tenants,
     AuditService audit, CarrierBillingService billing, ILogger<CarrierService> log, CarrierWebhookQueue webhooks)
 {
-    public record FleetTruck(int Id, string Plate, string VehicleType, bool DgCapable, string RegistrationExpiry);
+    public record FleetTruck(int Id, string Plate, string VehicleType, bool DgCapable, string RegistrationExpiry, string Kind);
     public record FleetDriver(int Id, string Name, string Phone, string LicenceNo, string LicenceExpiry, string TrainingExpiry);
     public record CarrierOperationView(long Id, string Kind, string From, string To, string Note,
         string By, DateTimeOffset RecordedAt, DateTimeOffset? EventAt);
@@ -221,7 +221,7 @@ public class CarrierService(ScmosDbContext db, JobsRepository jobs, JobRegisterC
         var trucks = await db.SupplierTrucks.AsNoTracking()
             .Where(row => row.SupplierId == company.Id && row.Status == "active")
             .OrderBy(row => row.Plate)
-            .Select(row => new FleetTruck(row.Id, row.Plate, row.VehicleType, row.DgCapable, row.RegistrationExpiry))
+            .Select(row => new FleetTruck(row.Id, row.Plate, row.VehicleType, row.DgCapable, row.RegistrationExpiry, row.Kind))
             .ToListAsync(token);
         var drivers = await db.SupplierDrivers.AsNoTracking()
             .Where(row => row.SupplierId == company.Id && row.Status == "active")

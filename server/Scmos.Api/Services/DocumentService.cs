@@ -170,6 +170,34 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
     }
 
     /// <summary>
+    /// A registered truck's or driver's paper (30 Sep 2026) — the registration book, an insurance, the driving
+    /// licence. Exactly one of <paramref name="truck"/> and <paramref name="driver"/>; the supplier is the one
+    /// the row belongs to, and the file is kept under it without joining its compliance file.
+    /// </summary>
+    public async Task<DocumentResult> AddToFleetAsync(Supplier supplier, SupplierTruck? truck, SupplierDriver? driver,
+        string kind, string expiryDate, IFormFile file, AppUser user, CancellationToken token)
+    {
+        if ((truck is null) == (driver is null)) return new DocumentResult(false, "ระบุรถหรือพนักงานขับรถอย่างใดอย่างหนึ่ง");
+        var expiry = expiryDate.Trim();
+        if (expiry.Length > 0 && Formats.DateNumber(expiry) == 0)
+            return new DocumentResult(false, "วันหมดอายุต้องเป็นรูปแบบ DD/MM/YYYY");
+
+        var key = BlobPaths.ForFleet(supplier.Code, truck is not null,
+            truck?.Plate ?? (driver!.LicenceNo.Trim().Length > 0 ? driver.LicenceNo : $"ID-{driver.Id}"), file.FileName);
+        return await StoreAsync(key, file, user, token, document =>
+        {
+            document.Scope = "fleet";
+            document.TruckId = truck?.Id;
+            document.FleetDriverId = driver?.Id;
+            document.Folder = "Fleet";
+            document.Kind = kind.Trim();
+            document.ExpiryDate = expiry;
+            document.Customer = supplier.Code;
+            document.JobRef = truck?.Plate ?? driver!.Name;
+        });
+    }
+
+    /// <summary>
     /// Attaches evidence to a CAR/PAR case.
     ///
     /// It lands in the job's own CARPAR folder when the case came from a job, so

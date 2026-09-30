@@ -123,6 +123,15 @@ public static class BlobPaths
             SupplierFolder(folder), FileName(fileName));
 
     /// <summary>
+    /// A carrier's truck or driver papers (30 Sep 2026):
+    /// <c>SCMOS/Supplier/{code}/Fleet/{Truck|Driver}/{plate or licence}/{file}</c> — under the company that
+    /// registered them, one folder per plate or licence so a renewed policy lands beside the one it replaces.
+    /// </summary>
+    public static string ForFleet(string supplierCode, bool truck, string identifier, string fileName) =>
+        string.Join('/', Root, "Supplier", Segment(supplierCode, "UNKNOWN-SUPPLIER"), "Fleet",
+            truck ? "Truck" : "Driver", Segment(identifier, "UNKNOWN"), FileName(fileName));
+
+    /// <summary>
     /// A driver's paperwork: <c>SCMOS/Driver/{idNo}/{folder}/{file}</c>.
     ///
     /// Keyed on the licence or national id rather than the name, because two

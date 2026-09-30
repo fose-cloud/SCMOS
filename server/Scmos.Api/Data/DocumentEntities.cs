@@ -55,6 +55,16 @@ public class StoredDocument
     public int? DriverId { get; set; }
 
     /// <summary>
+    /// A carrier's registered truck or trailer (<see cref="SupplierTruck"/>), for its registration book and
+    /// insurances (30 Sep 2026). Not filed with <see cref="SupplierId"/>: the supplier's own compliance file is
+    /// five named documents, and a fleet of forty trucks' policies would bury them.
+    /// </summary>
+    public int? TruckId { get; set; }
+
+    /// <summary>A carrier's registered driver (<see cref="SupplierDriver"/>), for the driving licence.</summary>
+    public int? FleetDriverId { get; set; }
+
+    /// <summary>
     /// The folder it went in: Booking · ECard · POD · Images · Invoice · CARPAR
     /// for a job; Audit · Insurance · License · Training · Contract for a
     /// supplier. Controlled — see <see cref="Rules.BlobPaths.JobFolders"/>.

@@ -65,11 +65,13 @@ test("Rate and KPI read the carrier's own endpoints and nothing of the departmen
   }
 });
 
-test("Capacity reads and writes the carrier's own route only, never the department's board", () => {
-  const capacity = read("app/scmos/screens/CarrierCapacity.tsx");
-  assert.match(capacity, /"\/api\/carrier\/capacity\?days=14"/);
-  assert.match(capacity, /apiFetch\("\/api\/carrier\/capacity", \{\n\s+method: "POST"/);
-  assert.doesNotMatch(capacity, /\/api\/capacity|supplierId/);   // the company is the account's, never sent
+test("Capacity is the department's screen on the carrier's own route, and a carrier never names the supplier", () => {
+  // One screen for both since 30 Sep 2026 — the carrier's branch reads and writes /api/carrier/capacity.
+  const board = read("app/scmos/screens/CapacityBoard.tsx");
+  assert.match(board, /"\/api\/carrier\/capacity\?days=14"/);
+  assert.match(board, /apiFetch\("\/api\/carrier\/capacity", \{\n\s+method: "POST", headers: \{ "content-type": "application\/json" \}, body: JSON\.stringify\(counts\),/);
+  assert.doesNotMatch(board.match(/const counts = \{[\s\S]*?\};/)[0], /supplierId/);   // the company is the account's, never sent
+  assert.match(read("app/scmos/screens/CarrierPortal.tsx"), /<CapacityBoard carrier canEdit canAdmin=\{false\}/);
 });
 
 const rates = (over = {}) => ({

@@ -1,3 +1,5 @@
+using Scmos.Api.Rules;
+
 namespace Scmos.Api.Data;
 
 /// <summary>
@@ -181,6 +183,15 @@ public class SupplierTruck
     public bool DgCapable { get; set; }
     public string RegistrationExpiry { get; set; } = "";
     public string Status { get; set; } = "active";
+
+    /// <summary>
+    /// head (หัว — the tractor, or a rigid truck) · tail (หาง — the trailer), 30 Sep 2026. The carrier registers
+    /// both on its Capacity screen; a job's licence is a head, or a head and a tail.
+    /// </summary>
+    public string Kind { get; set; } = FleetDocuments.Head;
+
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset? CreatedAt { get; set; }
 }
 
 public class SupplierDriver
@@ -193,6 +204,8 @@ public class SupplierDriver
     public string LicenceExpiry { get; set; } = "";
     public string TrainingExpiry { get; set; } = "";
     public string Status { get; set; } = "active";
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset? CreatedAt { get; set; }
 }
 
 /// <summary>How many trucks of a type a supplier says they have on a date.</summary>

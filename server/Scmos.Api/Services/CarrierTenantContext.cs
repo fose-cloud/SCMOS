@@ -141,6 +141,19 @@ public class CarrierDocumentAccess(ScmosDbContext db, CarrierTenantContext tenan
             return await db.Drivers.AsNoTracking()
                 .AnyAsync(row => row.Id == driverId && row.SupplierId == tenant.SupplierId, token);
         }
+        // Its own trucks' and drivers' papers (30 Sep 2026).
+        if (document.TruckId is { } truckId)
+        {
+            var tenant = await tenants.ResolveAsync(user, token);
+            return tenant is not null && await db.SupplierTrucks.AsNoTracking()
+                .AnyAsync(row => row.Id == truckId && row.SupplierId == tenant.SupplierId, token);
+        }
+        if (document.FleetDriverId is { } fleetDriverId)
+        {
+            var tenant = await tenants.ResolveAsync(user, token);
+            return tenant is not null && await db.SupplierDrivers.AsNoTracking()
+                .AnyAsync(row => row.Id == fleetDriverId && row.SupplierId == tenant.SupplierId, token);
+        }
         return false;
     }
 

@@ -9,7 +9,7 @@ import { css } from "../theme";
 import type { BillingCase, BillingControlTowerView, BillingIssuer } from "./BillingControl";
 import { CarrierInvoice, type InvoiceDraftBody } from "./CarrierInvoice";
 import { money, rateReason } from "../invoiceLines";
-import { CarrierCapacity } from "./CarrierCapacity";
+import { CapacityBoard } from "./CapacityBoard";
 import { CarrierJobRequests } from "./CarrierJobRequests";
 import { CarrierKpi } from "./CarrierKpi";
 import { CarrierRates } from "./CarrierRates";
@@ -41,7 +41,7 @@ type CarrierJob = {
 
 type Operation = { id: number; kind: string; from: string; to: string; note: string; by: string; recordedAt: string; eventAt: string | null };
 type Pod = { id: number; fileName: string; uploadedAt: string };
-type FleetTruck = { id: number; plate: string; vehicleType: string; dgCapable: boolean; registrationExpiry: string };
+type FleetTruck = { id: number; plate: string; vehicleType: string; dgCapable: boolean; registrationExpiry: string; kind: string };
 type FleetDriver = { id: number; name: string; phone: string; licenceNo: string; licenceExpiry: string; trainingExpiry: string };
 
 type Portal = {
@@ -86,7 +86,8 @@ type Props = {
 export function CarrierPortal(props: Props) {
   if (props.view === "rates") return <CarrierRates />;
   if (props.view === "kpi") return <CarrierKpi />;
-  if (props.view === "capacity") return <CarrierCapacity onToast={props.onToast} />;
+  // The department's Capacity screen, on the carrier's own fleet (30 Sep 2026).
+  if (props.view === "capacity") return <CapacityBoard carrier canEdit canAdmin={false} onToast={props.onToast} />;
   return <CarrierWork {...props} />;
 }
 
@@ -364,11 +365,11 @@ function CarrierWork({ view, onNavigate, onToast, onNewJobCount }: Props) {
                   <div style={css("display:flex;gap:8px;flex-wrap:wrap;align-items:end")}>
                     <Pick label="รถ" value={truckId} onChange={setTruckId}>
                       <option value="">เลือกรถ</option>
-                      {portal.trucks.map((one) => <option key={one.id} value={one.id}>{one.plate} · {one.vehicleType}</option>)}
+                      {portal.trucks.filter((one) => one.kind !== "tail").map((one) => <option key={one.id} value={one.id}>{one.plate} · {one.vehicleType}</option>)}
                     </Pick>
                     <Pick label="หาง (ถ้ามี)" value={trailerId} onChange={setTrailerId}>
                       <option value="">ไม่ระบุ</option>
-                      {portal.trucks.filter((one) => String(one.id) !== truckId).map((one) => <option key={one.id} value={one.id}>{one.plate} · {one.vehicleType}</option>)}
+                      {portal.trucks.filter((one) => one.kind === "tail").map((one) => <option key={one.id} value={one.id}>{one.plate} · {one.vehicleType}</option>)}
                     </Pick>
                     <Pick label="คนขับ" value={driverId} onChange={setDriverId}>
                       <option value="">เลือกคนขับ</option>
