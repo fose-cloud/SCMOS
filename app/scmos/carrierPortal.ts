@@ -7,6 +7,21 @@ import type { Screen } from "./nav";
  * the account's company; these only refuse an answer of the wrong shape.
  */
 
+/**
+ * The cells a carrier may change on its own jobs in My job — the server's CarrierRegisterService.Editable
+ * plus the status (along the carrier's own ladder). The server decides; this only keeps the rest read-only.
+ */
+export const CARRIER_EDITABLE = ["licence", "driver", "contact", "container", "seal", "arrDate", "arrTime", "status"] as const;
+
+/** The steps a carrier sets itself, in the server's words (CarrierRegisterService.StepFor): its ladder from the truck leaving. */
+export const CARRIER_STEPS = ["DISPATCHED", "PICKED_UP", "LOADING", "IN_TRANSIT", "DELIVERED", "CONTAINER_RETURNED", "COMPLETED"] as const;
+
+/** A carrier's status choices on one job: where it is, and its own steps further along the job's ladder. */
+export function carrierStatusChoices(current: string, ladder: string[]): string[] {
+  const at = ladder.findIndex(step => step.toUpperCase() === current.trim().toUpperCase());
+  return ladder.filter((step, i) => (CARRIER_STEPS as readonly string[]).includes(step.toUpperCase()) && (at < 0 || i > at));
+}
+
 export type CarrierView = "dashboard" | "new" | "myjob" | "postpone" | "capacity" | "rates" | "billing" | "kpi";
 
 export const CARRIER_VIEW: Partial<Record<Screen, CarrierView>> = {

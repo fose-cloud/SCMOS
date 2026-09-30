@@ -17,7 +17,7 @@ import { bookingStats } from "./scmos/booking";
 import { DEFAULT_STATUS, normaliseField, type Fix } from "./scmos/standard";
 import { exportDashboard, exportJobs, exportRates, parseWorkbook, type DupDecision, type ImportPreview } from "./scmos/excel";
 import { deleteView, describeView, listViews, saveView, type SavedView, type ViewState } from "./scmos/views";
-import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadJobsSince, loadPlanFile, saveJobs } from "./scmos/store";
+import { clearJobs, deleteJobs, loadJobs, loadJobsPage, loadJobsSince, loadPlanFile, saveJobs, setCarrierRegister } from "./scmos/store";
 import { QUEUES_EVERY_MS, SYNC_EVERY_MS, applyDelta, needsFullReload } from "./scmos/registerSync";
 import { SaveQueue } from "./scmos/saveQueue";
 import { forget, pageCacheKey, readCachedPage, rememberOperator, writeCachedPage } from "./scmos/pageCache";
@@ -97,7 +97,7 @@ import { Detail, type AuditEntry } from "./scmos/screens/Detail";
 import { Reports } from "./scmos/screens/Panels";
 import { BillingControl } from "./scmos/screens/BillingControl";
 import { Booking } from "./scmos/screens/Booking";
-import { Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
+import { ALL_MINE, Workspace, tabHolding, workspaceTabCounts, type WorkspaceServerPage, type WsState } from "./scmos/screens/Workspace";
 
 import { ExternalSystemScreen } from "./scmos/screens/ExternalSystem";
 import { LineReview } from "./scmos/screens/LineReview";
@@ -107,7 +107,7 @@ import { correctionsByKey, mergeMarks, type Correction, type ReasonChoice } from
 import { systemById } from "./scmos/externalSystems";
 import { Loreal } from "./scmos/screens/Loreal";
 import { CarrierPortal } from "./scmos/screens/CarrierPortal";
-import { CARRIER_VIEW } from "./scmos/carrierPortal";
+import { CARRIER_EDITABLE, CARRIER_VIEW, carrierStatusChoices } from "./scmos/carrierPortal";
 import { CarrierRequestsPanel } from "./scmos/screens/CarrierRequestsPanel";
 import { CarrierDashboard } from "./scmos/screens/CarrierDashboard";
 import type { CarrierJobRequest } from "./scmos/carrierJobRequests";
@@ -480,13 +480,21 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * page request immediately; this background read fills its summary panels,
    * export, duplicate detection and editing tools.
    */
+  // Declared here, before the register's first read waits on it; set by the /api/me read below.
+  const [identityState, setIdentityState] = useState<"loading" | "ready" | "failed">("loading");
   const registerNeeded = screenNeedsRegister(screen, tab)
     || gq.trim().length > 0
     || importOpen
     // The add-job form writes into the register and offers its lists — opened from the
     // AI Control Tower (a Booking Agent mail draft) it has to load it there too.
-    || addCat !== null;
+    || addCat !== null
+    // A carrier's My job is the Operation Workspace over its own register (30 Sep 2026).
+    || screen === "carriermyjob";
   const registerLoadStarted = useRef(false);
+  /** Whether the signed-in account is a carrier's, as last rendered — read by the register's first load. */
+  const carrierAccount = useRef(false);
+  /** Whose register is loaded — the department's or a carrier's — so a change of account never shows the other's. */
+  const registerCarrier = useRef<boolean | null>(null);
   const appMounted = useRef(true);
   /** The newest write this screen has seen, as /api/jobs stamps it. See syncRegister. */
   const registerStamp = useRef("");
@@ -504,7 +512,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
   useEffect(() => {
     if (!isSignedIn || !registerNeeded || registerLoadStarted.current) return;
+    // Which register is this account's — the department's, or a carrier's own — is known once /api/me answers.
+    if (identityState === "loading") return;
     registerLoadStarted.current = true;
+    registerCarrier.current = carrierAccount.current;
 
     (async () => {
       // Azure SQL serverless pauses itself after an hour with nobody on it, and
@@ -567,7 +578,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         ? { state: "saved", at: nowHM(), message: "seeded" }
         : { state: "error", at: "", message: seeded.message });
     })();
-  }, [isSignedIn, registerNeeded]);
+  }, [isSignedIn, registerNeeded, identityState]);
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
@@ -645,7 +656,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * and nothing could be typed into. "Safe when it fails" is only half a design;
    * the other half is saying that it failed.
    */
-  const [identityState, setIdentityState] = useState<"loading" | "ready" | "failed">("loading");
   const [identityAttempt, setIdentityAttempt] = useState(0);
   const [identityRefresh, setIdentityRefresh] = useState(0);
 
@@ -932,6 +942,21 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * indistinguishable from an outage.
    */
   const isCarrier = (identity?.role || base.role) === "Subcontractor";
+  // Before the register is first read: a carrier's account reads and writes its own (see store.ts).
+  setCarrierRegister(isCarrier);
+  carrierAccount.current = isCarrier;
+  // An account of the other kind signed in without a page load (the demo gate does this): the register in
+  // memory is not theirs, so it goes and is read again from the right place.
+  useEffect(() => {
+    if (registerCarrier.current === null || registerCarrier.current === isCarrier) return;
+    registerCarrier.current = null;
+    registerLoadStarted.current = false;
+    setOps(null);
+    setServerPages(undefined);
+  }, [isCarrier]);
+  /** What a carrier may change on its own jobs in My job — the rest of the row is read-only. */
+  const carrierMay = (field: keyof Job) => (CARRIER_EDITABLE as readonly string[]).includes(String(field));
+  const CARRIER_ONLY = "ผู้ขนส่งแก้ได้เฉพาะ ทะเบียนรถ คนขับ เบอร์โทร เลขตู้ ซีล วัน-เวลาถึง และสถานะ";
   // "carrier" is the department's view of the portal ("งานของบริษัท") and a carrier's own Dashboard.
   const meta = isCarrier && screen === "carrier" ? "Dashboard" : metaOf;
 
@@ -961,7 +986,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    */
   const domesticGrid = screen === "chemours" && selectedTab("chemours", tab) === DOMESTIC_TAB;
   const lockedCat = domesticGrid ? "DELIVERY" : undefined;
-  const isWorkspace = (screen === "myjob" || domesticGrid) && !isDetail;
+  const isWorkspace = (screen === "myjob" || domesticGrid || (isCarrier && screen === "carriermyjob")) && !isDetail;
 
 
   // The rate book is nearly two megabytes of subcontractor quotations, so it is
@@ -1446,8 +1471,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * operator can edit anything" — true of a supervisor, and equally true of a
    * Viewer, a CS account and a subcontractor.
    */
-  const canEditJob = (job: Job) =>
-    able("EditAnyJob") || (able("EditOwnJobs") && owns(job));
+  const canEditJob = (job: Job) => isCarrier
+    // Every job on a carrier's register is its own; a closed one takes nothing.
+    ? !/^(completed|cancelled|delivery completed)$/i.test((job.status || "").trim())
+    : able("EditAnyJob") || (able("EditOwnJobs") && owns(job));
 
   const tabList = TAB_DEFS[screen] || [];
   const activeTab = tab && tabList.indexOf(tab) >= 0 ? tab : tabList[0] || "";
@@ -1592,7 +1619,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const wsCounts = useMemo(
     () => {
       if (!isWorkspace) return {};
-      if (ops) return workspaceTabCounts(ops, me.opId, lockedCat ?? ws.cat);
+      if (ops) return workspaceTabCounts(ops, isCarrier ? ALL_MINE : me.opId, lockedCat ?? ws.cat);
       if (!serverPages) return {};
 
       const answers = Object.values(serverPages);
@@ -1704,6 +1731,15 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       return [
         { label: "← Back to list", style: BTN_SECONDARY, go: () => setSel(null) },
         { label: "Edit Shipment", style: BTN_PRIMARY, go: () => setToast("Edit mode — draft saved locally") },
+      ];
+    }
+    // A carrier's My job keeps the grid's own views, export and undo — nothing that writes a job it does not hold.
+    if (isWorkspace && isCarrier) {
+      return [
+        { label: "Saved views", style: BTN_SECONDARY, go: () => { setViews(listViews()); setViewName(""); setViewsOpen(true); } },
+        { label: "Export Excel", style: BTN_SECONDARY, go: handleExport },
+        ...(undos.length > 0 ? [{ label: "↶ ย้อนกลับ", title: "ย้อนกลับ (Ctrl+Z)", style: BTN_SECONDARY, go: undo }] : []),
+        ...(redos.length > 0 ? [{ label: "↷ ถัดไป", title: "กลับไปข้างหน้า (Ctrl+X หรือ Ctrl+Y)", style: BTN_SECONDARY, go: redo }] : []),
       ];
     }
     if (isWorkspace) {
@@ -2158,7 +2194,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
     const undoEdits: UndoEdit[] = [];
     for (const edit of edits) {
-      if (!canEditJob(edit.job)) { refused++; continue; }
+      if (!canEditJob(edit.job) || (isCarrier && !carrierMay(edit.field))) { refused++; continue; }
       const was = (edit.job[edit.field] as string) || "";
       const fix = writeCell(edit.job, edit.field, edit.value);
       if (fix === false) continue;
@@ -2196,6 +2232,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   function setField(job: Job, field: keyof Job, value: string, recordHistory = true): string {
     const old = (job[field] as string) || "";
     if (value === old) { touch(); return old; }
+    if (isCarrier && !carrierMay(field)) { setToast(CARRIER_ONLY); touch(); return old; }
 
     if (recordHistory) {
       remember(String(field) + ": " + (old || "—"), [{ key: job.key, before: { [field]: old } as Partial<Job> }]);
@@ -2223,6 +2260,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    */
   function bulkStatus(keys: string[], value: string) {
     if (!ops) return;
+    if (isCarrier) { setToast("ผู้ขนส่งเปลี่ยนสถานะทีละงานในตาราง"); return; }
     const chosen = ops.jobs.filter((j) => keys.indexOf(j.key) >= 0);
     const allowed = chosen.filter(canEditJob);
     const undoEdits: UndoEdit[] = [];
@@ -2247,6 +2285,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
   function bulkAssign(keys: string[], owner: string) {
     if (!ops) return;
+    if (isCarrier) return;
     // Somebody covering a leave may give a job to the person who handed them
     // the work — and only to them: it is how a row keyed under the wrong name
     // is put right, and a grant is for working the absent person's jobs, not
@@ -2306,6 +2345,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    */
   async function removeJobs(keys: string[]) {
     if (!ops || !keys.length) return;
+    if (isCarrier) { setToast("ผู้ขนส่งลบงานไม่ได้"); return; }
     const chosen = ops.jobs.filter((j) => keys.indexOf(j.key) >= 0);
     const allowed = chosen.filter(canEditJob);
     if (!allowed.length) {
@@ -2332,7 +2372,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   }
 
   function changeJobStatus(job: Job, value: string) {
-    if (value === "Delayed") { setOpsDelay(job.key); return; }
+    if (value === "Delayed") {
+      if (isCarrier) { setToast(CARRIER_ONLY); return; }
+      setOpsDelay(job.key); return;
+    }
     const old = job.status;
     if (old === value) return;
     remember("status: " + (old || "—"), [{ key: job.key, before: { status: old } }]);
@@ -2719,6 +2762,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    */
   function duplicateRow(from: Job) {
     if (!ops) return;
+    if (isCarrier) { setToast("ผู้ขนส่งแจ้งงานใหม่ได้ที่เมนู NEW job"); return; }
     if (!able("EditOwnJobs")) {
       setToast("บัญชีนี้ไม่มีสิทธิ์เพิ่มงาน");
       return;
@@ -3180,7 +3224,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {isWorkspace && (workspaceOps
               ? <Workspace
                   ops={workspaceOps}
-                  me={me}
+                  me={isCarrier ? { ...me, opId: ALL_MINE } : me}
                   ws={wsState}
                   tabCounts={wsCounts}
                   tabs={tabs}
@@ -3209,6 +3253,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   onStatusChange={changeJobStatus}
                   onSort={() => undefined}
                   canEdit={(job) => !!ops && canEditJob(job)}
+                  editableField={isCarrier ? carrierMay : undefined}
+                  statusChoices={isCarrier ? (job, ladder) => carrierStatusChoices(job.status, ladder) : undefined}
                   canAssign={able("AssignJobs")}
                   covering={covering}
                   linePending={linePendingMarks}
@@ -3325,7 +3371,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               <CarrierDashboard period={period} onPeriod={setPeriod} filters={dashboardFilters} onFilters={setDashboardFilters}
                 tab={activeTab} userName={profile.full || me.full || me.name} onNavigate={go} />
             )}
-            {isCarrier && screen !== "carrier" && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
+            {isCarrier && screen !== "carrier" && screen !== "carriermyjob" && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
               onNavigate={go} onToast={setToast} />}
             {!isCarrier && screen === "carrier" && <CarrierPortal view="dashboard" onToast={setToast} />}
             {screen === "training" && (
@@ -3549,6 +3595,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
 
       {drawerJob && (
         <JobDrawer
+          carrier={isCarrier}
           job={drawerJob}
           mine={owns(drawerJob)}
           canEdit={canEditJob(drawerJob)}

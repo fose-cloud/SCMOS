@@ -14,6 +14,8 @@ export function JobDrawer(p: {
   job: Job;
   mine: boolean;
   canEdit: boolean;
+  /** A carrier's drawer (30 Sep 2026): the job to read and its cells to fill — moving, cancelling, deleting and raising issues are the department's. */
+  carrier?: boolean;
   onClose: () => void;
   onEdit: () => void;
   onMove: () => void;
@@ -285,7 +287,7 @@ export function JobDrawer(p: {
           one row ticked is the single-job case. Two buttons for one action drift
           apart and make the person wonder which one is the real one.
         */}
-        {p.canEdit && !isCancelled(j) && (
+        {p.canEdit && !p.carrier && !isCancelled(j) && (
           <>
             <button className="ghost-btn" onClick={p.onMove}
               style={css("height:34px;padding:0 12px;border:1px solid #F5E3C7;background:#FFFAEF;color:#B45309;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
@@ -297,7 +299,7 @@ export function JobDrawer(p: {
             </button>
           </>
         )}
-        {p.canEdit && (
+        {p.canEdit && !p.carrier && (
           <button
             onClick={p.onDelete}
             style={css("height:34px;padding:0 13px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
@@ -310,10 +312,10 @@ export function JobDrawer(p: {
             and the person who notices is often not the person holding the
             job. The issue carries the job key, so it attaches exactly
             rather than by matching a number somebody re-typed. */}
-        <button className="ghost-btn" onClick={p.onRaiseIssue}
+        {!p.carrier && <button className="ghost-btn" onClick={p.onRaiseIssue}
           style={css("height:34px;padding:0 13px;border:1px solid #D8C7E8;background:#FBF7FE;color:#6B3FA0;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}>
           แจ้งปัญหา · Operation Issue
-        </button>
+        </button>}
         {/*
           A CAR/PAR is not raised from here any more.
           

@@ -22,6 +22,15 @@ export type LoadResult = {
 
 const API = "/api/jobs";
 
+/**
+ * A carrier's account reads and writes its own register (30 Sep 2026): the same answers, from
+ * /api/carrier/jobs, cut to its jobs and, on a save, to the cells it may change — see
+ * CarrierRegisterService. Set once the account is known, before the register is first read.
+ */
+let carrierRegister = false;
+export function setCarrierRegister(on: boolean) { carrierRegister = on; }
+const registerApi = () => (carrierRegister ? "/api/carrier/jobs" : API);
+
 /** Strips the fields the workspace recomputes on load — they are not worth storing. */
 function forStorage(job: Job): Record<string, unknown> {
   const { issues, fixes, flags, action, prio, ...rest } = job;
@@ -31,11 +40,12 @@ function forStorage(job: Job): Record<string, unknown> {
 
 export async function loadJobs(): Promise<LoadResult> {
   try {
-    const response = await apiFetch(API, { headers: { accept: "application/json" } });
+    const response = await apiFetch(registerApi(), { headers: { accept: "application/json" } });
     if (!response.ok) throw new Error("HTTP " + response.status);
     const body = await response.json() as { jobs?: Record<string, string>[]; updatedAt?: string };
     const jobs = body.jobs ?? [];
-    if (jobs.length) return { jobs, source: "database", updatedAt: body.updatedAt ?? "", error: "" };
+    // A carrier with no work is a real answer, never a first run to seed from the plan file.
+    if (jobs.length || carrierRegister) return { jobs, source: "database", updatedAt: body.updatedAt ?? "", error: "" };
     return { jobs: null, source: "file", updatedAt: "", error: "" };
   } catch (error) {
     return {
@@ -54,7 +64,7 @@ export async function loadJobs(): Promise<LoadResult> {
  */
 export async function loadJobsSince(after: string): Promise<RegisterDelta | null> {
   try {
-    const response = await apiFetch(API + "/since?after=" + encodeURIComponent(after),
+    const response = await apiFetch(registerApi() + "/since?after=" + encodeURIComponent(after),
       { headers: { accept: "application/json" } });
     if (!response.ok) return null;
     return await response.json() as RegisterDelta;
@@ -115,6 +125,8 @@ export type PageQuery = {
  * a colleague's workspace by naming their operator id.
  */
 export async function loadJobsPage(query: PageQuery): Promise<JobPage | null> {
+  // A carrier's register is small and its own: the workspace pages it in the browser.
+  if (carrierRegister) return null;
   const params = new URLSearchParams({ tab: query.tab });
   if (query.cat) params.set("cat", query.cat);
   if (query.year) params.set("year", query.year);
@@ -203,7 +215,7 @@ export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ 
   for (let at = 0; at < jobs.length; at += PER_REQUEST) {
     const batch = jobs.slice(at, at + PER_REQUEST);
     try {
-      const response = await apiFetch(API, {
+      const response = await apiFetch(registerApi(), {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ by, reason, jobs: batch.map(forStorage) }),

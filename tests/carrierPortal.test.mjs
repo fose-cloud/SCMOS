@@ -20,7 +20,7 @@ test("a Subcontractor's menu is its own: Dashboard, Workspace (NEW job, My job, 
 test("the app draws the carrier's menu and its screens only for a carrier account", () => {
   const app = read("app/SCMOSApp.tsx");
   assert.match(app, /carrier=\{isCarrier\}/);
-  assert.match(app, /isCarrier && screen !== "carrier" && CARRIER_SCREENS\.includes\(screen\) && <CarrierPortal/);
+  assert.match(app, /isCarrier && screen !== "carrier" && screen !== "carriermyjob" && CARRIER_SCREENS\.includes\(screen\) && <CarrierPortal/);
   const chrome = read("app/scmos/Chrome.tsx");
   assert.match(chrome, /if \(p\.carrier\) return/);
 });
@@ -145,4 +145,38 @@ test("a carrier's Dashboard is the department's, fed its own jobs and measures",
   assert.match(tower, /\{!p\.carrier && <aside className="ct-rail"/);
   const app = read("app/SCMOSApp.tsx");
   assert.match(app, /isCarrier && screen === "carrier" && \(\n\s+<CarrierDashboard/);
+});
+
+test("a carrier's My job is the department's workspace over its own register, editing only the field cells", async () => {
+  const { CARRIER_EDITABLE } = await import("../app/scmos/carrierPortal.ts");
+  const { TAB_DEFS } = await import("../app/scmos/nav.ts");
+  // The server decides what a carrier may change; the screen's list must be the same one, plus the status.
+  const service = read("server/Scmos.Api/Services/CarrierRegisterService.cs");
+  const serverList = /Editable = \[([^\]]*)\]/.exec(service)[1].match(/"([^"]+)"/g).map(s => s.slice(1, -1));
+  assert.deepEqual([...CARRIER_EDITABLE].sort(), [...serverList, "status"].sort());
+  assert.deepEqual(TAB_DEFS.carriermyjob, TAB_DEFS.myjob);
+  const store = read("app/scmos/store.ts");
+  assert.match(store, /const registerApi = \(\) => \(carrierRegister \? "\/api\/carrier\/jobs" : API\);/);
+  assert.match(store, /if \(carrierRegister\) return null;/);                           // no department page requests
+  assert.match(store, /if \(jobs\.length \|\| carrierRegister\) return/);               // an empty register never seeds a plan
+  const app = read("app/SCMOSApp.tsx");
+  assert.match(app, /isCarrier && screen === "carriermyjob"/);
+  assert.match(app, /editableField=\{isCarrier \? carrierMay : undefined\}/);
+  assert.match(app, /if \(identityState === "loading"\) return;/);                     // the register waits to know whose it is
+});
+
+test("a carrier's status choices are its own steps ahead, the same steps the server takes", async () => {
+  const { CARRIER_STEPS, carrierStatusChoices } = await import("../app/scmos/carrierPortal.ts");
+  const service = read("server/Scmos.Api/Services/CarrierRegisterService.cs");
+  const serverSteps = [...service.matchAll(/JobStatus\.(\w+) => CarrierOperations\./g)]
+    .map(m => m[1].replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase());
+  assert.deepEqual([...CARRIER_STEPS].sort(), serverSteps.sort());
+  const ladder = ["DRAFT", "RECEIVED", "SUPPLIER_CONFIRMED", "TRUCK_ASSIGNED", "DISPATCHED", "PICKED_UP", "IN_TRANSIT",
+    "DELIVERED", "CONTAINER_RETURNED", "DOCUMENT_PENDING", "COMPLETED", "CANCELLED", "HOLD"];
+  assert.deepEqual(carrierStatusChoices("SUPPLIER_CONFIRMED", ladder),
+    ["DISPATCHED", "PICKED_UP", "IN_TRANSIT", "DELIVERED", "CONTAINER_RETURNED", "COMPLETED"]);
+  assert.deepEqual(carrierStatusChoices("delivered", ladder), ["CONTAINER_RETURNED", "COMPLETED"]);
+  const drawer = read("app/scmos/overlays/WorkspaceOverlays.tsx");
+  assert.match(drawer, /p\.canEdit && !p\.carrier && !isCancelled\(j\)/);       // no moving or cancelling a job
+  assert.match(drawer, /\{!p\.carrier && <button className="ghost-btn" onClick=\{p\.onRaiseIssue\}/);
 });

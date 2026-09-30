@@ -252,6 +252,48 @@ static class CarrierPortalChecks
                 && !JsonSerializer.Serialize(capA).Contains("BRAVO") && !JsonSerializer.Serialize(capB).Contains("ALPHA"),
                 "carrier capacity SQL: each carrier reads its own fleet beside its own jobs (not cancelled) — never the other's fleet or the department's demand");
 
+            /* ---------------- the carrier's My job: the department's workspace over its own register ---------------- */
+            var grid = new CarrierRegisterService(db, carriers, new JobsRepository(db, register), audit);
+            JsonElement Sent(object job) => JsonSerializer.SerializeToElement(job);
+            async Task<Dictionary<string, string>> Row(string key) =>
+                JsonSerializer.Deserialize<Dictionary<string, JsonElement>>((await db.OperationJobs.AsNoTracking().SingleAsync(one => one.Key == key)).Data)!
+                    .Where(pair => pair.Value.ValueKind == JsonValueKind.String).ToDictionary(pair => pair.Key, pair => pair.Value.GetString() ?? "");
+            var readA = (await grid.ReadAsync(userA, default))!;
+            var readB = (await grid.ReadAsync(userB, default))!;
+            check(readA.Jobs.Select(job => job["key"]).Order().SequenceEqual(["A-CANCEL", "A-LATE", "A-MOVED", "A-ON-1", "A-ON-2"])
+                && readB.Jobs.All(job => job["key"].StartsWith("B-"))
+                && readA.Jobs.All(job => !job.ContainsKey("remark") && !job.ContainsKey("hist") && job.Keys.All(CarrierRegisterService.Fields.Contains))
+                && await grid.ReadAsync(admin, default) is null,
+                "carrier my job SQL: the register it reads is its own jobs, cut to the grid's fields — no remark, no history");
+            var stampBefore = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var foreign = await grid.SaveAsync(userA, [Sent(new { key = "B-LATE-1", licence = "70-9999" })], default);
+            var mixed = await grid.SaveAsync(userA, [Sent(new
+            {
+                key = "A-MOVED", customer = "HACKED", trucker = "BRAVO LOGISTICS", cost = "1",
+                licence = "70-1234", contact = "081-2345678", arrDate = "02/10/2026", arrTime = "09:15",
+            })], default);
+            var moved = await Row("A-MOVED");
+            check(foreign is { Ok: false, Status: 403 } && (await Row("B-LATE-1"))["licence"] == "70-1111"
+                && mixed is { Ok: true, Saved: 1 } && moved["customer"] == "BASF" && moved["trucker"] == "ALPHA" && moved.GetValueOrDefault("cost", "") == ""
+                && moved["licence"] == "70-1234" && moved["contact"] == "081-2345678" && moved["arrTime"] == "09:15",
+                "carrier my job SQL: another carrier's job refuses the save; on its own, only the field cells land — customer, carrier and price stay");
+            var gridTrail = await db.AuditEvents.AsNoTracking().Where(one => one.Entity == "job" && one.EntityId == "A-MOVED").ToListAsync();
+            check(gridTrail.Any(one => one.NewValue == "70-1234" && one.Reason == "ผู้ขนส่งแก้ในตาราง My job" && one.Who == "sub-a@carrier.test")
+                && gridTrail.Any(one => one.NewValue == "09:15"),
+                "carrier my job SQL: each cell it changes is in the audit, with who and why");
+            check((await grid.SaveAsync(userA, [Sent(new { key = "A-MOVED", licence = "not a plate" })], default)) is { Ok: false, Status: 400 }
+                && (await grid.SaveAsync(userA, [Sent(new { key = "A-MOVED", contact = "12345" })], default)) is { Ok: false, Status: 400 }
+                && (await grid.SaveAsync(userA, [Sent(new { key = "A-MOVED", status = "RECEIVED" })], default)) is { Ok: false, Status: 400 }
+                && (await grid.SaveAsync(userA, [Sent(new { key = "A-ON-1", licence = "70-5555" })], default)) is { Ok: false, Status: 400 }
+                && (await Row("A-ON-1"))["licence"] == "70-1111",
+                "carrier my job SQL: a malformed plate or phone, a status off its ladder, and a closed job are refused, nothing written");
+            var dispatched = await grid.SaveAsync(userA, [Sent(new { key = "A-MOVED", status = "DISPATCHED" })], default);
+            check(dispatched is { Ok: true } && (await Row("A-MOVED"))["status"] == JobStatus.Dispatched,
+                "carrier my job SQL: a status along the carrier's ladder goes through its own status step");
+            var delta = (await grid.ChangedAsync(userA, stampBefore, default))!;
+            check(delta.Count == 5 && delta.Jobs.Any(job => job["key"] == "A-MOVED") && delta.Jobs.All(job => job["key"].StartsWith("A-")),
+                "carrier my job SQL: what changed since a stamp is its own rows only, with its own count");
+
             /* ---------------- jobs a carrier keys in, for the department to confirm ---------------- */
             var requests = new CarrierJobRequestService(db, carriers, audit, TimeProvider.System);
             var staff = new AppUser("op", "op@test.invalid", "Operator", Roles.Operation, "OP-C1", "test", true);

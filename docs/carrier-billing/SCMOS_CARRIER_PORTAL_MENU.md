@@ -1,6 +1,7 @@
 # The Subcontractor's own menu
 
-v2.8.0, 29 Sep 2026; Capacity and the department-style Dashboard in v2.8.1, 30 Sep 2026. Asked for by the department lead: a Subcontractor
+v2.8.0, 29 Sep 2026; Capacity and the department-style Dashboard in v2.8.1, 30 Sep 2026; the route allow-list and
+My job as the department's Workspace in v2.8.2, 30 Sep 2026. Asked for by the department lead: a Subcontractor
 account gets a dashboard of its own company, and a menu of Workspace (NEW job,
 My job, Postpone), Rate, Billing and KPI. The KPI must show only that
 carrier's own figures.
@@ -11,7 +12,7 @@ carrier's own figures.
 | --- | --- | --- |
 | Dashboard | The department's own Dashboard (Executive and Operational tabs, every card and panel), counted over this company's jobs and measures; the hero names the company, its tiles lead to the carrier's screens (the NEW job tile shows how many offers wait); no TODAY tab and no AI briefing, which are the department's day | `/api/carrier/dashboard/jobs`, `/api/carrier/dashboard/measures` |
 | Workspace → NEW job | Jobs the carrier keyed in itself for Leschaco to confirm, then jobs Leschaco offered to accept or decline | `/api/carrier/job-requests`, `/api/carrier` |
-| Workspace → My job | The schedule, as before (today, tomorrow, 7 days, calendar, waiting for a truck, in progress, done) | `/api/carrier` |
+| Workspace → My job | The department's Operation Workspace grid (MY JOBS, PENDING, COMPLETED), over the carrier's own jobs; only the field cells can be edited | `/api/carrier/jobs` |
 | Workspace → Postpone | Its jobs cancelled, or moved from the date first planned (the Workspace's own CANCEL/MOVED rule); a cancelled job is shown, not worked | `/api/carrier` |
 | Capacity | Trucks free and already promised per day and vehicle, which it records itself (saying a day again corrects it); beside each, its own Leschaco jobs for that day — not the department's demand | `/api/carrier/capacity` |
 | Rate | Its contracted lanes of the rate book, every vehicle on every fuel band, read only | `/api/carrier/rates` |
@@ -44,6 +45,37 @@ The carrier's Dashboard is the same component the department uses (`Dashboard` �
     trend included.
   - The suppliers list and scorecard keep only the carrier.
   - The department's issue counts and "cases outside the filter" note are removed.
+
+## My job: the department's Workspace, over its own jobs
+
+My job is the grid the department works in: the same columns, tabs (MY JOBS,
+PENDING, COMPLETED), search, saved views, Excel export and undo. What differs:
+
+- The register comes from `/api/carrier/jobs`, and the refresh from
+  `/api/carrier/jobs/since`. It holds the carrier's own jobs only, cut to the
+  grid's fields (`CarrierRegisterService.Fields`). Remarks, edit history, CS and
+  move and incident notes are not sent. MY JOBS lists every job of the company,
+  not one operator's.
+- Saving goes to `PUT /api/carrier/jobs`. The server takes only the field
+  cells: licence, driver, contact, container, seal, arrival date and arrival time
+  (`CarrierRegisterService.Editable`). The web's `CARRIER_EDITABLE` must match it,
+  and a test pins that. Any other field sent is ignored, so customer, carrier and
+  price stay as the department keyed them. A job that is not the carrier's
+  refuses the whole save (403).
+- A plate, phone, date or time is checked before anything is written. A bad
+  value refuses the save. TMS only fills empty cells; here the carrier may
+  overwrite its own field cells. Each change is in `audit_events` with the
+  account and the reason **ผู้ขนส่งแก้ในตาราง My job**.
+- Status: the dropdown offers only the carrier's own steps after the job's
+  current status (dispatched, picked up, loading, in transit, delivered,
+  container returned, completed). The server moves the job through the
+  carrier's status step, as the schedule's buttons did. A completed or cancelled
+  job is read only.
+- A carrier cannot add, delete, bulk-set status or owner, postpone or cancel.
+  The drawer also has no issue button for a carrier. All of these stay with the
+  department.
+
+Postpone still shows the schedule's own list.
 
 ## Jobs a carrier keys in
 
@@ -102,9 +134,16 @@ A new carrier screen that needs another route adds it to
   Each sees only its own lanes, KPI, Postpone list and requests. The request
   flow covers approve, refuse, withdraw, stale revision and audit. The boundary
   covers which paths it refuses.
+  My job covers: the read and the delta cut to its own rows, another carrier's
+  job refused, only field cells landing, the audit, and a bad plate, phone,
+  status or closed job refused. It also covers a status moved along the ladder.
 - Web: `tests/carrierPortal.test.mjs` (menu, reads, parsing, the request
-  opened as the add-job form).
+  opened as the add-job form, My job's editable cells and status choices against
+  the server's).
 - Clicked through against a scratch database with the demo Subcontractor and
   Admin accounts: every menu entry; a request keyed, opened as the form, saved
   and approved, and the carrier seeing the job and the approval; a refusal; the
-  carrier's bell empty; phone width without sideways scroll.
+  carrier's bell empty; phone width without sideways scroll. My job: the grid
+  listing the carrier's five jobs; only the field cells and status opening; a
+  plate and driver saved with the audit; the status list offering only the
+  carrier's steps; DISPATCHED saved as a carrier status event.

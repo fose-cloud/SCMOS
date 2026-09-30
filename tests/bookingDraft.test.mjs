@@ -68,7 +68,7 @@ test("the add-job form reads pasted text through the control header; a draft ope
   assert.match(app, /JSON\.stringify\(\{ outcome: "ACCEPTED", choice: key, reason: "" \}\)/);
   // Answered only after the job's save succeeded — never a draft pointing at a job that failed to save.
   assert.match(app, /void flushNow\(\)\.then\(async \(saved\) => \{\s*if \(!saved\.ok\) \{ setToast\("บันทึกงานไม่สำเร็จ — ร่าง AI ยังเปิดอยู่"\); return; \}/);
-  assert.match(app, /\|\| addCat !== null;/);                                      // the form loads the register wherever it opens
+  assert.match(app, /\|\| addCat !== null\b/);                                      // the form loads the register wherever it opens
   assert.match(app, /onDraftJob=\{openBookingDraft\}/);
   assert.match(modal, /data-testid="booking-paste"/);
   assert.match(modal, /aria-label="ข้อความ booking"/);

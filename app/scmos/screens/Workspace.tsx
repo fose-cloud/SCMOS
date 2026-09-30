@@ -131,6 +131,13 @@ type Props = {
    * roles were used. Every rule this codebase has written twice has drifted.
    */
   canEdit: (job: Job) => boolean;
+  /**
+   * Which cells of an editable job may change — every one when absent. A carrier's My job (30 Sep 2026)
+   * edits only the cells of the work itself: truck, driver, phone, container, seal, arrival and status.
+   */
+  editableField?: (field: keyof Job) => boolean;
+  /** The statuses a job's dropdown offers, from its ladder — all of them when absent. A carrier sees only its own steps ahead. */
+  statusChoices?: (job: Job, ladder: string[]) => string[];
   canAssign: boolean;
   /** Whose jobs this person is covering today, from /api/me. */
   covering: { id: string; name: string }[];
@@ -504,6 +511,12 @@ function documentMissing(job: Job): boolean {
 }
 
 /**
+ * The owner a carrier's My job is given (30 Sep 2026): every job on its register is its own, whichever
+ * Leschaco operator owns it — the register it is handed holds nothing else.
+ */
+export const ALL_MINE = "*";
+
+/**
  * What each tab means, in one place.
  *
  * The counts on the tab strip and the rows in the grid both read this, so a tab
@@ -514,7 +527,7 @@ function documentMissing(job: Job): boolean {
  * governs editing rather than looking.
  */
 export const WORKSPACE_TABS: Record<string, (job: Job, opId: string) => boolean> = {
-  "MY JOBS": (job, opId) => !!opId && job.opId === opId,
+  "MY JOBS": (job, opId) => !!opId && (opId === ALL_MINE || job.opId === opId),
   // A cancelled job is not work waiting to be done, and it used to sit in
   // PENDING for the rest of its life looking like some. It keeps its place in
   // MY JOBS and CALENDAR, where the question is what belongs to whom and what
@@ -637,8 +650,9 @@ export function Workspace(p: Props) {
   // On the owner id, never the display name — the same rule the rest of the app
   // uses. This copy was missed when ownership moved off names, which would have
   // shown an operator an empty workspace the day real sign-in arrived.
-  const mineJ = (j: Job) => !!me.opId && j.opId === me.opId;
+  const mineJ = (j: Job) => !!me.opId && (me.opId === ALL_MINE || j.opId === me.opId);
   const canEditJob = p.canEdit;
+  const canEditCell = (job: Job, field: keyof Job) => canEditJob(job) && (p.editableField?.(field) ?? true);
   const canAssign = p.canAssign;
 
   const inCat = (c: string) => (c === "ALL" ? all : all.filter((j) => j.cat === c));
@@ -938,7 +952,7 @@ export function Workspace(p: Props) {
     const column = Math.min(Math.max(at.column + dx, 0), at.fields.length - 1);
     const row = Math.min(Math.max(at.row + dy, 0), at.jobs.length - 1);
     const next = at.jobs[row];
-    if (!next || !canEditJob(next)) return;
+    if (!next || !canEditCell(next, at.fields[column] as keyof Job)) return;
     if (next.key === job.key && at.fields[column] === String(field)) return;
 
     p.set({
@@ -989,7 +1003,7 @@ export function Workspace(p: Props) {
     const c = cell((j[field] as string) || "—", opts);
     c.field = String(field);
     markIssue(c, j, String(field));
-    if (canEditJob(j)) {
+    if (canEditCell(j, field)) {
       c.td += "cursor:cell;";
       // One click selects — the range machinery below does that on mousedown.
       // Two clicks edit. A single click used to open the editor, which put a
@@ -1041,7 +1055,7 @@ export function Workspace(p: Props) {
     // which job a cell holds, and copy-with-headers and the dragged rectangle
     // both read it — a dropdown without it was a column that vanished from
     // every copy. Customer and Truck are dropdowns.
-    if (!canEditJob(j)) return { ...cell(current || "—", opts), field };
+    if (!canEditCell(j, field)) return { ...cell(current || "—", opts), field };
     return {
       kind: "select",
       field,
@@ -1101,12 +1115,13 @@ export function Workspace(p: Props) {
 
   /** Status is a dropdown for jobs you own; "Delayed" routes into the delay modal. */
   const stCell = (j: Job): Cell => {
-    if (!canEditJob(j)) {
+    if (!canEditCell(j, "status")) {
       const plain = { ...cell(j.status, { tone: opTone(j.status) }), field: "status" };
       markIssue(plain, j, "status");
       return plain;
     }
-    const opts = STATUS_LADDER[j.cat] || STATUS_LADDER.IMPORT;
+    const ladder = STATUS_LADDER[j.cat] || STATUS_LADDER.IMPORT;
+    const opts = p.statusChoices ? p.statusChoices(j, ladder) : ladder;
     const options = opts.indexOf(j.status) >= 0 ? opts : [j.status].concat(opts);
     return {
       kind: "select",

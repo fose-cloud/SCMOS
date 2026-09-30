@@ -123,6 +123,7 @@ builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
 builder.Services.AddScoped<CarrierPortalReads>();
 builder.Services.AddScoped<CarrierJobRequestService>();
+builder.Services.AddScoped<CarrierRegisterService>();
 builder.Services.AddScoped<CarrierTenantContext>();
 builder.Services.AddScoped<CarrierDocumentAccess>();
 builder.Services.AddScoped<BusinessCalendarService>();

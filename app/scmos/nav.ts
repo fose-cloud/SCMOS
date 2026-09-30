@@ -315,6 +315,8 @@ export const TAB_DEFS: Record<string, string[]> = {
   // A carrier's Dashboard is the department's two calculated tabs over its own jobs (30 Sep 2026);
   // TODAY is the department's day, read over every carrier.
   carrier: ["Executive", "Operational"],
+  // A carrier's My job is the department's, over its own jobs (30 Sep 2026).
+  carriermyjob: ["MY JOBS", "PENDING", "COMPLETED"],
   booking: ["Booking Queue", "Carrier Escalation", "SLA"],
   // Supplier and CAR/PAR read the real register now, and both carry their own
   // controls. Tabs that narrowed the demo table would be buttons that do

@@ -63,6 +63,51 @@ public static class CarrierEndpoints
             return view is null ? NotACarrier() : Results.Json(view);
         });
 
+        // The carrier's My job (30 Sep 2026): the department's Operation Workspace over its own jobs — these
+        // answer in /api/jobs's own shapes (the whole register, the changes since a stamp, the save), cut to
+        // the carrier's rows and, on the save, to the cells a carrier may change. See CarrierRegisterService.
+        group.MapGet("/jobs", async (HttpContext context, IUserAccessor users, CarrierRegisterService register,
+            CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var read = await register.ReadAsync(user, token);
+            return read is null ? NotACarrier() : Results.Json(read);
+        });
+
+        group.MapGet("/jobs/since", async (string? after, HttpContext context, IUserAccessor users,
+            CarrierRegisterService register, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!DateTimeOffset.TryParse(after, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var stamp))
+                return ApiResults.Error("after ต้องเป็นเวลาแบบ ISO-8601", StatusCodes.Status400BadRequest);
+            var delta = await register.ChangedAsync(user, stamp, token);
+            return delta is null ? NotACarrier() : Results.Json(delta);
+        });
+
+        group.MapPut("/jobs", async (HttpContext context, IUserAccessor users, CarrierRegisterService register,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (context.Request.ContentLength > 4 * 1024 * 1024) return ApiResults.Error("คำขอใหญ่เกินไป", StatusCodes.Status413PayloadTooLarge);
+            System.Text.Json.JsonDocument body;
+            try { body = await System.Text.Json.JsonDocument.ParseAsync(context.Request.Body, cancellationToken: token); }
+            catch (System.Text.Json.JsonException) { return ApiResults.Error("รูปแบบข้อมูลไม่ถูกต้อง", StatusCodes.Status400BadRequest); }
+            using (body)
+            {
+                if (!body.RootElement.TryGetProperty("jobs", out var sent) || sent.ValueKind != System.Text.Json.JsonValueKind.Array
+                    || sent.GetArrayLength() > 500)
+                    return ApiResults.Error("ต้องส่ง jobs ไม่เกิน 500 งาน", StatusCodes.Status400BadRequest);
+                var result = await register.SaveAsync(user, sent.EnumerateArray().Select(job => job.Clone()).ToList(), token);
+                return result.Ok ? Results.Json(new { saved = result.Saved }) : ApiResults.Error(result.Message, result.Status);
+            }
+        });
+
         // The carrier's own Dashboard (30 Sep 2026): the department's dashboard, fed this company's jobs and
         // this company's measures — the same figures, for one carrier.
         group.MapGet("/dashboard/jobs", async (HttpContext context, IUserAccessor users, CarrierPortalReads reads,
