@@ -276,6 +276,13 @@ static class CarrierPortalChecks
                 && readA.Jobs.All(job => !job.ContainsKey("remark") && !job.ContainsKey("hist") && job.Keys.All(CarrierRegisterService.Fields.Contains))
                 && await grid.ReadAsync(admin, default) is null,
                 "carrier my job SQL: the register it reads is its own jobs, cut to the grid's fields — no remark, no history");
+            var changedA = (await grid.ChangedJobsAsync(userA, default))!;
+            var changedB = (await grid.ChangedJobsAsync(userB, default))!;
+            check(changedA.Select(job => job["key"]).Order().SequenceEqual(["A-CANCEL", "A-MOVED"])
+                && changedB.Select(job => job["key"]).SequenceEqual(["B-LATE-3"])
+                && changedA.All(job => !job.ContainsKey("remark") && job.Keys.All(CarrierRegisterService.Fields.Contains))
+                && await grid.ChangedJobsAsync(admin, default) is null,
+                "carrier postpone SQL: the department's cancelled-or-moved list, cut to the carrier's own jobs and the grid's fields");
             var stampBefore = DateTimeOffset.UtcNow.AddSeconds(-1);
             var foreign = await grid.SaveAsync(userA, [Sent(new { key = "B-LATE-1", licence = "70-9999" })], default);
             var mixed = await grid.SaveAsync(userA, [Sent(new

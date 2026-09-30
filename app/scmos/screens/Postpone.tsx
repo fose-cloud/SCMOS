@@ -27,9 +27,14 @@ import { ZoomBox } from "../TableFrame";
 
 type Filter = "ALL" | "MOVED" | "CANCELLED";
 
-export function Postpone({ me, onOpenJob }: {
+export function Postpone({ me, onOpenJob, carrier = false }: {
   me: { opId: string; name: string };
   onOpenJob: (key: string) => void;
+  /**
+   * A carrier's Postpone (30 Sep 2026): the same screen over its own jobs. Every row is its own, so
+   * there is no "only mine", and it does not move or cancel a job — the department does.
+   */
+  carrier?: boolean;
 }) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [failure, setFailure] = useState("");
@@ -145,10 +150,12 @@ export function Postpone({ me, onOpenJob }: {
         {chip("ALL", "ทั้งหมด", jobs.length, "#0A2240")}
         {chip("MOVED", "เลื่อนวัน", moved.length, "#B45309")}
         {chip("CANCELLED", "ยกเลิก", cancelled.length, "#B42318")}
-        <label style={css("display:flex;align-items:center;gap:6px;font-size:12px;color:#0F2B46;cursor:pointer;margin-left:6px")}>
-          <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-          เฉพาะงานของฉัน
-        </label>
+        {!carrier && (
+          <label style={css("display:flex;align-items:center;gap:6px;font-size:12px;color:#0F2B46;cursor:pointer;margin-left:6px")}>
+            <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+            เฉพาะงานของฉัน
+          </label>
+        )}
         <button onClick={() => void load()}
           style={css("margin-left:auto;height:32px;padding:0 14px;border:1px solid #D8E0E8;background:#fff;color:#475569;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit")}>
           รีเฟรช
@@ -160,7 +167,7 @@ export function Postpone({ me, onOpenJob }: {
         {shown.length === 0 ? (
           <div style={css("padding:30px 16px;text-align:center;font-size:12.5px;color:#94A3B8")}>
             {jobs.length === 0
-              ? "ยังไม่มีงานที่ถูกเลื่อนหรือยกเลิก — เปิดงานใน My Job แล้วกด “เลื่อนวัน” หรือ “ยกเลิกงาน”"
+              ? (carrier ? "ยังไม่มีงานที่ถูกเลื่อนหรือยกเลิก" : "ยังไม่มีงานที่ถูกเลื่อนหรือยกเลิก — เปิดงานใน My Job แล้วกด “เลื่อนวัน” หรือ “ยกเลิกงาน”")
               : "ไม่มีงานที่ตรงกับตัวกรองนี้"}
           </div>
         ) : (
@@ -214,10 +221,12 @@ export function Postpone({ me, onOpenJob }: {
         )}
       </div>
 
-      <div style={css("font-size:11px;color:#94A3B8;line-height:1.6")}>
-        คลิกแถวเพื่อเปิดรายละเอียดงาน · งานที่ยกเลิกจะไม่ปรากฏใน PENDING · TODAY · TOMORROW อีก
-        แต่ไม่ถูกลบออกจากระบบ · งานที่เลื่อนยังเป็นงานที่ต้องทำ จึงยังอยู่ในรายการตามวันใหม่
-      </div>
+      {!carrier && (
+        <div style={css("font-size:11px;color:#94A3B8;line-height:1.6")}>
+          คลิกแถวเพื่อเปิดรายละเอียดงาน · งานที่ยกเลิกจะไม่ปรากฏใน PENDING · TODAY · TOMORROW อีก
+          แต่ไม่ถูกลบออกจากระบบ · งานที่เลื่อนยังเป็นงานที่ต้องทำ จึงยังอยู่ในรายการตามวันใหม่
+        </div>
+      )}
     </div>
   );
 }

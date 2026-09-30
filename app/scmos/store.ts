@@ -254,7 +254,8 @@ export async function saveJobs(jobs: Job[], by: string, reason = ""): Promise<{ 
  */
 export async function loadChangedJobs(): Promise<Record<string, string>[] | null> {
   try {
-    const response = await apiFetch(`${API}/changed`, { headers: { accept: "application/json" } });
+    // A carrier's are its own (30 Sep 2026): /api/carrier/jobs/changed, the same list cut to its jobs.
+    const response = await apiFetch(`${registerApi()}/changed`, { headers: { accept: "application/json" } });
     if (!response.ok) return null;
     const body = await response.json() as { jobs?: Record<string, string>[] };
     return body.jobs ?? [];

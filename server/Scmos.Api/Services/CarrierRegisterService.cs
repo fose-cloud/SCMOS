@@ -48,7 +48,7 @@ public class CarrierRegisterService(ScmosDbContext db, CarrierService carriers, 
         "key", "id", "cat", "op", "opId", "date", "customer", "trucker", "jobCode", "abs", "booking", "product", "fclLcl",
         "agent", "destination", "plant", "planTime", "type", "cyYard", "returnLoc", "emptyReturn", "weight", "container",
         "seal", "tare", "licence", "driver", "contact", "arrDate", "arrTime", "closingDate", "closingTime", "reason", "ot",
-        "pickupPlan", "pickupTime", "freightType", "status", "origDate", "moveReason", "cancelReason", "wh", "jobNo", "sid",
+        "pickupPlan", "pickupTime", "freightType", "status", "origDate", "moveReason", "moveBy", "cancelReason", "wh", "jobNo", "sid",
         "dCode", "customerPo", "tmsId", "sapOrder", "deliverNo", "vtl", "province", "zip", "pallet", "kgs",
         "v4", "v6", "v10", "vtr", "cost", "diesel", "returnLoad", "returnFinished",
     ];
@@ -78,6 +78,22 @@ public class CarrierRegisterService(ScmosDbContext db, CarrierService carriers, 
         using var document = JsonDocument.Parse(json);
         var rows = document.RootElement.ValueKind == JsonValueKind.Array ? Cut(document.RootElement, keys) : [];
         return new CarrierRegisterDelta(rows, keys.Count, full, updatedAt.ToUniversalTime().ToString("O"));
+    }
+
+    /// <summary>
+    /// The carrier's own jobs cancelled or moved off the date first planned — the department's Postpone /
+    /// Cancel list (<see cref="JobsRepository.ChangedAsync"/>, filtered in SQL), cut to its rows and the grid's
+    /// fields (30 Sep 2026). Null for an account that is not a carrier's.
+    /// </summary>
+    public async Task<IReadOnlyList<Dictionary<string, string>>?> ChangedJobsAsync(AppUser user, CancellationToken token)
+    {
+        var company = await carriers.CompanyOfAsync(user, token);
+        if (company is null) return null;
+        var keys = await OwnKeysAsync(company, token);
+        var (json, _) = await jobs.ChangedAsync(token);
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.TryGetProperty("jobs", out var all) && all.ValueKind == JsonValueKind.Array
+            ? Cut(all, keys) : [];
     }
 
     /// <summary>A carrier's grid save — see the class notes for what it keeps.</summary>

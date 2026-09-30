@@ -89,6 +89,17 @@ public static class CarrierEndpoints
             return delta is null ? NotACarrier() : Results.Json(delta);
         });
 
+        // The carrier's Postpone (30 Sep 2026): the department's Postpone / Cancel list, over its own jobs.
+        group.MapGet("/jobs/changed", async (HttpContext context, IUserAccessor users, CarrierRegisterService register,
+            CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var changed = await register.ChangedJobsAsync(user, token);
+            return changed is null ? NotACarrier() : Results.Json(new { jobs = changed, count = changed.Count });
+        });
+
         group.MapPut("/jobs", async (HttpContext context, IUserAccessor users, CarrierRegisterService register,
             CancellationToken token) =>
         {

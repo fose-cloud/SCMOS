@@ -489,7 +489,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     // AI Control Tower (a Booking Agent mail draft) it has to load it there too.
     || addCat !== null
     // A carrier's My job is the Operation Workspace over its own register (30 Sep 2026).
-    || screen === "carriermyjob";
+    || screen === "carriermyjob"
+    // Its Postpone opens a row in the same drawer, which reads the job from the register.
+    || screen === "carrierpostpone";
   const registerLoadStarted = useRef(false);
   /** Whether the signed-in account is a carrier's, as last rendered — read by the register's first load. */
   const carrierAccount = useRef(false);
@@ -3404,7 +3406,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               <CarrierDashboard period={period} onPeriod={setPeriod} filters={dashboardFilters} onFilters={setDashboardFilters}
                 tab={activeTab} userName={profile.full || me.full || me.name} onNavigate={go} />
             )}
-            {isCarrier && screen !== "carrier" && screen !== "carriermyjob" && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
+            {isCarrier && screen !== "carrier" && screen !== "carriermyjob" && screen !== "carrierpostpone" && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
               onNavigate={go} onToast={setToast} />}
             {!isCarrier && screen === "carrier" && <CarrierPortal view="dashboard" onToast={setToast} />}
             {screen === "training" && (
@@ -3517,6 +3519,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               // Different from "no permission", and the screen says which.
               ratesNeedSecondFactor={guardedAway("EditRates")}
               onToast={setToast} />}
+
+            {/* A carrier's Postpone is the department's, over its own jobs (30 Sep 2026). */}
+            {isCarrier && screen === "carrierpostpone" && (
+              <Postpone carrier me={{ opId: me.opId, name: me.name }} onOpenJob={(key) => setDrawer(key)} />
+            )}
 
             {screen === "postpone" && (
               <Postpone

@@ -20,7 +20,7 @@ test("a Subcontractor's menu is its own: Dashboard, Workspace (NEW job, My job, 
 test("the app draws the carrier's menu and its screens only for a carrier account", () => {
   const app = read("app/SCMOSApp.tsx");
   assert.match(app, /carrier=\{isCarrier\}/);
-  assert.match(app, /isCarrier && screen !== "carrier" && screen !== "carriermyjob" && CARRIER_SCREENS\.includes\(screen\) && <CarrierPortal/);
+  assert.match(app, /isCarrier && screen !== "carrier" && screen !== "carriermyjob" && screen !== "carrierpostpone" && CARRIER_SCREENS\.includes\(screen\) && <CarrierPortal/);
   const chrome = read("app/scmos/Chrome.tsx");
   assert.match(chrome, /if \(p\.carrier\) return/);
 });
@@ -218,4 +218,14 @@ test("a job's owner may accept for its carrier, from the job's drawer, and only 
   assert.match(endpoints, /MapPost\("\/\{key\}\/carrier-ask\/accept"[\s\S]*?CarrierTenantContext\.IsCarrier\(user\)[\s\S]*?OthersJobsAsync\(\[key\]/);
   // The owner's yes is not the carrier's answer: acceptance measures leave it out.
   assert.match(read("server/Scmos.Api/Rules/CarrierAssignment.cs"), /IsCarriersOwn\(string reasonCode\) => reasonCode is not \(RegisterBinding or OwnerAccepted\)/);
+});
+
+test("a carrier's Postpone is the department's Postpone / Cancel, over its own jobs", () => {
+  const app = read("app/SCMOSApp.tsx");
+  assert.match(app, /\{isCarrier && screen === "carrierpostpone" && \(\n\s+<Postpone carrier me=/);
+  assert.match(app, /screen !== "carrierpostpone" && CARRIER_SCREENS\.includes\(screen\)/);   // not the old schedule list
+  assert.match(read("app/scmos/store.ts"), /apiFetch\(`\$\{registerApi\(\)\}\/changed`/);
+  const screen = read("app/scmos/screens/Postpone.tsx");
+  assert.match(screen, /\{!carrier && \(\n\s+<label/);                                    // every row is its own
+  assert.match(read("server/Scmos.Api/Endpoints/CarrierEndpoints.cs"), /MapGet\("\/jobs\/changed"/);
 });
