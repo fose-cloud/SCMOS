@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
+import { INVOICE_LINES, TRANSPORT_CHARGE, WITHHOLDING_PERCENT, money, rateReason, rateVerdict } from "../invoiceLines";
 
 export type BillingDocument = { id: number; fileName: string; kind: string; uploadedAt: string };
 export type BillingInvoice = {
@@ -89,7 +90,7 @@ export type BillingControlTowerView = {
   items: BillingControlTowerItem[]; exceptions: Record<string, number>;
 };
 
-type Filter = "ALL" | "WAITING_CARRIER_SUBMISSION" | "DRAFT" | "SUBCON_REVIEW" | "RETURNED" | "DISPUTED" | "AWAITING_ORIGINAL" | "ORIGINAL_RECEIVED" | "READY_FOR_FINANCE" | "FINANCE_PROCESSING" | "FINANCE_REJECTED" | "PAID" | "CLOSED" | "OVERDUE";
+type Filter = "ALL" | "WAITING_CARRIER_SUBMISSION" | "DRAFT" | "SUBCON_REVIEW" | "RETURNED" | "DISPUTED" | "AWAITING_ORIGINAL" | "ORIGINAL_RECEIVED" | "READY_FOR_FINANCE" | "FINANCE_PROCESSING" | "FINANCE_REJECTED" | "PAID" | "CLOSED" | "OVERDUE" | "RATE_DIFF";
 
 const returnReasons = ["MISSING_DOCUMENT", "WRONG_RATE", "WRONG_VAT", "WRONG_RECEIPT", "UNAPPROVED_CHARGE", "WRONG_JOB", "DUPLICATE", "INVOICE_DATA_ERROR", "OTHER"];
 
@@ -145,7 +146,9 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
     const needle = search.trim().toLowerCase();
     return items.filter((item) => {
       if (filter === "OVERDUE" && item.slaState !== "OVERDUE") return false;
-      if (filter !== "ALL" && filter !== "OVERDUE" && item.status !== filter) return false;
+      // Billed at a figure other than the Rate's, or where no Rate price exists (30 Sep 2026).
+      if (filter === "RATE_DIFF" && !["differs", "no-rate"].includes(rateVerdict(item.contractRate, item.invoice?.lines))) return false;
+      if (filter !== "ALL" && filter !== "OVERDUE" && filter !== "RATE_DIFF" && item.status !== filter) return false;
       if (drill && !drill.caseIds.includes(item.id)) return false;
       return !needle || [item.jobCode, item.customer, item.supplier, item.invoice?.invoiceNumber ?? ""]
         .some((value) => value.toLowerCase().includes(needle));
@@ -306,6 +309,7 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
             <option value="READY_FOR_FINANCE">พร้อมส่ง Finance</option><option value="OVERDUE">เกิน SLA</option>
             <option value="FINANCE_PROCESSING">Finance processing</option><option value="FINANCE_REJECTED">Finance rejected</option>
             <option value="PAID">Paid</option><option value="CLOSED">Closed</option>
+            <option value="RATE_DIFF">1.1 ไม่ตรง Rate</option>
           </select>
           <button onClick={() => void load()} disabled={loading}
             style={css("height:31px;padding:0 12px;border:1px solid #0A5C97;background:#fff;color:#0A5C97;border-radius:4px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer")}>รีเฟรช</button>
@@ -313,7 +317,7 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
         <ZoomBox capped={false}>
           <table style={css("width:100%;min-width:1180px;border-collapse:collapse;font-size:11.5px")}>
             <thead><tr style={css("background:#F4F7FA;color:#64748B;text-align:left")}>
-              {["JOB / ลูกค้า", "ผู้ขนส่ง", "DELIVERY COMPLETE", "SLA", "กำหนดวางบิล", "สถานะ", "INVOICE", "ยอดรวม", "เอกสาร"].map((name) =>
+              {["JOB / ลูกค้า", "ผู้ขนส่ง", "DELIVERY COMPLETE", "SLA", "กำหนดวางบิล", "สถานะ", "INVOICE", "ราคาตาม Rate", "ยอดรวม", "เอกสาร"].map((name) =>
                 <th key={name} style={css("padding:9px 10px;border-bottom:1px solid #D8E0E8;font-size:10px;letter-spacing:.04em")}>{name}</th>)}
             </tr></thead>
             <tbody>
@@ -329,13 +333,14 @@ export function BillingControl({ onToast }: { onToast: (message: string) => void
                 <td style={cell}><Status value={item.status} /></td>
                 <td style={cell}>{item.invoice?.invoiceNumber || (item.invoice ? `Draft #${item.invoice.id}` : "—")}<br />
                   {item.invoice && <span style={muted}>{item.invoice.invoiceDate || "ยังไม่ระบุวันที่"}</span>}</td>
+                <td style={cell}><RateCell item={item} /></td>
                 <td style={css("padding:10px;color:#263B50;line-height:1.5;font-family:'IBM Plex Mono',monospace;text-align:right")}>{item.invoice ? `${item.invoice.currency} ${item.invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "—"}</td>
                 <td style={cell}>{item.documents.length ? item.documents.map((document) =>
                   <a key={document.id} href={`/api/documents/${document.id}/content`} target="_blank" rel="noreferrer"
                     style={css("display:block;color:#0A5C97;margin-bottom:3px")}>{document.fileName}</a>) : "—"}</td>
               </tr>)}
-              {!loading && shown.length === 0 && <tr><td colSpan={9} style={css("padding:30px;text-align:center;color:#7B8CA0")}>ยังไม่มี Billing Case ตามเงื่อนไขนี้</td></tr>}
-              {loading && <tr><td colSpan={9} style={css("padding:30px;text-align:center;color:#7B8CA0")}>กำลังโหลด…</td></tr>}
+              {!loading && shown.length === 0 && <tr><td colSpan={10} style={css("padding:30px;text-align:center;color:#7B8CA0")}>ยังไม่มี Billing Case ตามเงื่อนไขนี้</td></tr>}
+              {loading && <tr><td colSpan={10} style={css("padding:30px;text-align:center;color:#7B8CA0")}>กำลังโหลด…</td></tr>}
             </tbody>
           </table>
         </ZoomBox>
@@ -360,6 +365,31 @@ function Metric({ label, value, detail, tone, onClick }: { label: string; value:
     <div style={css("font-size:23px;color:#0A2240;font-weight:700;font-family:'IBM Plex Mono',monospace;margin-top:4px")}>{value}</div>
     {detail && <div style={css("font-size:9.5px;color:#7B8CA0;margin-top:2px")}>{detail}</div>}
   </div>;
+}
+
+/**
+ * A validation result's colours: red when it blocks, amber when it is an exception for the reviewer to weigh
+ * (since 30 Sep 2026 a price other than the Rate's is one), green when it passed.
+ */
+function chipTone(result: BillingValidation): [string, string] {
+  if (result.blocking) return ["#B42318", "#FEECE9"];
+  if (result.category === "EXCEPTION" || result.category === "WARNING") return ["#B45309", "#FFF3E0"];
+  return ["#16794C", "#E8F5EE"];
+}
+
+/** The job's price by its carrier's Rate, and how the invoice's 1.1 stands against it (30 Sep 2026). */
+function RateCell({ item }: { item: BillingCase }) {
+  const rate = item.contractRate;
+  const verdict = rateVerdict(rate, item.invoice?.lines);
+  const claimed = item.invoice?.lines?.find((line) => line.code === TRANSPORT_CHARGE)?.amount;
+  return <>
+    {rate?.amount != null
+      ? <><span style={css("font-family:'IBM Plex Mono',monospace")}>{money(rate.amount)}</span><br /><span style={muted}>{rate.vehicle} · {rate.band}</span></>
+      : <span style={css("color:#B45309;font-size:10.5px")}>{rateReason(rate) || "ยังไม่มีราคาจาก Rate"}</span>}
+    {verdict === "match" && <div style={css("font-size:10.5px;font-weight:650;color:#16794C")}>1.1 ตรง Rate</div>}
+    {(verdict === "differs" || verdict === "no-rate") && claimed != null &&
+      <div style={css("font-size:10.5px;font-weight:650;color:#B42318")}>1.1 วางบิล {money(claimed)}</div>}
+  </>;
 }
 
 function Status({ value }: { value: string }) {
@@ -469,12 +499,13 @@ function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, or
       <Detail label="เวลาตัดสินรอบล่าสุด" value={duration(invoice.reviewDecisionMinutes)} />
       <Detail label="Online Approved" value={dateTime(invoice.onlineApprovedAt)} />
     </div>
+    <InvoiceSummary item={item} />
     <div>
       <div style={css("font-size:11px;font-weight:700;color:#334155;margin-bottom:5px")}>Validation</div>
       {invoice.validationResults.length === 0 ? <span style={muted}>ยังไม่มีผล Validation</span> :
         <div style={css("display:flex;gap:5px;flex-wrap:wrap")}>{invoice.validationResults.map((result) =>
           <span key={`${result.sequence}-${result.step}-${result.code}`} title={result.message}
-            style={css(`padding:3px 7px;border-radius:3px;font-size:10px;color:${result.blocking ? "#B42318" : "#16794C"};background:${result.blocking ? "#FEECE9" : "#E8F5EE"}`)}>
+            style={css(`padding:3px 7px;border-radius:3px;font-size:10px;color:${chipTone(result)[0]};background:${chipTone(result)[1]}`)}>
             {result.step}: {result.code}
           </span>)}</div>}
       {failures.length > 0 && <div style={css("font-size:10.5px;color:#B42318;margin-top:5px")}>พบ Blocking Validation {failures.length} รายการ</div>}
@@ -636,6 +667,43 @@ function ReviewDetail({ item, reasonCode, remark, acting, canReceiveOriginal, or
           <span>{event.fromStatus} → {event.toStatus}{event.reasonCode ? ` · ${event.reasonCode}` : ""}{event.remark ? ` · ${event.remark}` : ""} · {event.actorName}</span>
         </div>)}
     </div>
+  </div>;
+}
+
+/**
+ * What the carrier billed and what its Rate says (30 Sep 2026): the job's Rate price with how it was found,
+ * then the invoice form's lines as the carrier filled them — the lines billed, the total, the withholding, the net.
+ */
+function InvoiceSummary({ item }: { item: BillingCase }) {
+  const invoice = item.invoice!;
+  const rate = item.contractRate;
+  const billed = (invoice.lines ?? []).filter((line) => line.amount > 0);
+  const label = (code: string) => {
+    const kind = INVOICE_LINES.find((one) => one.code === code);
+    return kind ? `${kind.number ? kind.number + " " : ""}${kind.english}` : code;
+  };
+  const verdict = rateVerdict(rate, invoice.lines);
+  return <div style={css("display:grid;gap:6px")}>
+    <div style={css("font-size:11px;font-weight:700;color:#334155")}>ราคาตาม Rate และรายการที่วางบิล</div>
+    <div style={css("font-size:11px;color:" + (rate?.amount != null ? "#263B50" : "#B45309"))}>
+      {rate?.amount != null
+        ? <>Rate <b style={css("font-family:'IBM Plex Mono',monospace")}>{money(rate.amount)}</b> · {rate.vehicle} · {rate.lane} · น้ำมัน {rate.diesel} ({rate.dieselFrom === "job" ? "ตามงาน" : `เฉลี่ย ${rate.dieselMonth}${rate.dieselClosed ? "" : " ยังไม่สิ้นเดือน"}`}) · {rate.band}</>
+        : rateReason(rate) || "ยังไม่มีราคาจาก Rate"}
+    </div>
+    {billed.length === 0 ? <span style={muted}>ยอดรวม {invoice.currency} {money(invoice.totalAmount)}</span> :
+      <div style={css("display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:3px 14px;font-size:11px;max-width:560px")}>
+        {billed.map((line) => <div key={line.code} style={css("display:contents")}>
+          <span style={css("color:#263B50")}>{label(line.code)}</span>
+          <span style={css("color:#7B8CA0;text-align:right;font-family:'IBM Plex Mono',monospace")}>{line.quantity} × {money(line.unitPrice)}</span>
+          <span style={css("text-align:right;font-family:'IBM Plex Mono',monospace;color:" + (line.code === TRANSPORT_CHARGE && verdict === "differs" ? "#B42318" : "#263B50"))}>{money(line.amount)}</span>
+        </div>)}
+        <span style={css("grid-column:1 / 3;border-top:1px solid #E7EDF3;padding-top:4px;font-weight:650")}>TOTAL AMOUNT</span>
+        <span style={css("border-top:1px solid #E7EDF3;padding-top:4px;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:650")}>{money(invoice.totalAmount)}</span>
+        <span style={css("grid-column:1 / 3;color:#7B8CA0")}>WITHHOLDING TAX {WITHHOLDING_PERCENT}%</span>
+        <span style={css("text-align:right;font-family:'IBM Plex Mono',monospace;color:#7B8CA0")}>-{money(invoice.withholdingAmount ?? 0)}</span>
+        <span style={css("grid-column:1 / 3;font-weight:700")}>NET AMOUNT</span>
+        <span style={css("text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:700")}>{money(invoice.netAmount ?? invoice.totalAmount)}</span>
+      </div>}
   </div>;
 }
 

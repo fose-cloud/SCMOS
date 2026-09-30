@@ -65,6 +65,20 @@ export function rateReason(rate: { reason: string; vehicle: string; dieselMonth:
   }
 }
 
+/**
+ * How an invoice's 1.1 stands against the job's Rate (30 Sep 2026, the department's Billing Control): the same
+ * figure, a different one, billed where no Rate price exists, or not billed on the form yet.
+ */
+export function rateVerdict(
+  rate: { amount: number | null } | null | undefined,
+  lines: readonly { code: string; amount: number }[] | null | undefined,
+): "match" | "differs" | "no-rate" | "unbilled" {
+  const claimed = lines?.find((line) => line.code === TRANSPORT_CHARGE)?.amount;
+  if (claimed == null) return "unbilled";
+  if (rate?.amount == null) return "no-rate";
+  return cents(claimed) === cents(rate.amount) ? "match" : "differs";
+}
+
 /** Baht as the invoice writes it: 7,879.00. */
 export function money(value: number | null | undefined): string {
   return value == null || !Number.isFinite(value) ? "—" : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

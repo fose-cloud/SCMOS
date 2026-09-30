@@ -182,6 +182,15 @@ is additive. A one-figure draft, as the Carrier API sends it, still saves as
 before. The contract-rate results are no longer blocking. Not found, several
 lanes and a different figure are all flagged exceptions the reviewer decides.
 
+**In the department's Billing Control.** Each case has a "ราคาตาม Rate"
+column showing the same figure and how the invoice's 1.1 stands against it:
+"1.1 ตรง Rate" in green, or "1.1 วางบิล …" in red. The filter "1.1 ไม่ตรง Rate"
+lists the cases billed at another figure or where no Rate price exists. Review
+Detail shows the Rate price, with its lane, vehicle, diesel and band, beside
+the lines the carrier billed, the total, the withholding and the net. A
+validation exception that does not block (such as a different price) shows
+amber, not green.
+
 **Held to one answer.** The web's `dieselMonth.ts`, `invoiceLines.ts` and
 `rateMatch.ts` (Booking's vehicle and lane-fit rules, moved out of
 `booking.ts`) and the server's `DieselMonth`, `InvoiceLines` and `RateMatch`

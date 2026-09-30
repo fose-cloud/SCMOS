@@ -55,3 +55,18 @@ test("a job's vehicle, its lane's fit and the lane's price are the fixture's —
   for (const one of fixture.prices.cases)
     assert.equal(priceFor({ prices: { X: one.row } }, "X", bands, one.diesel), one.price, `${one.row} @ ${one.diesel}`);
 });
+
+test("the department's Billing Control sets each invoice's 1.1 against the job's Rate", async () => {
+  const { rateVerdict } = await import("../app/scmos/invoiceLines.ts");
+  const line = (amount) => [{ code: "TRANSPORT_CHARGE", amount }, { code: "GATE_FEE", amount: 100 }];
+  assert.equal(rateVerdict({ amount: 7879 }, line(7879)), "match");
+  assert.equal(rateVerdict({ amount: 7879 }, line(7900)), "differs");
+  assert.equal(rateVerdict({ amount: null }, line(7879)), "no-rate");
+  assert.equal(rateVerdict({ amount: 7879 }, []), "unbilled");
+  assert.equal(rateVerdict(null, undefined), "unbilled");
+  const screen = readFileSync(new URL("../app/scmos/screens/BillingControl.tsx", import.meta.url), "utf8");
+  assert.match(screen, /"INVOICE", "ราคาตาม Rate", "ยอดรวม"/);
+  assert.match(screen, /<td style=\{cell\}><RateCell item=\{item\} \/><\/td>/);
+  assert.match(screen, /<option value="RATE_DIFF">1\.1 ไม่ตรง Rate<\/option>/);
+  assert.match(screen, /<InvoiceSummary item=\{item\} \/>/);
+});
