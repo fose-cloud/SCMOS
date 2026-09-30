@@ -30,11 +30,32 @@ static class CarrierPortalChecks
             && !CarrierEndpoints.ValidPeriod("26", "09", out _) && !CarrierEndpoints.ValidPeriod("2026", "13", out _)
             && !CarrierEndpoints.ValidPeriod("2026", "9", out _) && !CarrierEndpoints.ValidPeriod("2026 OR 1=1", "09", out _),
             "carrier portal: the KPI period is a year and a month (or the whole year), nothing else");
-        check(new[] { "/api/kpi", "/api/kpi/measures", "/api/KPI/excel", "/api/suppliers", "/api/suppliers/3", "/api/dashboard/today", "/api/risk", "/api/capacity" }
-                .All(path => CarrierBoundary.Refuses(new Microsoft.AspNetCore.Http.PathString(path)))
-            && !new[] { "/api/carrier/kpi", "/api/carrier/rates", "/api/carrier/capacity", "/api/carrier-billing/cases", "/api/kpix", "/api/documents", "/api/me", "/health" }
-                .Any(path => CarrierBoundary.Refuses(new Microsoft.AspNetCore.Http.PathString(path))),
-            "carrier boundary: the department's KPI, Supplier Register, dashboard, risk and capacity board refuse a carrier; its own routes do not");
+        bool Allows(string request)
+        {
+            var parts = request.Split(' ', 2);
+            return CarrierBoundary.Allows(parts[0], new Microsoft.AspNetCore.Http.PathString(parts[1]));
+        }
+        var carrierOwn = new[]
+        {
+            "GET /api/carrier", "POST /api/carrier/J-1/accept", "PUT /api/carrier/J-1/resources", "GET /api/carrier/kpi",
+            "GET /api/carrier/dashboard/measures", "POST /api/carrier/capacity", "POST /api/carrier/job-requests/4/withdraw",
+            "GET /api/carrier/v1/assignments", "GET /api/me", "HEAD /api/me", "GET /api/notifications", "GET /api/notifications/kinds",
+            "GET /api/vehicle-types", "GET /api/documents", "POST /api/documents", "GET /api/documents/51/content",
+            "GET /api/carrier-billing/cases", "GET /api/carrier-billing/control-tower/", "POST /api/carrier-billing/cases/3/draft",
+            "PUT /api/carrier-billing/invoices/7", "POST /api/carrier-billing/invoices/7/submit", "POST /api/carrier-billing/invoices/7/charges",
+            "POST /api/carrier-billing/invoices/7/documents", "PUT /api/carrier-billing/invoices/7/original-package", "GET /health",
+        };
+        var department = new[]
+        {
+            "GET /api/kpi/measures", "GET /api/KPI/excel", "GET /api/suppliers", "GET /api/dashboard/today", "GET /api/risk", "GET /api/capacity",
+            "POST /api/capacity", "GET /api/jobs", "GET /api/jobs/page", "PUT /api/jobs", "GET /api/integrations/line/events/pending",
+            "GET /api/corrections/pending", "GET /api/ai/status", "GET /api/carrier-job-requests", "GET /api/carrier-api/clients",
+            "POST /api/carrier-billing/review/7", "GET /api/carrier-billing/finance/records", "PUT /api/carrier-billing/foundation/calendar/2026-10-01",
+            "POST /api/documents/retention/5", "GET /api/documents/51/content/x", "GET /api/rates", "DELETE /api/me", "POST /api/notifications",
+            "GET /api/carrierx", "GET /api/audit", "GET /api/staff",
+        };
+        check(carrierOwn.All(Allows) && !department.Any(Allows),
+            "carrier boundary: an allow-list — its own routes and the few shared ones its screens need; every department route refused by default");
 
         Dictionary<string, string> Import(params (string Field, string Value)[] set)
         {

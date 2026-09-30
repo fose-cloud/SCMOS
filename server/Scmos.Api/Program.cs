@@ -457,11 +457,12 @@ app.UseExceptionHandler();
 app.UseMiddleware<Scmos.Api.Ai.Sre.RequestTelemetryMiddleware>();
 if (allowedOrigins.Length > 0) app.UseCors();
 app.UseRateLimiter();
-// The department's figures are not a carrier's — see Rules/CarrierBoundary.cs. The account is read only for those routes.
+// A carrier's account reaches only its own routes — see Rules/CarrierBoundary.cs (an allow-list since 30 Sep 2026).
+// Identity, not Current: the same account, without logging a refusal the endpoint will log anyway.
 app.Use(async (context, next) =>
 {
-    if (CarrierBoundary.Refuses(context.Request.Path)
-        && context.RequestServices.GetRequiredService<IUserAccessor>().Current(context) is { } user
+    if (!CarrierBoundary.Allows(context.Request.Method, context.Request.Path)
+        && context.RequestServices.GetRequiredService<IUserAccessor>().Identity(context) is { } user
         && CarrierTenantContext.IsCarrier(user))
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;

@@ -83,10 +83,18 @@ None of these is a carrier's screen, so `Rules/CarrierBoundary.cs` now answers
 a carrier 403 on the first five. The bell answers a carrier with nothing. The
 rate book (`/api/rates`) already refused carriers and still does.
 
-Still open, not changed here: other routes guarded only by sign-in or by
-`ViewDashboard` have not all been walked through as a carrier. The safer
-design is an allow-list of the routes a carrier may call. That is the
-suggested next step.
+**Since 30 Sep 2026 this is an allow-list.** A carrier's account reaches only:
+- `/api/carrier…`: its own routes, and the TMS API;
+- `GET /api/me`, the bell (`/api/notifications`, empty for a carrier), and
+  `GET /api/vehicle-types`;
+- its jobs' documents: list, upload, and open a file, each checked by
+  `CarrierDocumentAccess`;
+- the billing routes its Billing screen uses.
+
+Every other `/api` route answers it 403, with nothing to list. That includes
+the LINE queue and the corrections queue, which answered a carrier before.
+A new carrier screen that needs another route adds it to
+`CarrierBoundary.Allowed`, with the reason.
 
 ## Verified
 
