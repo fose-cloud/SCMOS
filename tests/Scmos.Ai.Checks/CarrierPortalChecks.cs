@@ -122,8 +122,11 @@ static class CarrierPortalChecks
                 Role = Roles.Subcontractor, Active = true, SupplierId = company.Id, CreatedBy = "test", CreatedAt = now, UpdatedBy = "test", UpdatedAt = now,
             };
             setup.Staff.AddRange(Person("SUB-A", alpha), Person("SUB-B", bravo));
+            // Band 2 is priced on Bravo's lanes only, band 3 on nobody's: a carrier is sent the bands its own lanes price.
             setup.FuelBands.AddRange(new FuelBand { Label = "30.00-32.99", MinPrice = 30m, MaxPrice = 32.99m, Position = 0 },
-                new FuelBand { Label = "33.00-35.99", MinPrice = 33m, MaxPrice = 35.99m, Position = 1 });
+                new FuelBand { Label = "33.00-35.99", MinPrice = 33m, MaxPrice = 35.99m, Position = 1 },
+                new FuelBand { Label = "36.00-38.99", MinPrice = 36m, MaxPrice = 38.99m, Position = 2 },
+                new FuelBand { Label = "39.00-41.99", MinPrice = 39m, MaxPrice = 41.99m, Position = 3 });
             RateLane Lane(int? supplier, string carrier, string customer, string to) => new()
                 { SupplierId = supplier, Carrier = carrier, Service = "FCL", Customer = customer, FromPlace = "LCB", ToPlace = to, SourceFile = "test" };
             var lanes = new[]
@@ -138,8 +141,12 @@ static class CarrierPortalChecks
             setup.RateLanes.AddRange(lanes);
             await setup.SaveChangesAsync();
             foreach (var lane in lanes)
+            {
                 setup.RatePrices.AddRange(new RatePrice { LaneId = lane.Id, Vehicle = "1X40'", BandPosition = 0, Price = 5000 + (int)lane.Id },
                     new RatePrice { LaneId = lane.Id, Vehicle = "1X40'", BandPosition = 1, Price = 5100 + (int)lane.Id });
+                if (lane.SupplierId == bravo.Id)
+                    setup.RatePrices.Add(new RatePrice { LaneId = lane.Id, Vehicle = "1X40'", BandPosition = 2, Price = 5200 + (int)lane.Id });
+            }
 
             OperationJob Stored(JsonObject job) => new()
             {
@@ -178,8 +185,12 @@ static class CarrierPortalChecks
             var ratesA = await reads.RatesAsync(userA, default);
             var ratesB = await reads.RatesAsync(userB, default);
             check(ratesA is { SupplierName: "ALPHA TRANSPORT" } && ratesA.Lanes.Select(one => one.To).Order().SequenceEqual(["RAYONG-A1", "SARABURI-A2"])
-                && ratesA.Lanes.All(one => one.Prices["1X40'"].Length == 2 && one.Prices["1X40'"][1] == 5100 + one.Id) && ratesA.Bands.Count == 2,
-                "carrier portal SQL: Alpha's rates are its own lanes — by supplier, or by its alias where no supplier was written — with every band");
+                && ratesA.Lanes.All(one => one.Prices["1X40'"].Length == 2 && one.Prices["1X40'"][1] == 5100 + one.Id)
+                && ratesA.Bands.Select(one => one.Position).SequenceEqual([0, 1]),
+                "carrier portal SQL: Alpha's rates are its own lanes — by supplier, or by its alias where no supplier was written — on the bands they price, not Bravo's");
+            check(ratesB is not null && ratesB.Bands.Select(one => one.Label).SequenceEqual(["30.00-32.99", "33.00-35.99", "36.00-38.99"])
+                && ratesB.Lanes.Where(one => one.SupplierId == bravo.Id).All(one => one.Prices["1X40'"].Length == 3 && one.Prices["1X40'"][2] == 5200 + one.Id),
+                "carrier portal SQL: a band no lane of the carrier prices is not sent, and the rows keep each band's position");
             check(ratesB is not null && ratesB.Lanes.Select(one => one.To).Order().SequenceEqual(["AYUTTHAYA-B3", "CHONBURI-B2", "RAYONG-B1"])
                 && !JsonSerializer.Serialize(ratesA).Contains("BRAVO") && !JsonSerializer.Serialize(ratesA).Contains("AYUTTHAYA"),
                 "carrier portal SQL: Bravo's lane spelled like Alpha stays Bravo's; nothing of Bravo's reaches Alpha");

@@ -122,6 +122,13 @@ public class RateService(ScmosDbContext db)
     /// only. A lane is theirs when it was written against their supplier, or, written against none,
     /// under a name they trade by; never another carrier's row, never the rate sheet's quotes, and
     /// not the surcharge list, which is the book's rather than any one carrier's.
+    ///
+    /// <para>
+    /// The fuel bands are cut to the ones its lanes price (30 Sep 2026, asked for by the department
+    /// lead). The book's band list serves every carrier's fuel clause, so most of it was empty
+    /// columns on one carrier's screen. The price rows keep each band's position and are trimmed
+    /// after the last band kept.
+    /// </para>
     /// </summary>
     public async Task<RateBookView> ReadForSupplierAsync(int supplierId, IReadOnlyCollection<string> names,
         CancellationToken token)
@@ -134,7 +141,16 @@ public class RateService(ScmosDbContext db)
             .ToListAsync(token);
         var width = bands.Count == 0 ? 0 : bands.Max(band => band.Position) + 1;
         var (views, priceCount) = await PricedAsync(lanes, width, token);
-        return new RateBookView(bands, views, [], priceCount);
+        var priced = views.SelectMany(view => view.Prices.Values)
+            .SelectMany(row => row.Select((price, position) => (price, position)))
+            .Where(cell => cell.price is not null).Select(cell => cell.position).ToHashSet();
+        var kept = bands.Where(band => priced.Contains(band.Position)).ToList();
+        var trimmed = kept.Count == 0 ? 0 : kept.Max(band => band.Position) + 1;
+        var rows = views.Select(view => view with
+        {
+            Prices = view.Prices.ToDictionary(row => row.Key, row => row.Value.Take(trimmed).ToArray()),
+        }).ToList();
+        return new RateBookView(kept, rows, [], priceCount);
     }
 
     private async Task<List<BandView>> BandsAsync(CancellationToken token) =>

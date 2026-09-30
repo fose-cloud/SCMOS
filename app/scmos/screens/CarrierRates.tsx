@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
-import { filterLanes, parseCarrierRates, vehiclesOf, type CarrierRates as Rates } from "../carrierPortal";
+import { filterLanes, parseCarrierRates, pricedBands, vehiclesOf, type CarrierRates as Rates } from "../carrierPortal";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
 
 /**
  * The carrier's own rates, read only (29 Sep 2026): the lanes of the rate book
- * written against its company, each vehicle's price on each fuel band. The API
- * sends nothing else — no other carrier's lane, no quote, no selling price.
+ * written against its company, each vehicle's price on each fuel band it is
+ * priced on. The API sends nothing else — no other carrier's lane or band, no
+ * quote, no selling price — and a band the lanes shown leave empty is no column.
  */
 export function CarrierRates() {
   const [rates, setRates] = useState<Rates | null>(null);
@@ -38,7 +39,7 @@ export function CarrierRates() {
   if (error) return <Notice tone="#B45309">{error}</Notice>;
   if (!rates) return <div style={css("padding:30px;text-align:center;color:#7B8CA0;font-size:12.5px")}>กำลังโหลด…</div>;
 
-  const bands = [...rates.bands].sort((a, b) => a.position - b.position);
+  const bands = pricedBands(rates.bands, shown);
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
       <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px;padding:14px 17px")}>

@@ -180,3 +180,14 @@ test("a carrier's status choices are its own steps ahead, the same steps the ser
   assert.match(drawer, /p\.canEdit && !p\.carrier && !isCancelled\(j\)/);       // no moving or cancelling a job
   assert.match(drawer, /\{!p\.carrier && <button className="ghost-btn" onClick=\{p\.onRaiseIssue\}/);
 });
+
+test("a fuel band the lanes shown leave empty is no column on the carrier's Rate", async () => {
+  const { pricedBands } = await import("../app/scmos/carrierPortal.ts");
+  const bands = [{ label: "33", min: 33, max: 35.99, position: 1 }, { label: "30", min: 30, max: 32.99, position: 0 },
+    { label: "36", min: 36, max: 38.99, position: 2 }];
+  const lanes = rates().lanes;                                   // lane 1 prices bands 0 and 1; lane 2 band 0 only
+  assert.deepEqual(pricedBands(bands, lanes).map(one => one.position), [0, 1]);
+  assert.deepEqual(pricedBands(bands, [lanes[1]]).map(one => one.position), [0]);
+  assert.deepEqual(pricedBands(bands, []), []);
+  assert.match(read("app/scmos/screens/CarrierRates.tsx"), /const bands = pricedBands\(rates\.bands, shown\);/);
+});

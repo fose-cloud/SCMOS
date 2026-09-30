@@ -123,6 +123,12 @@ export function percentText(value: number | null | undefined): string {
   return value == null ? "—" : `${value.toFixed(1)}%`;
 }
 
+/** The fuel bands the lanes shown hold a price on, in band order — a column with no price is not shown (30 Sep 2026). */
+export function pricedBands(bands: Band[], lanes: Lane[]): Band[] {
+  return bands.filter(b => lanes.some(one => Object.values(one.prices).some(row => row[b.position] != null)))
+    .sort((a, b) => a.position - b.position);
+}
+
 /** The vehicles a lane is priced for, in the order they were written. */
 export function vehiclesOf(lane: Lane): string[] {
   return Object.keys(lane.prices);
