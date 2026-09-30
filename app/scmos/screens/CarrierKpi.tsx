@@ -77,7 +77,7 @@ export function CarrierKpi() {
             <Card label="ข้อร้องเรียน" value={score?.tally.complaints ?? 0} note={`รถเสียไม่มีข้อร้องเรียน ${score?.tally.breakdownNoComplaint ?? 0}`} tone="#B45309" />
           </div>
 
-          {score && <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px")}><ZoomBox capped={false}>
+          {score && <div style={css("background:#fff;border:1px solid #E3E8EE;border-radius:6px")}><ZoomBox capped={false} zoomable={false}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12px;min-width:640px")}>
               <thead><tr>{["เกณฑ์", "น้ำหนัก", "คะแนน", "ที่เกิด / ฐาน", "เป้า", "หมายเหตุ"].map(head => <th key={head} style={css(HEAD)}>{head}</th>)}</tr></thead>
               <tbody>{score.lines.map(line => <tr key={line.id}>
