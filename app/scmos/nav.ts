@@ -5,7 +5,7 @@ export type Screen =
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
-  | "carrierapi" | "oilrate"
+  | "carrierapi" | "oilrate" | "auditplan"
   // The Subcontractor's own menu (29 Sep 2026) — see CARRIER_NAV.
   | "carrierwork" | "carriernew" | "carriermyjob" | "carrierpostpone" | "carriercapacity" | "carriertraining" | "carrierrates" | "carrierbilling" | "carrierkpi";
 
@@ -57,6 +57,8 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     // used for.
     ["capacity", "Capacity", "วางแผนกำลังรถ", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
     ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
+    // The year's EHS audit plan with the subcontractors, new and existing (1 Oct 2026).
+    ["auditplan", "Audit Planning", "แผนการตรวจประเมิน", [[2, 3, 12, 11], [2, 3, 12, 2], [4, 8, 2, 2], [8, 8, 2, 2], [4, 11, 2, 2]]],
     ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
   ],
 
@@ -254,6 +256,7 @@ export const META: Record<string, string> = {
   prerun: "Pre-Run Check",
   subcontractors: "Subcontractor Master",
   capacity: "Capacity Planning",
+  auditplan: "Audit Planning",
   rates: "Transportation Rate Management",
   billing: "Billing Control",
   oilrate: "Oil Rate",

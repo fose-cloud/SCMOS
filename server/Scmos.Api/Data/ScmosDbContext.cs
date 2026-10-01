@@ -94,6 +94,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<SupplierContact> SupplierContacts => Set<SupplierContact>();
     public DbSet<SupplierTruck> SupplierTrucks => Set<SupplierTruck>();
     public DbSet<SupplierDriver> SupplierDrivers => Set<SupplierDriver>();
+    public DbSet<AuditPlan> AuditPlans => Set<AuditPlan>();
+    public DbSet<AuditPlanItem> AuditPlanItems => Set<AuditPlanItem>();
+    public DbSet<SupplierOnboardingItem> SupplierOnboardingItems => Set<SupplierOnboardingItem>();
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
     public DbSet<VehicleTypeRow> VehicleTypes => Set<VehicleTypeRow>();
     public DbSet<TypeMigrationBackup> TypeMigrationBackups => Set<TypeMigrationBackup>();
@@ -1122,6 +1125,51 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("active");
             e.Property(x => x.CreatedBy).HasMaxLength(120).HasDefaultValue("");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("supplier_driver_idx");
+        });
+
+        // The EHS audit plan and a new subcontractor's onboarding checklist (1 Oct 2026).
+        model.Entity<AuditPlan>(e =>
+        {
+            e.ToTable("audit_plans");
+            e.Property(x => x.Title).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.PreparedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.ReviewedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.ReviewedDate).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.SecondReviewedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.ApprovedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Revision).HasMaxLength(20).HasDefaultValue("00");
+            e.Property(x => x.UpdatedBy).HasMaxLength(120).HasDefaultValue("");
+            e.HasIndex(x => x.Year).IsUnique().HasDatabaseName("audit_plan_year_idx");
+        });
+
+        model.Entity<AuditPlanItem>(e =>
+        {
+            e.ToTable("audit_plan_items");
+            e.Property(x => x.Kind).HasMaxLength(20).HasDefaultValue(AuditPlanRules.ReAudit);
+            e.Property(x => x.Company).HasMaxLength(240).HasDefaultValue("");
+            e.Property(x => x.Target).HasMaxLength(60).HasDefaultValue("");
+            e.Property(x => x.PersonInCharge).HasMaxLength(400).HasDefaultValue("");
+            e.Property(x => x.AuditDate).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.Schedule).HasMaxLength(20).HasDefaultValue(AuditPlanRules.Fixed);
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue(AuditPlanRules.Planned);
+            e.Property(x => x.NextDate).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.Remark).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.FindingSentDate).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.ReportSentDate).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.CreatedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.UpdatedBy).HasMaxLength(120).HasDefaultValue("");
+            e.HasIndex(x => x.Year).HasDatabaseName("audit_plan_item_year_idx");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("audit_plan_item_supplier_idx");
+        });
+
+        model.Entity<SupplierOnboardingItem>(e =>
+        {
+            e.ToTable("supplier_onboarding_items");
+            e.Property(x => x.Code).HasMaxLength(40);
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue(VendorOnboarding.Pending);
+            e.Property(x => x.Remark).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.UpdatedBy).HasMaxLength(120).HasDefaultValue("");
+            e.HasIndex(x => new { x.SupplierId, x.Code }).IsUnique().HasDatabaseName("supplier_onboarding_idx");
         });
 
         model.Entity<TypeMigrationBackup>(e =>

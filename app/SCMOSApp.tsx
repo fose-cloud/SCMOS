@@ -43,6 +43,7 @@ import { Suppliers } from "./scmos/screens/Suppliers";
 import { Incidents } from "./scmos/screens/Incidents";
 import { AiControlTower } from "./scmos/screens/AiControlTower";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
+import { AuditPlanning } from "./scmos/screens/AuditPlanning";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
 import { DIESEL } from "./scmos/diesel";
@@ -81,7 +82,7 @@ const NOT_BUILT: Partial<Record<Screen, { ready: string[]; missing: string[] }>>
  */
 const OWN_SCREEN: Partial<Record<Screen, true>> = {
   subcontractors: true, carpar: true, incident: true, ai: true,
-  vendor: true, evaluation: true, quotation: true,
+  vendor: true, evaluation: true, quotation: true, auditplan: true,
   // Reports offered the fallback Export Excel, which raises a toast and exports
   // nothing. Every report inside the catalogue carries its own export, next to
   // the period and filters that decide what should be in it.
@@ -3545,7 +3546,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }}
                 onDraftJob={openBookingDraft} />
             )}
-            {screen === "vendor" && <Vendor canRegister={able("EditSuppliers")} canManage={able("ManageSuppliers")} onToast={setToast} />}
+            {screen === "vendor" && <Vendor canRegister={able("EditSuppliers")} canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} />}
+            {screen === "auditplan" && <AuditPlanning canEdit={able("EditSuppliers")} onToast={setToast} />}
             {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
               canEditRates={able("EditRates")} canSaveQuote={able("QuoteToSheet")}

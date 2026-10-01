@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
+import { AuditCalendar, OnboardingChecklist } from "./VendorOnboarding";
 
 /**
  * The two things that happen to a supplier outside the daily work: getting
@@ -73,9 +74,14 @@ async function postSupplier(path: string, body: unknown) {
  * moves it. Nothing about that is decorative: only an approved supplier can be
  * given work, so the status is the control, and it is a supervisor's to set.
  */
-export function Vendor({ canRegister, canManage, onToast }: { canRegister: boolean; canManage: boolean; onToast: (m: string) => void }) {
+export function Vendor({ canRegister, canManage, canUpload = false, onToast }: {
+  canRegister: boolean; canManage: boolean; canUpload?: boolean; onToast: (m: string) => void;
+}) {
   const { rows, load } = useSuppliers();
   const [busy, setBusy] = useState(false);
+  /** The vendor whose checklist is open (1 Oct 2026), and a count that redraws the calendar after a date is set. */
+  const [open, setOpen] = useState<number | null>(null);
+  const [calendar, setCalendar] = useState(0);
   const [form, setForm] = useState({ name: "", code: "", serviceType: "", serviceArea: "" });
 
   async function act(path: string, body: unknown, onDone?: () => void) {
@@ -142,11 +148,16 @@ export function Vendor({ canRegister, canManage, onToast }: { canRegister: boole
           <div style={css("padding:26px;text-align:center;font-size:12.5px;color:#94A3B8")}>
             ไม่มีรายที่ค้างอยู่ — ผู้ขนส่งทั้งหมดในทะเบียนผ่านการอนุมัติแล้ว
           </div>
-        ) : onboarding.map((row) => (
-          <div key={row.id} style={css("padding:10px 16px;border-bottom:1px solid #F1F5F9;display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>
+        ) : onboarding.map((row) => (<div key={row.id}>
+          <div style={css("padding:10px 16px;border-bottom:1px solid #F1F5F9;display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>
             <span style={css("font-family:ui-monospace,monospace;font-size:11.5px;color:#7B8CA0;min-width:64px")}>{row.code}</span>
             <span style={css("font-weight:600;color:#0A2240;font-size:12.5px;flex:1;min-width:150px")}>{row.name}</span>
             <StatusChip status={row.status} />
+            <button onClick={() => setOpen(open === row.id ? null : row.id)}
+              style={css("height:27px;padding:0 11px;border:1px solid #9CC2E8;background:" + (open === row.id ? "#0A5C97" : "#F4F8FC")
+                + ";color:" + (open === row.id ? "#fff" : "#0A5C97") + ";border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer")}>
+              {open === row.id ? "ปิดรายการเอกสาร" : "ตรวจสอบเอกสาร / นัด Audit"}
+            </button>
             {canManage && ["pending-audit", "approved", "rejected"].map((status) => (
               <button key={status} onClick={() => void act(`/${row.id}/status`, { status })} disabled={busy || row.status === status}
                 style={css("height:27px;padding:0 11px;border:1px solid " + (STATUS_TONE[status] ?? "#C9D6E2") +
@@ -156,8 +167,12 @@ export function Vendor({ canRegister, canManage, onToast }: { canRegister: boole
               </button>
             ))}
           </div>
-        ))}
+          {open === row.id && <OnboardingChecklist supplierId={row.id} canEdit={canRegister} canUpload={canUpload}
+            onToast={onToast} onAudit={() => setCalendar((n) => n + 1)} />}
+        </div>))}
       </div>
+
+      <AuditCalendar refresh={calendar} />
     </div>
   );
 }

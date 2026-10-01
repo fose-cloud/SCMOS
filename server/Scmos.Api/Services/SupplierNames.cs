@@ -20,9 +20,17 @@ public class SupplierNames(ScmosDbContext db)
     public sealed record Match(int Id, string Name);
 
     /// <summary>A lookup over the approved suppliers, read once for a request that resolves many names.</summary>
-    public async Task<Func<string?, Match?>> ApprovedAsync(CancellationToken token)
+    public Task<Func<string?, Match?>> ApprovedAsync(CancellationToken token) => LookupAsync(true, token);
+
+    /// <summary>
+    /// The same over every supplier, approved or not (1 Oct 2026) — the audit plan names companies still
+    /// being onboarded, whose audit is what approves them.
+    /// </summary>
+    public Task<Func<string?, Match?>> AnyAsync(CancellationToken token) => LookupAsync(false, token);
+
+    private async Task<Func<string?, Match?>> LookupAsync(bool approvedOnly, CancellationToken token)
     {
-        var suppliers = await db.Suppliers.AsNoTracking().Where(row => row.Status == "approved")
+        var suppliers = await db.Suppliers.AsNoTracking().Where(row => !approvedOnly || row.Status == "approved")
             .Select(row => new { row.Id, row.Name, row.Code, row.LegalName }).ToListAsync(token);
         var byId = suppliers.ToDictionary(row => row.Id);
         var ids = byId.Keys.ToList();
