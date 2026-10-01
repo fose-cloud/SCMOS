@@ -6,8 +6,8 @@ import { CARRIER_NAV, CARRIER_SCREENS, CARRIER_SUB_NAV, HEADINGS, NAV, SUB_NAV }
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("a Subcontractor's menu is its own: Dashboard, Workspace (NEW job, My job, Postpone), Rate, Billing, KPI", () => {
-  assert.deepEqual(CARRIER_NAV.map(([, label]) => label), ["Dashboard", "Workspace", "Capacity", "Rate", "Billing", "KPI"]);
+test("a Subcontractor's menu is its own: Dashboard, Workspace (NEW job, My job, Postpone), Capacity, Training Control, Rate, Billing, KPI", () => {
+  assert.deepEqual(CARRIER_NAV.map(([, label]) => label), ["Dashboard", "Workspace", "Capacity", "Training Control", "Rate", "Billing", "KPI"]);
   assert.deepEqual(CARRIER_SUB_NAV.carrierwork.map(([, label]) => label), ["NEW job", "My job", "Postpone"]);
   assert.ok(HEADINGS.includes("carrierwork"));
   // Every page a carrier may open is one of its own, and each has a view.

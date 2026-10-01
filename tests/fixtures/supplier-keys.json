@@ -1,0 +1,49 @@
+{
+  "about": "SupplierRegister.Key (C#) and supplierKey (TypeScript) give these keys, 30 Sep 2026 — the company pickers and the API mean the same supplier by the same spelling. tests/supplierKey.test.mjs and TrainingRegisterChecks read this file.",
+  "keys": [
+    {
+      "input": "A.C.N",
+      "key": "ACN"
+    },
+    {
+      "input": "A C N",
+      "key": "ACN"
+    },
+    {
+      "input": "Wealthy Logistic Co., Ltd.",
+      "key": "WEALTHYLOGISTICCOLTD"
+    },
+    {
+      "input": "  tatiyapol  ",
+      "key": "TATIYAPOL"
+    },
+    {
+      "input": "70-1234 กทม",
+      "key": "701234กทม"
+    },
+    {
+      "input": "บริษัท ก.ไก่ ขนส่ง จำกัด",
+      "key": "บรษทกไกขนสงจำกด"
+    },
+    {
+      "input": "ห้างหุ้นส่วนจำกัด พันธ์พงษ์ โลจิสติกส์",
+      "key": "หางหนสวนจำกดพนธพงษโลจสตกส"
+    },
+    {
+      "input": "SBT Transport Co.,Ltd.",
+      "key": "SBTTRANSPORTCOLTD"
+    },
+    {
+      "input": "3ขบ.00597/63",
+      "key": "3ขบ0059763"
+    },
+    {
+      "input": "",
+      "key": ""
+    },
+    {
+      "input": " - ",
+      "key": ""
+    }
+  ]
+}

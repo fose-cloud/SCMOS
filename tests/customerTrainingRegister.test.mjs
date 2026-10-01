@@ -47,7 +47,7 @@ test("repeat imports are checked for duplicates before rows are inserted", () =>
 test("manual training rows require ManageTraining, which Operation already holds", () => {
   const roles = readFileSync("server/Scmos.Api/Rules/Roles.cs", "utf8");
   assert.match(roles, /OperationGrants =[\s\S]*?Capability.ManageTraining/);
-  const save = endpoint.slice(endpoint.indexOf("private static async Task<IResult> SaveRegisterAsync"));
+  const save = endpoint.slice(endpoint.indexOf("public static async Task<IResult> SaveRegisterAsync"));
   assert.match(save, /!user.Can\(Capability.ManageTraining\)/);
   assert.ok(save.indexOf("Capability.ManageTraining") < save.indexOf("db.CustomerTrainingRecords"));
   assert.match(endpoint, /group.MapPost\("\/register"/);
@@ -55,7 +55,7 @@ test("manual training rows require ManageTraining, which Operation already holds
 });
 
 test("manual register saves validate dates and write audit atomically", () => {
-  const save = endpoint.slice(endpoint.indexOf("private static async Task<IResult> SaveRegisterAsync"));
+  const save = endpoint.slice(endpoint.indexOf("public static async Task<IResult> SaveRegisterAsync"));
   assert.match(save, /expiry < effective/);
   assert.match(save, /r.Id != id/);
   assert.match(save, /TrainingRules.ParseDate\(r.EffectiveDate\) == effective/);
@@ -69,7 +69,7 @@ test("register editor is permission gated and does not discard rejected input", 
   // API refuses stays on the screen with the reason beside it.
   assert.match(screen, /canEdit \? \[\{[\s\S]*?แทรกแถว/);
   assert.match(screen, /useGridRange<RegisterRow, Field>/);
-  assert.match(screen, /openEditor: \(row, field, seed\) => setEditing/);
+  assert.match(screen, /openEditor: \(row, field, seed\) => \{ if \(field !== "company"\) setEditing/);
   assert.match(screen, /method: "PUT"/);
   assert.match(screen, /method: "POST"/);
   assert.match(screen, /if \(!response.ok\) \{ setSaveError[\s\S]*?return; \}/);
@@ -78,4 +78,34 @@ test("register editor is permission gated and does not discard rejected input", 
   assert.match(screen, /คำนวณหลังบันทึก/);
   // The status column takes no typing and no paste.
   assert.match(screen, /fieldsOf: \(\) => \[\.\.\.FIELDS, undefined\]/);
+});
+
+test("the company is picked from the supplier register, as My job's carrier column is (30 Sep 2026)", () => {
+  // The same list My job offers — approved suppliers, their spellings resolved to the registered name.
+  assert.match(screen, /const carriers = useCarriers\(!carrier\);/);
+  assert.match(screen, /if \(field === "company"\) return companyCell\(row\);/);
+  assert.match(screen, /kind: "select",\s*field: "company"/);
+  assert.match(screen, /options: \[known \? "" : current, \.\.\.carriers\.names\]/);
+  // A row off the register keeps its company, marked, until one is picked.
+  assert.match(screen, /ไม่มีในทะเบียนผู้รับเหมา — เลือกบริษัทจากรายการเพื่อแก้/);
+  // Pasted and imported companies are held to the same list.
+  assert.match(screen, /if \(value\.trim\(\) && official === null\) \{ problems\.push/);
+  assert.match(screen, /const official = carriers\.companyOf\(row\.company\);/);
+  // And the API holds every write to it, so the screen is not the only guard.
+  const save = endpoint.slice(endpoint.indexOf("public static async Task<IResult> SaveRegisterAsync"));
+  assert.match(save, /else if \(resolve\(v\[4\]\) is \{ \} match\) \{ v\[4\] = match\.Name; supplierId = match\.Id; \}/);
+  assert.match(save, /else if \(id is not null && Same\(record\.Company, v\[4\]\)\) supplierId = record\.SupplierId;/);
+  assert.match(endpoint, /var company = carrier is null \? resolve\(row\.Company\) : new SupplierNames\.Match\(carrier\.Id, carrier\.Name\);/);
+});
+
+test("a Subcontractor's Training Control reads and writes its own company's rows only", () => {
+  assert.match(screen, /const base = carrier \? "\/api\/carrier\/training\/register" : "\/api\/training\/register";/);
+  for (const call of screen.matchAll(/apiFetch\(([^,)]+)/g)) assert.match(call[1], /^(base|`\$\{base\}\/)/, call[1]);
+  assert.match(screen, /setDraft\(\{ \.\.\.BLANK, company: carrier \? ownCompany : "" \}\);/);
+  assert.match(endpoint, /routes\.MapGroup\("\/api\/carrier\/training\/register"\)/);
+  const save = endpoint.slice(endpoint.indexOf("public static async Task<IResult> SaveRegisterAsync"));
+  assert.match(save, /if \(carrier is not null\) v\[4\] = carrier\.Name;/);
+  assert.match(save, /carrier is not null && id is not null && !IsCarriers\(record, carrier, carrierKeys!\)/);
+  const portal = readFileSync("app/scmos/screens/CarrierPortal.tsx", "utf8");
+  assert.match(portal, /if \(props\.view === "training"\) return <CustomerTrainingRegister carrier canEdit/);
 });

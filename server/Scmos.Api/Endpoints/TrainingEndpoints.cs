@@ -33,7 +33,7 @@ public static class TrainingEndpoints
     public record RegisterView(
         long Id, string SequenceNo, string CourseCustomer, string FirstName, string LastName,
         string Company, string DriverLicenseNo, string LicenseType,
-        string EffectiveDate, string ExpiryDate, int? DaysLeft, string Status, string StatusTh);
+        string EffectiveDate, string ExpiryDate, int? DaysLeft, string Status, string StatusTh, int? SupplierId);
 
     public static void MapTraining(this IEndpointRouteBuilder routes)
     {
@@ -402,149 +402,65 @@ public static class TrainingEndpoints
 
         /* -------------------------------------- workbook-backed register */
         group.MapPost("/register", async ([FromBody] RegisterBody body, HttpContext context,
-            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
-            await SaveRegisterAsync(null, body, context, users, db, audit, token));
+            IUserAccessor users, ScmosDbContext db, AuditService audit, SupplierNames names, CancellationToken token) =>
+            users.Current(context) is not { } user ? ApiResults.SignInRequired
+                : await SaveRegisterAsync(null, body, user, null, db, audit, names, token));
         group.MapPut("/register/{id:long}", async (long id, [FromBody] RegisterBody body, HttpContext context,
-            IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token) =>
-            await SaveRegisterAsync(id, body, context, users, db, audit, token));
+            IUserAccessor users, ScmosDbContext db, AuditService audit, SupplierNames names, CancellationToken token) =>
+            users.Current(context) is not { } user ? ApiResults.SignInRequired
+                : await SaveRegisterAsync(id, body, user, null, db, audit, names, token));
 
         group.MapGet("/register", async (HttpContext context, IUserAccessor users,
-            ScmosDbContext db, CancellationToken token) =>
-        {
-            if (users.Current(context) is null) return ApiResults.SignInRequired;
-
-            var today = ThailandToday();
-            var rows = (await db.CustomerTrainingRecords.AsNoTracking()
-                    .OrderByDescending(record => record.Id)
-                    .Take(10000)
-                    .ToListAsync(token))
-                .Select(record => DescribeRegister(record, today))
-                .ToList();
-
-            return Results.Json(new
-            {
-                rows,
-                summary = new
-                {
-                    total = rows.Count,
-                    valid = rows.Count(row => row.Status == TrainingRules.Valid),
-                    nearExpiry = rows.Count(row => row.Status == TrainingRules.ExpiringSoon),
-                    expired = rows.Count(row => row.Status == TrainingRules.Expired),
-                    invalidDate = rows.Count(row => row.Status == "INVALID_DATE"),
-                },
-                alertBeforeDays = 60,
-            });
-        });
+            ScmosDbContext db, SupplierNames names, CancellationToken token) =>
+            users.Current(context) is null ? ApiResults.SignInRequired
+                : Results.Json(await ReadRegisterAsync(null, db, names, token)));
 
         group.MapPost("/register/import", async ([FromBody] RegisterImportBody body,
             HttpContext context, IUserAccessor users, CarrierService carriers,
-            ScmosDbContext db, AuditService audit, CancellationToken token) =>
+            ScmosDbContext db, AuditService audit, SupplierNames names, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             if (!await MayWriteAsync(user, carriers, token))
                 return ApiResults.Error("ไม่มีสิทธิ์นำเข้าทะเบียนอบรม", StatusCodes.Status403Forbidden);
+            // A carrier's rows are its own company's, whichever route it came by.
+            var carrier = await carriers.CompanyOfAsync(user, token);
+            return await ImportRegisterAsync(body, user, carrier, db, audit, names, token);
+        });
 
-            var supplied = body.Rows ?? [];
-            if (supplied.Count == 0)
-                return ApiResults.Error("ไม่มีรายการสำหรับนำเข้า", StatusCodes.Status400BadRequest);
-            if (supplied.Count > 5000)
-                return ApiResults.Error("นำเข้าได้ครั้งละไม่เกิน 5,000 รายการ", StatusCodes.Status400BadRequest);
-
-            static string Text(string? value) => (value ?? "").Trim();
-            static string Key(string licence, string course, string effective, string expiry,
-                string firstName, string lastName, string company) =>
-                string.Join('\u001f', licence, course, effective, expiry,
-                    licence.Trim().Length == 0 ? firstName : "",
-                    licence.Trim().Length == 0 ? lastName : "",
-                    licence.Trim().Length == 0 ? company : "").ToUpperInvariant();
-
-            var existingRows = await db.CustomerTrainingRecords.AsNoTracking()
-                .Select(record => new
-                {
-                    record.DriverLicenseNo, record.CourseCustomer,
-                    record.EffectiveDate, record.ExpiryDate,
-                    record.FirstName, record.LastName, record.Company,
-                }).ToListAsync(token);
-            var known = existingRows.Select(row => Key(
-                    row.DriverLicenseNo, row.CourseCustomer, row.EffectiveDate, row.ExpiryDate,
-                    row.FirstName, row.LastName, row.Company))
-                .ToHashSet(StringComparer.Ordinal);
-
-            var records = new List<CustomerTrainingRecord>();
-            var errors = new List<object>();
-            var skipped = 0;
-
-            for (var index = 0; index < supplied.Count; index++)
-            {
-                var row = supplied[index];
-                var course = Text(row.CourseCustomer);
-                var firstName = Text(row.FirstName);
-                var lastName = Text(row.LastName);
-                var effective = Text(row.EffectiveDate);
-                var expiry = Text(row.ExpiryDate);
-
-                var invalid = new List<string>();
-                if (course.Length == 0) invalid.Add("ชื่อหลักสูตร/ลูกค้า");
-                if (firstName.Length == 0 && lastName.Length == 0) invalid.Add("ชื่อหรือนามสกุล");
-                var effectiveDay = TrainingRules.ParseDate(effective);
-                var expiryDay = TrainingRules.ParseDate(expiry);
-                if (effectiveDay is null) invalid.Add("Effective date");
-                if (expiryDay is null) invalid.Add("Expire date");
-                if (effectiveDay is not null && expiryDay is not null && expiryDay < effectiveDay)
-                    invalid.Add("Expire date ต้องไม่ก่อน Effective date");
-
-                if (invalid.Count > 0)
-                {
-                    errors.Add(new { row = index + 1, fields = invalid });
-                    continue;
-                }
-
-                var licence = Text(row.DriverLicenseNo);
-                var key = Key(licence, course, effective, expiry, firstName, lastName, Text(row.Company));
-                if (!known.Add(key))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                records.Add(new CustomerTrainingRecord
-                {
-                    SequenceNo = Text(row.SequenceNo),
-                    CourseCustomer = course,
-                    FirstName = firstName,
-                    LastName = lastName,
-                    Company = Text(row.Company),
-                    DriverLicenseNo = licence,
-                    LicenseType = Text(row.LicenseType),
-                    EffectiveDate = TrainingRules.Write(effectiveDay!.Value),
-                    ExpiryDate = TrainingRules.Write(expiryDay!.Value),
-                    CreatedBy = user.Signature,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedBy = user.Signature,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                });
-            }
-
-            if (records.Count > 0)
-            {
-                db.CustomerTrainingRecords.AddRange(records);
-                await db.SaveChangesAsync(token);
-                await audit.RecordAsync(user, AuditActions.Upload, "customer-training-register",
-                    DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
-                    $"{records.Count} rows", "training-register", "", records.Count.ToString(),
-                    $"duplicate {skipped}; invalid {errors.Count}", token);
-            }
-
-            return Results.Json(new
-            {
-                message = $"นำเข้าสำเร็จ {records.Count} รายการ"
-                    + (skipped > 0 ? $" · ข้ามข้อมูลซ้ำ {skipped}" : "")
-                    + (errors.Count > 0 ? $" · ข้อมูลไม่ถูกต้อง {errors.Count}" : ""),
-                saved = records.Count,
-                skipped,
-                errors,
-            });
+        // A Subcontractor's own Training Control (30 Sep 2026): the register's rows whose company is its own,
+        // and rows it adds itself — the company column is the account's, whatever the body says.
+        var carrierRegister = routes.MapGroup("/api/carrier/training/register").WithTags("Carrier");
+        carrierRegister.MapGet("", async (HttpContext context, IUserAccessor users, CarrierService carriers,
+            ScmosDbContext db, SupplierNames names, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            if (users.Current(context) is not { } user) return ApiResults.SignInRequired;
+            if (await carriers.CompanyOfAsync(user, token) is not { } company) return NotACarrier();
+            return Results.Json(await ReadRegisterAsync(company, db, names, token));
+        });
+        carrierRegister.MapPost("", async ([FromBody] RegisterBody body, HttpContext context, IUserAccessor users,
+            CarrierService carriers, ScmosDbContext db, AuditService audit, SupplierNames names, CancellationToken token) =>
+        {
+            if (users.Current(context) is not { } user) return ApiResults.SignInRequired;
+            if (await carriers.CompanyOfAsync(user, token) is not { } company) return NotACarrier();
+            return await SaveRegisterAsync(null, body, user, company, db, audit, names, token);
+        });
+        carrierRegister.MapPut("/{id:long}", async (long id, [FromBody] RegisterBody body, HttpContext context,
+            IUserAccessor users, CarrierService carriers, ScmosDbContext db, AuditService audit, SupplierNames names,
+            CancellationToken token) =>
+        {
+            if (users.Current(context) is not { } user) return ApiResults.SignInRequired;
+            if (await carriers.CompanyOfAsync(user, token) is not { } company) return NotACarrier();
+            return await SaveRegisterAsync(id, body, user, company, db, audit, names, token);
+        });
+        carrierRegister.MapPost("/import", async ([FromBody] RegisterImportBody body, HttpContext context,
+            IUserAccessor users, CarrierService carriers, ScmosDbContext db, AuditService audit, SupplierNames names,
+            CancellationToken token) =>
+        {
+            if (users.Current(context) is not { } user) return ApiResults.SignInRequired;
+            if (await carriers.CompanyOfAsync(user, token) is not { } company) return NotACarrier();
+            return await ImportRegisterAsync(body, user, company, db, audit, names, token);
         });
 
         /* ------------------------------------------------- courses and rules */
@@ -680,14 +596,172 @@ public static class TrainingEndpoints
         DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
 
 
-    private static async Task<IResult> SaveRegisterAsync(long? id, RegisterBody body,
-        HttpContext context, IUserAccessor users, ScmosDbContext db, AuditService audit, CancellationToken token)
+    private static IResult NotACarrier() => ApiResults.Error(
+        "บัญชีนี้ไม่ใช่บัญชีผู้รับเหมา หรือยังไม่ได้ผูกกับบริษัท — ให้ผู้ดูแลระบบตั้งค่าให้ก่อน",
+        StatusCodes.Status403Forbidden);
+
+    /// <summary>
+    /// Whether a register row is this carrier's: its supplier id, or — on a row written before the column held
+    /// one — a company written under one of the carrier's names.
+    /// </summary>
+    private static bool IsCarriers(CustomerTrainingRecord record, Supplier carrier, IReadOnlySet<string> keys) =>
+        record.SupplierId == carrier.Id || (record.SupplierId is null && keys.Contains(SupplierRegister.Key(record.Company)));
+
+    /// <summary>The register, or one carrier's part of it, with the tiles' counts.</summary>
+    public static async Task<object> ReadRegisterAsync(Supplier? carrier, ScmosDbContext db, SupplierNames names,
+        CancellationToken token)
     {
-        var user = users.Current(context);
-        if (user is null) return ApiResults.SignInRequired;
-        if (!user.Can(Capability.ManageTraining)) return ApiResults.Error("ไม่มีสิทธิ์แก้ไขทะเบียนอบรม", 403);
+        var today = ThailandToday();
+        var records = await db.CustomerTrainingRecords.AsNoTracking()
+            .OrderByDescending(record => record.Id)
+            .Take(10000)
+            .ToListAsync(token);
+        if (carrier is not null)
+        {
+            var keys = await names.KeysOfAsync(carrier, token);
+            records = records.Where(record => IsCarriers(record, carrier, keys)).ToList();
+        }
+        var rows = records.Select(record => DescribeRegister(record, today)).ToList();
+
+        return new
+        {
+            rows,
+            summary = new
+            {
+                total = rows.Count,
+                valid = rows.Count(row => row.Status == TrainingRules.Valid),
+                nearExpiry = rows.Count(row => row.Status == TrainingRules.ExpiringSoon),
+                expired = rows.Count(row => row.Status == TrainingRules.Expired),
+                invalidDate = rows.Count(row => row.Status == "INVALID_DATE"),
+            },
+            alertBeforeDays = 60,
+            company = carrier?.Name,
+        };
+    }
+
+    public static async Task<IResult> ImportRegisterAsync(RegisterImportBody body, AppUser user, Supplier? carrier,
+        ScmosDbContext db, AuditService audit, SupplierNames names, CancellationToken token)
+    {
+        var supplied = body.Rows ?? [];
+        if (supplied.Count == 0)
+            return ApiResults.Error("ไม่มีรายการสำหรับนำเข้า", StatusCodes.Status400BadRequest);
+        if (supplied.Count > 5000)
+            return ApiResults.Error("นำเข้าได้ครั้งละไม่เกิน 5,000 รายการ", StatusCodes.Status400BadRequest);
+
+        static string Text(string? value) => (value ?? "").Trim();
+        static string Key(string licence, string course, string effective, string expiry,
+            string firstName, string lastName, string company) =>
+            string.Join('\u001f', licence, course, effective, expiry,
+                licence.Trim().Length == 0 ? firstName : "",
+                licence.Trim().Length == 0 ? lastName : "",
+                licence.Trim().Length == 0 ? company : "").ToUpperInvariant();
+
+        var existingRows = await db.CustomerTrainingRecords.AsNoTracking()
+            .Select(record => new
+            {
+                record.DriverLicenseNo, record.CourseCustomer,
+                record.EffectiveDate, record.ExpiryDate,
+                record.FirstName, record.LastName, record.Company,
+            }).ToListAsync(token);
+        var known = existingRows.Select(row => Key(
+                row.DriverLicenseNo, row.CourseCustomer, row.EffectiveDate, row.ExpiryDate,
+                row.FirstName, row.LastName, row.Company))
+            .ToHashSet(StringComparer.Ordinal);
+        var resolve = await names.ApprovedAsync(token);
+
+        var records = new List<CustomerTrainingRecord>();
+        var errors = new List<object>();
+        var skipped = 0;
+
+        for (var index = 0; index < supplied.Count; index++)
+        {
+            var row = supplied[index];
+            var course = Text(row.CourseCustomer);
+            var firstName = Text(row.FirstName);
+            var lastName = Text(row.LastName);
+            var effective = Text(row.EffectiveDate);
+            var expiry = Text(row.ExpiryDate);
+
+            var invalid = new List<string>();
+            if (course.Length == 0) invalid.Add("ชื่อหลักสูตร/ลูกค้า");
+            if (firstName.Length == 0 && lastName.Length == 0) invalid.Add("ชื่อหรือนามสกุล");
+            var effectiveDay = TrainingRules.ParseDate(effective);
+            var expiryDay = TrainingRules.ParseDate(expiry);
+            if (effectiveDay is null) invalid.Add("Effective date");
+            if (expiryDay is null) invalid.Add("Expire date");
+            if (effectiveDay is not null && expiryDay is not null && expiryDay < effectiveDay)
+                invalid.Add("Expire date ต้องไม่ก่อน Effective date");
+            // The company is one the supplier register knows (30 Sep 2026) — a carrier's is its own.
+            var company = carrier is null ? resolve(row.Company) : new SupplierNames.Match(carrier.Id, carrier.Name);
+            if (company is null)
+                invalid.Add(Text(row.Company).Length == 0 ? "บริษัท" : $"บริษัท \"{Text(row.Company)}\" ไม่มีในทะเบียนผู้รับเหมา");
+
+            if (invalid.Count > 0)
+            {
+                errors.Add(new { row = index + 1, fields = invalid });
+                continue;
+            }
+
+            var licence = Text(row.DriverLicenseNo);
+            var key = Key(licence, course, effective, expiry, firstName, lastName, company!.Name);
+            if (!known.Add(key))
+            {
+                skipped++;
+                continue;
+            }
+
+            records.Add(new CustomerTrainingRecord
+            {
+                SequenceNo = Text(row.SequenceNo),
+                CourseCustomer = course,
+                FirstName = firstName,
+                LastName = lastName,
+                Company = company.Name,
+                SupplierId = company.Id,
+                DriverLicenseNo = licence,
+                LicenseType = Text(row.LicenseType),
+                EffectiveDate = TrainingRules.Write(effectiveDay!.Value),
+                ExpiryDate = TrainingRules.Write(expiryDay!.Value),
+                CreatedBy = user.Signature,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedBy = user.Signature,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+        }
+
+        if (records.Count > 0)
+        {
+            db.CustomerTrainingRecords.AddRange(records);
+            await db.SaveChangesAsync(token);
+            await audit.RecordAsync(user, AuditActions.Upload, "customer-training-register",
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
+                $"{records.Count} rows", "training-register", "", records.Count.ToString(),
+                $"duplicate {skipped}; invalid {errors.Count}" + (carrier is null ? "" : $"; {carrier.Name} นำเข้าเอง"), token);
+        }
+
+        return Results.Json(new
+        {
+            message = $"นำเข้าสำเร็จ {records.Count} รายการ"
+                + (skipped > 0 ? $" · ข้ามข้อมูลซ้ำ {skipped}" : "")
+                + (errors.Count > 0 ? $" · ข้อมูลไม่ถูกต้อง {errors.Count}" : ""),
+            saved = records.Count,
+            skipped,
+            errors,
+        });
+    }
+
+    /// <summary>
+    /// One register row, new or changed. The department's needs ManageTraining and a company from the supplier
+    /// register — a row already written under a company the register does not know keeps it until somebody
+    /// changes that cell. A carrier's is its own company's row, and the company column is the account's.
+    /// </summary>
+    public static async Task<IResult> SaveRegisterAsync(long? id, RegisterBody body, AppUser user, Supplier? carrier,
+        ScmosDbContext db, AuditService audit, SupplierNames names, CancellationToken token)
+    {
+        if (carrier is null && !user.Can(Capability.ManageTraining)) return ApiResults.Error("ไม่มีสิทธิ์แก้ไขทะเบียนอบรม", 403);
         var v = new[] { body.SequenceNo, body.CourseCustomer, body.FirstName, body.LastName, body.Company,
             body.DriverLicenseNo, body.LicenseType, body.EffectiveDate, body.ExpiryDate }.Select(s => (s ?? "").Trim()).ToArray();
+        if (carrier is not null) v[4] = carrier.Name;
         var limits = new[] { 40, 300, 160, 160, 240, 80, 120, 20, 20 };
         if (v.Where((s, i) => s.Length > limits[i]).Any()) return ApiResults.Error("ข้อความยาวเกินขนาดคอลัมน์", 400);
         if (v[1].Length == 0 || (v[2].Length == 0 && v[3].Length == 0))
@@ -698,23 +772,36 @@ public static class TrainingEndpoints
             return ApiResults.Error("วันที่ต้องถูกต้อง และ Expire date ต้องไม่ก่อน Effective date", 400);
         v[7] = TrainingRules.Write(effective.Value);
         v[8] = TrainingRules.Write(expiry.Value);
+        var resolve = await names.ApprovedAsync(token);
+        var carrierKeys = carrier is null ? null : await names.KeysOfAsync(carrier, token);
         return await db.Database.CreateExecutionStrategy().ExecuteAsync<IResult>(async () =>
         {
             db.ChangeTracker.Clear();
             await using var work = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token);
             var existing = await db.CustomerTrainingRecords.ToListAsync(token);
             static bool Same(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+            var record = id is null ? new CustomerTrainingRecord() : existing.FirstOrDefault(r => r.Id == id);
+            if (record is null || (carrier is not null && id is not null && !IsCarriers(record, carrier, carrierKeys!)))
+                return ApiResults.Error("ไม่พบรายการอบรมนี้", 404);
+
+            // The company, from the supplier register (30 Sep 2026).
+            int? supplierId;
+            if (carrier is not null) supplierId = carrier.Id;
+            else if (resolve(v[4]) is { } match) { v[4] = match.Name; supplierId = match.Id; }
+            else if (id is not null && Same(record.Company, v[4])) supplierId = record.SupplierId;
+            else return ApiResults.Error(v[4].Length == 0 ? "เลือกบริษัทจากทะเบียนผู้รับเหมา"
+                : $"บริษัท \"{v[4]}\" ไม่มีในทะเบียนผู้รับเหมา — เลือกจากรายการ", 400);
+
             if (existing.Any(r => r.Id != id && Same(r.CourseCustomer, v[1])
                 && TrainingRules.ParseDate(r.EffectiveDate) == effective && TrainingRules.ParseDate(r.ExpiryDate) == expiry
                 && Same(r.DriverLicenseNo, v[5]) && (v[5].Length > 0
                     || (Same(r.FirstName, v[2]) && Same(r.LastName, v[3]) && Same(r.Company, v[4])))))
                 return ApiResults.Error("มีรายการอบรมนี้อยู่แล้ว กรุณาแก้รายการเดิม", 409);
-            var record = id is null ? new CustomerTrainingRecord() : existing.FirstOrDefault(r => r.Id == id);
-            if (record is null) return ApiResults.Error("ไม่พบรายการอบรมนี้", 404);
             var before = System.Text.Json.JsonSerializer.Serialize(DescribeRegister(record, ThailandToday()));
             record.SequenceNo = v[0]; record.CourseCustomer = v[1]; record.FirstName = v[2];
             record.LastName = v[3]; record.Company = v[4]; record.DriverLicenseNo = v[5];
             record.LicenseType = v[6]; record.EffectiveDate = v[7]; record.ExpiryDate = v[8];
+            record.SupplierId = supplierId;
             record.UpdatedBy = user.Signature; record.UpdatedAt = DateTimeOffset.UtcNow;
             if (id is null)
             {
@@ -724,7 +811,8 @@ public static class TrainingEndpoints
             await db.SaveChangesAsync(token);
             audit.Stage(user, id is null ? AuditActions.Register : AuditActions.Update,
                 "customer-training-register", record.Id.ToString(), record.CourseCustomer, "training-register",
-                id is null ? "" : before, System.Text.Json.JsonSerializer.Serialize(v), "Manual register entry");
+                id is null ? "" : before, System.Text.Json.JsonSerializer.Serialize(v),
+                carrier is null ? "Manual register entry" : $"{carrier.Name} บันทึกเอง");
             await db.SaveChangesAsync(token);
             await work.CommitAsync(token);
             return Results.Json(new { message = id is null ? "เพิ่มรายการอบรมแล้ว" : "บันทึกการแก้ไขแล้ว",
@@ -757,6 +845,6 @@ public static class TrainingEndpoints
             record.FirstName, record.LastName, record.Company,
             record.DriverLicenseNo, record.LicenseType,
             record.EffectiveDate, record.ExpiryDate,
-            days, status, statusTh);
+            days, status, statusTh, record.SupplierId);
     }
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { apiFetch } from "../api";
+import { useCarriers } from "../carriers";
 import { DataTable, type TableModel } from "../DataTable";
 import { GridMenu } from "../GridMenu";
 import { gridTabTarget } from "../gridEditKey";
@@ -25,6 +26,12 @@ import { cell, type Cell } from "../util";
  * Nothing here calculates a status. The API derives it from Expire date each
  * time it is asked, so a save comes back with the row as the register now
  * reads it.
+ *
+ * The company is chosen, not typed (30 Sep 2026): a dropdown of the supplier
+ * register, as My job's carrier column is, so a carrier's own Training Control
+ * can find its rows. A row written under a company the register does not know
+ * keeps it, marked, until somebody picks one. On a carrier's screen (`carrier`)
+ * the rows are its own company's and the company column is its own.
  */
 
 type RegisterRow = {
@@ -58,6 +65,8 @@ type RegisterReply = {
   rows: RegisterRow[];
   summary: RegisterSummary;
   alertBeforeDays: number;
+  /** The carrier's own company, on its own screen. */
+  company?: string | null;
 };
 
 const EMPTY_SUMMARY: RegisterSummary = {
@@ -139,7 +148,12 @@ function bodyOf(row: ImportRow): ImportRow {
 
 const PER = 100;
 
-export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast: (message: string) => void; canEdit?: boolean }) {
+export function CustomerTrainingRegister({ onToast, canEdit = false, carrier = false }: {
+  onToast: (message: string) => void; canEdit?: boolean; carrier?: boolean;
+}) {
+  const base = carrier ? "/api/carrier/training/register" : "/api/training/register";
+  const carriers = useCarriers(!carrier);
+  const [ownCompany, setOwnCompany] = useState("");
   const [rows, setRows] = useState<RegisterRow[]>([]);
   const [summary, setSummary] = useState<RegisterSummary>(EMPTY_SUMMARY);
   const [search, setSearch] = useState("");
@@ -162,19 +176,20 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
 
   const load = useCallback(async () => {
     try {
-      const response = await apiFetch("/api/training/register");
+      const response = await apiFetch(base);
       if (!response.ok) {
         setFailure(`API ตอบ ${response.status}`);
         return;
       }
       const reply = await response.json() as RegisterReply;
       setRows(reply.rows ?? []);
+      setOwnCompany(reply.company ?? "");
       setSummary(reply.summary ?? EMPTY_SUMMARY);
       setFailure("");
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [base]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
@@ -219,7 +234,7 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
     }
     const body = { ...bodyOf(row), ...changes };
     if (FIELDS.every((field) => body[field] === row[field])) return null;
-    const response = await apiFetch(`/api/training/register/${row.id}`, {
+    const response = await apiFetch(`${base}/${row.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -258,14 +273,22 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
   async function writeBlock(edits: GridEdit<RegisterRow, Field>[], how: "paste" | "clear") {
     if (!canEdit || edits.length === 0) return;
     const byRow = new Map<number, { row: RegisterRow; changes: Partial<ImportRow> }>();
+    const problems: string[] = [];
     for (const edit of edits) {
+      let value = edit.value.slice(0, LIMITS[edit.field]);
+      // A company is one the register knows, written as it names it; a carrier's is its own.
+      if (edit.field === "company") {
+        if (carrier) continue;
+        const official = carriers.ready ? carriers.companyOf(value) : value;
+        if (value.trim() && official === null) { problems.push(`บริษัท "${value}" ไม่มีในทะเบียนผู้รับเหมา`); continue; }
+        value = official ?? "";
+      }
       const held = byRow.get(edit.row.id) ?? { row: edit.row, changes: {} };
-      held.changes[edit.field] = edit.value.slice(0, LIMITS[edit.field]);
+      held.changes[edit.field] = value;
       byRow.set(edit.row.id, held);
     }
     setBusy(true);
     let written = 0;
-    const problems: string[] = [];
     try {
       for (const { row, changes } of byRow.values()) {
         try {
@@ -295,7 +318,8 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
     read: (row, field) => String(row[field] ?? ""),
     canEdit: () => canEdit && !busy,
     write: (edits, how) => void writeBlock(edits, how),
-    openEditor: (row, field, seed) => setEditing({ id: row.id, field, value: seed ?? String(row[field] ?? "") }),
+    // The company is picked from its dropdown, never typed.
+    openEditor: (row, field, seed) => { if (field !== "company") setEditing({ id: row.id, field, value: seed ?? String(row[field] ?? "") }); },
     editing: editing !== null,
     tabDirection: "right",
     onCopied: (lines, columns) => onToast(`คัดลอกแล้ว ${lines} แถว · ${columns} คอลัมน์`),
@@ -309,7 +333,7 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
   function beginDraft() {
     if (busy || !canEdit) return;
     if (draft && !window.confirm("ยกเลิกแถวใหม่ที่ยังไม่บันทึกและเริ่มแถวใหม่หรือไม่?")) return;
-    setDraft({ ...BLANK });
+    setDraft({ ...BLANK, company: carrier ? ownCompany : "" });
     setSaveError("");
     setPage(1);
     setEditing({ id: DRAFT_ID, field: "sequenceNo", value: "" });
@@ -320,7 +344,7 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
     setBusy(true);
     setSaveError("");
     try {
-      const response = await apiFetch("/api/training/register", {
+      const response = await apiFetch(base, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bodyOf(draft)),
@@ -368,7 +392,17 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
         if (!row.firstName && !row.lastName) missing.push("ชื่อหรือนามสกุล");
         if (!row.effectiveDate) missing.push("Effective date");
         if (!row.expiryDate) missing.push("Expire date");
-        if (missing.length) bad.push({ row: index + 1, why: `ไม่มี ${missing.join(", ")}` });
+        // The company as the supplier register names it — a carrier's rows are its own.
+        let company = "";
+        if (carrier) row.company = ownCompany;
+        else if (!row.company) missing.push("บริษัท");
+        else if (carriers.ready) {
+          const official = carriers.companyOf(row.company);
+          if (official) row.company = official;
+          else company = `บริษัท "${row.company}" ไม่มีในทะเบียนผู้รับเหมา`;
+        }
+        const why = [missing.length ? `ไม่มี ${missing.join(", ")}` : "", company].filter(Boolean).join(" · ");
+        if (why) bad.push({ row: index + 1, why });
         else ok.push(row);
       });
 
@@ -383,7 +417,7 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
     if (!preview || preview.ok.length === 0 || busy) return;
     setBusy(true);
     try {
-      const response = await apiFetch("/api/training/register/import", {
+      const response = await apiFetch(`${base}/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows: preview.ok }),
@@ -415,7 +449,44 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
 
   /* ---------------------------------------------------------- cells */
 
+  /**
+   * The company: a dropdown of the supplier register on every row the department may edit, as My job's
+   * carrier column is. A company the register does not know stays at the top of the list, marked, until a
+   * company is picked; on a carrier's screen it is the carrier's own, and not a choice.
+   */
+  function companyCell(row: RegisterRow): Cell {
+    const current = row.company;
+    const official = carriers.ready ? carriers.companyOf(current) : current;
+    const known = current.trim() === "" || official !== null;
+    const mark = (built: Cell) => {
+      if (known || carrier) return built;
+      built.td += "background:#FFF8E8;box-shadow:inset 3px 0 #D89614;";
+      built.title = `"${current}" ไม่มีในทะเบียนผู้รับเหมา — เลือกบริษัทจากรายการเพื่อแก้`;
+      return built;
+    };
+    if (carrier || !canEdit || !carriers.ready) {
+      return mark(cell(current || "—", { mute: !current, w: SHAPE.company.width }));
+    }
+    return mark({
+      kind: "select",
+      field: "company",
+      v: current,
+      sp: "",
+      value: known ? (official ?? "") : current,
+      options: [known ? "" : current, ...carriers.names],
+      td: `padding:4px 8px;white-space:nowrap;border-bottom:1px solid #EDF1F5;min-width:${SHAPE.company.width}px;`,
+      selStyle: "height:24px;max-width:240px;border:1px solid #BBD5EE;border-radius:3px;background:#F4F8FC;font-size:11.5px;color:#0A2240;font-weight:600;padding:0 4px;cursor:pointer",
+      onChange: (event) => {
+        event.stopPropagation();
+        const value = event.target.value;
+        if (value !== (known ? (official ?? "") : current)) void saveCell(row, "company", value);
+      },
+      go: (event) => event.stopPropagation(),
+    });
+  }
+
   function toCell(row: RegisterRow, field: Field, r: number, c: number): Cell {
+    if (field === "company") return companyCell(row);
     const value = String(row[field] ?? "");
     const shape = SHAPE[field];
     const open = editing?.id === row.id && editing.field === field;
@@ -498,7 +569,7 @@ export function CustomerTrainingRegister({ onToast, canEdit = false }: { onToast
 
   const model: TableModel = {
     title: "ทะเบียนอบรม · Training record",
-    meta: `แสดง ${shown.length} จาก ${rows.length} รายการ · สถานะคำนวณใหม่จาก Expire date ทุกครั้งที่เปิดหน้า`,
+    meta: `${carrier && ownCompany ? ownCompany + " · " : ""}แสดง ${shown.length} จาก ${rows.length} รายการ · สถานะคำนวณใหม่จาก Expire date ทุกครั้งที่เปิดหน้า`,
     tools: [],
     actions: [
       ...(canEdit ? [{

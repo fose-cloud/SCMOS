@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { apiFetch } from "./api";
 import { useRemembered } from "./pageCache";
+import { spellingIndex, supplierKey } from "./supplierKey";
 
 /**
  * The haulage companies, as the register lists them.
@@ -27,16 +28,14 @@ export type Carriers = {
   ready: boolean;
 };
 
-type Row = { name: string; status: string; aliases: string[] };
+type Row = { name: string; status: string; aliases: string[]; code?: string; legalName?: string };
 
-/** Letters and digits only, upper case, so "A.C.N" and "A C N" are one key. */
-const key = (value: string) =>
-  value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-export function useCarriers(): Carriers {
+/** `enabled` false on a carrier's own screen, which may not read the register (CarrierBoundary). */
+export function useCarriers(enabled = true): Carriers {
   const [rows, setRows] = useRemembered<Row[]>("carriers");
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     (async () => {
       // Approved only. A haulier still being audited, or suspended after an
@@ -47,24 +46,21 @@ export function useCarriers(): Carriers {
       if (!response.ok || cancelled) return;
       const body = await response.json() as Row[];
       if (!cancelled) setRows(body.map((row) => ({
-        name: row.name, status: row.status, aliases: row.aliases ?? [],
+        name: row.name, status: row.status, aliases: row.aliases ?? [], code: row.code ?? "", legalName: row.legalName ?? "",
       })));
     })();
     return () => { cancelled = true; };
-  }, [setRows]);
+  }, [setRows, enabled]);
 
   const names = (rows ?? []).map((row) => row.name)
     .sort((a, b) => a.localeCompare(b));
 
-  const bySpelling = new Map<string, string>();
-  for (const row of rows ?? []) {
-    bySpelling.set(key(row.name), row.name);
-    for (const alias of row.aliases) bySpelling.set(key(alias), row.name);
-  }
+  // Name, code, legal name and aliases — the spellings the API resolves a company by (supplierKey.ts).
+  const bySpelling = spellingIndex(rows ?? []);
 
   return {
     names,
-    companyOf: (spelling) => bySpelling.get(key(spelling)) ?? null,
+    companyOf: (spelling) => bySpelling.get(supplierKey(spelling)) ?? null,
     // An empty register is not the same as one that has not answered. Before
     // it answers the grid must not start telling people that every carrier on
     // every job is unrecognised.

@@ -955,6 +955,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             entry.HasIndex(e => e.ExpiryDate).HasDatabaseName("customer_training_expiry_idx");
             entry.HasIndex(e => e.DriverLicenseNo).HasDatabaseName("customer_training_license_idx");
+            entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
+            entry.HasIndex(e => e.SupplierId).HasDatabaseName("customer_training_supplier_idx");
         });
 
         model.Entity<StoredDocument>(entry =>

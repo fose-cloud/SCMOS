@@ -10,6 +10,7 @@ import type { BillingCase, BillingControlTowerView, BillingIssuer } from "./Bill
 import { CarrierInvoice, type InvoiceDraftBody } from "./CarrierInvoice";
 import { money, rateReason } from "../invoiceLines";
 import { CapacityBoard } from "./CapacityBoard";
+import { CustomerTrainingRegister } from "./CustomerTrainingRegister";
 import { CarrierJobRequests } from "./CarrierJobRequests";
 import { CarrierKpi } from "./CarrierKpi";
 import { CarrierRates } from "./CarrierRates";
@@ -88,6 +89,8 @@ export function CarrierPortal(props: Props) {
   if (props.view === "kpi") return <CarrierKpi />;
   // The department's Capacity screen, on the carrier's own fleet (30 Sep 2026).
   if (props.view === "capacity") return <CapacityBoard carrier canEdit canAdmin={false} onToast={props.onToast} />;
+  // The department's training register, cut to the carrier's own company (30 Sep 2026).
+  if (props.view === "training") return <CustomerTrainingRegister carrier canEdit onToast={props.onToast} />;
   return <CarrierWork {...props} />;
 }
 

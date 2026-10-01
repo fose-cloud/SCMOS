@@ -22,10 +22,10 @@ export function carrierStatusChoices(current: string, ladder: string[]): string[
   return ladder.filter((step, i) => (CARRIER_STEPS as readonly string[]).includes(step.toUpperCase()) && (at < 0 || i > at));
 }
 
-export type CarrierView = "dashboard" | "new" | "myjob" | "postpone" | "capacity" | "rates" | "billing" | "kpi";
+export type CarrierView = "dashboard" | "new" | "myjob" | "postpone" | "capacity" | "training" | "rates" | "billing" | "kpi";
 
 export const CARRIER_VIEW: Partial<Record<Screen, CarrierView>> = {
-  carrier: "dashboard", carriernew: "new", carriermyjob: "myjob", carrierpostpone: "postpone", carriercapacity: "capacity",
+  carrier: "dashboard", carriernew: "new", carriermyjob: "myjob", carrierpostpone: "postpone", carriercapacity: "capacity", carriertraining: "training",
   carrierrates: "rates", carrierbilling: "billing", carrierkpi: "kpi",
 };
 

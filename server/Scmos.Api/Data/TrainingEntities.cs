@@ -178,6 +178,14 @@ public class CustomerTrainingRecord
     public string LicenseType { get; set; } = "";
     public string EffectiveDate { get; set; } = "";
     public string ExpiryDate { get; set; } = "";
+
+    /// <summary>
+    /// The subcontractor the company column names (30 Sep 2026) — chosen from the supplier register, as the
+    /// carrier column of My job is, so a carrier's own Training Control can find its rows. Empty on a row
+    /// written before then whose company the register does not know.
+    /// </summary>
+    public int? SupplierId { get; set; }
+
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public string UpdatedBy { get; set; } = "";
