@@ -30,7 +30,7 @@ public record AlertFeed(IReadOnlyList<Alert> Alerts, int Critical, int Warning, 
 public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCache register,
     DelegationService delegations)
 {
-    public async Task<AlertFeed> BuildAsync(string? ownerId, CancellationToken token)
+    public async Task<AlertFeed> BuildAsync(string? ownerId, CancellationToken token, Scmos.Api.Auth.AppUser? viewer = null)
     {
         var alerts = new List<Alert>();
         var today = Formats.DateNumber(DateTimeOffset.Now.ToString("dd/MM/yyyy"));
@@ -301,6 +301,12 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             "คนขับที่ถือใบเหล่านี้รับงานของลูกค้าที่กำหนดหลักสูตรนั้นไม่ได้",
             "", "training");
 
+        /* ---- Action Plan: the signed-in person's own plans and steps ---- */
+        // Not the register's owner scope: a plan belongs to the person signed in whichever view of the jobs they
+        // asked for, and a review waits for whoever may give it (1 Oct 2026, round two).
+        if (viewer is not null && !CarrierTenantContext.IsCarrier(viewer))
+            await ActionPlanAlertsAsync(db, alerts, viewer, today, token);
+
         var raised = alerts.Where(alert => alert.Count > 0 || alert.Level == nameof(AlertLevel.Information)).ToList();
         return new AlertFeed(
             raised.OrderByDescending(alert => alert.Level == nameof(AlertLevel.Critical))
@@ -311,7 +317,61 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             raised.Count(a => a.Level == nameof(AlertLevel.Information)));
     }
 
-    /// <summary>Adds an alert only when it has something to say. Zero is not news.</summary>
+    /// <summary>
+    /// The plans and steps the viewer owns, or is the employee of, that are late, due within a week or newly given
+    /// to them; plans waiting for a review they may give; their plans reviewed in the last three days. Each alert
+    /// names the first plan so the bell opens it. Static so the checks can run it without the KPI engine.
+    /// </summary>
+    public static async Task ActionPlanAlertsAsync(ScmosDbContext db, List<Alert> alerts, Scmos.Api.Auth.AppUser viewer, int today,
+        CancellationToken token)
+    {
+        var me = viewer.OperatorId ?? "";
+        if (me.Length == 0) return;
+        string[] closed = [ActionPlanRules.Completed, ActionPlanRules.Cancelled];
+        var week = DateTimeOffset.UtcNow.AddDays(-7);
+        var plans = await db.ActionPlans.AsNoTracking().Where(plan => (plan.OwnerId == me || plan.EmployeeId == me) && !closed.Contains(plan.Status))
+            .Select(plan => new { plan.Id, plan.Number, plan.Title, plan.TargetDate, plan.Status, plan.CreatedBy, plan.CreatedAt }).ToListAsync(token);
+        var openPlans = db.ActionPlans.Where(plan => !closed.Contains(plan.Status)).Select(plan => plan.Id);
+        var steps = await db.ActionPlanItems.AsNoTracking()
+            .Where(item => item.OwnerId == me && !closed.Contains(item.Status) && openPlans.Contains(item.PlanId))
+            .Select(item => new { item.PlanId, item.Action, item.TargetDate, item.Status, item.CreatedBy, item.CreatedAt }).ToListAsync(token);
+        int? DaysLeft(string date) => Formats.DateNumber(date) is > 0 and var due ? SupplierCompliance.DaysBetween(today, due) : null;
+        var dated = plans.Select(plan => (plan.Id, Label: $"{plan.Number} {plan.Title}", Days: DaysLeft(plan.TargetDate)))
+            .Concat(steps.Select(step => (Id: step.PlanId, Label: step.Action, Days: DaysLeft(step.TargetDate)))).ToList();
+
+        var late = dated.Where(one => one.Days < 0).OrderBy(one => one.Days).ToList();
+        Add(alerts, AlertKind.ActionPlanOverdue, late.Count, $"{late.Count} แผน/ขั้นตอนของคุณเลยกำหนด",
+            string.Join(" · ", late.Take(3).Select(one => one.Label)), late.Count > 0 ? late[0].Id.ToString() : "", "action-plan");
+        var soon = dated.Where(one => one.Days is >= 0 and <= ActionPlanRules.DueSoonDays).OrderBy(one => one.Days).ToList();
+        Add(alerts, AlertKind.ActionPlanDueSoon, soon.Count, $"{soon.Count} แผน/ขั้นตอนของคุณครบกำหนดใน {ActionPlanRules.DueSoonDays} วัน",
+            string.Join(" · ", soon.Take(3).Select(one => one.Label)), soon.Count > 0 ? soon[0].Id.ToString() : "", "action-plan");
+
+        // Given by somebody else this week and not started.
+        var given = plans.Where(plan => plan.CreatedBy != viewer.Signature && plan.CreatedAt >= week
+                && plan.Status is ActionPlanRules.Draft or ActionPlanRules.Planned).Select(plan => (plan.Id, Label: plan.Number))
+            .Concat(steps.Where(step => step.CreatedBy != viewer.Signature && step.CreatedAt >= week && step.Status == ActionPlanRules.Planned)
+                .Select(step => (Id: step.PlanId, Label: step.Action))).ToList();
+        Add(alerts, AlertKind.ActionPlanAssigned, given.Count, $"{given.Count} แผน/ขั้นตอนใหม่ที่มอบหมายให้คุณ",
+            string.Join(" · ", given.Take(3).Select(one => one.Label)), given.Count > 0 ? given[0].Id.ToString() : "", "action-plan");
+
+        if (viewer.Can(Capability.ReviewActionPlans))
+        {
+            var waiting = await db.ActionPlans.AsNoTracking().Where(plan => plan.Status == ActionPlanRules.PendingReview)
+                .OrderBy(plan => plan.UpdatedAt).Select(plan => new { plan.Id, plan.Number }).ToListAsync(token);
+            Add(alerts, AlertKind.ActionPlanReviewWaiting, waiting.Count, $"{waiting.Count} Action Plan รอ Review",
+                string.Join(" · ", waiting.Take(4).Select(plan => plan.Number)), waiting.Count > 0 ? waiting[0].Id.ToString() : "", "action-plan");
+        }
+
+        var recent = DateTimeOffset.UtcNow.AddDays(-3);
+        var reviewed = await (from review in db.ActionPlanReviews.AsNoTracking()
+                              join plan in db.ActionPlans.AsNoTracking() on review.PlanId equals plan.Id
+                              where (plan.OwnerId == me || plan.EmployeeId == me) && review.ReviewedAt != null && review.ReviewedAt >= recent
+                              orderby review.ReviewedAt descending
+                              select new { plan.Id, plan.Number, review.Result }).ToListAsync(token);
+        Add(alerts, AlertKind.ActionPlanReviewed, reviewed.Count, $"{reviewed.Count} แผนของคุณได้รับการ Review",
+            string.Join(" · ", reviewed.Take(3).Select(one => $"{one.Number} {one.Result}")), reviewed.Count > 0 ? reviewed[0].Id.ToString() : "", "action-plan");
+    }
+
     private static void Add(List<Alert> alerts, AlertKind kind, int count, string title, string detail,
         string targetId, string targetKind, AlertLevel? level = null)
     {

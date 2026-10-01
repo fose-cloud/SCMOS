@@ -87,6 +87,22 @@ public static class ActionPlanRules
         ],
     };
 
+    /// <summary>The department's Skill Matrix, by area, as it gave it (1 Oct 2026). Levels 1 Basic … 5 Expert.</summary>
+    public static readonly IReadOnlyList<(string Category, string[] Skills)> DefaultSkills =
+    [
+        ("Operations", ["Trucking Operation", "FCL Operation", "LCL Operation", "Domestic Transportation", "Container Operation", "ISO Tank", "DG Transportation"]),
+        ("Procurement / Carrier", ["Carrier Management", "Sourcing", "Procurement", "Vendor Evaluation", "Rate Analysis", "Cost Analysis", "Negotiation"]),
+        ("Quality / Safety", ["Incident Management", "CAR / PAR", "Root Cause Analysis", "Customer Requirement", "EHSQ", "Safety", "Defensive Driver Requirement", "Risk Assessment"]),
+        ("Finance / Documentation", ["Billing", "Additional Charge Validation", "Cargo Receipt", "POD", "Contract Rate Validation"]),
+        ("Technology", ["SCMOS", "Excel", "Power BI", "Data Analysis", "AI", "Automation"]),
+        ("Soft Skills", ["Communication", "Problem Solving", "Leadership", "Presentation", "Coaching", "Decision Making"]),
+    ];
+
+    public static readonly string[] SkillLevels = ["", "Basic", "Beginner", "Competent", "Advanced", "Expert"];
+
+    /// <summary>How far a day may be before a target date and still count as due soon: a week.</summary>
+    public const int DueSoonDays = 7;
+
     /// <summary>AP-SCM-2026-0001: the year and a four-digit running number within it.</summary>
     public static string Number(int year, int sequence) => $"AP-SCM-{year}-{sequence:0000}";
 

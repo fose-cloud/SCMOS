@@ -153,6 +153,61 @@ static class ActionPlanChecks
 
             check(await db.AuditEvents.CountAsync(row => row.Entity == "action-plan" && row.EntityId == planId.ToString()) >= 10,
                 "action plan: every change is in the plan's audit history");
+
+            // Round two: the Skill Matrix, a plan opened from another record, and the bell.
+            var skills = new SkillMatrixService(db, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance));
+            var asEmployee = await skills.ReadAsync(employee, default);
+            var asSupervisor = await skills.ReadAsync(supervisor, default);
+            var skillId = asSupervisor.Skills[0].Id;
+            var notReviewer = await skills.AssessAsync(owner, "OP-2", skillId, 3, 4, "", default);
+            var outOfRange = await skills.AssessAsync(supervisor, "OP-2", skillId, 6, null, "", default);
+            var aCarrier = await skills.AssessAsync(supervisor, "SUB-1", skillId, 3, null, "", default);
+            var baseline = await skills.AssessAsync(supervisor, "OP-2", skillId, 2, 4, "baseline", default);
+            var later = await skills.AssessAsync(supervisor, "OP-2", skillId, 3, 4, "", default);
+            var mine = await skills.ReadAsync(employee, default);
+            check(asEmployee.People.Select(person => person.Id).SequenceEqual(["OP-2"]) && !asEmployee.CanAssess
+                && asSupervisor.CanAssess && asSupervisor.People.Count == 4 && asSupervisor.People.All(person => person.Id != "SUB-1")
+                && asSupervisor.Skills.Count == ActionPlanRules.DefaultSkills.Sum(group => group.Skills.Length)
+                && !notReviewer.Ok && !outOfRange.Ok && !aCarrier.Ok && baseline.Ok && later.Ok
+                && mine.Cells.Single(cell => cell.SkillId == skillId) is { Level: 3, TargetLevel: 4 }
+                && (await skills.ReadAsync(other, default)).Cells.Count == 0
+                && await skills.HistoryAsync(other, "OP-2", default) is null && (await skills.HistoryAsync(employee, "OP-2", default))!.Count == 2
+                && await db.AuditEvents.CountAsync(row => row.Entity == "skill-assessment" && row.EntityId == "OP-2") == 2,
+                "skill matrix: supervisors upward see and assess everybody, 1–5; anybody else sees only their own row; every assessment is kept and audited");
+
+            var given = await service.CreateAsync(supervisor, People("Given by the supervisor", "OP-1", "OP-3") with
+            {
+                References = [new ActionReferenceInput("skill", $"OP-3:{skillId}", "Skill Matrix · Data Analysis"),
+                    new ActionReferenceInput("nonsense", "1", "x"), new ActionReferenceInput("audit", "", " ")],
+            }, default);
+            var kept = await db.ActionPlanReferences.AsNoTracking().Where(row => row.PlanId == given.Id).ToListAsync();
+            check(given.Ok && kept.Count == 1 && kept[0].Kind == "skill" && kept[0].Label == "Skill Matrix · Data Analysis",
+                "action plan: a plan started from another record keeps it as a reference; an unknown or empty one is dropped");
+
+            await service.MoveAsync(owner, carrierPlan, "planned", "", default);
+            await service.MoveAsync(owner, carrierPlan, "in-progress", "", default);
+            await service.MoveAsync(owner, carrierPlan, "pending-review", "", default);
+            var lateDecember = Formats.DateNumber("28/12/2026");
+            async Task<Dictionary<string, Alert>> Bell(AppUser who)
+            {
+                var raised = new List<Alert>();
+                await NotificationService.ActionPlanAlertsAsync(db, raised, who, lateDecember, default);
+                return raised.ToDictionary(alert => alert.Kind);
+            }
+            var ownerBell = await Bell(owner);
+            var employeeBell = await Bell(employee);
+            var otherBell = await Bell(other);
+            var supervisorBell = await Bell(supervisor);
+            check(ownerBell.GetValueOrDefault("ActionPlanOverdue") is { Count: 2 } overdue && overdue.TargetId == given.Id.ToString()
+                && ownerBell.GetValueOrDefault("ActionPlanDueSoon")?.Count == 3 && ownerBell.GetValueOrDefault("ActionPlanAssigned")?.TargetId == given.Id.ToString()
+                && ownerBell.ContainsKey("ActionPlanReviewed") && !ownerBell.ContainsKey("ActionPlanReviewWaiting")
+                && employeeBell.GetValueOrDefault("ActionPlanDueSoon")?.Count == 1 && !employeeBell.ContainsKey("ActionPlanOverdue")
+                && employeeBell.ContainsKey("ActionPlanReviewed")
+                && otherBell.GetValueOrDefault("ActionPlanAssigned")?.Count == 1 && !otherBell.ContainsKey("ActionPlanOverdue")
+                && supervisorBell.GetValueOrDefault("ActionPlanReviewWaiting") is { Count: 1 } waiting && waiting.TargetId == carrierPlan.ToString()
+                && new[] { ownerBell, employeeBell, otherBell, supervisorBell }.SelectMany(bell => bell.Values)
+                    .All(alert => alert.Screen == "actionplan" && alert.TargetKind == "action-plan"),
+                "action plan: the bell tells owners and employees of late, near and newly given plans, reviewers of the queue, and opens the plan");
         }
         finally
         {

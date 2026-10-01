@@ -102,7 +102,7 @@ public static class DashboardEndpoints
             // through the alert feed either — the feed is a view of the register,
             // and a view is still access.
             var scope = mine == true || !user.Can(Capability.ViewTeam) ? user.OperatorId : null;
-            return Results.Json(await notifications.BuildAsync(scope, token));
+            return Results.Json(await notifications.BuildAsync(scope, token, user));
         });
 
         alerts.MapGet("/kinds", (HttpContext context, IUserAccessor users) =>

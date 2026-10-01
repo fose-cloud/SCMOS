@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import type { PlanPrefill } from "../actionPlanRequest";
 import { CARRIER_AREAS, DEVELOPMENT_TH, PEOPLE_AREAS, PERIOD_TH, PRIORITY, SKILL_LEVELS, TARGET_TH, type Meta } from "../actionPlan";
 import { registerDate } from "../carrierPortal";
 import { css } from "../theme";
@@ -25,10 +26,11 @@ const STEPS = ["ประเภทแผน", "กลุ่มเป้าหม
  * the objective and its measure, the steps, who owns it and by when, a last look, and then the plan. Nothing is
  * sent until the last step; the API checks everything again.
  */
-export function ActionPlanWizard({ meta, onToast, onCreated, onCancel }: {
-  meta: Meta; onToast: (message: string) => void; onCreated: (id: number) => void; onCancel: () => void;
+export function ActionPlanWizard({ meta, prefill, onToast, onCreated, onCancel }: {
+  meta: Meta; prefill?: PlanPrefill; onToast: (message: string) => void; onCreated: (id: number) => void; onCancel: () => void;
 }) {
-  const [step, setStep] = useState(0);
+  // Opened from another screen (round two), the plan type and target are already known: start at the area.
+  const [step, setStep] = useState(prefill?.developmentType && (prefill.employeeId || prefill.supplierId) ? 2 : prefill?.developmentType ? 1 : 0);
   const [busy, setBusy] = useState(false);
   const [carriers, setCarriers] = useState<{ id: number; name: string }[]>([]);
   const [draft, setDraft] = useState<Draft>({
@@ -38,6 +40,14 @@ export function ActionPlanWizard({ meta, onToast, onCreated, onCancel }: {
     baseline: "", targetValue: "", items: [{ action: "", ownerId: meta.me, targetDate: "", expectedResult: "" }], ownerId: meta.me,
     period: "annual", year: String(new Date().getFullYear()), quarter: "", month: "", startDate: "", targetDate: "", priority: "medium",
     reviewDate: "",
+    ...(prefill?.developmentType ? { developmentType: prefill.developmentType, targetType: prefill.targetType ?? (prefill.developmentType === "people" ? "employee" : "subcontractor") } : {}),
+    ...(prefill?.employeeId ? { employeeId: prefill.employeeId } : {}),
+    ...(prefill?.supplierId ? { supplierId: String(prefill.supplierId) } : {}),
+    ...(prefill?.category ? { category: prefill.category } : {}),
+    ...(prefill?.developmentArea ? { developmentArea: prefill.developmentArea } : {}),
+    ...(prefill?.currentLevel ? { currentLevel: prefill.currentLevel } : {}),
+    ...(prefill?.targetLevel ? { targetLevel: prefill.targetLevel } : {}),
+    ...(prefill?.title ? { title: prefill.title } : {}),
   });
 
   useEffect(() => {
@@ -86,6 +96,7 @@ export function ActionPlanWizard({ meta, onToast, onCreated, onCancel }: {
           startDate: registerDate(draft.startDate), targetDate: registerDate(draft.targetDate), reviewDate: registerDate(draft.reviewDate),
           baseline: draft.baseline ? Number(draft.baseline) : null, targetValue: draft.targetValue ? Number(draft.targetValue) : null,
           items: steps.map((item) => ({ ...item, targetDate: registerDate(item.targetDate) })),
+          references: prefill?.references ?? [],
         }),
       });
       const reply = await response.json().catch(() => ({})) as { message?: string; error?: string; id?: number };
@@ -264,6 +275,7 @@ export function ActionPlanWizard({ meta, onToast, onCreated, onCancel }: {
           <Fact label="เจ้าของ / กำหนด">{nameOf(draft.ownerId)} · {PERIOD_TH[draft.period]} · {draft.startDate || "—"} → {draft.targetDate}</Fact>
           <Fact label="ความสำคัญ">{PRIORITY[draft.priority]?.label}</Fact>
           <Fact label="Action Items">{steps.map((item, index) => `${index + 1}. ${item.action}`).join(" · ")}</Fact>
+          {prefill?.references?.length ? <Fact label="สร้างจาก">{prefill.references.map((one) => one.label || one.refId).join(" · ")}</Fact> : null}
         </div>
       )}
 

@@ -116,7 +116,8 @@ export const SKILL_LEVELS =["1 = Basic", "2 = Beginner", "3 = Competent", "4 = A
 export const SCORE_TH = ["", "1 = Poor", "2 = Needs Improvement", "3 = Acceptable", "4 = Good", "5 = Excellent"];
 export const REFERENCE_KINDS: Record<string, string> = {
   evaluation: "Carrier Evaluation", kpi: "KPI", incident: "Incident", carpar: "CAR / PAR", audit: "Audit", customer: "ลูกค้า",
-  training: "Training", risk: "Risk Assessment", project: "Process Improvement Project", plan: "Action Plan อื่น",
+  training: "Training", risk: "Risk Assessment", project: "Process Improvement Project", plan: "Action Plan อื่น", skill: "Skill Matrix",
+  supplier: "Supplier Register",
 };
 
 export type Filters = {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
+import type { PlanPrefill } from "../actionPlanRequest";
 import { MONTHS, MONTH_COLOURS, STATUS_TH, markFor, parsePlanPaste, type AuditPlan, type AuditPlanItem, type Mark, type PastedRow } from "../auditPlan";
 import { isoDay, registerDate } from "../carrierPortal";
 import { ZoomBox } from "../TableFrame";
@@ -22,7 +23,11 @@ const BLANK: Form = {
  * carriers already working and the audits new subcontractors are approved by — laid out as the department's
  * workbook is, sign-off boxes and legend included. A new subcontractor's line is the one Add New Vendor sets.
  */
-export function AuditPlanning({ canEdit, onToast }: { canEdit: boolean; onToast: (message: string) => void }) {
+export function AuditPlanning({ canEdit, onToast, onActionPlan }: {
+  canEdit: boolean; onToast: (message: string) => void;
+  /** Starts a corrective plan for the audited company; absent without EditActionPlans. */
+  onActionPlan?: (prefill: PlanPrefill) => void;
+}) {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [view, setView] = useState<AuditPlan | null>(null);
   const [failure, setFailure] = useState("");
@@ -256,6 +261,17 @@ export function AuditPlanning({ canEdit, onToast }: { canEdit: boolean; onToast:
               {form.id === null ? "เพิ่มในแผน" : "บันทึก"}</button>
             {form.id !== null && <button disabled={busy} onClick={() => void removeItem()} style={css(OUTLINE + "color:#B42318;border-color:#F3C9C4")}>นำออกจากแผน</button>}
             <button onClick={() => setForm(null)} style={css(OUTLINE)}>ยกเลิก</button>
+            {form.id !== null && onActionPlan && (() => {
+              const item = view.items.find((one) => one.id === form.id);
+              if (!item) return null;
+              return (
+                <button onClick={() => onActionPlan({
+                  developmentType: "subcontractor", targetType: "subcontractor", supplierId: item.supplierId ?? undefined,
+                  category: "Compliance Improvement", title: `${item.company} — แผนแก้ไขจาก Audit ${isoDay(item.auditDate)}`,
+                  references: [{ kind: "audit", refId: String(item.id), label: `Audit ${year} · ${item.company} · ${isoDay(item.auditDate)}` }],
+                })} style={css(OUTLINE + "color:#1D5FA8;border-color:#B9D3EE")}>+ Action Plan</button>
+              );
+            })()}
           </span>
         </div>
       )}

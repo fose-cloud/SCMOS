@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MOVES, NO_FILTERS, STATUS, filterQuery, shownStatus } from "../app/scmos/actionPlan.ts";
+import { MOVES, NO_FILTERS, REFERENCE_KINDS, STATUS, filterQuery, shownStatus } from "../app/scmos/actionPlan.ts";
+import { listenForActionPlanRequests, requestActionPlan } from "../app/scmos/actionPlanRequest.ts";
 import { NAV, NAV_GROUPS } from "../app/scmos/nav.ts";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -42,4 +43,71 @@ test("the screens send plans, steps and evidence through the API's own routes", 
   const parts = read("app/scmos/screens/ActionPlanParts.tsx");
   assert.match(parts, /SERIES_1 = "#2a78d6"/);
   assert.match(parts, /SERIES_2 = "#eb6834"/);
+});
+
+/* ---- Round two (1 Oct 2026): Skill Matrix, the bell, plans started from other screens ---- */
+
+test("a request left before Action Plan opens is taken when it does; one sent while it is open arrives at once", () => {
+  requestActionPlan({ open: 7 });
+  const heard = [];
+  const stop = listenForActionPlanRequests((request) => heard.push(request));
+  assert.deepEqual(heard, [{ open: 7 }]);
+  requestActionPlan({ create: { developmentType: "subcontractor", supplierId: 3 } });
+  assert.deepEqual(heard[1], { create: { developmentType: "subcontractor", supplierId: 3 } });
+  stop();
+  requestActionPlan({ open: 9 });
+  assert.equal(heard.length, 2);
+  // Left for the next time Action Plan opens, not lost.
+  const later = [];
+  listenForActionPlanRequests((request) => later.push(request))();
+  assert.deepEqual(later, [{ open: 9 }]);
+});
+
+test("the reference kinds the screens offer are the API's, both ways", () => {
+  const service = read("server/Scmos.Api/Services/ActionPlanService.cs");
+  const kinds = [...service.match(/ReferenceKinds = \[([^\]]+)\]/)[1].matchAll(/"([a-z]+)"/g)].map((one) => one[1]);
+  assert.deepEqual(Object.keys(REFERENCE_KINDS).sort(), [...kinds].sort());
+  for (const kind of ["skill", "supplier", "evaluation", "audit"]) assert.ok(kinds.includes(kind), kind);
+});
+
+test("Skill Matrix is Action Plan's third tab, reading and assessing through the API", () => {
+  const screen = read("app/scmos/screens/ActionPlan.tsx");
+  assert.match(screen, /\["skills", "Skill Matrix"\]/);
+  assert.match(screen, /<SkillMatrix canPlan=\{meta\.canEdit\}/);
+  assert.match(screen, /listenForActionPlanRequests\(/);
+  const matrix = read("app/scmos/screens/SkillMatrix.tsx");
+  assert.match(matrix, /apiFetch\("\/api\/action-plans\/skills", /);
+  assert.match(matrix, /apiFetch\("\/api\/action-plans\/skills\/assess", /);
+  assert.match(matrix, /\/api\/action-plans\/skills\/history\?employeeId=/);
+  assert.match(matrix, /kind: "skill"/);
+  // Levels 1–5 are one hue, light to dark: the dataviz blue ramp, checked with the validator's --ordinal mode.
+  assert.match(matrix, /LEVEL_FILL = \["", "#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"\]/);
+  const endpoints = read("server/Scmos.Api/Endpoints/ActionPlanEndpoints.cs");
+  for (const route of ['"/skills"', '"/skills/history"', '"/skills/assess"']) assert.ok(endpoints.includes(route), route);
+});
+
+test("a plan started elsewhere arrives in the form filled in, and keeps where it came from", () => {
+  const wizard = read("app/scmos/screens/ActionPlanWizard.tsx");
+  assert.match(wizard, /prefill\?: PlanPrefill/);
+  assert.match(wizard, /references: prefill\?\.references \?\? \[\]/);
+  const app = read("app/SCMOSApp.tsx");
+  // Only somebody who may write plans is offered the button.
+  assert.match(app, /const startActionPlan = able\("EditActionPlans"\)/);
+  assert.match(app, /requestActionPlan\(\{ create: prefill \}\); go\("actionplan"\);/);
+  for (const screen of ["Suppliers", "AuditPlanning", "Evaluation"]) {
+    assert.match(app, new RegExp(`<${screen} [^\\n]*onActionPlan=\\{startActionPlan\\}`), screen);
+  }
+  // An Action Plan alert opens the plan it names.
+  assert.match(app, /target\.screen === "actionplan" && target\.jobKey[^\n]*requestActionPlan\(\{ open: Number\(target\.jobKey\) \}\)/);
+  assert.match(read("app/scmos/screens/Suppliers.tsx"), /kind: "supplier"/);
+  assert.match(read("app/scmos/screens/SupplierFlows.tsx"), /kind: "evaluation"/);
+  assert.match(read("app/scmos/screens/AuditPlanning.tsx"), /kind: "audit"/);
+});
+
+test("the bell's Action Plan alerts open the Action Plan screen and are worked out for the person signed in", () => {
+  const rules = read("server/Scmos.Api/Rules/Notifications.cs");
+  for (const kind of ["ActionPlanAssigned", "ActionPlanDueSoon", "ActionPlanOverdue", "ActionPlanReviewWaiting", "ActionPlanReviewed"]) {
+    assert.match(rules, new RegExp(`new\\(AlertKind\\.${kind},[^)]*"actionplan"\\)`), kind);
+  }
+  assert.match(read("server/Scmos.Api/Endpoints/DashboardEndpoints.cs"), /notifications\.BuildAsync\(scope, token, user\)/);
 });

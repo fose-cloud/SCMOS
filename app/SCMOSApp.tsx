@@ -45,6 +45,7 @@ import { AiControlTower } from "./scmos/screens/AiControlTower";
 import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
 import { AuditPlanning } from "./scmos/screens/AuditPlanning";
 import { ActionPlan } from "./scmos/screens/ActionPlan";
+import { requestActionPlan, type PlanPrefill } from "./scmos/actionPlanRequest";
 import { Quotation } from "./scmos/screens/Quotation";
 import { Postpone } from "./scmos/screens/Postpone";
 import { DIESEL } from "./scmos/diesel";
@@ -914,6 +915,11 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const able = (capability: string) =>
     can.has(capability) && !refusedForWeakSignIn.has(capability);
 
+  /** A plan started from another screen, with what that screen knows filled in. Absent without EditActionPlans. */
+  const startActionPlan = able("EditActionPlans")
+    ? (prefill: PlanPrefill) => { requestActionPlan({ create: prefill }); go("actionplan"); }
+    : undefined;
+
   /** Held by the role, but refused until this session is stronger. Worth saying so. */
   const guardedAway = (capability: string) =>
     can.has(capability) && refusedForWeakSignIn.has(capability);
@@ -1378,6 +1384,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       // late, go and find it", which is the same as not being told. After `go`,
       // which clears the selection.
       if (target.screen === "monitoring" && target.jobKey) setShipFocus(target.jobKey);
+      // An Action Plan alert names its plan: open that plan, not the dashboard.
+      if (target.screen === "actionplan" && target.jobKey && Number(target.jobKey) > 0) requestActionPlan({ open: Number(target.jobKey) });
       return;
     }
     setScreen("myjob");
@@ -3521,7 +3529,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                  that happens to be granted alongside it. Both go to supervisors
                  today, so this changes nothing now and stops the screen and the
                  API disagreeing the first time they do not. */}
-            {screen === "subcontractors" && <Suppliers canEdit={able("EditSuppliers")} canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} />}
+            {screen === "subcontractors" && <Suppliers canEdit={able("EditSuppliers")} canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} onActionPlan={startActionPlan} />}
             {(screen === "incident" || screen === "carpar") && (
               <Incidents
                 canImport={able("CloseCarPar")}
@@ -3548,9 +3556,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 onDraftJob={openBookingDraft} />
             )}
             {screen === "vendor" && <Vendor canRegister={able("EditSuppliers")} canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} />}
-            {screen === "auditplan" && <AuditPlanning canEdit={able("EditSuppliers")} onToast={setToast} />}
+            {screen === "auditplan" && <AuditPlanning canEdit={able("EditSuppliers")} onToast={setToast} onActionPlan={startActionPlan} />}
             {screen === "actionplan" && <ActionPlan onToast={setToast} />}
-            {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} />}
+            {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} onActionPlan={startActionPlan} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
               canEditRates={able("EditRates")} canSaveQuote={able("QuoteToSheet")}
               // Held by the role but refused until the sign-in is stronger.

@@ -19,6 +19,8 @@ public static class ActionPlanEndpoints
     public record ScoreBody(string? Dimension, int? Previous, int? Current, int? Target);
     public record ReferenceBody(string? Kind, string? RefId, string? Label);
     public record TypeBody(string? DevelopmentType, string? Name, bool Active = true);
+    public record AssessBody(string? EmployeeId, int SkillId, int Level, int? TargetLevel, string? Note);
+    public record SkillBody(string? Category, string? Name, bool Active = true);
 
     public static void MapActionPlans(this IEndpointRouteBuilder routes)
     {
@@ -55,6 +57,29 @@ public static class ActionPlanEndpoints
             if (!user.Can(Capability.AdministerData))
                 return ApiResults.Error("เฉพาะผู้ดูแลระบบที่แก้รายการประเภทแผนได้", StatusCodes.Status403Forbidden);
             return Answer(await service.SaveTypeAsync(user, body.DevelopmentType, body.Name, body.Active, token));
+        });
+
+        // The Skill Matrix (round two): read by its own rule — reviewers see everybody, anybody else their own row.
+        plans.MapGet("/skills", async (HttpContext context, IUserAccessor users, SkillMatrixService skills, CancellationToken token) =>
+            await ReadAsync(context, users, async user => Results.Json(await skills.ReadAsync(user, token))));
+
+        plans.MapGet("/skills/history", async (string? employeeId, HttpContext context, IUserAccessor users, SkillMatrixService skills,
+            CancellationToken token) =>
+            await ReadAsync(context, users, async user => await skills.HistoryAsync(user, employeeId ?? "", token) is { } rows
+                ? Results.Json(rows) : ApiResults.Error("ไม่มีสิทธิ์ดูทักษะของพนักงานคนนี้", StatusCodes.Status403Forbidden)));
+
+        plans.MapPost("/skills/assess", async ([FromBody] AssessBody body, HttpContext context, IUserAccessor users,
+            SkillMatrixService skills, CancellationToken token) =>
+            await WriteAsync(context, users, user => skills.AssessAsync(user, body.EmployeeId, body.SkillId, body.Level, body.TargetLevel, body.Note, token)));
+
+        plans.MapPost("/skills", async ([FromBody] SkillBody body, HttpContext context, IUserAccessor users,
+            SkillMatrixService skills, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AdministerData))
+                return ApiResults.Error("เฉพาะผู้ดูแลระบบที่แก้รายการทักษะได้", StatusCodes.Status403Forbidden);
+            return Answer(await skills.SaveSkillAsync(user, body.Category, body.Name, body.Active, token));
         });
 
         plans.MapGet("/{id:long}", async (long id, HttpContext context, IUserAccessor users, ActionPlanService service,

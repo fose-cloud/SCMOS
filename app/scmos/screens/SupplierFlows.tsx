@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import type { PlanPrefill } from "../actionPlanRequest";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import { StatCard } from "../StatCard";
@@ -188,7 +189,11 @@ export function Vendor({ canRegister, canManage, canUpload = false, onToast }: {
  * too few jobs to measure gets no operational component at all rather than a
  * flattering zero-delay hundred.
  */
-export function Evaluation({ canManage, onToast }: { canManage: boolean; onToast: (m: string) => void }) {
+export function Evaluation({ canManage, onToast, onActionPlan }: {
+  canManage: boolean; onToast: (m: string) => void;
+  /** Starts an improvement plan from a carrier's evaluation; absent without EditActionPlans. */
+  onActionPlan?: (prefill: PlanPrefill) => void;
+}) {
   const { rows, load } = useSuppliers();
   const [period, setPeriod] = useState(String(new Date().getFullYear()));
   const [busy, setBusy] = useState(false);
@@ -264,6 +269,16 @@ export function Evaluation({ canManage, onToast }: { canManage: boolean; onToast
                       <Mini label="ประเมิน" tone="#0A2240" busy={busy}
                         onClick={() => { setOpen(row.id); setSafety(""); setDocuments(""); setNote(""); }} />
                     ))}
+                    {onActionPlan && open !== row.id && (
+                      <span style={css("margin-left:6px")}>
+                        <Mini label="+ Action Plan" tone="#1D5FA8" busy={false} onClick={() => onActionPlan({
+                          developmentType: "subcontractor", targetType: "carrier", supplierId: row.id, category: "Carrier Performance Development",
+                          title: `${row.name} — แผนปรับปรุงจากผลประเมิน ${row.lastEvaluatedPeriod || period}`,
+                          references: [{ kind: "evaluation", refId: `${row.id}:${row.lastEvaluatedPeriod || period}`,
+                            label: `Carrier Evaluation ${row.lastEvaluatedPeriod || period} · ${row.name}${row.lastScore === null ? "" : ` · ${row.lastScore}`}` }],
+                        })} />
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

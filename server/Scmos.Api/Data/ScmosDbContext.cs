@@ -104,6 +104,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<ActionPlanReview> ActionPlanReviews => Set<ActionPlanReview>();
     public DbSet<ActionPlanScore> ActionPlanScores => Set<ActionPlanScore>();
     public DbSet<ActionPlanReference> ActionPlanReferences => Set<ActionPlanReference>();
+    public DbSet<ActionPlanSkill> ActionPlanSkills => Set<ActionPlanSkill>();
+    public DbSet<SkillAssessment> SkillAssessments => Set<SkillAssessment>();
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
     public DbSet<VehicleTypeRow> VehicleTypes => Set<VehicleTypeRow>();
     public DbSet<TypeMigrationBackup> TypeMigrationBackups => Set<TypeMigrationBackup>();
@@ -1276,6 +1278,25 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.HasIndex(x => x.PlanId).HasDatabaseName("action_plan_score_plan_idx");
             e.HasIndex(x => x.SupplierId).HasDatabaseName("action_plan_score_supplier_idx");
             e.HasOne<ActionPlan>().WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // The Skill Matrix (1 Oct 2026, Action Plan round two).
+        model.Entity<ActionPlanSkill>(e =>
+        {
+            e.ToTable("action_plan_skills");
+            e.Property(x => x.Category).HasMaxLength(60);
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.HasIndex(x => new { x.Category, x.Name }).IsUnique().HasDatabaseName("action_plan_skill_name_idx");
+        });
+
+        model.Entity<SkillAssessment>(e =>
+        {
+            e.ToTable("skill_assessments");
+            e.Property(x => x.EmployeeId).HasMaxLength(60);
+            e.Property(x => x.Note).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.AssessedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.EmployeeId, x.SkillId }).HasDatabaseName("skill_assessment_employee_idx");
+            e.HasOne<ActionPlanSkill>().WithMany().HasForeignKey(x => x.SkillId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<ActionPlanReference>(e =>

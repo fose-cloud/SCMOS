@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { listenForActionPlanRequests, type PlanPrefill } from "../actionPlanRequest";
 import {
   DEVELOPMENT_TH, NO_FILTERS, PRIORITY, STATUS, TARGET_TH, filterQuery, shownStatus,
   type Count, type Dashboard, type Filters, type Meta, type PlanRow,
@@ -13,8 +14,9 @@ import {
   Badge, CELL, EMPTY, HEAD, INPUT, LABEL, MONO, Notice, PANEL, PRIMARY, Progress, ProgressBar, SERIES_1, SERIES_2, SMALL, TITLE,
 } from "./ActionPlanParts";
 import { ActionPlanWizard } from "./ActionPlanWizard";
+import { SkillMatrix } from "./SkillMatrix";
 
-type View = { kind: "dashboard" } | { kind: "list" } | { kind: "new" } | { kind: "plan"; id: number };
+type View = { kind: "dashboard" } | { kind: "list" } | { kind: "skills" } | { kind: "new"; prefill?: PlanPrefill } | { kind: "plan"; id: number };
 
 /**
  * Subcontract Management Action Plan (1 Oct 2026): the department's development plans for its people and its
@@ -39,11 +41,15 @@ export function ActionPlan({ onToast }: { onToast: (message: string) => void }) 
     return () => { cancelled = true; };
   }, []);
 
+  // A plan asked for from elsewhere (round two): an alert opening one, or a screen starting one.
+  useEffect(() => listenForActionPlanRequests((request) =>
+    setView("open" in request ? { kind: "plan", id: request.open } : { kind: "new", prefill: request.create })), []);
+
   if (failure) return <Notice tone="#B45309">{failure}</Notice>;
   if (!meta) return <Notice tone="#7B8CA0">กำลังโหลด…</Notice>;
 
   const open = (id: number) => setView({ kind: "plan", id });
-  const tabs: [View["kind"], string][] = [["dashboard", "Dashboard"], ["list", "Action Plans"]];
+  const tabs: [View["kind"], string][] = [["dashboard", "Dashboard"], ["list", "Action Plans"], ["skills", "Skill Matrix"]];
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:13px")}>
@@ -53,7 +59,7 @@ export function ActionPlan({ onToast }: { onToast: (message: string) => void }) 
             ? "border-color:#0A2240;background:#0A2240;color:#fff" : "border-color:#D3DBE3;background:#fff;color:#3F5265"))}>{label}</button>
         ))}
         {view.kind === "plan" && <span style={css("font-size:12px;color:#7B8CA0")}>› แผน</span>}
-        {view.kind !== "plan" && (
+        {(view.kind === "dashboard" || view.kind === "list") && (
           <label style={css("display:flex;align-items:center;gap:6px;font-size:12px;color:#5A6B7D;margin-left:8px")}>ปี
             <select aria-label="ปีของแผน" value={year} onChange={(e) => setYear(e.target.value)} style={css(INPUT)}>
               <option value="">ทุกปี</option>
@@ -66,7 +72,9 @@ export function ActionPlan({ onToast }: { onToast: (message: string) => void }) 
 
       {view.kind === "dashboard" && <DashboardView year={year} onOpenList={() => setView({ kind: "list" })} />}
       {view.kind === "list" && <ListView year={year} meta={meta} onOpen={open} />}
-      {view.kind === "new" && <ActionPlanWizard meta={meta} onToast={onToast} onCreated={open} onCancel={() => setView({ kind: "dashboard" })} />}
+      {view.kind === "skills" && <SkillMatrix canPlan={meta.canEdit} onToast={onToast} onPlan={(prefill) => setView({ kind: "new", prefill })} />}
+      {view.kind === "new" && <ActionPlanWizard key={JSON.stringify(view.prefill ?? {})} meta={meta} prefill={view.prefill} onToast={onToast}
+        onCreated={open} onCancel={() => setView({ kind: "dashboard" })} />}
       {view.kind === "plan" && <ActionPlanDetail id={view.id} meta={meta} onToast={onToast} onBack={() => setView({ kind: "list" })} />}
     </div>
   );

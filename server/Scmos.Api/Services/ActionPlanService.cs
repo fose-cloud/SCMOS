@@ -19,7 +19,11 @@ public record ActionPlanInput(
     string? TargetType, string? EmployeeId, string? Position, string? Team, string? Supervisor, int? SupplierId, string? TargetName,
     string? DevelopmentArea, string? CurrentLevel, string? TargetLevel, string? Gap, string? RootCause, string? Method, string? Coach,
     string? CarrierContact, string? EvaluationMethod, string? ReviewDate, string? Result, string? Metric, decimal? Baseline,
-    decimal? TargetValue, decimal? ActualValue, IReadOnlyList<ActionItemInput>? Items);
+    decimal? TargetValue, decimal? ActualValue, IReadOnlyList<ActionItemInput>? Items,
+    /// <summary>The records the plan was opened from — a skill gap, an evaluation, an audit (round two).</summary>
+    IReadOnlyList<ActionReferenceInput>? References = null);
+
+public record ActionReferenceInput(string? Kind, string? RefId, string? Label);
 
 public record ActionItemInput(string? Action, string? Description, string? OwnerId, string? SupportingPerson,
     string? SupportingDepartment, string? StartDate, string? TargetDate, string? ActualCompletionDate, string? Priority,
@@ -221,6 +225,13 @@ public class ActionPlanService(ScmosDbContext db, AuditService audit)
         }
         foreach (var row in items) row.PlanId = plan.Id;
         db.ActionPlanItems.AddRange(items);
+        // The records it was opened from (round two), kept as references rather than copies.
+        foreach (var reference in (input.References ?? []).Take(10))
+        {
+            var kind = (reference.Kind ?? "").Trim().ToLowerInvariant();
+            if (!ReferenceKinds.Contains(kind) || (string.IsNullOrWhiteSpace(reference.RefId) && string.IsNullOrWhiteSpace(reference.Label))) continue;
+            db.ActionPlanReferences.Add(new ActionPlanReference { PlanId = plan.Id, Kind = kind, RefId = Text(reference.RefId, 120), Label = Text(reference.Label, 300) });
+        }
         await db.SaveChangesAsync(token);
         await Record(user, plan.Id, AuditActions.Register, "plan", "", $"{plan.Number} · {plan.Title} · {items.Count} ขั้น", token);
         return new ActionPlanResult(true, $"สร้าง {plan.Number} แล้ว", Id: plan.Id);
@@ -422,8 +433,7 @@ public class ActionPlanService(ScmosDbContext db, AuditService audit)
         var plan = await EditablePlanAsync(user, id, token);
         if (plan.Problem is not null) return plan.Problem;
         var what = (kind ?? "").Trim().ToLowerInvariant();
-        string[] kinds = ["evaluation", "kpi", "incident", "carpar", "audit", "customer", "training", "risk", "project", "plan"];
-        if (!kinds.Contains(what)) return Refused("ประเภทข้อมูลอ้างอิงไม่ถูกต้อง");
+        if (!ReferenceKinds.Contains(what)) return Refused("ประเภทข้อมูลอ้างอิงไม่ถูกต้อง");
         if (string.IsNullOrWhiteSpace(refId) && string.IsNullOrWhiteSpace(label)) return Refused("ระบุเลขอ้างอิงหรือคำอธิบาย");
         var row = new ActionPlanReference { PlanId = id, Kind = what, RefId = Cut((refId ?? "").Trim(), 120), Label = Cut((label ?? "").Trim(), 300) };
         db.ActionPlanReferences.Add(row);
@@ -449,6 +459,9 @@ public class ActionPlanService(ScmosDbContext db, AuditService audit)
         Record(user, id, AuditActions.Upload, "evidence", "", fileName, token);
 
     /* ------------------------------------------------------------------ helpers */
+
+    /// <summary>What a plan may refer to — the SCMOS records a development plan is usually about.</summary>
+    public static readonly string[] ReferenceKinds = ["evaluation", "kpi", "incident", "carpar", "audit", "customer", "training", "risk", "project", "plan", "skill", "supplier"];
 
     private static ActionPlanResult Refused(string message, int status = StatusCodes.Status400BadRequest) => new(false, message, status);
     private static ActionPlanResult NotFound() => new(false, "ไม่พบแผนนี้", StatusCodes.Status404NotFound);

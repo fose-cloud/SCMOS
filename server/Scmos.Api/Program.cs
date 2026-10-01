@@ -122,6 +122,7 @@ builder.Services.AddScoped<FleetService>();
 builder.Services.AddScoped<SupplierNames>();
 builder.Services.AddScoped<AuditPlanService>();
 builder.Services.AddScoped<ActionPlanService>();
+builder.Services.AddScoped<SkillMatrixService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();

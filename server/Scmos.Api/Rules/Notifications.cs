@@ -31,6 +31,12 @@ public enum AlertKind
     AiRiskFound,
     CarrierJobRequested,
     CarrierDeclined,
+    // Action Plan (1 Oct 2026, round two): read off the signed-in person's own plans and steps.
+    ActionPlanAssigned,
+    ActionPlanDueSoon,
+    ActionPlanOverdue,
+    ActionPlanReviewWaiting,
+    ActionPlanReviewed,
 }
 
 /// <summary>Critical needs somebody now; Warning needs somebody today; Information is context.</summary>
@@ -155,6 +161,21 @@ public static class Notifications
         // for saved links.
         new(AlertKind.CarParOverdue, "CAR/PAR overdue", "CAR/PAR เกินกำหนด",
             AlertLevel.Critical, "ติดตามผู้รับผิดชอบ หรือขยายกำหนดพร้อมเหตุผล", "incident"),
+
+        new(AlertKind.ActionPlanAssigned, "Action Plan assigned to you", "ได้รับมอบหมาย Action Plan",
+            AlertLevel.Information, "เปิดแผนเพื่อดูขั้นตอนที่ต้องทำ", "actionplan"),
+
+        new(AlertKind.ActionPlanDueSoon, "Action Plan due soon", "Action Plan ใกล้ครบกำหนด",
+            AlertLevel.Warning, "อัปเดตความคืบหน้า หรือแก้วันครบกำหนดพร้อมเหตุผล", "actionplan"),
+
+        new(AlertKind.ActionPlanOverdue, "Action Plan overdue", "Action Plan เลยกำหนด",
+            AlertLevel.Critical, "ติดตามผู้รับผิดชอบ หรือแก้วันครบกำหนดพร้อมเหตุผล", "actionplan"),
+
+        new(AlertKind.ActionPlanReviewWaiting, "Action Plan waiting for review", "Action Plan รอ Review",
+            AlertLevel.Warning, "เปิดแผนแล้ว Approve, Need Improvement หรือ Reopen", "actionplan"),
+
+        new(AlertKind.ActionPlanReviewed, "Your Action Plan was reviewed", "Action Plan ของคุณได้รับการ Review",
+            AlertLevel.Information, "ดูผล Review และความเห็นของหัวหน้า", "actionplan"),
 
         new(AlertKind.CapacityShortage, "Capacity shortage", "กำลังรถไม่พอ",
             AlertLevel.Warning, "หาผู้ขนส่งรายอื่น หรือเลื่อนงานที่ยืดหยุ่นได้", "capacity"),

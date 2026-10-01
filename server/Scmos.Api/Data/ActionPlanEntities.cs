@@ -196,6 +196,37 @@ public class ActionPlanScore
 }
 
 /// <summary>
+/// One skill on the department's Skill Matrix (1 Oct 2026, Action Plan round two) — the list the department
+/// gave, by area, filled in the first time it is read; an Administrator adds or retires one.
+/// </summary>
+public class ActionPlanSkill
+{
+    public int Id { get; set; }
+
+    /// <summary>Operations · Procurement / Carrier · Quality / Safety · Finance / Documentation · Technology · Soft Skills</summary>
+    public string Category { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Position { get; set; }
+    public bool Active { get; set; } = true;
+}
+
+/// <summary>
+/// One assessment of one person on one skill (1 Basic … 5 Expert), with the level wanted. A row per assessment,
+/// so the matrix shows the latest and the history shows how a person grew.
+/// </summary>
+public class SkillAssessment
+{
+    public long Id { get; set; }
+    public string EmployeeId { get; set; } = "";
+    public int SkillId { get; set; }
+    public int Level { get; set; }
+    public int? TargetLevel { get; set; }
+    public string Note { get; set; } = "";
+    public string AssessedBy { get; set; } = "";
+    public DateTimeOffset AssessedAt { get; set; }
+}
+
+/// <summary>
 /// Another SCMOS record the plan is about — an evaluation, a KPI, an incident, a CAR/PAR, an audit, a training —
 /// referenced by kind and id rather than copied.
 /// </summary>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
+import type { PlanPrefill } from "../actionPlanRequest";
 import { useRemembered } from "../pageCache";
 import { css } from "../theme";
 import { StatCard } from "../StatCard";
@@ -89,12 +90,14 @@ const STATUS_TH: Record<string, string> = {
   suspended: "ระงับ", rejected: "ไม่ผ่าน",
 };
 
-export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
+export function Suppliers({ canEdit, canManage, canUpload, onToast, onActionPlan }: {
   canEdit: boolean;
   canManage: boolean;
   /** Attaching a document is its own permission, not the register's. */
   canUpload: boolean;
   onToast: (m: string) => void;
+  /** Starts a Subcontractor Development plan for the picked company; absent without EditActionPlans. */
+  onActionPlan?: (prefill: PlanPrefill) => void;
 }) {
   const [rows, setRows] = useRemembered<Summary[]>("suppliers");
   /* The Excel import: the file chosen, what the preview said, and whether a
@@ -966,6 +969,20 @@ export function Suppliers({ canEdit, canManage, canUpload, onToast }: {
         />
       )}
 
+      {picked !== null && onActionPlan && rows.some((r) => r.id === picked) && (() => {
+        const row = rows.find((r) => r.id === picked)!;
+        return (
+          <div style={css("display:flex;justify-content:flex-end")}>
+            <button onClick={() => onActionPlan({
+              developmentType: "subcontractor", targetType: row.isCarrier ? "carrier" : "subcontractor", supplierId: row.id,
+              category: "Carrier Performance Development",
+              references: [{ kind: "supplier", refId: String(row.id), label: `Supplier Register · ${row.legalName || row.name}` }],
+            })} style={css("height:30px;padding:0 13px;border:1px solid #0A2240;background:#fff;color:#0A2240;border-radius:4px;font-size:12px;font-weight:650;cursor:pointer")}>
+              + Action Plan · {row.legalName || row.name}
+            </button>
+          </div>
+        );
+      })()}
       {picked !== null && canEdit && !canManage && rows.some(r => r.id === picked) && (
         <Details key={picked} supplier={rows.find(r => r.id === picked)!} others={rows} busy={busy}
           canManage={false} onEdit={fields => void post(`${picked}/edit`, fields)}
