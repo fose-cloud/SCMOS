@@ -9,6 +9,7 @@ import { ZoomBox } from "../TableFrame";
 import type { Period } from "../period";
 import type { Job } from "../ops";
 import { PeriodBar } from "../PeriodBar";
+import { ScorecardIssues, UNGRADED, type EscalatedIssue } from "./ScorecardIssues";
 
 /**
  * Operational KPI.
@@ -94,13 +95,16 @@ type CarrierScore = {
 const SCORECARD_FORMULA = "น้ำหนักคะแนน: อุบัติเหตุเล็กน้อย 15% · อุบัติเหตุใหญ่ 35% · "
   + "รายงานความเสียหาย 20% · ความพร้อมรถ 10% · ส่งมอบตรงเวลา 10% · ความพึงพอใจลูกค้า 10%";
 
-/** The columns of that report, in its order and its words. */
-const TALLY_COLUMNS: [string, (t: CarrierTally) => number][] = [
-  ["Transport Accident (Major)", (t) => t.transportAccidentMajor],
-  ["Transport Accident (Minor)", (t) => t.transportAccidentMinor],
-  ["Loading Accident", (t) => t.loadingAccident],
-  ["Complaint (Internal & external)", (t) => t.complaints],
-  ["Truck break down / No customer complaint", (t) => t.breakdownNoComplaint],
+/**
+ * The columns of that report, in its order and its words — and the API's name for each, which is how a count asks
+ * for the issues behind it (Rules/ScorecardColumn.cs; note "External" is capitalised there and not in the heading).
+ */
+const TALLY_COLUMNS: [string, (t: CarrierTally) => number, string][] = [
+  ["Transport Accident (Major)", (t) => t.transportAccidentMajor, "Transport Accident (Major)"],
+  ["Transport Accident (Minor)", (t) => t.transportAccidentMinor, "Transport Accident (Minor)"],
+  ["Loading Accident", (t) => t.loadingAccident, "Loading Accident"],
+  ["Complaint (Internal & external)", (t) => t.complaints, "Complaint (Internal & External)"],
+  ["Truck break down / No customer complaint", (t) => t.breakdownNoComplaint, "Truck break down / No customer complaint"],
 ];
 
 type EngineReport = {
@@ -133,7 +137,7 @@ function kpiKey(period: Period): string {
   return `kpi.${period.year ?? ""}.${period.month ?? ""}.${period.day ?? ""}`;
 }
 
-export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJobs }: {
+export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJobs, canEdit = false, onEscalate, onOpenCase, onToast }: {
   period: Period;
   /**
    * The picker on this screen, and the same one the dashboard carries.
@@ -150,12 +154,23 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
   onFixAccident?: (carrier: string) => void;
   /** Opens the workspace on the jobs behind a figure. */
   onOpenJobs: (filter: { kpi?: string; trucker?: string; status?: string }) => void;
+  /** May say what an issue counts as and which CAR/PAR it sits under — the issue log's own right. */
+  canEdit?: boolean;
+  /** Opens a new CAR/PAR from one of the issues behind a count. */
+  onEscalate?: (issue: EscalatedIssue) => void;
+  /** Opens the CAR/PAR an issue is linked to. */
+  onOpenCase?: (caseId: number) => void;
+  onToast?: (message: string) => void;
 }) {
   const [report, setReport] = useRemembered<KpiReport>(kpiKey(period));
   const [engine, setEngine] = useRemembered<EngineReport>(kpiKey(period) + ".engine");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  /** The count opened to show the issues behind it (1 Oct 2026); null when none is. */
+  const [drill, setDrill] = useState<{ carrier: string; column: string; label: string } | null>(null);
+  /** Moves when an issue is re-tagged, so the scorecard is read again. */
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,7 +205,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
       }
     })();
     return () => { cancelled = true; };
-  }, [period, setEngine, setReport]);
+  }, [period, setEngine, setReport, version]);
 
   // Drawn above every state of this screen, including the two that return
   // early. A period you cannot change while the figures are loading, or after
@@ -337,6 +352,15 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
         </div>
       )}
 
+      {drill && (
+        <ScorecardIssues period={period} carrier={drill.carrier} column={drill.column} label={drill.label} canEdit={canEdit}
+          onClose={() => setDrill(null)} onChanged={() => setVersion((n) => n + 1)}
+          onEscalate={onEscalate ? (issue) => { setDrill(null); onEscalate(issue); } : undefined}
+          onOpenCase={onOpenCase ? (id) => { setDrill(null); onOpenCase(id); } : undefined}
+          onOpenLog={onFixAccident ? () => { const carrier = drill.carrier; setDrill(null); onFixAccident(carrier); } : undefined}
+          onToast={onToast ?? (() => {})} />
+      )}
+
       {engine?.scorecard?.length ? (
         <Panel
           title="คะแนนตามสัญญา (Carrier Scorecard)"
@@ -378,9 +402,9 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                         {row.carrier} →
                       </button>
                       {row.ungradedAccidents > 0 && (
-                        <button onClick={() => (onFixAccident ?? (() => onDrill("issues")))(row.carrier)}
+                        <button onClick={() => setDrill({ carrier: row.carrier, column: UNGRADED, label: "อุบัติเหตุที่ยังไม่ระบุชนิด" })}
                           style={css("display:block;margin-top:2px;border:none;background:none;padding:0;font-family:inherit;font-size:11px;color:#B45309;text-align:left;cursor:pointer;text-decoration:underline")}>
-                          อุบัติเหตุยังไม่ระบุชนิด {row.ungradedAccidents} เคส — ระบุใน Operational Issues →
+                          อุบัติเหตุยังไม่ระบุชนิด {row.ungradedAccidents} เคส — ระบุชนิด →
                         </button>
                       )}
                     </td>
@@ -389,17 +413,24 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                     {/* Counts, as their report writes them. A zero is a real
                         answer here and is shown as one — it is the column
                         everybody wants to be zero. */}
-                    {TALLY_COLUMNS.map(([head, read]) => {
+                    {TALLY_COLUMNS.map(([head, read, column]) => {
                       const value = row.tally ? read(row.tally) : null;
                       if (value === null) {
                         return (
                           <td key={head} style={css("padding:8px 12px;text-align:right;color:#B4C0CC")}>—</td>
                         );
                       }
+                      // A count above nought opens the issues it was made of, to be tagged and tied to a CAR/PAR.
                       return (
                         <td key={head} style={css("padding:8px 12px;text-align:right;font-family:'IBM Plex Mono',monospace;color:"
                           + (value > 0 ? "#B42318;font-weight:700" : "#94A3B8"))}>
-                          {value}
+                          {value > 0 ? (
+                            <button type="button" onClick={() => setDrill({ carrier: row.carrier, column, label: head })}
+                              title={`ดู ${value} รายการ`}
+                              style={css("border:none;background:none;padding:0 2px;font:inherit;color:inherit;cursor:pointer;text-decoration:underline")}>
+                              {value}
+                            </button>
+                          ) : value}
                         </td>
                       );
                     })}

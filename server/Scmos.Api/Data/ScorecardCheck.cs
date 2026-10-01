@@ -133,6 +133,13 @@ public static class ScorecardCheck
 
         var checks = new (string What, object? Got, object? Want)[]
         {
+            // 1 Oct 2026: a count opens the issues behind it. The list is read by the same attribution and column rule
+            // as the count, so for every carrier and every column the two must be the same number.
+            ("the issues behind each count are exactly that count",
+                scores.All(score => TallyMatches(score, jobs, issues, null)), true),
+            ("…and still so with carriers named on cases that reached no job",
+                withLoose.All(score => TallyMatches(score, jobs, [.. issues, .. loose], known)), true),
+
             // Two more minor accidents than the base run: one named on the case
             // with no job, and one on J1 which is SSL's job — the name on that
             // one said THAIKOT and was rightly ignored.
@@ -267,6 +274,19 @@ public static class ScorecardCheck
             : $"  {failed} of {checks.Length} wrong.");
         Console.WriteLine();
         return failed == 0 ? 0 : 1;
+    }
+
+    /// <summary>Every column of one carrier's tally against the issues <see cref="CarrierScorecard.Behind"/> lists for it.</summary>
+    private static bool TallyMatches(CarrierScore score, IReadOnlyList<(string Key, string Carrier, JobRecord Record)> jobs,
+        IReadOnlyList<OperationalIssue> issues, Func<string, string?>? known)
+    {
+        int Count(string column) => CarrierScorecard.Behind(jobs, issues, known, score.Carrier, column).Count;
+        return Count(Rules.ScorecardColumn.TransportMajor) == score.Tally.TransportAccidentMajor
+            && Count(Rules.ScorecardColumn.TransportMinor) == score.Tally.TransportAccidentMinor
+            && Count(Rules.ScorecardColumn.LoadingAccident) == score.Tally.LoadingAccident
+            && Count(Rules.ScorecardColumn.Complaint) == score.Tally.Complaints
+            && Count(Rules.ScorecardColumn.Breakdown) == score.Tally.BreakdownNoComplaint
+            && Count(CarrierScorecard.Ungraded) == score.UngradedAccidents;
     }
 
     private static ScoreLine Line(CarrierScore score, string id) =>

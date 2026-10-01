@@ -39,7 +39,12 @@ type Case = {
   immediateAction: string; immediateBy: string; immediateDue: string;
   documentsToRevise: string; followUpBy: string; reviewedBy: string;
   approvalOutcome: string; approvalNote: string; teamNote: string;
+  /** The operational issues linked to the case (1 Oct 2026). Optional while the API may be the older one. */
+  issues?: LinkedIssue[];
 };
+
+/** An issue as a case shows it: which one, and what the carrier scorecard counts it as. */
+type LinkedIssue = { id: number; code: string; foundOn: string; category: string; severity: string; column: string; detail: string };
 
 /** A file on the case. The path it went to is decided by the API, not here. */
 type Evidence = {
@@ -192,7 +197,7 @@ function askReason(question: string, onToast: (m: string) => void): string | nul
   return answer.trim();
 }
 
-export function Incidents({ prefill, jobs, canImport = false, canManage = false, onPrefillTaken, onOpenJob, onToast }: {
+export function Incidents({ prefill, jobs, canImport = false, canManage = false, onPrefillTaken, onOpenJob, focusCase, onFocusTaken, onOpenIssue, onToast }: {
   canImport?: boolean;
   /** Supervisor and above: may move a case to any stage, and may remove one. */
   canManage?: boolean;
@@ -203,12 +208,17 @@ export function Incidents({ prefill, jobs, canImport = false, canManage = false,
    * which job it happened on; the job key is what makes the evidence files land
    * in that job's own folder rather than under a loose case number.
    */
-  prefill?: { jobKey: string; title: string; what: string; issueCode: string } | null;
+  prefill?: { jobKey: string; title: string; what: string; issueCode: string; issueId?: number } | null;
   /** The register, so a case can show the job it is about and not just its key. */
   jobs: Job[];
   onPrefillTaken?: () => void;
   /** Opens the job itself, for when the case is not where the answer is. */
   onOpenJob?: (jobKey: string) => void;
+  /** A case to open on arrival — from an issue or a scorecard count that is linked to it (1 Oct 2026). */
+  focusCase?: number | null;
+  onFocusTaken?: () => void;
+  /** Opens one of the case's issues in Operational Issues. */
+  onOpenIssue?: (code: string) => void;
   onToast: (m: string) => void;
 }) {
   const [cases, setCases] = useRemembered<Case[]>("incidents");
@@ -223,6 +233,8 @@ export function Incidents({ prefill, jobs, canImport = false, canManage = false,
   /** What went wrong, brought over from the issue. Only it can answer this. */
   const [what, setWhat] = useState("");
   const [fromIssue, setFromIssue] = useState("");
+  /** The issue's id, so the case is linked to it rather than only naming it in the title. */
+  const [fromIssueId, setFromIssueId] = useState<number | null>(null);
   const [kind, setKind] = useState("CAR");
   const [category, setCategory] = useState("accident");
   /* The board: which stage is picked out, what is typed in the search, which page. */
@@ -261,8 +273,17 @@ export function Incidents({ prefill, jobs, canImport = false, canManage = false,
     setJobKey(prefill.jobKey);
     setWhat(prefill.what);
     setFromIssue(prefill.issueCode);
+    setFromIssueId(prefill.issueId ?? null);
     onPrefillTaken?.();
   }, [prefill, onPrefillTaken]);
+
+  /** A case asked for by another screen, opened once the list holds it. */
+  useEffect(() => {
+    if (!focusCase || !cases?.some((c) => c.id === focusCase)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPicked(focusCase);
+    onFocusTaken?.();
+  }, [focusCase, cases, onFocusTaken]);
 
   /**
    * Send the sheet and say what it would do, or do it.
@@ -559,8 +580,8 @@ export function Incidents({ prefill, jobs, canImport = false, canManage = false,
           // The job's own answers travel with the case rather than being typed
           // in again off the screen next door.
           const seed = raisingAgainst ? seedFromJob(raisingAgainst) : {};
-          void call("", "POST", { kind, category, title, jobKey, what, ...seed });
-          setTitle(""); setJobKey(""); setWhat(""); setFromIssue("");
+          void call("", "POST", { kind, category, title, jobKey, what, ...seed, ...(fromIssueId ? { issueId: fromIssueId } : {}) });
+          setTitle(""); setJobKey(""); setWhat(""); setFromIssue(""); setFromIssueId(null);
         }}
           disabled={busy || !title.trim()}
           style={css("height:30px;padding:0 14px;border:1px solid #0A2240;background:" + (busy || !title.trim() ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px")}
@@ -658,7 +679,7 @@ export function Incidents({ prefill, jobs, canImport = false, canManage = false,
         </div>
 
         {chosen && (
-          <Detail case_={chosen} busy={busy} canManage={canManage} job={byKey.get(chosen.jobKey) ?? null} onOpenJob={onOpenJob}
+          <Detail case_={chosen} busy={busy} canManage={canManage} job={byKey.get(chosen.jobKey) ?? null} onOpenJob={onOpenJob} onOpenIssue={onOpenIssue}
             onRename={(reference) => void call(`/${chosen.id}`, "POST", { reference })}
             onStage={(stage) => setStage(chosen, stage)}
             onRemove={() => remove(chosen)}
@@ -678,11 +699,12 @@ const EVIDENCE_KINDS: [string, string][] = [
   ["supplier-report", "รายงานจากผู้ขนส่ง"], ["customer-information", "ข้อมูลจากลูกค้า"],
 ];
 
-function Detail({ case_, busy, canManage, job, onOpenJob, onRename, onStage, onRemove, onUpload, onClose }: {
+function Detail({ case_, busy, canManage, job, onOpenJob, onOpenIssue, onRename, onStage, onRemove, onUpload, onClose }: {
   case_: Case; busy: boolean; canManage: boolean;
   /** The job this case is about, when the register holds it. */
   job: Job | null;
   onOpenJob?: (jobKey: string) => void;
+  onOpenIssue?: (code: string) => void;
   onRename: (reference: string) => void;
   onStage: (stage: string) => void;
   onRemove: () => void;
@@ -815,6 +837,26 @@ function Detail({ case_, busy, canManage, job, onOpenJob, onRename, onStage, onR
           {note && (
             <div style={css("margin-top:8px;font-size:11.5px;color:#16232F;white-space:pre-wrap;line-height:1.6;background:#F8FAFC;border:1px solid #E9EFF5;border-radius:4px;padding:8px 10px")}>{note}</div>
           )}
+        </div>
+      )}
+
+      {/* The complaints and accidents this case answers, and what the carrier scorecard counts each as (1 Oct 2026). */}
+      {(case_.issues?.length ?? 0) > 0 && (
+        <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5")}>
+          <div style={css("font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:7px")}>
+            Operational Issues · {case_.issues!.length}
+          </div>
+          {case_.issues!.map((issue) => (
+            <div key={issue.id} style={css("display:flex;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px solid #F1F5F9;flex-wrap:wrap")}>
+              <button type="button" onClick={() => onOpenIssue?.(issue.code)}
+                style={css("border:none;background:none;padding:0;font-family:ui-monospace,monospace;font-size:11.5px;font-weight:700;color:#0A5FA8;cursor:pointer")}>
+                {issue.code}
+              </button>
+              <span style={css("font-family:ui-monospace,monospace;font-size:11px;color:#7B8CA0")}>{issue.foundOn}</span>
+              <span style={css("font-size:11px;font-weight:600;color:#6D28D9")}>{issue.column || "ยังไม่ระบุชนิด"}</span>
+              <span style={css("font-size:11px;color:#5A6B7D;flex:1;min-width:160px")}>{issue.detail}</span>
+            </div>
+          ))}
         </div>
       )}
 

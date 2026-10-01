@@ -584,6 +584,14 @@ public class OperationalIssue
     /// </summary>
     public string ScorecardColumn { get; set; } = "";
 
+    /// <summary>
+    /// The CAR/PAR this issue was escalated into, or linked to afterwards (1 Oct 2026). Several complaints can sit
+    /// under one corrective action, so many issues may name one case; an issue names at most one. Until this existed
+    /// a case opened from an issue carried the issue's code in its title and nothing else, so neither side could
+    /// find the other.
+    /// </summary>
+    public long? CaseId { get; set; }
+
     /// <summary>The SMT member holding it, and the id behind the name.</summary>
     public string Owner { get; set; } = "";
     public string OwnerId { get; set; } = "";

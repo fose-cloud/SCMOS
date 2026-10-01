@@ -22,7 +22,12 @@ public record IncidentView(
     string Team, string RequestedBy, string RequestedOn,
     string ImmediateAction, string ImmediateBy, string ImmediateDue,
     string DocumentsToRevise, string FollowUpBy, string ReviewedBy,
-    string ApprovalOutcome, string ApprovalNote, string TeamNote);
+    string ApprovalOutcome, string ApprovalNote, string TeamNote,
+    /// <summary>The operational issues linked to this case (1 Oct 2026) — the complaints and accidents it answers.</summary>
+    IReadOnlyList<LinkedIssue>? Issues = null);
+
+/// <summary>An operational issue as a CAR/PAR shows it: enough to know which one, and what the scorecard counts it as.</summary>
+public record LinkedIssue(long Id, string Code, string FoundOn, string Category, string Severity, string Column, string Detail);
 
 public record IncidentResult(bool Ok, string Message, long? Id = null);
 
@@ -53,17 +58,27 @@ public class IncidentService(ScmosDbContext db)
         var ids = cases.Select(c => (long?)c.Id).ToHashSet();
         var evidence = await db.Documents.AsNoTracking()
             .Where(e => ids.Contains(e.CaseId)).ToListAsync(token);
+        var issues = await LinkedAsync(ids, token);
 
         return cases.Select(c => Describe(c,
-            evidence.Where(e => e.CaseId == c.Id).Select(DocumentService.Describe).ToList())).ToList();
+            evidence.Where(e => e.CaseId == c.Id).Select(DocumentService.Describe).ToList(),
+            issues.Where(issue => issue.CaseId == c.Id).Select(Linked).ToList())).ToList();
     }
+
+    private async Task<List<OperationalIssue>> LinkedAsync(ICollection<long?> ids, CancellationToken token) =>
+        await db.OperationalIssues.AsNoTracking().Where(issue => ids.Contains(issue.CaseId)).OrderBy(issue => issue.Id).ToListAsync(token);
+
+    private static LinkedIssue Linked(OperationalIssue issue) =>
+        new(issue.Id, issue.Code, issue.FoundOn, issue.Category, issue.Severity, Rules.ScorecardColumn.Of(issue),
+            issue.Detail.Length > 160 ? issue.Detail[..160] : issue.Detail);
 
     public async Task<IncidentView?> ReadAsync(long id, CancellationToken token)
     {
         var record = await db.IncidentCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, token);
         if (record is null) return null;
         var evidence = await db.Documents.AsNoTracking().Where(e => e.CaseId == id).ToListAsync(token);
-        return Describe(record, evidence.Select(DocumentService.Describe).ToList());
+        var issues = await LinkedAsync([id], token);
+        return Describe(record, evidence.Select(DocumentService.Describe).ToList(), issues.Select(Linked).ToList());
     }
 
     /// <summary>
@@ -72,7 +87,7 @@ public class IncidentService(ScmosDbContext db)
     /// </summary>
     public async Task<IncidentResult> RaiseAsync(string jobKey, string kind, string category,
         string title, string by, CancellationToken token,
-        string what = "", string where = "", string when = "", string who = "")
+        string what = "", string where = "", string when = "", string who = "", long? issueId = null)
     {
         if (title.Trim().Length == 0) return new IncidentResult(false, "ต้องระบุหัวข้อ");
 
@@ -110,6 +125,16 @@ public class IncidentService(ScmosDbContext db)
         };
         db.IncidentCases.Add(record);
         await db.SaveChangesAsync(token);
+
+        // Escalated from an issue: the issue now names the case, so each can be found from the other (1 Oct 2026).
+        if (issueId is { } fromIssue && await db.OperationalIssues.FirstOrDefaultAsync(issue => issue.Id == fromIssue, token) is { } issue)
+        {
+            issue.CaseId = record.Id;
+            issue.UpdatedBy = by;
+            issue.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(token);
+            return new IncidentResult(true, $"เปิดเคส {record.Reference} แล้ว · ผูกกับปัญหา {issue.Code}", record.Id);
+        }
 
         return new IncidentResult(true, $"เปิดเคส {record.Reference} แล้ว", record.Id);
     }
@@ -314,6 +339,8 @@ public class IncidentService(ScmosDbContext db)
 
         var evidence = await db.Documents.Where(d => d.CaseId == id).ToListAsync(token);
         foreach (var file in evidence) file.CaseId = null;
+        // The issues stay, unlinked: they are the record of what went wrong, which outlives the case.
+        foreach (var issue in await db.OperationalIssues.Where(row => row.CaseId == id).ToListAsync(token)) issue.CaseId = null;
         db.IncidentCases.Remove(record);
         await db.SaveChangesAsync(token);
         return new IncidentResult(true, $"ลบเคส {record.Reference} แล้ว", id);
@@ -324,7 +351,7 @@ public class IncidentService(ScmosDbContext db)
     // one thing the storage structure depends on — that nobody composes their
     // own path — was left to whoever called it.
 
-    private static IncidentView Describe(IncidentCase c, List<DocumentView> evidence)
+    private static IncidentView Describe(IncidentCase c, List<DocumentView> evidence, IReadOnlyList<LinkedIssue> issues)
     {
         var due = Formats.DateNumber(c.DueDate);
 
@@ -345,6 +372,6 @@ public class IncidentService(ScmosDbContext db)
             ImmediateDue: c.ImmediateDue,
             DocumentsToRevise: c.DocumentsToRevise, FollowUpBy: c.FollowUpBy,
             ReviewedBy: c.ReviewedBy, ApprovalOutcome: c.ApprovalOutcome,
-            ApprovalNote: c.ApprovalNote, TeamNote: c.TeamNote);
+            ApprovalNote: c.ApprovalNote, TeamNote: c.TeamNote, Issues: issues);
     }
 }

@@ -99,7 +99,7 @@ export function RaiseOperationalIssue({ jobs, prefill, onClose, onToast }: {
   );
 }
 
-export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefillTaken, onEscalate, onToast }: {
+export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefillTaken, onEscalate, onOpenCase, onToast }: {
   /**
    * A haulier to open the log on, handed over from the carrier scorecard.
    *
@@ -129,6 +129,8 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
    * it was found and who found it. A job on its own says none of that.
    */
   onEscalate?: (issue: Issue) => void;
+  /** Opens the CAR/PAR an issue is linked to (1 Oct 2026). */
+  onOpenCase?: (caseId: number) => void;
   onToast: (message: string) => void;
 }) {
   const [issues, setIssues] = useState<Issue[] | null>(null);
@@ -604,13 +606,24 @@ export function OperationalIssues({ jobs, prefill, focus, onFocusTaken, onPrefil
                             ones. Which problems warrant a case is a judgement
                             the quality team makes, not a threshold this screen
                             should be enforcing on their behalf. */}
-                        <button
-                          onClick={() => onEscalate(issue)}
-                          className="ghost-btn"
-                          style={css("height:26px;padding:0 10px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}
-                        >
-                          เปิด CAR/PAR
-                        </button>
+                        {issue.caseId && issue.caseReference ? (
+                          // Already answered by a case: the link goes there rather than offering a second one.
+                          <button
+                            onClick={() => onOpenCase?.(issue.caseId!)}
+                            className="ghost-btn"
+                            style={css("height:26px;padding:0 10px;border:1px solid #D9C8F6;background:#F6F1FE;color:#6D28D9;border-radius:13px;font-size:11px;font-weight:700;cursor:pointer;font-family:ui-monospace,monospace")}
+                          >
+                            {issue.caseReference} →
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onEscalate(issue)}
+                            className="ghost-btn"
+                            style={css("height:26px;padding:0 10px;border:1px solid #F3C3BE;background:#FDF6F5;color:#B42318;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit")}
+                          >
+                            เปิด CAR/PAR
+                          </button>
+                        )}
                       </td>
                     )}
                   </tr>

@@ -68,6 +68,10 @@ export type Issue = {
   /** Hours this severity allows, and whether it has run past them. */
   slaHours: number;
   overdue: boolean;
+  /** The CAR/PAR it is linked to (1 Oct 2026). Optional: the web can be newer than the API it is talking to. */
+  caseId?: number | null;
+  caseReference?: string;
+  caseStage?: string;
 };
 
 export type IssueForm = {
@@ -102,7 +106,7 @@ export type IssueSummary = {
 
 /** What a new issue carries. Everything is optional but the detail. */
 export type NewIssue = Partial<Omit<Issue, "id" | "slaHours" | "overdue"
-  | "jobCustomer" | "jobTrucker" | "jobDate">> & { detail: string };
+  | "jobCustomer" | "jobTrucker" | "jobDate" | "caseId" | "caseReference" | "caseStage">> & { detail: string };
 
 async function read<T>(path: string): Promise<T | null> {
   try {

@@ -342,7 +342,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
    * lives.
    */
   const [incidentDraft, setIncidentDraft] =
-    useState<{ jobKey: string; title: string; what: string; issueCode: string } | null>(null);
+    useState<{ jobKey: string; title: string; what: string; issueCode: string; issueId?: number } | null>(null);
+  /** A CAR/PAR to open when the incident screen next shows — from an issue or a scorecard count linked to it. */
+  const [caseFocus, setCaseFocus] = useState<number | null>(null);
 
   const [addCat, setAddCat] = useState<string | null>(null);
   /** Rows inserted into the grid and still being filled in. See insertRow. */
@@ -3376,6 +3378,21 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 // the link that says so has to land on that haulier's rows
                 // rather than on four hundred of them.
                 onFixAccident={(carrier) => { setIssueFocus(carrier); go("issues"); }}
+                // A count opens its issues (1 Oct 2026): each may be re-tagged, linked to a CAR/PAR, or escalated.
+                canEdit={able("EditOwnJobs") || able("EditAnyJob")}
+                onEscalate={(issue) => {
+                  setIncidentDraft({
+                    jobKey: issue.jobKey,
+                    title: [issue.code, issue.detail].filter(Boolean).join(" · ").slice(0, 160),
+                    what: issue.detail,
+                    issueCode: issue.code,
+                    issueId: issue.id,
+                  });
+                  go("incident");
+                  setToast("เปิดเคส CAR/PAR จากปัญหา " + issue.code);
+                }}
+                onOpenCase={(id) => { setCaseFocus(id); go("incident"); }}
+                onToast={setToast}
                 // Every figure on the KPI screen is a way into the jobs behind
                 // it. A rate you cannot open is a rate you cannot act on.
                 onOpenJobs={(filter) => {
@@ -3479,10 +3496,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                     title: [issue.code, issue.detail].filter(Boolean).join(" · ").slice(0, 160),
                     what: issue.detail,
                     issueCode: issue.code,
+                    issueId: issue.id,
                   });
                   go("incident");
                   setToast("เปิดเคส CAR/PAR จากปัญหา " + issue.code);
                 }}
+                onOpenCase={(id) => { setCaseFocus(id); go("incident"); }}
                 onToast={setToast}
               />
             )}
@@ -3540,6 +3559,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                 // Back to the job the case is about. The same route the
                 // assistant already uses, so there is one way in and not two.
                 onOpenJob={(key) => { openTarget({ tab: "PENDING" }); setDrawer(key); }}
+                focusCase={caseFocus}
+                onFocusTaken={() => setCaseFocus(null)}
+                onOpenIssue={(code) => { setIssueFocus(code); go("issues"); }}
                 onToast={setToast}
               />
             )}

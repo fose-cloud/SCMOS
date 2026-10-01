@@ -834,6 +834,9 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.Licence).HasColumnName("licence").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.AccidentGrade).HasColumnName("accident_grade").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.ScorecardColumn).HasColumnName("scorecard_column").HasMaxLength(60).HasDefaultValue("");
+            entry.Property(e => e.CaseId).HasColumnName("case_id");
+            entry.HasIndex(e => e.CaseId).HasDatabaseName("operational_issue_case_idx");
+            entry.HasOne<IncidentCase>().WithMany().HasForeignKey(e => e.CaseId).OnDelete(DeleteBehavior.Restrict);
             entry.Property(e => e.Owner).HasColumnName("owner").HasMaxLength(160).HasDefaultValue("");
             entry.Property(e => e.OwnerId).HasColumnName("owner_id").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.DueOn).HasColumnName("due_on").HasMaxLength(20).HasDefaultValue("");

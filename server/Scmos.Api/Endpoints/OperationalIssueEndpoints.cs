@@ -33,6 +33,9 @@ public static class OperationalIssueEndpoints
 
     public record ImportBody(List<IssueBody>? Issues);
 
+    /// <summary>The CAR/PAR to link an issue to; null unlinks it.</summary>
+    public record CaseLinkBody(long? CaseId);
+
     public static void MapOperationalIssues(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/issues").WithTags("OperationalIssues");
@@ -139,6 +142,21 @@ public static class OperationalIssueEndpoints
             return result.Ok
                 ? Results.Json(new { ok = true, result.Message })
                 : ApiResults.Error(result.Message, StatusCodes.Status404NotFound);
+        });
+
+        // Which CAR/PAR an issue sits under (1 Oct 2026). Written to the audit trail as well as the row: it ties two
+        // registers together, and "who said this complaint belongs to that corrective action" is asked later.
+        group.MapPut("/{id:long}/case", async (long id, [FromBody] CaseLinkBody? body, HttpContext context, IUserAccessor users,
+            OperationalIssueService issues, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (CarrierTenantContext.IsCarrier(user) || !Writes(user))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ผูกปัญหากับ CAR/PAR", StatusCodes.Status403Forbidden);
+            var result = await issues.LinkCaseAsync(id, body?.CaseId, user.Signature, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status404NotFound);
+            await audit.RecordAsync(user, AuditActions.Update, "issue", id.ToString(), "", "CAR/PAR", "", result.Code ?? "", "", token);
+            return Results.Json(new { ok = true, result.Message, reference = result.Code });
         });
 
         // The team's existing log, brought in whole. Codes already in the table

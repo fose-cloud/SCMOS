@@ -118,8 +118,7 @@ public static class CarrierScorecard
         /// </summary>
         Func<string, string?>? knownCarrier = null)
     {
-        var carrierOf = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var job in jobs) carrierOf[job.Key] = job.Carrier;
+        var CarrierFor = OwnerOf(jobs, knownCarrier);
 
         /*
          * The carrier an issue counts against, or "" for nobody.
@@ -134,13 +133,6 @@ public static class CarrierScorecard
          * One carrier per issue. Reading both would count one event twice, on
          * the two occasions they disagree, which is exactly when it matters.
          */
-        string CarrierFor(OperationalIssue issue)
-        {
-            if (issue.JobKey.Length > 0 && carrierOf.TryGetValue(issue.JobKey, out var viaJob))
-                return viaJob;
-            return knownCarrier?.Invoke(issue.Reporter ?? "") ?? "";
-        }
-
         var owner = issues.ToDictionary(issue => issue, CarrierFor);
         var attributed = issues.Where(issue => owner[issue].Length > 0).ToList();
 
@@ -180,10 +172,7 @@ public static class CarrierScorecard
             // Paired on the job, so only where there is one: every issue with
             // no job key shares the empty string, and without this guard one
             // complaint would cancel every unrelated breakdown beside it.
-            var breakdownNoComplaint = mine.Count(issue =>
-                ScorecardColumn.Of(issue) == ScorecardColumn.Breakdown
-                && !(issue.JobKey.Length > 0
-                     && mine.Any(other => other.JobKey == issue.JobKey && IsComplaint(other))));
+            var breakdownNoComplaint = mine.Count(issue => BreakdownWithoutComplaint(issue, mine));
 
             var complaints = mine.Count(IsComplaint);
 
@@ -311,6 +300,44 @@ public static class CarrierScorecard
         double? percent = shipments == 0 ? null : Round(Math.Max(0, 100 - (count * 100.0 / shipments)));
         return new ScoreLine(id, english, thai, weight, percent, count, shipments, target,
             shipments == 0 && note.Length == 0 ? "ไม่มี shipment ในเดือนนี้" : note);
+    }
+
+    /// <summary>The carrier an issue counts against, or "" for nobody — the job's haulier, else the one named on it.</summary>
+    public static Func<OperationalIssue, string> OwnerOf(
+        IReadOnlyList<(string Key, string Carrier, JobRecord Record)> jobs, Func<string, string?>? knownCarrier)
+    {
+        var carrierOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var job in jobs) carrierOf[job.Key] = job.Carrier;
+        return issue => issue.JobKey.Length > 0 && carrierOf.TryGetValue(issue.JobKey, out var viaJob)
+            ? viaJob
+            : knownCarrier?.Invoke(issue.Reporter ?? "") ?? "";
+    }
+
+    /// <summary>A breakdown on a job nobody complained about — the only column whose count depends on another issue.</summary>
+    private static bool BreakdownWithoutComplaint(OperationalIssue issue, IReadOnlyList<OperationalIssue> mine) =>
+        ScorecardColumn.Of(issue) == ScorecardColumn.Breakdown
+        && !(issue.JobKey.Length > 0 && mine.Any(other => other.JobKey == issue.JobKey && IsComplaint(other)));
+
+    /// <summary>The ungraded accidents of a carrier, asked for as though they were a column.</summary>
+    public const string Ungraded = "ungraded";
+
+    /// <summary>
+    /// The issues behind one number of the scorecard (1 Oct 2026) — a carrier's count under one column, or its
+    /// ungraded accidents. The same attribution and the same column rule as <see cref="Build"/>, so the list a person
+    /// opens is always exactly the count they clicked.
+    /// </summary>
+    public static IReadOnlyList<OperationalIssue> Behind(
+        IReadOnlyList<(string Key, string Carrier, JobRecord Record)> jobs, IReadOnlyList<OperationalIssue> issues,
+        Func<string, string?>? knownCarrier, string carrier, string column)
+    {
+        var owner = OwnerOf(jobs, knownCarrier);
+        var mine = issues.Where(issue => owner(issue) is { Length: > 0 } name && string.Equals(name, carrier, StringComparison.Ordinal)).ToList();
+        return column switch
+        {
+            Ungraded => mine.Where(ScorecardColumn.IsUngradedAccident).ToList(),
+            ScorecardColumn.Breakdown => mine.Where(issue => BreakdownWithoutComplaint(issue, mine)).ToList(),
+            _ => mine.Where(issue => ScorecardColumn.Of(issue) == column).ToList(),
+        };
     }
 
     private static bool IsDamage(OperationalIssue issue) =>

@@ -52,7 +52,9 @@ public static class SupplierEndpoints
     /// answered is a form nobody investigates.
     /// </summary>
     public record RaiseBody(string? JobKey, string? Kind, string? Category, string? Title,
-        string? What = null, string? Where = null, string? When = null, string? Who = null);
+        string? What = null, string? Where = null, string? When = null, string? Who = null,
+        /// <summary>The operational issue this case is escalated from, which then names the case (1 Oct 2026).</summary>
+        long? IssueId = null);
     public record ReasonBody(string? Reason);
     public record StageBody(string? Stage, string? Reason);
 
@@ -398,7 +400,7 @@ public static class SupplierEndpoints
             await GuardedIncident(context, users, audit, token,
                 (user, _) => service.RaiseAsync(body.JobKey ?? "", body.Kind ?? "CAR",
                     body.Category ?? "other", body.Title ?? "", user.Signature, token,
-                    body.What ?? "", body.Where ?? "", body.When ?? "", body.Who ?? ""),
+                    body.What ?? "", body.Where ?? "", body.When ?? "", body.Who ?? "", body.IssueId),
                 "create", body.Title ?? "", "", "", "open", ""));
 
         /*

@@ -24,7 +24,9 @@ public record IssueView(
     /// <summary>The job it attached to, when it attached to one.</summary>
     string JobCustomer, string JobTrucker, string JobDate,
     /// <summary>Hours allowed for this severity, and whether it is past them.</summary>
-    int SlaHours, bool Overdue);
+    int SlaHours, bool Overdue,
+    /// <summary>The CAR/PAR it is linked to, when it is (1 Oct 2026).</summary>
+    long? CaseId = null, string CaseReference = "", string CaseStage = "");
 
 /// <summary>The vocabularies the form may offer, served rather than duplicated.</summary>
 public record IssueForm(
@@ -149,6 +151,7 @@ public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carrier
         // scorecard name the same firm — and a link from one to the other
         // actually finds the rows.
         var directory = await carriers.ReadAsync(token);
+        var cases = await CasesOfAsync(rows, token);
 
         var now = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7));
         return rows.Select(issue =>
@@ -163,8 +166,42 @@ public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carrier
                 issue.Driver, issue.ContainerNo, issue.Licence, issue.AccidentGrade,
                 Rules.ScorecardColumn.Of(issue),
                 job?.Customer ?? "", directory.Company(job?.Trucker ?? ""), job?.WorkDate ?? "",
-                hours, IsOverdue(issue, hours, now));
+                hours, IsOverdue(issue, hours, now),
+                issue.CaseId, issue.CaseId is { } caseId && cases.TryGetValue(caseId, out var linked) ? linked.Reference : "",
+                issue.CaseId is { } stageOf && cases.TryGetValue(stageOf, out var staged) ? staged.Stage : "");
         }).ToList();
+    }
+
+    /// <summary>The CAR/PAR cases a set of issues is linked to, read once for the lot.</summary>
+    public async Task<Dictionary<long, (string Reference, string Stage)>> CasesOfAsync(IEnumerable<OperationalIssue> issues, CancellationToken token)
+    {
+        var ids = issues.Where(issue => issue.CaseId is not null).Select(issue => issue.CaseId!.Value).Distinct().ToList();
+        if (ids.Count == 0) return [];
+        return await db.IncidentCases.AsNoTracking().Where(row => ids.Contains(row.Id))
+            .ToDictionaryAsync(row => row.Id, row => (row.Reference, row.Stage), token);
+    }
+
+    /// <summary>
+    /// Links an issue to a CAR/PAR, or unlinks it with null (1 Oct 2026). The issue keeps counting under its own
+    /// scorecard column whichever case it sits under — the case is the corrective action, not the classification.
+    /// </summary>
+    public async Task<IssueResult> LinkCaseAsync(long id, long? caseId, string by, CancellationToken token)
+    {
+        var issue = await db.OperationalIssues.FirstOrDefaultAsync(row => row.Id == id, token);
+        if (issue is null) return new IssueResult(false, "ไม่พบปัญหานี้");
+        var reference = "";
+        if (caseId is { } wanted)
+        {
+            var found = await db.IncidentCases.AsNoTracking().Where(row => row.Id == wanted).Select(row => row.Reference).FirstOrDefaultAsync(token);
+            if (found is null) return new IssueResult(false, "ไม่พบเคส CAR/PAR นี้");
+            reference = found;
+        }
+        issue.CaseId = caseId;
+        issue.UpdatedBy = by;
+        issue.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(token);
+        return new IssueResult(true, caseId is null ? $"ยกเลิกการผูก {issue.Code} กับ CAR/PAR แล้ว" : $"ผูก {issue.Code} กับ {reference} แล้ว",
+            issue.Id, reference);
     }
 
     /// <summary>

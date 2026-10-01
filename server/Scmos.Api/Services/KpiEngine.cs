@@ -196,26 +196,7 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         if (cache.TryGetValue(key, out KpiEngineReport? ready) && ready is not null) return ready;
 
         var rows = snapshot.Rows;
-
-        var jobs = new List<(string Key, string Carrier, JobRecord Record)>();
-        var scorecardJobs = new List<(string Key, string Carrier, JobRecord Record)>();
-        foreach (var row in rows)
-        {
-            var record = row.Record;
-            if (record is null || !InPeriod(record, period)) continue;
-            // The dashboard's CUSTOMER / TRUCKER: a customer by spelling, a haulier through the register.
-            if (!scope.HasCustomer(record.Customer)) continue;
-            if (scope.Truckers.Count > 0 && !scope.Truckers.Any(wanted => directory.Same(row.Trucker, wanted))) continue;
-            var entry = (row.Key, directory.Company(row.Trucker), record);
-            jobs.Add(entry);
-
-            // The scorecard counts what My Job counts. The measures above keep
-            // the whole register — they are this operation's own figures and
-            // Domestic work is part of it — but "Total individual shipment" is
-            // read against the workspace, so it has to be the same shipments.
-            if (WorkspaceTabs.CountedInWorkspace(record.Cat)) scorecardJobs.Add(entry);
-        }
-
+        var (jobs, scorecardJobs) = Select(rows, period, scope, directory);
         var keys = jobs.Select(job => job.Key).ToHashSet();
 
         // Only the carriers' own answers: not a binding SCMOS wrote when a job closed, nor a yes the job's
@@ -230,6 +211,11 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
         // nothing cannot be said to be this customer's or this haulier's, so it is left out and said so.
         var unpinnedCases = scope.IsAll ? 0 : cases.Count(c => c.JobKey.Length == 0 || !keys.Contains(c.JobKey));
         if (!scope.IsAll) cases = cases.Where(c => keys.Contains(c.JobKey)).ToList();
+        // And to the period (1 Oct 2026). The Accident and CAR/PAR cards read every case on file whatever month was
+        // chosen, so they never moved with the filter and their month-on-month change was always nought. A case on a
+        // job belongs to the month that job ran — the same month every other card counts it in; a case on no job
+        // (or on one the register no longer holds) belongs to the day it was issued, else the day it was raised.
+        cases = CasesIn(period, rows.Select(row => row.Key).ToHashSet(StringComparer.Ordinal), keys, cases);
 
         // Issues are kept for the whole period, matched or not: the ones that
         // reach a job are somebody's score, and the ones that do not are still
@@ -649,6 +635,69 @@ public class KpiEngine(ScmosDbContext db, JobRegisterCache register, CarrierDire
     }
 
     private static bool InPeriod(JobRecord job, Period period) => InPeriod(job.Date, period);
+
+    /// <summary>
+    /// The jobs a report is read over — those in the period and the dashboard's scope — and the part of them the
+    /// carrier scorecard counts (what My Job counts). One selection for the report and for the list behind any of
+    /// its numbers, so the two cannot disagree.
+    /// </summary>
+    private static (List<(string Key, string Carrier, JobRecord Record)> Jobs, List<(string Key, string Carrier, JobRecord Record)> Scorecard)
+        Select(IReadOnlyList<CachedJobRow> rows, Period period, KpiScope scope, CarrierDirectory.Lookup directory)
+    {
+        var jobs = new List<(string Key, string Carrier, JobRecord Record)>();
+        var scorecardJobs = new List<(string Key, string Carrier, JobRecord Record)>();
+        foreach (var row in rows)
+        {
+            var record = row.Record;
+            if (record is null || !InPeriod(record, period)) continue;
+            // The dashboard's CUSTOMER / TRUCKER: a customer by spelling, a haulier through the register.
+            if (!scope.HasCustomer(record.Customer)) continue;
+            if (scope.Truckers.Count > 0 && !scope.Truckers.Any(wanted => directory.Same(row.Trucker, wanted))) continue;
+            var entry = (row.Key, directory.Company(row.Trucker), record);
+            jobs.Add(entry);
+
+            // The scorecard counts what My Job counts. The measures above keep
+            // the whole register — they are this operation's own figures and
+            // Domestic work is part of it — but "Total individual shipment" is
+            // read against the workspace, so it has to be the same shipments.
+            if (WorkspaceTabs.CountedInWorkspace(record.Cat)) scorecardJobs.Add(entry);
+        }
+        return (jobs, scorecardJobs);
+    }
+
+    /// <summary>
+    /// The CAR/PAR cases of a period: on a job the register holds, the job's month (<paramref name="keys"/> — the jobs
+    /// the report reads); on no job, or one the register no longer holds, the day the case was issued, else raised.
+    /// </summary>
+    public static List<IncidentCase> CasesIn(Period period, IReadOnlySet<string> registered, IReadOnlySet<string> keys, List<IncidentCase> cases) =>
+        period.IsAll
+            ? cases
+            : cases.Where(c => c.JobKey.Length > 0 && registered.Contains(c.JobKey)
+                ? keys.Contains(c.JobKey)
+                : InPeriod(CaseDay(c), period)).ToList();
+
+    /// <summary>The day a case belongs to when it is on no job: issued (DD/MM/YYYY or as typed), else raised, in Bangkok.</summary>
+    private static string CaseDay(IncidentCase c) =>
+        Formats.ParseDay(c.RequestedOn) is { } issued
+            ? Formats.PlanDate(issued)
+            : Formats.PlanDate(DateOnly.FromDateTime(c.RaisedAt.ToOffset(TimeSpan.FromHours(7)).DateTime));
+
+    /// <summary>
+    /// The operational issues behind one count of the carrier scorecard (1 Oct 2026): the period and scope the report
+    /// was read over, one carrier, one column (or <see cref="CarrierScorecard.Ungraded"/>). Exactly the issues that
+    /// number was made of.
+    /// </summary>
+    public async Task<IReadOnlyList<OperationalIssue>> ScorecardIssuesAsync(Period period, KpiScope scope, string carrier, string column,
+        CancellationToken token)
+    {
+        var snapshot = await register.ReadAsync(token, staleOk: true);
+        var directory = await carriers.ReadAsync(token);
+        var (_, scorecardJobs) = Select(snapshot.Rows, period, scope, directory);
+        var periodIssues = (await db.OperationalIssues.AsNoTracking().ToListAsync(token))
+            .Where(issue => InPeriod(issue.FoundOn, period)).ToList();
+        return CarrierScorecard.Behind(scorecardJobs, periodIssues,
+            spelling => directory.Knows(spelling) ? directory.Company(spelling) : null, carrier, column);
+    }
 
     /// <summary>
     /// The same period test over a bare DD/MM/YYYY date.
