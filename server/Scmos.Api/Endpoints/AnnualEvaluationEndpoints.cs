@@ -14,6 +14,8 @@ namespace Scmos.Api.Endpoints;
 public static class AnnualEvaluationEndpoints
 {
     public record MoveBody(string? Status, string? Reason);
+    /// <param name="Carriers">Which of the campaign's carriers (their campaign row ids); empty means every included one.</param>
+    public record SnapshotBody(List<int>? Carriers, string? Reason);
 
     public static void MapAnnualEvaluations(this IEndpointRouteBuilder routes)
     {
@@ -68,6 +70,15 @@ public static class AnnualEvaluationEndpoints
         campaigns.MapPost("/{id:int}/carriers/count", async (int id, HttpContext context, IUserAccessor users, AnnualEvaluationService service,
             CancellationToken token) =>
             await WriteAsync(context, users, user => service.RecountAsync(user, id, token)));
+
+        // Phase 3: the evidence each carrier is scored on, taken as a new version each time (1 Oct 2026).
+        campaigns.MapPost("/{id:int}/generate-snapshot", async (int id, [FromBody] SnapshotBody? body, HttpContext context, IUserAccessor users,
+            EvaluationSnapshotService snapshots, CancellationToken token) =>
+            await WriteAsync(context, users, user => snapshots.GenerateAsync(user, id, body?.Carriers, body?.Reason, token)));
+
+        campaigns.MapGet("/{id:int}/carriers/{carrier:int}/snapshot", async (int id, int carrier, int? version, HttpContext context,
+            IUserAccessor users, EvaluationSnapshotService snapshots, CancellationToken token) =>
+            await ReadAsync(context, users, async user => await snapshots.ReadAsync(user, id, carrier, version, token)));
 
         campaigns.MapPost("/{id:int}/status", async (int id, [FromBody] MoveBody body, HttpContext context, IUserAccessor users,
             AnnualEvaluationService service, CancellationToken token) =>

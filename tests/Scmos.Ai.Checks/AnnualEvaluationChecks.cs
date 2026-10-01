@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -75,8 +76,14 @@ static class AnnualEvaluationChecks
             db.Suppliers.AddRange(alpha, bravo, draft, agent);
             await db.SaveChangesAsync();
             db.SupplierAliases.Add(new SupplierAlias { SupplierId = alpha.Id, Alias = "ALP", Source = "manual", Confirmed = true });
+            // The job as the workspace stores it, so the register snapshot (Phase 3) reads the same jobs the count does.
+            // J2 arrives two hours after plan with no reason recorded.
             OperationJob Job(string key, string trucker, string date, string status) =>
-                new() { Key = key, Trucker = trucker, WorkDate = date, Status = status, Data = "{}", UpdatedAt = now };
+                new()
+                {
+                    Key = key, Trucker = trucker, WorkDate = date, Status = status, UpdatedAt = now,
+                    Data = JsonSerializer.Serialize(new { key, date, status, trucker, planTime = "08:00", arrDate = date, arrTime = key == "J2" ? "10:00" : "07:55" }),
+                };
             db.OperationJobs.AddRange(
                 Job("J1", "ALPHA TRANSPORT", "15/03/2026", JobStatus.Completed), Job("J2", "ALP", "20/04/2026", JobStatus.Completed),
                 Job("J3", "alpha transport", "01/05/2026", JobStatus.Completed), Job("J4", "ALPHA TRANSPORT", "02/05/2026", JobStatus.Completed),
@@ -89,8 +96,12 @@ static class AnnualEvaluationChecks
             var operation = User("OP-1", Roles.Operation);
             var supervisor = User("SV-1", Roles.Supervisor);
             var manager = User("MG-1", Roles.Manager);
-            var service = new AnnualEvaluationService(db, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance),
-                new CarrierDirectory(db, new MemoryCache(new MemoryCacheOptions())));
+            var auditing = new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance);
+            var directory = new CarrierDirectory(db, new MemoryCache(new MemoryCacheOptions()));
+            var service = new AnnualEvaluationService(db, auditing, directory);
+            var snapshots = new EvaluationSnapshotService(db, auditing,
+                new JobRegisterCache(db, new MemoryCache(new MemoryCacheOptions()), NullLogger<JobRegisterCache>.Instance), directory);
+            decimal? Figure(SnapshotView view, string code) => view.Metrics.Single(metric => metric.Code == code).Value;
 
             var refused = await service.CreateAsync(operation, new CreateCampaignInput(2026, null, null), default);
             var first = await service.CreateAsync(supervisor, new CreateCampaignInput(2026, null, null), default);
@@ -130,6 +141,23 @@ static class AnnualEvaluationChecks
                 && bravoRow.CompletedJobs == 1 && bravoRow.Eligibility == AnnualEvaluationRules.LimitedData,
                 "annual evaluation: weights are compared exactly; approved carriers are added and counted in the period through their spellings, cancelled jobs left out");
 
+            // Phase 3: the evidence. Without it the campaign may not open; with it, each carrier's figures are its own.
+            var withoutEvidence = (await service.ReadAsync(operation, id, default))!.Problems;
+            var notAllowed = await snapshots.GenerateAsync(operation, id, null, null, default);
+            var taken = await snapshots.GenerateAsync(supervisor, id, null, null, default);
+            var alphaEvidence = (await snapshots.ReadAsync(operation, id, alphaRow.Id, null, default))!;
+            var bravoEvidence = (await snapshots.ReadAsync(operation, id, bravoRow.Id, null, default))!;
+            check(withoutEvidence.Any(problem => problem.Contains("snapshot")) && !notAllowed.Ok && taken.Ok
+                && alphaEvidence.Snapshot!.Version == 1 && alphaEvidence.Snapshot.Current
+                && Figure(alphaEvidence, "total-jobs") == 6 && Figure(alphaEvidence, "completed-jobs") == 5
+                && Figure(alphaEvidence, "late-unclassified") == 1 && Figure(alphaEvidence, "carrier-otd") == 100m
+                && Figure(alphaEvidence, "operational-otd") == Math.Round(500m / 6, 4)
+                && alphaEvidence.Metrics.Single(metric => metric.Code == "late-unclassified").Sources.SequenceEqual(["J2"])
+                && Figure(bravoEvidence, "total-jobs") == 1
+                && bravoEvidence.Metrics.Single(metric => metric.Code == "carrier-otd").Status == AnnualEvaluationRules.InsufficientData
+                && alphaEvidence.Metrics.Single(metric => metric.Code == "pricing").Status == AnnualEvaluationRules.NotAvailable,
+                "annual evaluation: a snapshot holds each carrier's own figures, from the register's jobs — a late job with no reason is shown, not charged");
+
             var noReady = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Open, null, default);
             var problems = (await service.ReadAsync(operation, id, default))!.Problems;
             await service.MoveAsync(supervisor, id, AnnualEvaluationRules.DataPreparation, null, default);
@@ -138,12 +166,24 @@ static class AnnualEvaluationChecks
             var lockedKpis = await service.SaveKpisAsync(supervisor, id, kpiInput, default);
             var lockedUpdate = await service.UpdateAsync(supervisor, id, new CampaignInput("x", null, null, null, null, null, null, null, null, null), default);
             var lockedCarriers = await service.ChangeCarriersAsync(supervisor, id, new CarrierChangeInput("exclude", [bravo.Id], "late"), default);
+            var lockedNoReason = await snapshots.GenerateAsync(supervisor, id, null, null, default);
+            var corrected = await snapshots.GenerateAsync(supervisor, id, [alphaRow.Id], "POD uploaded late, re-read", default);
+            var versions = (await snapshots.ReadAsync(operation, id, alphaRow.Id, null, default))!.Versions;
+            var firstVersion = (await snapshots.ReadAsync(operation, id, alphaRow.Id, 1, default))!;
+            check(!lockedNoReason.Ok && corrected.Ok && versions.Count == 2 && versions.Single(one => one.Current).Version == 2
+                && versions.Single(one => one.Version == 2).Reason == "POD uploaded late, re-read"
+                && firstVersion.Metrics.Count == alphaEvidence.Metrics.Count && Figure(firstVersion, "total-jobs") == 6
+                && (await snapshots.ReadAsync(operation, id, bravoRow.Id, null, default))!.Versions.Count == 1,
+                "annual evaluation: once open, new evidence needs a reason and is a new version; the old one stays exactly as it was");
+
             var backNoReason = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Closed, null, default);
             var reopenNoReason = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Open, null, default);
             await service.MoveAsync(supervisor, id, AnnualEvaluationRules.UnderReview, null, default);
             var supervisorApprove = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Approved, null, default);
             var managerApprove = await service.MoveAsync(manager, id, AnnualEvaluationRules.Approved, null, default);
             var campaign = await db.EvaluationCampaigns.AsNoTracking().FirstAsync(row => row.Id == id);
+            var afterApproval = await snapshots.GenerateAsync(supervisor, id, null, "late correction", default);
+            check(!afterApproval.Ok, "annual evaluation: an approved campaign takes no new evidence");
             check(!noReady.Ok && problems.Count == 0 && ready.Ok && opened.Ok && campaign.LockedAt is not null && campaign.LockedBy.Length > 0
                 && !lockedKpis.Ok && lockedKpis.Status == StatusCodes.Status409Conflict && !lockedUpdate.Ok && !lockedCarriers.Ok
                 && backNoReason.Ok && !reopenNoReason.Ok && !supervisorApprove.Ok && managerApprove.Ok && campaign.Status == AnnualEvaluationRules.Approved,

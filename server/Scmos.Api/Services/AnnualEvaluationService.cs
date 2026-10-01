@@ -540,7 +540,9 @@ public class AnnualEvaluationService(ScmosDbContext db, AuditService audit, Carr
             await db.EvaluationQuestionDepartments.AsNoTracking().Where(row => questionIds.Contains(row.QuestionId)).ToListAsync(token),
             await db.EvaluationCampaignDepartments.AsNoTracking().Where(row => row.CampaignId == id).ToListAsync(token),
             await db.EvaluationScoreBands.AsNoTracking().Where(row => row.CampaignId == id).ToListAsync(token),
-            await db.EvaluationCarriers.CountAsync(row => row.CampaignId == id && row.Included, token));
+            await db.EvaluationCarriers.CountAsync(row => row.CampaignId == id && row.Included, token),
+            await db.EvaluationCarriers.CountAsync(row => row.CampaignId == id && row.Included
+                && !db.EvaluationSnapshots.Any(snapshot => snapshot.EvaluationCarrierId == row.Id && snapshot.Current), token));
     }
 
     /// <summary>The campaign, when this person may change its rules and they are not yet locked.</summary>

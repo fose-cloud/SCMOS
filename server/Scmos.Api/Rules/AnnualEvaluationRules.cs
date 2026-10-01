@@ -153,7 +153,9 @@ public static class AnnualEvaluationRules
         IReadOnlyList<EvaluationQuestionDepartment> QuestionDepartments,
         IReadOnlyList<EvaluationCampaignDepartment> Departments,
         IReadOnlyList<EvaluationScoreBand> ScoreBands,
-        int IncludedCarriers);
+        int IncludedCarriers,
+        /// <summary>Included carriers with no current snapshot — evidence an evaluator would be shown nothing of.</summary>
+        int MissingSnapshots = 0);
 
     /// <summary>
     /// Everything that stops the campaign from being ready, in words the screen shows. Empty means it may open.
@@ -216,6 +218,7 @@ public static class AnnualEvaluationRules
         }
 
         if (config.IncludedCarriers == 0) problems.Add("ยังไม่ได้เลือกผู้ขนส่งที่จะประเมิน");
+        if (config.MissingSnapshots > 0) problems.Add($"ยังไม่ได้สร้าง snapshot หลักฐาน {config.MissingSnapshots} ราย");
         return problems;
     }
 

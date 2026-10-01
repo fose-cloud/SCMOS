@@ -124,6 +124,7 @@ builder.Services.AddScoped<AuditPlanService>();
 builder.Services.AddScoped<ActionPlanService>();
 builder.Services.AddScoped<SkillMatrixService>();
 builder.Services.AddScoped<AnnualEvaluationService>();
+builder.Services.AddScoped<EvaluationSnapshotService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
