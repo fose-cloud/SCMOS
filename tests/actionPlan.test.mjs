@@ -94,13 +94,14 @@ test("a plan started elsewhere arrives in the form filled in, and keeps where it
   // Only somebody who may write plans is offered the button.
   assert.match(app, /const startActionPlan = able\("EditActionPlans"\)/);
   assert.match(app, /requestActionPlan\(\{ create: prefill \}\); go\("actionplan"\);/);
-  for (const screen of ["Suppliers", "AuditPlanning", "Evaluation"]) {
+  for (const screen of ["Suppliers", "AuditPlanning", "AnnualEvaluation"]) {
     assert.match(app, new RegExp(`<${screen} [^\\n]*onActionPlan=\\{startActionPlan\\}`), screen);
   }
   // An Action Plan alert opens the plan it names.
   assert.match(app, /target\.screen === "actionplan" && target\.jobKey[^\n]*requestActionPlan\(\{ open: Number\(target\.jobKey\) \}\)/);
   assert.match(read("app/scmos/screens/Suppliers.tsx"), /kind: "supplier"/);
-  assert.match(read("app/scmos/screens/SupplierFlows.tsx"), /kind: "evaluation"/);
+  // The annual evaluation's plan comes from a carrier's result (1 Oct 2026) — the old evaluation screen it replaced did the same.
+  assert.match(read("app/scmos/screens/EvaluationCarrierPanel.tsx"), /kind: "evaluation"/);
   assert.match(read("app/scmos/screens/AuditPlanning.tsx"), /kind: "audit"/);
 });
 

@@ -42,7 +42,8 @@ import { Audit, NotBuilt } from "./scmos/screens/Audit";
 import { Suppliers } from "./scmos/screens/Suppliers";
 import { Incidents } from "./scmos/screens/Incidents";
 import { AiControlTower } from "./scmos/screens/AiControlTower";
-import { Evaluation, Vendor } from "./scmos/screens/SupplierFlows";
+import { Vendor } from "./scmos/screens/SupplierFlows";
+import { AnnualEvaluation } from "./scmos/screens/AnnualEvaluation";
 import { AuditPlanning } from "./scmos/screens/AuditPlanning";
 import { ActionPlan } from "./scmos/screens/ActionPlan";
 import { requestActionPlan, type PlanPrefill } from "./scmos/actionPlanRequest";
@@ -3580,7 +3581,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "vendor" && <Vendor canRegister={able("EditSuppliers")} canManage={able("ManageSuppliers")} canUpload={able("UploadDocuments")} onToast={setToast} />}
             {screen === "auditplan" && <AuditPlanning canEdit={able("EditSuppliers")} onToast={setToast} onActionPlan={startActionPlan} />}
             {screen === "actionplan" && <ActionPlan onToast={setToast} />}
-            {screen === "evaluation" && <Evaluation canManage={isSupervisor} onToast={setToast} onActionPlan={startActionPlan} />}
+            {/* Annual Evaluation campaigns (1 Oct 2026) in place of the screen that averaged a few scores into a grade;
+                its rows stay in supplier_evaluations as history. */}
+            {screen === "evaluation" && <AnnualEvaluation canManage={able("ManageAnnualEvaluation")} onToast={setToast} onActionPlan={startActionPlan} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
               canEditRates={able("EditRates")} canSaveQuote={able("QuoteToSheet")}
               // Held by the role but refused until the sign-in is stronger.
