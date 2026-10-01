@@ -311,6 +311,13 @@ public class RateLane
     public DateTime? PromotedAt { get; set; }
 
     public string PromotedBy { get; set; } = "";
+
+    /// <summary>
+    /// The Job Rotation customer this lane is priced for, picked in Rate Management (1 Oct 2026): null while
+    /// nobody has picked — the lane's own text may still name one, see <see cref="Rules.LaneCustomer"/> —
+    /// empty when picked as any customer's.
+    /// </summary>
+    public string? RotationCustomer { get; set; }
 }
 
 /// <summary>One price: a lane, a vehicle type, a fuel band.</summary>

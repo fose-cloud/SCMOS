@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import { bandForDiesel, priceFor, vehiclesIn, type RateBook, type RateLane } from "../rates";
+import { useRotationCustomers } from "../rotationCustomers";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
 
@@ -66,6 +67,9 @@ export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, on
   const [service, setService] = useState("All");
   const [vehicle, setVehicle] = useState("All");
   const [query, setQuery] = useState("");
+  /** The Job Rotation customer the lanes are priced for (1 Oct 2026); UNLINKED for lanes with none. */
+  const [linked, setLinked] = useState("All");
+  const rotation = useRotationCustomers();
   const [page, setPage] = useState(1);
   const [compare, setCompare] = useState(false);
   /*
@@ -88,6 +92,10 @@ export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, on
     [book],
   );
   const vehicles = useMemo(() => (book ? vehiclesIn(book.lanes) : []), [book]);
+  const linkedCustomers = useMemo(
+    () => [...new Set((book?.lanes ?? []).map((l) => l.rotationCustomer ?? "").filter(Boolean))].sort(),
+    [book],
+  );
   /** How many lanes are waiting next door, for the count on the tab. */
   const quotedTotal = useMemo(
     () => (book?.lanes ?? []).filter((lane) => lane.source === "quotation").length,
@@ -106,7 +114,8 @@ export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, on
       if ((lane.source ?? "carrier") !== tab) continue;
       if (carrier !== "All" && lane.carrier !== carrier) continue;
       if (service !== "All" && lane.service !== service) continue;
-      if (wanted && ![lane.customer, lane.from, lane.to, lane.county, lane.carrier]
+      if (linked === UNLINKED ? !!lane.rotationCustomer : linked !== "All" && lane.rotationCustomer !== linked) continue;
+      if (wanted && ![lane.customer, lane.from, lane.to, lane.county, lane.carrier, lane.rotationCustomer ?? ""]
         .some((field) => field.toLowerCase().includes(wanted))) continue;
 
       for (const type of Object.keys(lane.prices)) {
@@ -118,7 +127,20 @@ export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, on
       }
     }
     return out.sort((a, b) => a.lane.customer.localeCompare(b.lane.customer) || a.price - b.price);
-  }, [book, carrier, service, vehicle, query, diesel, tab]);
+  }, [book, carrier, service, vehicle, query, diesel, tab, linked]);
+
+  /**
+   * Links a lane to a Job Rotation customer (1 Oct 2026): a name, "" for any customer's, or null to go back
+   * to what the lane's own text names. The book is read again, so every row of the lane shows it.
+   */
+  async function linkCustomer(lane: RateLane, customer: string | null) {
+    const response = await apiFetch(`/api/rates/lanes/${lane.id}/customer`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ customer }),
+    });
+    const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
+    onToast(reply.message ?? reply.error ?? (response.ok ? "บันทึกแล้ว" : `บันทึกไม่สำเร็จ (${response.status})`));
+    if (response.ok) onReload();
+  }
 
   /**
    * The lanes the move would write, which is what is on screen and no more.
@@ -300,6 +322,7 @@ export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, on
         <Picker label="ผู้รับเหมา" value={carrier} options={["All", ...carriers]} onChange={(v) => { setCarrier(v); setPage(1); }} />
         <Picker label="บริการ" value={service} options={["All", ...services]} onChange={(v) => { setService(v); setPage(1); }} />
         <Picker label="ประเภทรถ/ตู้" value={vehicle} options={["All", ...vehicles]} onChange={(v) => { setVehicle(v); setPage(1); }} />
+        <Picker label="ลูกค้า (Job Rotation)" value={linked} options={["All", UNLINKED, ...linkedCustomers]} onChange={(v) => { setLinked(v); setPage(1); }} />
 
         <label style={css("display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px")}>
           <span style={LABEL}>ค้นหา ลูกค้า / ต้นทาง / ปลายทาง</span>
@@ -392,7 +415,11 @@ export function Rates({ book, error, diesel, onDiesel, onToast, canEditRates, on
                     <td style={CELL}>
                       <span style={css("font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:3px;background:#E7F0FA;color:#1D5FA8")}>{row.lane.service}</span>
                     </td>
-                    <td style={CELL}>{row.lane.customer || "—"}</td>
+                    <td style={CELL}>
+                      <LaneCustomerCell lane={row.lane} names={rotation.names}
+                        editable={canEditRates && tab === "carrier" && rotation.ready}
+                        onPick={(customer) => void linkCustomer(row.lane, customer)} />
+                    </td>
                     <td style={css(CELL_RAW + ";color:#7B8CA0")}>{row.lane.from || "—"}</td>
                     <td style={CELL}>{row.lane.to || "—"}</td>
                     <td style={css(CELL_RAW + ";color:#7B8CA0")}>{row.lane.county || "—"}</td>
@@ -450,6 +477,51 @@ function Picker({ label, value, options, onChange }: {
         {options.map((option) => <option key={option} value={option}>{option === "All" ? "ทั้งหมด" : option}</option>)}
       </select>
     </label>
+  );
+}
+
+/** The filter's word for lanes no Job Rotation customer is linked to. */
+const UNLINKED = "ยังไม่ผูกลูกค้า";
+
+/** The dropdown's word for "back to what the lane's own text names". */
+const BY_TEXT = "__by-text";
+
+/**
+ * A lane's customer (1 Oct 2026): the Job Rotation customer it is priced for, and how — picked here, or named
+ * by the lane's own text — with the carrier's own wording beneath when it differs. On the contracted tab an
+ * editor picks from the Job Rotation list, the same list My job's customer column offers.
+ */
+function LaneCustomerCell({ lane, names, editable, onPick }: {
+  lane: RateLane; names: string[]; editable: boolean; onPick: (customer: string | null) => void;
+}) {
+  const linkedTo = lane.rotationCustomer ?? "";
+  const link = lane.customerLink ?? "";
+  const written = lane.customer.trim();
+  const words = link === "general" ? "ทุกลูกค้า" : linkedTo || written || "—";
+  const tone = link === "picked" ? "#16794C" : link === "matched" ? "#2F6B4F" : link === "general" ? "#5A6B7D" : written ? "#B45309" : "#94A3B8";
+  const tag = link === "picked" ? "Job Rotation" : link === "matched" ? "ตามชื่อในเส้นทาง" : link === "" && written ? "ไม่อยู่ใน Job Rotation" : "";
+  return (
+    <div style={css("display:flex;flex-direction:column;gap:2px;min-width:150px")}>
+      {editable ? (
+        // The row's own click reads its price out; picking a customer is not that.
+        <select aria-label="ลูกค้า (Job Rotation)" title="ลูกค้าที่ราคานี้ใช้ — Billing ใช้ราคานี้กับงานของลูกค้ารายนี้เท่านั้น"
+          onClick={(e) => e.stopPropagation()}
+          value={link === "picked" ? linkedTo : link === "general" ? "" : BY_TEXT}
+          onChange={(e) => onPick(e.target.value === BY_TEXT ? null : e.target.value)}
+          style={css("height:26px;max-width:230px;border:1px solid " + (link ? "#BBD5EE" : "#E8C58A") + ";border-radius:3px;background:"
+            + (link ? "#F4F8FC" : "#FFF8E8") + ";font-size:11.5px;color:#0A2240;font-weight:600;padding:0 4px;cursor:pointer")}>
+          <option value={BY_TEXT}>{link === "matched" ? `${linkedTo} (ตามชื่อในเส้นทาง)` : written ? `${written} — ยังไม่ผูก` : "— ยังไม่ผูก"}</option>
+          <option value="">ทุกลูกค้า</option>
+          {names.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      ) : (
+        <span style={css("font-weight:600;color:" + tone)}>{words}</span>
+      )}
+      {tag && <span style={css("font-size:10px;font-weight:650;color:" + tone)}>{tag}</span>}
+      {written && linkedTo && written.toUpperCase() !== linkedTo.toUpperCase() && (
+        <span style={css("font-size:10.5px;color:#94A3B8")}>{written}</span>
+      )}
+    </div>
   );
 }
 

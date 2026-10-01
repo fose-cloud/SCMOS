@@ -57,14 +57,18 @@ public static class ContractRates
             : await db.RatePrices.AsNoTracking().Where(row => laneIds.Contains(row.LaneId)).ToListAsync(token);
         var byLane = prices.GroupBy(row => row.LaneId).ToDictionary(group => group.Key, group => group.ToList());
         var today = DateTimeOffset.UtcNow.ToOffset(Thailand).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+        // Each lane's Job Rotation customer (1 Oct 2026): picked in Rate Management, or named by its own text.
+        var rotation = await RateService.RotationNamesAsync(db, token);
+        var customers = lanes.ToDictionary(lane => lane.Id,
+            lane => LaneCustomer.Of(lane.RotationCustomer, lane.Customer, lane.FromPlace, rotation).Customer);
 
         foreach (var job in jobs)
-            quotes[job.Key] = Quote(job, bands, changes, lanes, byLane, today);
+            quotes[job.Key] = Quote(job, bands, changes, lanes, byLane, customers, today);
         return quotes;
     }
 
     private static ContractRateQuote Quote(OperationJob job, List<FuelBand> bands, List<(string, double)> changes,
-        List<RateLane> lanes, Dictionary<long, List<RatePrice>> byLane, string today)
+        List<RateLane> lanes, Dictionary<long, List<RatePrice>> byLane, Dictionary<long, string> customers, string today)
     {
         var facts = Facts(job);
         var vehicle = RateMatch.VehicleForType(facts.Type);
@@ -81,7 +85,13 @@ public static class ContractRates
         var anyLane = false;
         foreach (var lane in lanes)
         {
-            var score = RateMatch.Score(job.Customer, facts.Destination, lane.Customer, lane.FromPlace, lane.ToPlace);
+            // A lane agreed for one customer never prices another's job, however well the road fits; one agreed
+            // for this customer is this customer's already, so the road has to fit on its own (1 Oct 2026).
+            var linked = customers[lane.Id];
+            if (!LaneCustomer.Serves(linked, job.Customer)) continue;
+            var score = linked.Length > 0
+                ? RateMatch.Score("", facts.Destination, "", lane.FromPlace, lane.ToPlace)
+                : RateMatch.Score(job.Customer, facts.Destination, lane.Customer, lane.FromPlace, lane.ToPlace);
             if (score < RateMatch.Fits) continue;
             anyLane = true;
             var quoted = byLane.GetValueOrDefault(lane.Id, []).Where(one => Same(one.Vehicle, vehicle)).ToList();
@@ -92,6 +102,9 @@ public static class ContractRates
         if (!anyLane) return Empty(vehicle, diesel, from, monthName, closed, "no-lane");
         if (fitting.Count == 0) return Empty(vehicle, diesel, from, monthName, closed, "not-quoted");
 
+        // The job's own customer's price before a price of anyone's, when both fit the road.
+        if (fitting.Any(one => customers[one.Lane.Id].Length > 0))
+            fitting = fitting.Where(one => customers[one.Lane.Id].Length > 0).ToList();
         var best = fitting.Max(one => one.Score);
         var top = fitting.Where(one => one.Score == best).ToList();
         if (top.Select(one => one.Price.Price).Distinct().Count() > 1)
@@ -107,7 +120,7 @@ public static class ContractRates
         var chosen = top[0];
         var band = bands[chosen.Band];
         return new(chosen.Price.Price, 1, vehicle, band.Label, diesel, from, monthName, closed,
-            $"{chosen.Lane.Customer} · {chosen.Lane.FromPlace} → {chosen.Lane.ToPlace}", chosen.Lane.Id, chosen.Price.Id,
+            $"{(customers[chosen.Lane.Id].Length > 0 ? customers[chosen.Lane.Id] : chosen.Lane.Customer)} · {chosen.Lane.FromPlace} → {chosen.Lane.ToPlace}", chosen.Lane.Id, chosen.Price.Id,
             chosen.Lane.SourceFile, chosen.Lane.PromotedAt?.ToString("O", CultureInfo.InvariantCulture) ?? chosen.Lane.SourceFile, "");
     }
 

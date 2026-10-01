@@ -42,7 +42,14 @@ public record LaneView(
     /// book stops meaning anything, so the difference is shown and moving again
     /// is what resolves it.
     /// </summary>
-    bool PromotedStale = false);
+    bool PromotedStale = false,
+    /// <summary>
+    /// The Job Rotation customer the lane is priced for, or empty (1 Oct 2026), and how it was found:
+    /// <see cref="LaneCustomer.Picked"/>, <see cref="LaneCustomer.Matched"/>, <see cref="LaneCustomer.General"/>
+    /// or empty when neither. Billing prices a job only from a lane of its own customer or of none.
+    /// </summary>
+    string RotationCustomer = "",
+    string CustomerLink = "");
 
 /// <summary>How a move went: what was written, and what could not be.</summary>
 public record PromoteResult(int Lanes, int Prices, int Skipped, IReadOnlyList<string> Notes);
@@ -158,10 +165,46 @@ public class RateService(ScmosDbContext db)
             .Select(band => new BandView(band.Label, band.MinPrice, band.MaxPrice, band.Position))
             .ToListAsync(token);
 
+    /// <summary>Job Rotation's customers, by <see cref="LaneCustomer.Key"/>, as the rotation spells them.</summary>
+    public static async Task<Dictionary<string, string>> RotationNamesAsync(ScmosDbContext db, CancellationToken token) =>
+        (await db.RotationAssignments.AsNoTracking().Where(row => row.Customer != "")
+            .Select(row => row.Customer).Distinct().ToListAsync(token))
+        .Select(name => name.Trim()).Where(name => name.Length > 0)
+        .GroupBy(LaneCustomer.Key).ToDictionary(group => group.Key, group => group.Min(StringComparer.Ordinal)!);
+
+    /// <summary>
+    /// Links a lane to a Job Rotation customer (1 Oct 2026): a rotation name, empty for any customer's, or null
+    /// to leave it to the lane's own text again. Returns what it was and what it is, or why not.
+    /// </summary>
+    public async Task<(bool Ok, string Message, string Before, string After)> SetLaneCustomerAsync(long laneId,
+        string? customer, CancellationToken token)
+    {
+        var lane = await db.RateLanes.FirstOrDefaultAsync(row => row.Id == laneId, token);
+        if (lane is null) return (false, "ไม่พบเส้นทางนี้ในตารางอัตรา", "", "");
+        var rotation = await RotationNamesAsync(db, token);
+        string? stored;
+        if (customer is null) stored = null;
+        else if (customer.Trim().Length == 0) stored = "";
+        else if (rotation.TryGetValue(LaneCustomer.Key(customer), out var name)) stored = name;
+        else return (false, $"\"{customer.Trim()}\" ไม่มีในรายชื่อลูกค้าของ Job Rotation", "", "");
+
+        string Word(string? value) => value is null ? "(ตามชื่อในเส้นทาง)" : value.Length == 0 ? "(ทุกลูกค้า)" : value;
+        var before = Word(lane.RotationCustomer);
+        if (lane.RotationCustomer == stored) return (true, "ไม่มีอะไรเปลี่ยน", before, before);
+        lane.RotationCustomer = stored;
+        await db.SaveChangesAsync(token);
+        var (effective, _) = LaneCustomer.Of(stored, lane.Customer, lane.FromPlace, rotation);
+        return (true, stored is null
+                ? effective.Length > 0 ? $"ใช้ชื่อในเส้นทาง — {effective}" : "ยกเลิกการผูกลูกค้าแล้ว"
+                : stored.Length == 0 ? "เส้นทางนี้ใช้ได้กับทุกลูกค้า" : $"ผูกเส้นทางกับลูกค้า {stored} แล้ว",
+            before, Word(stored));
+    }
+
     /// <summary>The lanes as rate-book rows: each vehicle's price on each band.</summary>
     private async Task<(List<LaneView> Views, int PriceCount)> PricedAsync(List<RateLane> lanes, int width, CancellationToken token)
     {
         var laneIds = lanes.Select(lane => lane.Id).ToHashSet();
+        var rotation = await RotationNamesAsync(db, token);
 
         var prices = await db.RatePrices.AsNoTracking()
             .Where(price => laneIds.Contains(price.LaneId))
@@ -186,8 +229,10 @@ public class RateService(ScmosDbContext db)
                         row[price.BandPosition] = price.Price;
                 }
             }
+            var (customer, link) = LaneCustomer.Of(lane.RotationCustomer, lane.Customer, lane.FromPlace, rotation);
             return new LaneView(lane.Id, lane.SupplierId, lane.Carrier, lane.Service, lane.Customer,
-                lane.FromPlace, lane.ToPlace, lane.County, lane.Remark, table);
+                lane.FromPlace, lane.ToPlace, lane.County, lane.Remark, table,
+                RotationCustomer: customer, CustomerLink: link);
         }).ToList();
         return (views, prices.Count);
     }
@@ -479,12 +524,17 @@ public class RateService(ScmosDbContext db)
 
         foreach (var lane in book.Lanes)
         {
+            // A lane agreed for another Job Rotation customer is not this customer's price (1 Oct 2026).
+            if (!LaneCustomer.Serves(lane.RotationCustomer, customer)) continue;
             var price = PriceAt(lane, vehicle, book.Bands, diesel);
             if (price is null) continue;
 
+            // A customer's own lane fits on the road alone, as Billing's does (ContractRates).
+            var road = lane.RotationCustomer.Length > 0 ? Tokens(destination) : wanted;
+            var named = lane.RotationCustomer.Length > 0 ? "" : lane.Customer;
             var score = Math.Max(
-                Overlap(wanted, Tokens($"{lane.Customer} {lane.To}")),
-                Overlap(wanted, Tokens($"{lane.Customer} {lane.From}")));
+                Overlap(road, Tokens($"{named} {lane.To}")),
+                Overlap(road, Tokens($"{named} {lane.From}")));
             if (score < 0.5) continue;
 
             if (!best.TryGetValue(lane.Carrier, out var held) || held.Price > price.Value)

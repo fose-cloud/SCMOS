@@ -65,6 +65,13 @@ export type RateLane = {
    * absent means `carrier`, which is what those rows are.
    */
   source?: "carrier" | "quotation";
+  /**
+   * The Job Rotation customer the lane is priced for, or empty (1 Oct 2026) — the API decides it
+   * (Rules/LaneCustomer.cs) and Billing prices a job only from a lane of its own customer or of none.
+   */
+  rotationCustomer?: string;
+  /** picked · matched (the lane's own text names a rotation customer) · general (any customer's) · "" */
+  customerLink?: string;
   /** When this quoted lane was last moved into the contracted book. */
   promotedAt?: string | null;
   /** True when the quotation has changed since it was moved. */

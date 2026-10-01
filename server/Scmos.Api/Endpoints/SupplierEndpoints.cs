@@ -16,6 +16,9 @@ namespace Scmos.Api.Endpoints;
 /// <summary>Which quoted lanes to move into the contracted rate book.</summary>
 public record PromoteBody(List<long>? LaneIds);
 
+/// <summary>The Job Rotation customer a rate lane is priced for: a rotation name, empty for any, null to unpick.</summary>
+public record LaneCustomerBody(string? Customer);
+
 public static class SupplierEndpoints
 {
     public record RegisterBody(string? Name, string? Code, string? ServiceType, string? ServiceArea, string? Reason);
@@ -337,6 +340,27 @@ public static class SupplierEndpoints
                 : $"ย้ายแล้ว {done.Lanes:N0} เส้นทาง · {done.Prices:N0} ราคา"
                   + (done.Skipped > 0 ? $" · ข้าม {done.Skipped:N0}" : "");
             return Results.Json(new { message, done.Lanes, done.Prices, done.Skipped, done.Notes });
+        });
+
+        // The Job Rotation customer a lane is priced for (1 Oct 2026), picked in Rate Management: a write to the
+        // rate book, so EditRates and the same second factor the move asks for. `customer` is a rotation name,
+        // "" for any customer's, or null to go back to the lane's own text.
+        rates.MapPut("/lanes/{id:long}/customer", async (long id, [FromBody] LaneCustomerBody body, HttpContext context,
+            IUserAccessor users, RateService service, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.EditRates))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แก้ไขอัตราค่าขนส่ง", StatusCodes.Status403Forbidden);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.EditRates) is { } weak)
+                return weak;
+
+            var result = await service.SetLaneCustomerAsync(id, body.Customer, token);
+            if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
+            if (result.Before != result.After)
+                await audit.RecordAsync(user, AuditActions.Update, "rate-lane", id.ToString(), $"lane {id}",
+                    "ลูกค้า (Job Rotation)", result.Before, result.After, "Rate Management", token);
+            return Results.Json(new { message = result.Message });
         });
 
         rates.MapGet("/quotes", async (string? customer, string? destination, string? vehicle, decimal? diesel,
