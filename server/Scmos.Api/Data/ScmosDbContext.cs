@@ -106,6 +106,24 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<ActionPlanReference> ActionPlanReferences => Set<ActionPlanReference>();
     public DbSet<ActionPlanSkill> ActionPlanSkills => Set<ActionPlanSkill>();
     public DbSet<SkillAssessment> SkillAssessments => Set<SkillAssessment>();
+    public DbSet<EvaluationCampaign> EvaluationCampaigns => Set<EvaluationCampaign>();
+    public DbSet<EvaluationKpi> EvaluationKpis => Set<EvaluationKpi>();
+    public DbSet<EvaluationKpiBand> EvaluationKpiBands => Set<EvaluationKpiBand>();
+    public DbSet<EvaluationScoreBand> EvaluationScoreBands => Set<EvaluationScoreBand>();
+    public DbSet<EvaluationDepartment> EvaluationDepartments => Set<EvaluationDepartment>();
+    public DbSet<EvaluationCampaignDepartment> EvaluationCampaignDepartments => Set<EvaluationCampaignDepartment>();
+    public DbSet<EvaluationQuestion> EvaluationQuestions => Set<EvaluationQuestion>();
+    public DbSet<EvaluationQuestionDepartment> EvaluationQuestionDepartments => Set<EvaluationQuestionDepartment>();
+    public DbSet<EvaluationCarrier> EvaluationCarriers => Set<EvaluationCarrier>();
+    public DbSet<EvaluationSnapshot> EvaluationSnapshots => Set<EvaluationSnapshot>();
+    public DbSet<EvaluationSnapshotMetric> EvaluationSnapshotMetrics => Set<EvaluationSnapshotMetric>();
+    public DbSet<EvaluationManualScore> EvaluationManualScores => Set<EvaluationManualScore>();
+    public DbSet<EvaluationEvaluator> EvaluationEvaluators => Set<EvaluationEvaluator>();
+    public DbSet<EvaluationInvitation> EvaluationInvitations => Set<EvaluationInvitation>();
+    public DbSet<EvaluationResponse> EvaluationResponses => Set<EvaluationResponse>();
+    public DbSet<EvaluationAnswer> EvaluationAnswers => Set<EvaluationAnswer>();
+    public DbSet<EvaluationResult> EvaluationResults => Set<EvaluationResult>();
+    public DbSet<EvaluationDepartmentScore> EvaluationDepartmentScores => Set<EvaluationDepartmentScore>();
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
     public DbSet<VehicleTypeRow> VehicleTypes => Set<VehicleTypeRow>();
     public DbSet<TypeMigrationBackup> TypeMigrationBackups => Set<TypeMigrationBackup>();
@@ -1299,6 +1317,217 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.HasOne<ActionPlanSkill>().WithMany().HasForeignKey(x => x.SkillId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        // Annual Carrier Evaluation (1 Oct 2026).
+        model.Entity<EvaluationCampaign>(e =>
+        {
+            e.ToTable("evaluation_campaigns");
+            e.Property(x => x.Code).HasMaxLength(30);
+            e.HasIndex(x => x.Code).IsUnique().HasDatabaseName("evaluation_campaign_code_idx");
+            e.HasIndex(x => x.Year).HasDatabaseName("evaluation_campaign_year_idx");
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.SystemWeight).HasPrecision(7, 4);
+            e.Property(x => x.HumanWeight).HasPrecision(7, 4);
+            e.Property(x => x.MinimumSystemCoverage).HasPrecision(7, 4);
+            e.Property(x => x.Status).HasMaxLength(30).HasDefaultValue(AnnualEvaluationRules.Draft);
+            e.Property(x => x.LockedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.CreatedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.UpdatedBy).HasMaxLength(200).HasDefaultValue("");
+        });
+
+        model.Entity<EvaluationKpi>(e =>
+        {
+            e.ToTable("evaluation_kpis");
+            e.Property(x => x.Code).HasMaxLength(40);
+            e.Property(x => x.Name).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.NameTh).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Weight).HasPrecision(7, 4);
+            e.Property(x => x.FallbackScore).HasPrecision(7, 4);
+            e.Property(x => x.Method).HasMaxLength(20).HasDefaultValue(AnnualEvaluationRules.Band);
+            e.Property(x => x.Direction).HasMaxLength(20).HasDefaultValue(AnnualEvaluationRules.Higher);
+            e.Property(x => x.Measure).HasMaxLength(500).HasDefaultValue("");
+            e.HasIndex(x => new { x.CampaignId, x.Code }).IsUnique().HasDatabaseName("evaluation_kpi_code_idx");
+            e.HasOne<EvaluationCampaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationKpiBand>(e =>
+        {
+            e.ToTable("evaluation_kpi_bands");
+            e.Property(x => x.Threshold).HasPrecision(12, 4);
+            e.Property(x => x.Score).HasPrecision(7, 4);
+            e.HasIndex(x => x.KpiId).HasDatabaseName("evaluation_kpi_band_kpi_idx");
+            e.HasOne<EvaluationKpi>().WithMany().HasForeignKey(x => x.KpiId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationScoreBand>(e =>
+        {
+            e.ToTable("evaluation_score_bands");
+            e.Property(x => x.Code).HasMaxLength(40);
+            e.Property(x => x.Label).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.MinScore).HasPrecision(7, 4);
+            e.HasIndex(x => new { x.CampaignId, x.Code }).IsUnique().HasDatabaseName("evaluation_score_band_code_idx");
+            e.HasOne<EvaluationCampaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationDepartment>(e =>
+        {
+            e.ToTable("evaluation_departments");
+            e.Property(x => x.Code).HasMaxLength(40);
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.Property(x => x.Active).HasDefaultValue(true);
+            e.HasIndex(x => x.Code).IsUnique().HasDatabaseName("evaluation_department_code_idx");
+        });
+
+        model.Entity<EvaluationCampaignDepartment>(e =>
+        {
+            e.ToTable("evaluation_campaign_departments");
+            e.Property(x => x.Weight).HasPrecision(9, 4);
+            e.HasIndex(x => new { x.CampaignId, x.DepartmentId }).IsUnique().HasDatabaseName("evaluation_campaign_department_idx");
+            e.HasOne<EvaluationCampaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<EvaluationDepartment>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationQuestion>(e =>
+        {
+            e.ToTable("evaluation_questions");
+            e.Property(x => x.Code).HasMaxLength(40);
+            e.Property(x => x.Text).HasMaxLength(300);
+            e.Property(x => x.TextTh).HasMaxLength(300).HasDefaultValue("");
+            e.Property(x => x.Weight).HasPrecision(7, 4);
+            e.HasIndex(x => new { x.CampaignId, x.Code }).IsUnique().HasDatabaseName("evaluation_question_code_idx");
+            e.HasOne<EvaluationCampaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationQuestionDepartment>(e =>
+        {
+            e.ToTable("evaluation_question_departments");
+            e.HasIndex(x => new { x.QuestionId, x.DepartmentId }).IsUnique().HasDatabaseName("evaluation_question_department_idx");
+            e.HasOne<EvaluationQuestion>().WithMany().HasForeignKey(x => x.QuestionId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<EvaluationDepartment>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationCarrier>(e =>
+        {
+            e.ToTable("evaluation_carriers");
+            e.Property(x => x.ExcludedReason).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.Eligibility).HasMaxLength(30).HasDefaultValue("");
+            e.Property(x => x.Decision).HasMaxLength(60).HasDefaultValue("");
+            e.Property(x => x.DecisionNote).HasMaxLength(2000).HasDefaultValue("");
+            e.Property(x => x.DecidedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.AddedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.Included).HasDefaultValue(true);
+            e.HasIndex(x => new { x.CampaignId, x.SupplierId }).IsUnique().HasDatabaseName("evaluation_carrier_idx");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("evaluation_carrier_supplier_idx");
+            e.HasOne<EvaluationCampaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationSnapshot>(e =>
+        {
+            e.ToTable("evaluation_snapshots");
+            e.Property(x => x.Reason).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.GeneratedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.EvaluationCarrierId, x.Version }).IsUnique().HasDatabaseName("evaluation_snapshot_version_idx");
+            e.HasIndex(x => x.CampaignId).HasDatabaseName("evaluation_snapshot_campaign_idx");
+            e.HasOne<EvaluationCarrier>().WithMany().HasForeignKey(x => x.EvaluationCarrierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationSnapshotMetric>(e =>
+        {
+            e.ToTable("evaluation_snapshot_metrics");
+            e.Property(x => x.Code).HasMaxLength(60);
+            e.Property(x => x.Status).HasMaxLength(30).HasDefaultValue(AnnualEvaluationRules.Available);
+            e.Property(x => x.Value).HasPrecision(18, 6);
+            e.Property(x => x.Numerator).HasPrecision(18, 6);
+            e.Property(x => x.Denominator).HasPrecision(18, 6);
+            e.Property(x => x.Formula).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.Note).HasMaxLength(1000).HasDefaultValue("");
+            e.Property(x => x.Sources).HasDefaultValue("[]");
+            e.HasIndex(x => new { x.SnapshotId, x.Code }).IsUnique().HasDatabaseName("evaluation_snapshot_metric_idx");
+            e.HasOne<EvaluationSnapshot>().WithMany().HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationManualScore>(e =>
+        {
+            e.ToTable("evaluation_manual_scores");
+            e.Property(x => x.KpiCode).HasMaxLength(40);
+            e.Property(x => x.Score).HasPrecision(7, 4);
+            e.Property(x => x.Note).HasMaxLength(2000).HasDefaultValue("");
+            e.Property(x => x.AssessedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.EvaluationCarrierId, x.KpiCode }).IsUnique().HasDatabaseName("evaluation_manual_score_idx");
+            e.HasOne<EvaluationCarrier>().WithMany().HasForeignKey(x => x.EvaluationCarrierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationEvaluator>(e =>
+        {
+            e.ToTable("evaluation_evaluators");
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Email).HasMaxLength(254).HasDefaultValue("");
+            e.Property(x => x.StaffId).HasMaxLength(60).HasDefaultValue("");
+            e.Property(x => x.Active).HasDefaultValue(true);
+            e.Property(x => x.CreatedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.CampaignId, x.DepartmentId }).HasDatabaseName("evaluation_evaluator_department_idx");
+            e.HasOne<EvaluationCampaign>().WithMany().HasForeignKey(x => x.CampaignId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<EvaluationDepartment>().WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationInvitation>(e =>
+        {
+            e.ToTable("evaluation_invitations");
+            e.Property(x => x.TokenHash).HasMaxLength(64);
+            e.HasIndex(x => x.TokenHash).IsUnique().HasDatabaseName("evaluation_invitation_token_idx");
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue(AnnualEvaluationRules.InvitationPending);
+            e.Property(x => x.RevokedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.RevokeReason).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.CreatedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.CampaignId, x.Status }).HasDatabaseName("evaluation_invitation_status_idx");
+            e.HasIndex(x => new { x.EvaluatorId, x.EvaluationCarrierId }).HasDatabaseName("evaluation_invitation_pair_idx");
+            e.HasOne<EvaluationEvaluator>().WithMany().HasForeignKey(x => x.EvaluatorId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<EvaluationCarrier>().WithMany().HasForeignKey(x => x.EvaluationCarrierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationResponse>(e =>
+        {
+            e.ToTable("evaluation_responses");
+            e.Property(x => x.Comment).HasMaxLength(4000).HasDefaultValue("");
+            e.HasIndex(x => x.InvitationId).IsUnique().HasDatabaseName("evaluation_response_invitation_idx");
+            e.HasIndex(x => new { x.EvaluationCarrierId, x.DepartmentId }).HasDatabaseName("evaluation_response_carrier_idx");
+            e.HasOne<EvaluationInvitation>().WithMany().HasForeignKey(x => x.InvitationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationAnswer>(e =>
+        {
+            e.ToTable("evaluation_answers");
+            e.Property(x => x.Comment).HasMaxLength(2000).HasDefaultValue("");
+            e.HasIndex(x => new { x.ResponseId, x.QuestionId }).IsUnique().HasDatabaseName("evaluation_answer_idx");
+            e.HasOne<EvaluationResponse>().WithMany().HasForeignKey(x => x.ResponseId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<EvaluationQuestion>().WithMany().HasForeignKey(x => x.QuestionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationResult>(e =>
+        {
+            e.ToTable("evaluation_results");
+            e.Property(x => x.SystemScore).HasPrecision(9, 4);
+            e.Property(x => x.HumanScore).HasPrecision(9, 4);
+            e.Property(x => x.FinalScore).HasPrecision(9, 4);
+            e.Property(x => x.SystemWeightAvailable).HasPrecision(7, 4);
+            e.Property(x => x.Band).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.Status).HasMaxLength(40).HasDefaultValue("");
+            e.Property(x => x.Detail).HasDefaultValue("{}");
+            e.Property(x => x.Reason).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.CalculatedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.EvaluationCarrierId, x.Version }).IsUnique().HasDatabaseName("evaluation_result_version_idx");
+            e.HasOne<EvaluationCarrier>().WithMany().HasForeignKey(x => x.EvaluationCarrierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<EvaluationDepartmentScore>(e =>
+        {
+            e.ToTable("evaluation_department_scores");
+            e.Property(x => x.Score).HasPrecision(9, 4);
+            e.Property(x => x.Weight).HasPrecision(9, 4);
+            e.HasIndex(x => x.ResultId).HasDatabaseName("evaluation_department_score_result_idx");
+            e.HasOne<EvaluationResult>().WithMany().HasForeignKey(x => x.ResultId).OnDelete(DeleteBehavior.Restrict);
+        });
+
         model.Entity<ActionPlanReference>(e =>
         {
             e.ToTable("action_plan_references");
@@ -1352,6 +1581,10 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Stage).HasMaxLength(20).HasDefaultValue("draft");
             e.Property(x => x.EvaluatedBy).HasMaxLength(120).HasDefaultValue("");
             e.Property(x => x.ApprovedBy).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Source).HasMaxLength(20).HasDefaultValue(SupplierEvaluation.ScmosSource);
+            e.Property(x => x.FinalPercent).HasPrecision(7, 4);
+            e.Property(x => x.Result).HasMaxLength(60).HasDefaultValue("");
+            e.Property(x => x.ImportedBy).HasMaxLength(200).HasDefaultValue("");
             e.HasIndex(x => new { x.SupplierId, x.Period }).IsUnique().HasDatabaseName("supplier_evaluation_idx");
         });
 

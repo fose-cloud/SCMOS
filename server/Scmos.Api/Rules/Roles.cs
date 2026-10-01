@@ -195,6 +195,19 @@ public enum Capability
     /// person it develops — asked for by the department lead, because skill gaps and assessments are personal.
     /// </summary>
     ReviewActionPlans = 1 << 25,
+
+    /// <summary>
+    /// Read Annual Carrier Evaluation campaigns, evidence and results (1 Oct 2026). Operation User upward. Three
+    /// bits for the six permissions the specification named, because the enum is an int and only six were left:
+    /// view, manage (which configures too), decide (review, approve, finalize).
+    /// </summary>
+    ViewAnnualEvaluation = 1 << 26,
+
+    /// <summary>Set up and run a campaign — its rules, carriers, snapshot, evaluators and links. Operation Supervisor upward.</summary>
+    ManageAnnualEvaluation = 1 << 27,
+
+    /// <summary>Record management decisions, approve and finalize a campaign. Manager, Assistant Manager and Administrator.</summary>
+    DecideAnnualEvaluation = 1 << 28,
 }
 
 /// <param name="Name">The role as it is written on an account.</param>
@@ -229,14 +242,15 @@ public static class Roles
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
         | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet
         | Capability.ViewMailbox | Capability.EditSuppliers | Capability.RecordDiesel
-        | Capability.ReviewBilling | Capability.EditActionPlans;
+        | Capability.ReviewBilling | Capability.EditActionPlans | Capability.ViewAnnualEvaluation;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar
-        | Capability.ApproveAi | Capability.ManageSuppliers | Capability.ReviewActionPlans | Capability.ViewDirectory;
+        | Capability.ApproveAi | Capability.ManageSuppliers | Capability.ReviewActionPlans
+        | Capability.ManageAnnualEvaluation | Capability.ViewDirectory;
 
     private const Capability ManagerGrants =
-        SupervisorGrants | Capability.EditRates | Capability.ApproveRetention;
+        SupervisorGrants | Capability.EditRates | Capability.ApproveRetention | Capability.DecideAnnualEvaluation;
 
     /// <summary>
     /// The agreed roles.

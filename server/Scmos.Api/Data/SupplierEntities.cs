@@ -255,6 +255,24 @@ public class SupplierEvaluation
     public string EvaluatedBy { get; set; } = "";
     public string ApprovedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
+
+    /* ---- where the row came from (1 Oct 2026) ----
+     * The Annual Evaluation campaigns replace the screen that wrote these rows; what is here stays as history. A year
+     * evaluated before SCMOS (2025) is imported with its final percentage and its result as the source gave them —
+     * marked legacy-import, and never reconstructed into KPI detail that nobody recorded. */
+    public const string ScmosSource = "scmos";
+    public const string LegacyImport = "legacy-import";
+
+    /// <summary>scmos · legacy-import.</summary>
+    public string Source { get; set; } = ScmosSource;
+
+    /// <summary>The final percentage exactly as an imported source gave it.</summary>
+    public decimal? FinalPercent { get; set; }
+
+    /// <summary>The result the source recorded — PASS, as it was written. A threshold is never inferred from it.</summary>
+    public string Result { get; set; } = "";
+    public DateTimeOffset? ImportedAt { get; set; }
+    public string ImportedBy { get; set; } = "";
 }
 
 /* --------------------------------------------------------------- rates */

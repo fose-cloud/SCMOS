@@ -87,6 +87,9 @@ const CAPABILITY_TH: Record<string, string> = {
   ReviewBilling: "ตรวจและอนุมัติใบวางบิลออนไลน์",
   EditActionPlans: "สร้างและดำเนินการ Action Plan",
   ReviewActionPlans: "Review / อนุมัติ Action Plan และดูแผนพัฒนาพนักงานทุกคน",
+  ViewAnnualEvaluation: "ดู Annual Evaluation — แคมเปญ หลักฐาน และผลคะแนน",
+  ManageAnnualEvaluation: "ตั้งค่าและดำเนินแคมเปญ Annual Evaluation — เกณฑ์ ผู้ขนส่ง ผู้ประเมิน และลิงก์",
+  DecideAnnualEvaluation: "ตัดสินผล อนุมัติ และปิดแคมเปญ Annual Evaluation",
 };
 
 export function Administration({ jobs, me, onToast }: {
