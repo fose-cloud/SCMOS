@@ -182,6 +182,19 @@ public enum Capability
 
     /// <summary>Review a validated carrier billing and approve, return, or dispute it.</summary>
     ReviewBilling = 1 << 23,
+
+    /// <summary>
+    /// Create and work Action Plans (1 Oct 2026) — the department's development plans for its people and its
+    /// subcontractors. Held from Operation User upward; a carrier never holds it.
+    /// </summary>
+    EditActionPlans = 1 << 24,
+
+    /// <summary>
+    /// Review and approve Action Plans, and read every people development plan (1 Oct 2026). Held from
+    /// Operation Supervisor upward. Without it a person's development plan is read only by its owner and the
+    /// person it develops — asked for by the department lead, because skill gaps and assessments are personal.
+    /// </summary>
+    ReviewActionPlans = 1 << 25,
 }
 
 /// <param name="Name">The role as it is written on an account.</param>
@@ -216,11 +229,11 @@ public static class Roles
         Read | Capability.EditOwnJobs | Capability.UploadDocuments | Capability.ViewRates
         | Capability.ManageTraining | Capability.ViewAudit | Capability.QuoteToSheet
         | Capability.ViewMailbox | Capability.EditSuppliers | Capability.RecordDiesel
-        | Capability.ReviewBilling;
+        | Capability.ReviewBilling | Capability.EditActionPlans;
 
     private const Capability SupervisorGrants =
         OperationGrants | Capability.EditAnyJob | Capability.AssignJobs | Capability.CloseCarPar
-        | Capability.ApproveAi | Capability.ManageSuppliers | Capability.ViewDirectory;
+        | Capability.ApproveAi | Capability.ManageSuppliers | Capability.ReviewActionPlans | Capability.ViewDirectory;
 
     private const Capability ManagerGrants =
         SupervisorGrants | Capability.EditRates | Capability.ApproveRetention;

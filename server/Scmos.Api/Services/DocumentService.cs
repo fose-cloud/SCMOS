@@ -197,6 +197,26 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
         });
     }
 
+    /// <summary>Evidence on an Action Plan (1 Oct 2026), and on one of its steps when given.</summary>
+    public async Task<DocumentResult> AddToActionPlanAsync(ActionPlan plan, long? itemId, string kind, string note,
+        IFormFile file, AppUser user, CancellationToken token)
+    {
+        if (itemId is { } step && !await db.ActionPlanItems.AnyAsync(row => row.Id == step && row.PlanId == plan.Id, token))
+            return new DocumentResult(false, "ไม่พบขั้นตอนนี้ในแผน");
+        var key = BlobPaths.ForActionPlan(plan.Year, plan.Number, file.FileName);
+        return await StoreAsync(key, file, user, token, document =>
+        {
+            document.Scope = "action-plan";
+            document.ActionPlanId = plan.Id;
+            document.ActionPlanItemId = itemId;
+            document.Folder = "ActionPlan";
+            document.Kind = kind.Trim().Length > 0 ? kind.Trim() : "evidence";
+            document.Note = note.Trim();
+            document.Year = plan.Year.ToString();
+            document.JobRef = plan.Number;
+        });
+    }
+
     /// <summary>
     /// Attaches evidence to a CAR/PAR case.
     ///
@@ -398,6 +418,9 @@ public class DocumentService(ScmosDbContext db, IFileStore files)
         string? jobKey, int? supplierId, long? caseId, long? issueId, string? folder)
     {
 
+        // An Action Plan's evidence is listed on its plan, to those who may read that plan — never here, where a
+        // people development plan's file names would be read by anyone (1 Oct 2026).
+        query = query.Where(d => d.ActionPlanId == null);
         if (!string.IsNullOrWhiteSpace(jobKey)) query = query.Where(d => d.JobKey == jobKey);
         if (supplierId is not null) query = query.Where(d => d.SupplierId == supplierId);
         if (caseId is not null) query = query.Where(d => d.CaseId == caseId);

@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
+using Scmos.Api.Data;
 using Scmos.Api.Rules;
 using Scmos.Api.Services;
 
@@ -40,7 +42,8 @@ public static class DocumentEndpoints
         });
 
         group.MapPost("", async (HttpContext context, IUserAccessor users, DocumentService documents,
-            CarrierDocumentAccess access, AuditService audit, CancellationToken token) =>
+            CarrierDocumentAccess access, AuditService audit, ActionPlanService actionPlans, ScmosDbContext db,
+            CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
@@ -60,15 +63,35 @@ public static class DocumentEndpoints
             var folder = Text(form, "folder");
             var kind = Text(form, "kind");
             var note = Text(form, "note");
+            var actionPlanId = Number(form, "actionPlanId");
+            var actionPlanItemId = Number(form, "actionPlanItemId");
 
             // Exactly one owner. A file attached to a job *and* a supplier would
             // have to be filed in two trees, and picking one silently is how the
             // structure starts drifting from what people believe it is.
-            var owners = new[] { jobKey.Length > 0, supplierId > 0, caseId > 0, issueId > 0 }
+            var owners = new[] { jobKey.Length > 0, supplierId > 0, caseId > 0, issueId > 0, actionPlanId > 0 }
                 .Count(set => set);
             if (owners != 1)
-                return ApiResults.Error("ระบุอย่างใดอย่างหนึ่ง: jobKey, supplierId, caseId หรือ issueId",
+                return ApiResults.Error("ระบุอย่างใดอย่างหนึ่ง: jobKey, supplierId, caseId, issueId หรือ actionPlanId",
                     StatusCodes.Status400BadRequest);
+
+            // Evidence on an Action Plan (1 Oct 2026): whoever may work the plan may add to it.
+            if (actionPlanId > 0)
+            {
+                var plan = await db.ActionPlans.AsNoTracking().FirstOrDefaultAsync(row => row.Id == actionPlanId, token);
+                if (plan is null || !ActionPlanService.CanSee(user, plan))
+                    return ApiResults.Error("ไม่พบแผนนี้", StatusCodes.Status404NotFound);
+                if (!ActionPlanService.CanEdit(user, plan))
+                    return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์แนบหลักฐานในแผนนี้", StatusCodes.Status403Forbidden);
+                var stored = await documents.AddToActionPlanAsync(plan, actionPlanItemId > 0 ? actionPlanItemId : null, kind, note, file, user, token);
+                if (!stored.Ok)
+                    return ApiResults.Error(stored.Message,
+                        documents.StorageReady ? StatusCodes.Status400BadRequest : StatusCodes.Status503ServiceUnavailable);
+                await audit.RecordAsync(user, AuditActions.Upload, "document", stored.Document!.Id.ToString(), stored.Document.FileName,
+                    stored.Document.Folder, "", stored.Document.ObjectKey, note, token);
+                await actionPlans.RecordEvidenceAsync(user, plan.Id, stored.Document.FileName, token);
+                return Results.Json(new { message = stored.Message, document = stored.Document });
+            }
 
             var allowed = caseId > 0
                 ? await access.CanUseCaseAsync(user, caseId, token)

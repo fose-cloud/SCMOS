@@ -132,6 +132,13 @@ public static class BlobPaths
             truck ? "Truck" : "Driver", Segment(identifier, "UNKNOWN"), FileName(fileName));
 
     /// <summary>
+    /// An Action Plan's evidence (1 Oct 2026): <c>SCMOS/ActionPlan/{year}/{number}/{file}</c> — a certificate, an
+    /// attendance sheet, minutes, filed under the plan they prove.
+    /// </summary>
+    public static string ForActionPlan(int year, string number, string fileName) =>
+        string.Join('/', Root, "ActionPlan", Segment(year.ToString(), "0000"), Segment(number, "UNKNOWN-PLAN"), FileName(fileName));
+
+    /// <summary>
     /// A driver's paperwork: <c>SCMOS/Driver/{idNo}/{folder}/{file}</c>.
     ///
     /// Keyed on the licence or national id rather than the name, because two

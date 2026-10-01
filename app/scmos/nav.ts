@@ -5,7 +5,7 @@ export type Screen =
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
-  | "carrierapi" | "oilrate" | "auditplan"
+  | "carrierapi" | "oilrate" | "auditplan" | "actionplan"
   // The Subcontractor's own menu (29 Sep 2026) — see CARRIER_NAV.
   | "carrierwork" | "carriernew" | "carriermyjob" | "carrierpostpone" | "carriercapacity" | "carriertraining" | "carrierrates" | "carrierbilling" | "carrierkpi";
 
@@ -26,6 +26,9 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["commercial", "Rate & Billing", "ราคาและการวางบิล", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12]]],
   ["quality", "Incident & CAR/PAR", "คุณภาพและข้อบกพร่อง", [[7, 2, 2, 8], [7, 12, 2, 2], [2, 12, 3, 2], [11, 12, 3, 2]]],
   ["kpi", "KPI", "ตัวชี้วัด", [[2, 10, 3, 4], [6, 6, 3, 8], [10, 2, 3, 12], [2, 2, 2, 2]]],
+  // Its own entry (1 Oct 2026, the department lead's choice): development plans for the department's people
+  // and its subcontractors — not the incident action of a CAR/PAR case.
+  ["actionplan", "Action Plan", "แผนพัฒนา", [[3, 2, 10, 12], [5, 5, 2, 2], [8, 5, 4, 2], [5, 9, 2, 2], [8, 9, 4, 2]]],
   ["audit", "Audit", "ประวัติการใช้งาน", [[2, 2, 12, 2], [2, 6, 12, 2], [2, 10, 8, 2]]],
   ["documents", "Document Center", "ศูนย์เอกสาร", [[3, 2, 10, 12], [5, 5, 6, 1], [5, 8, 6, 1], [5, 11, 4, 1]]],
   ["reports", "Reports", "รายงาน", [[2, 2, 12, 2], [2, 6, 12, 1.5], [2, 9.5, 9, 1.5], [2, 13, 6, 1.5]]],
@@ -162,7 +165,7 @@ export const NAV_GROUPS: { label: string; keys: Screen[] }[] = [
   { label: "OPERATIONS", keys: ["workspace"] },
   { label: "SUPPLY NETWORK", keys: ["partners"] },
   { label: "COMMERCIAL", keys: ["commercial"] },
-  { label: "QUALITY & COMPLIANCE", keys: ["quality", "kpi", "audit", "documents"] },
+  { label: "QUALITY & COMPLIANCE", keys: ["quality", "kpi", "actionplan", "audit", "documents"] },
   { label: "INTELLIGENCE", keys: ["reports", "ai"] },
   { label: "SYSTEM", keys: ["integrations", "admin"] },
 ];
@@ -257,6 +260,7 @@ export const META: Record<string, string> = {
   subcontractors: "Subcontractor Master",
   capacity: "Capacity Planning",
   auditplan: "Audit Planning",
+  actionplan: "Subcontract Management Action Plan",
   rates: "Transportation Rate Management",
   billing: "Billing Control",
   oilrate: "Oil Rate",

@@ -129,6 +129,12 @@ public class CarrierDocumentAccess(ScmosDbContext db, CarrierTenantContext tenan
 
     public async Task<bool> CanReadAsync(AppUser user, StoredDocument document, CancellationToken token)
     {
+        // An Action Plan's evidence is read by whoever may read the plan (1 Oct 2026) — staff included.
+        if (document.ActionPlanId is { } planId)
+        {
+            var plan = await db.ActionPlans.AsNoTracking().FirstOrDefaultAsync(row => row.Id == planId, token);
+            return plan is not null && ActionPlanService.CanSee(user, plan);
+        }
         if (!CarrierTenantContext.IsCarrier(user)) return true;
         if (document.SupplierId is { } supplierId)
             return await CanUseSupplierAsync(user, supplierId, token);

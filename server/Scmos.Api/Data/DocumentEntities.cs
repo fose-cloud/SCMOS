@@ -65,6 +65,13 @@ public class StoredDocument
     public int? FleetDriverId { get; set; }
 
     /// <summary>
+    /// The Action Plan this is evidence for (1 Oct 2026) — a certificate, an attendance sheet, minutes — and the
+    /// step, when it belongs to one. Read by whoever may see the plan, and nobody else.
+    /// </summary>
+    public long? ActionPlanId { get; set; }
+    public long? ActionPlanItemId { get; set; }
+
+    /// <summary>
     /// The folder it went in: Booking · ECard · POD · Images · Invoice · CARPAR
     /// for a job; Audit · Insurance · License · Training · Contract for a
     /// supplier. Controlled — see <see cref="Rules.BlobPaths.JobFolders"/>.

@@ -97,6 +97,13 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<AuditPlan> AuditPlans => Set<AuditPlan>();
     public DbSet<AuditPlanItem> AuditPlanItems => Set<AuditPlanItem>();
     public DbSet<SupplierOnboardingItem> SupplierOnboardingItems => Set<SupplierOnboardingItem>();
+    public DbSet<ActionPlanType> ActionPlanTypes => Set<ActionPlanType>();
+    public DbSet<ActionPlan> ActionPlans => Set<ActionPlan>();
+    public DbSet<ActionPlanItem> ActionPlanItems => Set<ActionPlanItem>();
+    public DbSet<ActionPlanUpdate> ActionPlanUpdates => Set<ActionPlanUpdate>();
+    public DbSet<ActionPlanReview> ActionPlanReviews => Set<ActionPlanReview>();
+    public DbSet<ActionPlanScore> ActionPlanScores => Set<ActionPlanScore>();
+    public DbSet<ActionPlanReference> ActionPlanReferences => Set<ActionPlanReference>();
     public DbSet<SupplierCapacity> SupplierCapacities => Set<SupplierCapacity>();
     public DbSet<VehicleTypeRow> VehicleTypes => Set<VehicleTypeRow>();
     public DbSet<TypeMigrationBackup> TypeMigrationBackups => Set<TypeMigrationBackup>();
@@ -977,6 +984,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.DriverId).HasColumnName("driver_id");
             entry.Property(e => e.TruckId).HasColumnName("truck_id");
             entry.Property(e => e.FleetDriverId).HasColumnName("fleet_driver_id");
+            entry.Property(e => e.ActionPlanId).HasColumnName("action_plan_id");
+            entry.Property(e => e.ActionPlanItemId).HasColumnName("action_plan_item_id");
             entry.Property(e => e.Folder).HasColumnName("folder").HasMaxLength(30);
             entry.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(60).HasDefaultValue("");
             entry.Property(e => e.Year).HasColumnName("year").HasMaxLength(4).HasDefaultValue("");
@@ -1000,6 +1009,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => e.IssueId).HasDatabaseName("document_issue_idx");
             entry.HasIndex(e => e.TruckId).HasDatabaseName("document_truck_idx");
             entry.HasIndex(e => e.FleetDriverId).HasDatabaseName("document_fleet_driver_idx");
+            entry.HasIndex(e => e.ActionPlanId).HasDatabaseName("document_action_plan_idx");
             entry.HasOne<BillingCase>().WithMany().HasForeignKey(e => e.BillingCaseId)
                 .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_documents_billing_cases_billing_case_id");
             entry.HasOne<BillingInvoice>().WithMany().HasForeignKey(e => e.BillingInvoiceId)
@@ -1170,6 +1180,112 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Remark).HasMaxLength(500).HasDefaultValue("");
             e.Property(x => x.UpdatedBy).HasMaxLength(120).HasDefaultValue("");
             e.HasIndex(x => new { x.SupplierId, x.Code }).IsUnique().HasDatabaseName("supplier_onboarding_idx");
+        });
+
+        // Subcontract Management's Action Plan (1 Oct 2026).
+        model.Entity<ActionPlanType>(e =>
+        {
+            e.ToTable("action_plan_types");
+            e.Property(x => x.DevelopmentType).HasMaxLength(20);
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.HasIndex(x => new { x.DevelopmentType, x.Name }).IsUnique().HasDatabaseName("action_plan_type_name_idx");
+        });
+
+        model.Entity<ActionPlan>(e =>
+        {
+            e.ToTable("action_plans");
+            e.Property(x => x.Number).HasMaxLength(30);
+            e.HasIndex(x => x.Number).IsUnique().HasDatabaseName("action_plan_number_idx");
+            e.Property(x => x.Title).HasMaxLength(200);
+            e.Property(x => x.DevelopmentType).HasMaxLength(20);
+            e.Property(x => x.Category).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Period).HasMaxLength(20).HasDefaultValue("annual");
+            e.Property(x => x.Department).HasMaxLength(120).HasDefaultValue("Subcontract Management");
+            e.Property(x => x.Priority).HasMaxLength(20).HasDefaultValue("medium");
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue(ActionPlanRules.Draft);
+            e.Property(x => x.Description).HasMaxLength(2000).HasDefaultValue("");
+            e.Property(x => x.Objective).HasMaxLength(2000).HasDefaultValue("");
+            e.Property(x => x.ExpectedOutcome).HasMaxLength(2000).HasDefaultValue("");
+            foreach (var date in new[] { nameof(ActionPlan.StartDate), nameof(ActionPlan.TargetDate), nameof(ActionPlan.ActualCompletionDate), nameof(ActionPlan.ReviewDate) })
+                e.Property(date).HasMaxLength(20).HasDefaultValue("");
+            foreach (var text in new[] { nameof(ActionPlan.OwnerId), nameof(ActionPlan.EmployeeId), nameof(ActionPlan.TargetType) })
+                e.Property(text).HasMaxLength(60).HasDefaultValue("");
+            foreach (var text in new[] { nameof(ActionPlan.OwnerName), nameof(ActionPlan.EmployeeName), nameof(ActionPlan.Position), nameof(ActionPlan.Team),
+                nameof(ActionPlan.Supervisor), nameof(ActionPlan.TargetName), nameof(ActionPlan.DevelopmentArea), nameof(ActionPlan.CurrentLevel),
+                nameof(ActionPlan.TargetLevel), nameof(ActionPlan.Method), nameof(ActionPlan.Coach), nameof(ActionPlan.CarrierContact),
+                nameof(ActionPlan.EvaluationMethod), nameof(ActionPlan.Metric), nameof(ActionPlan.CreatedBy), nameof(ActionPlan.UpdatedBy) })
+                e.Property(text).HasMaxLength(200).HasDefaultValue("");
+            foreach (var text in new[] { nameof(ActionPlan.Gap), nameof(ActionPlan.RootCause), nameof(ActionPlan.Result), nameof(ActionPlan.CancelReason) })
+                e.Property(text).HasMaxLength(1000).HasDefaultValue("");
+            e.Property(x => x.Baseline).HasPrecision(12, 2);
+            e.Property(x => x.TargetValue).HasPrecision(12, 2);
+            e.Property(x => x.ActualValue).HasPrecision(12, 2);
+            e.HasIndex(x => x.Year).HasDatabaseName("action_plan_year_idx");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("action_plan_supplier_idx");
+            e.HasIndex(x => x.EmployeeId).HasDatabaseName("action_plan_employee_idx");
+        });
+
+        model.Entity<ActionPlanItem>(e =>
+        {
+            e.ToTable("action_plan_items");
+            e.Property(x => x.Action).HasMaxLength(300);
+            e.Property(x => x.Description).HasMaxLength(2000).HasDefaultValue("");
+            foreach (var text in new[] { nameof(ActionPlanItem.OwnerName), nameof(ActionPlanItem.SupportingPerson), nameof(ActionPlanItem.SupportingDepartment),
+                nameof(ActionPlanItem.TrainingTitle), nameof(ActionPlanItem.TrainingType), nameof(ActionPlanItem.Trainer), nameof(ActionPlanItem.TrainingProvider),
+                nameof(ActionPlanItem.CreatedBy), nameof(ActionPlanItem.UpdatedBy) })
+                e.Property(text).HasMaxLength(200).HasDefaultValue("");
+            foreach (var text in new[] { nameof(ActionPlanItem.ExpectedResult), nameof(ActionPlanItem.ActualResult), nameof(ActionPlanItem.Remark), nameof(ActionPlanItem.Participants) })
+                e.Property(text).HasMaxLength(1000).HasDefaultValue("");
+            foreach (var date in new[] { nameof(ActionPlanItem.StartDate), nameof(ActionPlanItem.TargetDate), nameof(ActionPlanItem.ActualCompletionDate),
+                nameof(ActionPlanItem.TrainingDate), nameof(ActionPlanItem.CertificateExpiry) })
+                e.Property(date).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.OwnerId).HasMaxLength(60).HasDefaultValue("");
+            e.Property(x => x.Priority).HasMaxLength(20).HasDefaultValue("medium");
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue(ActionPlanRules.Planned);
+            e.HasIndex(x => x.PlanId).HasDatabaseName("action_plan_item_plan_idx");
+            e.HasOne<ActionPlan>().WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<ActionPlanUpdate>(e =>
+        {
+            e.ToTable("action_plan_updates");
+            e.Property(x => x.Comment).HasMaxLength(2000).HasDefaultValue("");
+            e.Property(x => x.StatusBefore).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.StatusAfter).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.CreatedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => x.PlanId).HasDatabaseName("action_plan_update_plan_idx");
+            e.HasOne<ActionPlan>().WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<ActionPlanReview>(e =>
+        {
+            e.ToTable("action_plan_reviews");
+            e.Property(x => x.SubmittedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.Reviewer).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.Result).HasMaxLength(30).HasDefaultValue("");
+            e.Property(x => x.Comment).HasMaxLength(2000).HasDefaultValue("");
+            e.HasIndex(x => x.PlanId).HasDatabaseName("action_plan_review_plan_idx");
+            e.HasOne<ActionPlan>().WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<ActionPlanScore>(e =>
+        {
+            e.ToTable("action_plan_scores");
+            e.Property(x => x.Dimension).HasMaxLength(60);
+            e.Property(x => x.AssessedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => x.PlanId).HasDatabaseName("action_plan_score_plan_idx");
+            e.HasIndex(x => x.SupplierId).HasDatabaseName("action_plan_score_supplier_idx");
+            e.HasOne<ActionPlan>().WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<ActionPlanReference>(e =>
+        {
+            e.ToTable("action_plan_references");
+            e.Property(x => x.Kind).HasMaxLength(30);
+            e.Property(x => x.RefId).HasMaxLength(120).HasDefaultValue("");
+            e.Property(x => x.Label).HasMaxLength(300).HasDefaultValue("");
+            e.HasIndex(x => x.PlanId).HasDatabaseName("action_plan_reference_plan_idx");
+            e.HasOne<ActionPlan>().WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<TypeMigrationBackup>(e =>
