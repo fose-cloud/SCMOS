@@ -102,6 +102,7 @@ static class AnnualEvaluationChecks
             var snapshots = new EvaluationSnapshotService(db, auditing,
                 new JobRegisterCache(db, new MemoryCache(new MemoryCacheOptions()), NullLogger<JobRegisterCache>.Instance), directory);
             decimal? Figure(SnapshotView view, string code) => view.Metrics.Single(metric => metric.Code == code).Value;
+            var scoring = new EvaluationScoringService(db, auditing);
 
             var refused = await service.CreateAsync(operation, new CreateCampaignInput(2026, null, null), default);
             var first = await service.CreateAsync(supervisor, new CreateCampaignInput(2026, null, null), default);
@@ -176,14 +177,73 @@ static class AnnualEvaluationChecks
                 && (await snapshots.ReadAsync(operation, id, bravoRow.Id, null, default))!.Versions.Count == 1,
                 "annual evaluation: once open, new evidence needs a reason and is a new version; the old one stays exactly as it was");
 
+            // Phase 4: scoring. Pricing is assessed by hand; one Operation evaluator answers for ALPHA, N/A on drivers.
+            var manualByOperation = await scoring.SetManualScoreAsync(operation, id, alphaRow.Id, "pricing", 80, "Rates in line with RFQ", default);
+            var manualNoNote = await scoring.SetManualScoreAsync(supervisor, id, alphaRow.Id, "pricing", 80, "", default);
+            var notManual = await scoring.SetManualScoreAsync(supervisor, id, alphaRow.Id, "otd", 80, "not a manual KPI", default);
+            var manualOk = await scoring.SetManualScoreAsync(supervisor, id, alphaRow.Id, "pricing", 80, "Rates in line with RFQ round", default);
+            var opsDepartment = await db.EvaluationDepartments.FirstAsync(row => row.Code == "ops");
+            var questions = await db.EvaluationQuestions.Where(row => row.CampaignId == id).ToListAsync();
+            var evaluator = new EvaluationEvaluator { CampaignId = id, Name = "Ops reviewer", Email = "ops@test.invalid", DepartmentId = opsDepartment.Id, CreatedAt = now };
+            db.EvaluationEvaluators.Add(evaluator);
+            await db.SaveChangesAsync();
+            var invitation = new EvaluationInvitation
+            {
+                CampaignId = id, EvaluatorId = evaluator.Id, EvaluationCarrierId = alphaRow.Id, TokenHash = new string('a', 64),
+                Status = AnnualEvaluationRules.InvitationSubmitted, ExpiresAt = now.AddDays(30), CreatedAt = now,
+            };
+            db.EvaluationInvitations.Add(invitation);
+            await db.SaveChangesAsync();
+            var response = new EvaluationResponse
+            {
+                InvitationId = invitation.Id, CampaignId = id, EvaluationCarrierId = alphaRow.Id, EvaluatorId = evaluator.Id,
+                DepartmentId = opsDepartment.Id, SubmittedAt = now,
+            };
+            db.EvaluationResponses.Add(response);
+            await db.SaveChangesAsync();
+            db.EvaluationAnswers.AddRange(questions.Select(question => new EvaluationAnswer
+                { ResponseId = response.Id, QuestionId = question.Id, Rating = question.Code == "service" ? null : 4 }));
+            await db.SaveChangesAsync();
+
+            var scored = await scoring.CalculateAsync(supervisor, id, null, null, default);
+            var alphaScore = (await scoring.ResultAsync(operation, id, alphaRow.Id, null, default))!;
+            var bravoScore = (await scoring.ResultAsync(operation, id, bravoRow.Id, null, default))!;
+            // ALPHA: OTD 100×20, safety 100×15, claims 100×10, pricing 80×5, POD 0×5, documents 0×5 over 60 of 70 (billing has no
+            // invoices); departments 80 (rating 4, drivers N/A).
+            // Held to the four places it is stored at, and the final score worked from the held parts: 81.6667 × 0.7 + 80 × 0.3.
+            var system = Math.Round(4900m / 60m, 4, MidpointRounding.AwayFromZero);
+            check(!manualByOperation.Ok && !manualNoNote.Ok && !notManual.Ok && manualOk.Ok && scored.Ok
+                && alphaScore.Row.SystemScore == 81.6667m && system == 81.6667m && alphaScore.Row.SystemWeightAvailable == 60
+                && alphaScore.Row.HumanScore == 80m
+                && alphaScore.Row.FinalScore == Math.Round(system * 70m / 100m + 80m * 30m / 100m, 4, MidpointRounding.AwayFromZero)
+                && alphaScore.Row.FinalScore == 81.1667m && alphaScore.Row.Band == "needs-review"
+                && alphaScore.Row.Status == EvaluationScoring.Calculated
+                && bravoScore.Row.FinalScore is null && bravoScore.Row.Status == EvaluationScoring.Incomplete
+                && alphaScore.Detail.GetProperty("kpis").EnumerateArray().Any(kpi => kpi.GetProperty("code").GetString() == "billing"
+                    && !kpi.GetProperty("counted").GetBoolean())
+                && await db.EvaluationDepartmentScores.CountAsync(row => row.ResultId == db.EvaluationResults.First(one => one.EvaluationCarrierId == alphaRow.Id && one.Current).Id) == 7,
+                "annual evaluation: a carrier is scored from its snapshot, the manual pricing and its departments — the breakdown kept; one with too little evidence has no final score");
+
             var backNoReason = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Closed, null, default);
+            var recalculateNoReason = await scoring.CalculateAsync(supervisor, id, null, null, default);
+            var recalculated = await scoring.CalculateAsync(supervisor, id, [alphaRow.Id], "Late Ops response added", default);
+            var alphaAgain = (await scoring.ResultAsync(operation, id, alphaRow.Id, null, default))!;
+            var alphaFirst = (await scoring.ResultAsync(operation, id, alphaRow.Id, 1, default))!;
+            var board = (await scoring.ResultsAsync(operation, id, default))!;
+            check(!recalculateNoReason.Ok && recalculated.Ok && alphaAgain.Row.Version == 2 && alphaAgain.Versions.SequenceEqual([2, 1])
+                && alphaAgain.Row.Reason == "Late Ops response added" && alphaFirst.Row.FinalScore == alphaScore.Row.FinalScore
+                && board.Count == 2 && board[0].SupplierId == alpha.Id,
+                "annual evaluation: after the campaign closes a recalculation needs a reason and is a new version; the first stays as it was");
             var reopenNoReason = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Open, null, default);
             await service.MoveAsync(supervisor, id, AnnualEvaluationRules.UnderReview, null, default);
             var supervisorApprove = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Approved, null, default);
             var managerApprove = await service.MoveAsync(manager, id, AnnualEvaluationRules.Approved, null, default);
             var campaign = await db.EvaluationCampaigns.AsNoTracking().FirstAsync(row => row.Id == id);
             var afterApproval = await snapshots.GenerateAsync(supervisor, id, null, "late correction", default);
-            check(!afterApproval.Ok, "annual evaluation: an approved campaign takes no new evidence");
+            var scoreAfterApproval = await scoring.CalculateAsync(supervisor, id, null, "late correction", default);
+            var manualAfterApproval = await scoring.SetManualScoreAsync(supervisor, id, alphaRow.Id, "pricing", 90, "late correction", default);
+            check(!afterApproval.Ok && !scoreAfterApproval.Ok && !manualAfterApproval.Ok,
+                "annual evaluation: an approved campaign takes no new evidence, scores or assessments");
             check(!noReady.Ok && problems.Count == 0 && ready.Ok && opened.Ok && campaign.LockedAt is not null && campaign.LockedBy.Length > 0
                 && !lockedKpis.Ok && lockedKpis.Status == StatusCodes.Status409Conflict && !lockedUpdate.Ok && !lockedCarriers.Ok
                 && backNoReason.Ok && !reopenNoReason.Ok && !supervisorApprove.Ok && managerApprove.Ok && campaign.Status == AnnualEvaluationRules.Approved,

@@ -275,6 +275,7 @@ await RateCustomerChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await AuditPlanChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await ActionPlanChecks.RunAsync(Check, args.Contains("--write-local-db"));
 EvaluationEvidenceChecks.Run(Check);
+EvaluationScoringChecks.Run(Check);
 await AnnualEvaluationChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await IssueCaseLinkChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));

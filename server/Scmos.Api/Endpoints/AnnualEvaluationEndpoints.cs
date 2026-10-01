@@ -16,6 +16,7 @@ public static class AnnualEvaluationEndpoints
     public record MoveBody(string? Status, string? Reason);
     /// <param name="Carriers">Which of the campaign's carriers (their campaign row ids); empty means every included one.</param>
     public record SnapshotBody(List<int>? Carriers, string? Reason);
+    public record ManualScoreBody(string? KpiCode, decimal Score, string? Note);
 
     public static void MapAnnualEvaluations(this IEndpointRouteBuilder routes)
     {
@@ -79,6 +80,23 @@ public static class AnnualEvaluationEndpoints
         campaigns.MapGet("/{id:int}/carriers/{carrier:int}/snapshot", async (int id, int carrier, int? version, HttpContext context,
             IUserAccessor users, EvaluationSnapshotService snapshots, CancellationToken token) =>
             await ReadAsync(context, users, async user => await snapshots.ReadAsync(user, id, carrier, version, token)));
+
+        // Phase 4: scoring. Each calculation is a new version of each carrier's result (1 Oct 2026).
+        campaigns.MapPost("/{id:int}/calculate", async (int id, [FromBody] SnapshotBody? body, HttpContext context, IUserAccessor users,
+            EvaluationScoringService scoring, CancellationToken token) =>
+            await WriteAsync(context, users, user => scoring.CalculateAsync(user, id, body?.Carriers, body?.Reason, token)));
+
+        campaigns.MapGet("/{id:int}/results", async (int id, HttpContext context, IUserAccessor users, EvaluationScoringService scoring,
+            CancellationToken token) =>
+            await ReadAsync(context, users, async user => await scoring.ResultsAsync(user, id, token)));
+
+        campaigns.MapGet("/{id:int}/carriers/{carrier:int}/result", async (int id, int carrier, int? version, HttpContext context,
+            IUserAccessor users, EvaluationScoringService scoring, CancellationToken token) =>
+            await ReadAsync(context, users, async user => await scoring.ResultAsync(user, id, carrier, version, token)));
+
+        campaigns.MapPut("/{id:int}/carriers/{carrier:int}/manual-score", async (int id, int carrier, [FromBody] ManualScoreBody body,
+            HttpContext context, IUserAccessor users, EvaluationScoringService scoring, CancellationToken token) =>
+            await WriteAsync(context, users, user => scoring.SetManualScoreAsync(user, id, carrier, body.KpiCode, body.Score, body.Note, token)));
 
         campaigns.MapPost("/{id:int}/status", async (int id, [FromBody] MoveBody body, HttpContext context, IUserAccessor users,
             AnnualEvaluationService service, CancellationToken token) =>
