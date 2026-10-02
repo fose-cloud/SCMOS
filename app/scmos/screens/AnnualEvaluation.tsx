@@ -4,14 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import type { PlanPrefill } from "../actionPlanRequest";
 import {
-  ELIGIBILITY, MOVE_LABEL, STATUS, isBackward, shown, type CampaignRow, type CampaignView, type CarrierRow, type IssuedLink, type ResultRow,
+  ELIGIBILITY, MOVE_LABEL, STATUS, isBackward, type CampaignRow, type CampaignSummary, type CampaignView, type CarrierRow, type IssuedLink, type ResultRow,
 } from "../annualEvaluation";
-import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
 import { Badge, CELL, EMPTY, HEAD, INPUT, LABEL, MONO, Notice, OUTLINE, PANEL, PRIMARY, SMALL, TITLE } from "./ActionPlanParts";
 import { AnnualEvaluationSetup } from "./AnnualEvaluationSetup";
+import { EvaluationBoard } from "./EvaluationBoard";
 import { EvaluationCarrierPanel } from "./EvaluationCarrierPanel";
+import { EvaluationDecisions } from "./EvaluationDecisions";
 import { EvaluationEvaluators } from "./EvaluationEvaluators";
 
 /**
@@ -117,7 +118,7 @@ export function StatusBadge({ status }: { status: string }) {
   return <Badge label={style.label} tone={style.tone} background={style.background} />;
 }
 
-type Tab = "results" | "carriers" | "evaluators" | "setup";
+type Tab = "results" | "review" | "carriers" | "evaluators" | "setup";
 
 function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   id: number; canManage: boolean; onBack: () => void; onToast: (message: string) => void; onActionPlan?: (prefill: PlanPrefill) => void;
@@ -125,6 +126,7 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   const [view, setView] = useState<CampaignView | null>(null);
   const [carriers, setCarriers] = useState<CarrierRow[]>([]);
   const [results, setResults] = useState<ResultRow[]>([]);
+  const [summary, setSummary] = useState<CampaignSummary | null>(null);
   const [failure, setFailure] = useState("");
   const [tab, setTab] = useState<Tab>("results");
   const [picked, setPicked] = useState<number | null>(null);
@@ -136,12 +138,13 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   const load = useCallback(async () => {
     try {
       const read = (path: string) => apiFetch(`/api/annual-evaluations/${id}${path}`, { headers: { accept: "application/json" } });
-      const [campaign, carrierList, resultList] = await Promise.all([read(""), read("/carriers"), read("/results")]);
+      const [campaign, carrierList, resultList, summaryRead] = await Promise.all([read(""), read("/carriers"), read("/results"), read("/summary")]);
       const body = await campaign.json().catch(() => null) as CampaignView & { error?: string } | null;
       if (!campaign.ok || !body) throw new Error(body?.error ?? `เปิดแคมเปญไม่ได้ (${campaign.status})`);
       setView(body);
       setCarriers(carrierList.ok ? await carrierList.json() as CarrierRow[] : []);
       setResults(resultList.ok ? await resultList.json() as ResultRow[] : []);
+      setSummary(summaryRead.ok ? await summaryRead.json() as CampaignSummary : null);
       setFailure("");
     } catch (problem) {
       setFailure(problem instanceof Error ? problem.message : String(problem));
@@ -196,11 +199,9 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   const campaign = view.campaign;
   const manage = canManage && view.canManage;
   const closedForEvidence = ["approved", "finalized", "archived"].includes(campaign.status);
-  const scored = results.filter((row) => row.finalScore !== null);
-  const average = scored.length ? scored.reduce((sum, row) => sum + (row.finalScore ?? 0), 0) / scored.length : null;
-  const bandLabel = (code: string) => view.scoreBands.find((band) => band.code === code)?.label ?? code;
 
   async function move(to: string) {
+    if (to === "finalized" && !window.confirm("สรุปผลแล้วจะแก้คะแนนและการตัดสินไม่ได้อีก และผลจะถูกส่งเข้าทะเบียนผู้ขนส่ง — ยืนยัน?")) return;
     const reason = reasonFor(isBackward(campaign.status, to), `เหตุผลที่ย้อนเป็น "${MOVE_LABEL[to] ?? to}"`);
     if (reason === null) return;
     await send("/status", "POST", { status: to, reason });
@@ -253,49 +254,19 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
       )}
 
       <div style={css("display:flex;gap:6px")}>
-        {([["results", "ผลการประเมิน"], ["carriers", `ผู้ขนส่ง (${view.included})`], ["evaluators", "ผู้ประเมิน"], ["setup", "ตั้งค่าเกณฑ์"]] as [Tab, string][]).map(([key, label]) => (
+        {([["results", "ผลการประเมิน"], ["review", "การพิจารณา"], ["carriers", `ผู้ขนส่ง (${view.included})`], ["evaluators", "ผู้ประเมิน"],
+          ["setup", "ตั้งค่าเกณฑ์"]] as [Tab, string][]).map(([key, label]) => (
           <button key={key} type="button" onClick={() => setTab(key)}
             style={css(tab === key ? PRIMARY : OUTLINE)}>{label}</button>
         ))}
       </div>
 
-      {tab === "results" && (
-        <>
-          <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px")}>
-            <StatCard label="ปีประเมิน" value={String(campaign.year)} tone="#0A2240" />
-            <StatCard label="ผู้ขนส่งที่ประเมิน" value={String(view.included)} tone="#0A2240" />
-            <StatCard label="มีคะแนนรวม" value={String(scored.length)} tone="#16794C" />
-            <StatCard label="ข้อมูลยังไม่พอ" value={String(results.filter((row) => row.status === "insufficient-data").length)} tone="#B45309" />
-            <StatCard label="คะแนนรวมเฉลี่ย" value={shown(average)} tone="#1D5FA8" />
-          </div>
-          <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
-            <ZoomBox>
-              <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-                <thead><tr>{["ผู้ขนส่ง", "งาน", "เกณฑ์", "System", "Department", "คะแนนรวม", "ช่วงคะแนน", "การตัดสิน", "สถานะ"].map((head) => <th key={head} style={css(HEAD)}>{head}</th>)}</tr></thead>
-                <tbody>
-                  {results.map((row) => (
-                    <tr key={row.evaluationCarrierId} onClick={() => setPicked(row.evaluationCarrierId)} style={css("cursor:pointer")}>
-                      <td style={css(CELL)}><div style={css("font-weight:600")}>{row.carrier}</div><div style={css(LABEL + MONO)}>{row.code}</div></td>
-                      <td style={css(CELL + MONO)}>{row.totalJobs ?? "—"}</td>
-                      <td style={css(CELL)}>{ELIGIBILITY[row.eligibility] ?? row.eligibility ?? "—"}</td>
-                      <td style={css(CELL + MONO)}>{shown(row.systemScore)}</td>
-                      <td style={css(CELL + MONO)}>{shown(row.humanScore)}</td>
-                      <td style={css(CELL + MONO + "font-weight:700;font-size:13px")}>{shown(row.finalScore)}</td>
-                      <td style={css(CELL)}>{row.band ? bandLabel(row.band) : "—"}</td>
-                      <td style={css(CELL)}>{row.decision || "—"}</td>
-                      <td style={css(CELL + "font-size:11.5px")}>
-                        {row.version === 0 ? <span style={css("color:#94A3B8")}>ยังไม่คำนวณ</span>
-                          : row.status === "insufficient-data" ? <span style={css("color:#B45309")}>ข้อมูลไม่พอ</span>
-                            : <span style={css("color:#16794C")}>คำนวณแล้ว v{row.version}</span>}
-                      </td>
-                    </tr>
-                  ))}
-                  {results.length === 0 && <tr><td colSpan={9} style={css(EMPTY)}>ยังไม่ได้เลือกผู้ขนส่ง</td></tr>}
-                </tbody>
-              </table>
-            </ZoomBox>
-          </div>
-        </>
+      {tab === "results" && <EvaluationBoard view={view} results={results} summary={summary} onPick={setPicked} />}
+
+      {tab === "review" && (
+        <EvaluationDecisions view={view} results={results} summary={summary} busy={busy}
+          editable={(manage || view.canDecide) && campaign.status === "under-review"}
+          onDecide={(carrier, decision, note) => send(`/carriers/${carrier}/decision`, "PUT", { decision, note })} />
       )}
 
       {tab === "carriers" && (

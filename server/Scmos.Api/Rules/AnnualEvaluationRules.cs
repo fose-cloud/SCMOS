@@ -123,13 +123,6 @@ public static class AnnualEvaluationRules
     public static string Eligibility(int completedJobs, int minimumJobs) =>
         completedJobs <= 0 ? NoActivity : completedJobs >= minimumJobs ? Full : LimitedData;
 
-    /// <summary>The decisions management may record. A score suggests none of them.</summary>
-    public static readonly string[] Decisions =
-    [
-        "continue", "continue-with-improvement-plan", "corrective-action-required", "management-review-required",
-        "suspend-new-allocation", "inactive",
-    ];
-
     /* ---- snapshot figures ---- */
     public const string Available = "available";
     public const string NotAvailable = "not-available";

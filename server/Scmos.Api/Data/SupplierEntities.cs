@@ -262,8 +262,10 @@ public class SupplierEvaluation
      * marked legacy-import, and never reconstructed into KPI detail that nobody recorded. */
     public const string ScmosSource = "scmos";
     public const string LegacyImport = "legacy-import";
+    /// <summary>A finalized Annual Evaluation campaign's result (2 Oct 2026); its period is the campaign's code.</summary>
+    public const string CampaignSource = "annual-evaluation";
 
-    /// <summary>scmos · legacy-import.</summary>
+    /// <summary>scmos · legacy-import · annual-evaluation.</summary>
     public string Source { get; set; } = ScmosSource;
 
     /// <summary>The final percentage exactly as an imported source gave it.</summary>

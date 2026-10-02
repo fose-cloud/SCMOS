@@ -19,6 +19,7 @@ public static class AnnualEvaluationEndpoints
     public record ManualScoreBody(string? KpiCode, decimal Score, string? Note);
     public record ReasonBody(string? Reason);
     public record ExtendBody(string? ExpiresOn);
+    public record DecisionBody(string? Decision, string? Note);
 
     public static void MapAnnualEvaluations(this IEndpointRouteBuilder routes)
     {
@@ -128,6 +129,15 @@ public static class AnnualEvaluationEndpoints
         campaigns.MapPost("/{id:int}/invitations/{invitation:long}/sent", async (int id, long invitation, HttpContext context, IUserAccessor users,
             EvaluationInvitationService invitations, CancellationToken token) =>
             await LinkAsync(context, users, user => invitations.MarkSentAsync(user, id, invitation, token)));
+
+        // Phases 8–9: the campaign at a glance, and management's decision on each carrier (2 Oct 2026).
+        campaigns.MapGet("/{id:int}/summary", async (int id, HttpContext context, IUserAccessor users, EvaluationReviewService review,
+            CancellationToken token) =>
+            await ReadAsync(context, users, async user => await review.SummaryAsync(user, id, token)));
+
+        campaigns.MapPut("/{id:int}/carriers/{carrier:int}/decision", async (int id, int carrier, [FromBody] DecisionBody body,
+            HttpContext context, IUserAccessor users, EvaluationReviewService review, CancellationToken token) =>
+            await WriteAsync(context, users, user => review.DecideAsync(user, id, carrier, body.Decision, body.Note, token)));
 
         campaigns.MapPost("/{id:int}/status", async (int id, [FromBody] MoveBody body, HttpContext context, IUserAccessor users,
             AnnualEvaluationService service, CancellationToken token) =>

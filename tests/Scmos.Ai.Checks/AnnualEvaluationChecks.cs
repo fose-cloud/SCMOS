@@ -236,6 +236,11 @@ static class AnnualEvaluationChecks
                 "annual evaluation: after the campaign closes a recalculation needs a reason and is a new version; the first stays as it was");
             var reopenNoReason = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Open, null, default);
             await service.MoveAsync(supervisor, id, AnnualEvaluationRules.UnderReview, null, default);
+            // Phase 9: nothing is approved before every carrier has a decision.
+            var review = new EvaluationReviewService(db, auditing);
+            var undecided = await service.MoveAsync(manager, id, AnnualEvaluationRules.Approved, null, default);
+            await review.DecideAsync(supervisor, id, alphaRow.Id, EvaluationReview.Continue, "", default);
+            await review.DecideAsync(manager, id, bravoRow.Id, EvaluationReview.ManagementReview, "One job in the year — nothing to judge", default);
             var supervisorApprove = await service.MoveAsync(supervisor, id, AnnualEvaluationRules.Approved, null, default);
             var managerApprove = await service.MoveAsync(manager, id, AnnualEvaluationRules.Approved, null, default);
             var campaign = await db.EvaluationCampaigns.AsNoTracking().FirstAsync(row => row.Id == id);
@@ -246,8 +251,9 @@ static class AnnualEvaluationChecks
                 "annual evaluation: an approved campaign takes no new evidence, scores or assessments");
             check(!noReady.Ok && problems.Count == 0 && ready.Ok && opened.Ok && campaign.LockedAt is not null && campaign.LockedBy.Length > 0
                 && !lockedKpis.Ok && lockedKpis.Status == StatusCodes.Status409Conflict && !lockedUpdate.Ok && !lockedCarriers.Ok
-                && backNoReason.Ok && !reopenNoReason.Ok && !supervisorApprove.Ok && managerApprove.Ok && campaign.Status == AnnualEvaluationRules.Approved,
-                "annual evaluation: a valid campaign opens through ready and is then locked; reopening needs a reason; only a manager approves");
+                && backNoReason.Ok && !reopenNoReason.Ok && !undecided.Ok && !supervisorApprove.Ok && managerApprove.Ok
+                && campaign.Status == AnnualEvaluationRules.Approved,
+                "annual evaluation: a valid campaign opens through ready and is then locked; reopening needs a reason; only a manager approves, once every carrier is decided");
             check(await db.AuditEvents.CountAsync(row => row.Entity == "annual-evaluation" && row.EntityId == id.ToString()) >= 10,
                 "annual evaluation: every change to a campaign is in the audit trail");
         }

@@ -30,7 +30,7 @@ public record QuestionView(int Id, string Code, string Text, string TextTh, deci
 public record CampaignDepartmentView(int DepartmentId, string Code, string Name, decimal Weight, bool Enabled);
 public record CampaignView(EvaluationCampaign Campaign, bool Locked, IReadOnlyList<KpiView> Kpis, IReadOnlyList<QuestionView> Questions,
     IReadOnlyList<CampaignDepartmentView> Departments, IReadOnlyList<ScoreBandInput> ScoreBands, IReadOnlyList<string> Problems,
-    IReadOnlyList<string> Moves, int Carriers, int Included, bool CanManage, bool CanDecide);
+    IReadOnlyList<string> Moves, int Carriers, int Included, bool CanManage, bool CanDecide, IReadOnlyList<DecisionOption> Decisions);
 public record EvaluationCarrierRow(int Id, int SupplierId, string Code, string Name, string SupplierStatus, bool IsCarrier, bool Included,
     string ExcludedReason, int? TotalJobs, int? CompletedJobs, string Eligibility, DateTimeOffset? CountedAt, string Decision);
 
@@ -84,7 +84,8 @@ public class AnnualEvaluationService(ScmosDbContext db, AuditService audit, Carr
         return new CampaignView(campaign, AnnualEvaluationRules.Locked(campaign.Status), kpis, questions, departments,
             config.ScoreBands.OrderByDescending(band => band.MinScore).Select(band => new ScoreBandInput(band.Code, band.Label, band.MinScore)).ToList(),
             AnnualEvaluationRules.Problems(config), AnnualEvaluationRules.Moves[campaign.Status], all, config.IncludedCarriers,
-            user.Can(Capability.ManageAnnualEvaluation), user.Can(Capability.DecideAnnualEvaluation));
+            user.Can(Capability.ManageAnnualEvaluation), user.Can(Capability.DecideAnnualEvaluation),
+            EvaluationReview.Decisions.Select(decision => new DecisionOption(decision.Code, decision.Label)).ToList());
     }
 
     public async Task<IReadOnlyList<EvaluationCarrierRow>?> CarriersAsync(AppUser user, int id, CancellationToken token)
@@ -510,6 +511,14 @@ public class AnnualEvaluationService(ScmosDbContext db, AuditService audit, Carr
             var problems = AnnualEvaluationRules.Problems(await ConfigurationAsync(campaign, token));
             if (problems.Count > 0) return Refused("ยังเปิดไม่ได้: " + string.Join(" · ", problems.Take(3)) + (problems.Count > 3 ? $" (+{problems.Count - 3})" : ""));
         }
+        // Phase 9: approval waits for a current score and a decision on every carrier (2 Oct 2026).
+        if (wanted == AnnualEvaluationRules.Approved)
+        {
+            var problems = await EvaluationReviewService.ApprovalProblemsAsync(db, campaign, token);
+            if (problems.Count > 0) return Refused("ยังอนุมัติไม่ได้: " + string.Join(" · ", problems));
+        }
+        // Finalizing writes the results into the Supplier Register, saved together with the move itself.
+        var published = wanted == AnnualEvaluationRules.Finalized ? await EvaluationReviewService.PublishAsync(db, campaign, user, token) : 0;
 
         var before = campaign.Status;
         campaign.Status = wanted;
@@ -522,6 +531,11 @@ public class AnnualEvaluationService(ScmosDbContext db, AuditService audit, Carr
         campaign.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
         await Record(user, id, AuditActions.StatusChange, "status", before, wanted, text, token);
+        if (published > 0)
+        {
+            await Record(user, id, AuditActions.Update, "published", "", $"{published} ราย → ทะเบียนผู้ขนส่ง", "", token);
+            return new AnnualEvaluationResult(true, $"{campaign.Code}: สรุปผลแล้ว — ส่งผล {published} รายเข้าทะเบียนผู้ขนส่ง", Id: id);
+        }
         return new AnnualEvaluationResult(true, $"{campaign.Code}: {before} → {wanted}", Id: id);
     }
 

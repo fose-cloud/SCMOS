@@ -7,9 +7,12 @@ using Scmos.Api.Rules;
 
 namespace Scmos.Api.Services;
 
+/// <param name="Invited">Links for this carrier still live (revoked ones not counted) · <paramref name="Responses"/> of them answered.</param>
+/// <param name="Stale">Why the current score no longer matches the evidence (Phase 8); empty when it does.</param>
 public record ResultRow(int EvaluationCarrierId, int SupplierId, string Code, string Carrier, string Eligibility, int? TotalJobs,
     int Version, decimal? SystemScore, decimal? HumanScore, decimal? FinalScore, decimal SystemWeightAvailable, string Band, string Status,
-    string Reason, DateTimeOffset? CalculatedAt, string Decision);
+    string Reason, DateTimeOffset? CalculatedAt, string Decision, string DecisionNote = "", string DecidedBy = "", DateTimeOffset? DecidedAt = null,
+    int Invited = 0, int Responses = 0, IReadOnlyList<string>? Stale = null, IReadOnlyList<CarrierDepartmentLine>? Departments = null);
 public record ResultDetail(ResultRow Row, JsonElement Detail, IReadOnlyList<int> Versions);
 
 /// <summary>
@@ -148,17 +151,39 @@ public class EvaluationScoringService(ScmosDbContext db, AuditService audit)
         return new AnnualEvaluationResult(true, $"บันทึกคะแนน {kpi.Name} แล้ว", Id: evaluationCarrierId);
     }
 
+    /// <summary>
+    /// The campaign's board (Phase 8, 2 Oct 2026): each carrier's current score, whether it still matches its evidence, how
+    /// many of its links were answered — in all and by department — and the decision on it.
+    /// </summary>
     public async Task<IReadOnlyList<ResultRow>?> ResultsAsync(AppUser user, int campaignId, CancellationToken token)
     {
         if (!user.Can(Capability.ViewAnnualEvaluation)) return null;
-        var rows = await (from row in db.EvaluationCarriers.AsNoTracking()
-                          join supplier in db.Suppliers.AsNoTracking() on row.SupplierId equals supplier.Id
-                          where row.CampaignId == campaignId && row.Included
-                          select new { Row = row, supplier.Code, Name = supplier.LegalName != "" ? supplier.LegalName : supplier.Name }).ToListAsync(token);
-        var ids = rows.Select(one => one.Row.Id).ToList();
-        var current = await db.EvaluationResults.AsNoTracking().Where(one => ids.Contains(one.EvaluationCarrierId) && one.Current).ToListAsync(token);
-        return rows.Select(one => Row(one.Row, one.Code, one.Name, current.FirstOrDefault(result => result.EvaluationCarrierId == one.Row.Id)))
-            .OrderByDescending(row => row.FinalScore ?? -1).ThenBy(row => row.Carrier).ToList();
+        var campaign = await db.EvaluationCampaigns.AsNoTracking().FirstOrDefaultAsync(row => row.Id == campaignId, token);
+        if (campaign is null) return null;
+        var board = await EvaluationReviewService.BoardAsync(db, campaign, token);
+        var resultIds = board.Where(row => row.Result is not null).Select(row => row.Result!.Id).ToList();
+        var departmentScores = (await db.EvaluationDepartmentScores.AsNoTracking().Where(row => resultIds.Contains(row.ResultId)).ToListAsync(token))
+            .ToLookup(row => row.ResultId);
+        var links = await (from invitation in db.EvaluationInvitations.AsNoTracking()
+                           join evaluator in db.EvaluationEvaluators.AsNoTracking() on invitation.EvaluatorId equals evaluator.Id
+                           where invitation.CampaignId == campaignId && invitation.Status != AnnualEvaluationRules.InvitationRevoked
+                           select new { invitation.EvaluationCarrierId, evaluator.DepartmentId, invitation.Status }).ToListAsync(token);
+        var departments = await db.EvaluationCampaignDepartments.AsNoTracking().Where(row => row.CampaignId == campaignId && row.Enabled)
+            .OrderBy(row => row.DepartmentId).Select(row => row.DepartmentId).ToListAsync(token);
+        return board.Select(one =>
+        {
+            var mine = links.Where(link => link.EvaluationCarrierId == one.Carrier.Id).ToList();
+            var scores = one.Result is null ? [] : departmentScores[one.Result.Id].ToList();
+            var lines = departments.Select(department => new CarrierDepartmentLine(department,
+                scores.FirstOrDefault(score => score.DepartmentId == department)?.Score,
+                mine.Count(link => link.DepartmentId == department && link.Status == AnnualEvaluationRules.InvitationSubmitted),
+                mine.Count(link => link.DepartmentId == department))).ToList();
+            return Row(one.Carrier, one.Code, one.Name, one.Result) with
+            {
+                Invited = mine.Count, Responses = mine.Count(link => link.Status == AnnualEvaluationRules.InvitationSubmitted), Stale = one.Stale,
+                Departments = lines,
+            };
+        }).OrderByDescending(row => row.FinalScore ?? -1).ThenBy(row => row.Carrier).ToList();
     }
 
     public async Task<ResultDetail?> ResultAsync(AppUser user, int campaignId, int evaluationCarrierId, int? version, CancellationToken token)
@@ -177,7 +202,7 @@ public class EvaluationScoringService(ScmosDbContext db, AuditService audit)
     private static ResultRow Row(EvaluationCarrier row, string code, string name, EvaluationResult? result) =>
         new(row.Id, row.SupplierId, code, name, row.Eligibility, row.TotalJobs, result?.Version ?? 0, result?.SystemScore, result?.HumanScore,
             result?.FinalScore, result?.SystemWeightAvailable ?? 0, result?.Band ?? "", result?.Status ?? "", result?.Reason ?? "",
-            result?.CalculatedAt, row.Decision);
+            result?.CalculatedAt, row.Decision, row.DecisionNote, row.DecidedBy, row.DecidedAt);
 
     private static AnnualEvaluationResult Refused(string message, int status = StatusCodes.Status400BadRequest) => new(false, message, status);
 }

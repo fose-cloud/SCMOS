@@ -25,10 +25,25 @@ export type Question = { id: number; code: string; text: string; textTh: string;
 export type CampaignDepartment = { departmentId: number; code: string; name: string; weight: number; enabled: boolean };
 export type ScoreBand = { code: string; label: string; minScore: number };
 
+/** A decision management may record, with the API's words for it. */
+export type DecisionOption = { code: string; label: string };
+
 export type CampaignView = {
   campaign: Campaign; locked: boolean; kpis: Kpi[]; questions: Question[]; departments: CampaignDepartment[]; scoreBands: ScoreBand[];
-  problems: string[]; moves: string[]; carriers: number; included: number; canManage: boolean; canDecide: boolean;
+  problems: string[]; moves: string[]; carriers: number; included: number; canManage: boolean; canDecide: boolean; decisions: DecisionOption[];
 };
+
+/** A decision the Supplier Register has to carry out — the campaign never changes a carrier's status itself. */
+export type FollowUp = { evaluationCarrierId: number; supplierId: number; carrier: string; decision: string; label: string; note: string };
+
+/** The campaign at a glance (Phases 8–9). */
+export type CampaignSummary = {
+  year: number; status: string; carriers: number; evaluators: number; invited: number; responses: number; pending: number; expired: number;
+  completion: number | null; calculated: number; insufficient: number; notCalculated: number; stale: number; decided: number; published: number;
+  approvalProblems: string[]; followUps: FollowUp[];
+};
+
+export type CarrierDepartmentLine = { departmentId: number; score: number | null; responses: number; invited: number };
 
 export type CarrierRow = {
   id: number; supplierId: number; code: string; name: string; supplierStatus: string; isCarrier: boolean; included: boolean;
@@ -46,7 +61,35 @@ export type ResultRow = {
   evaluationCarrierId: number; supplierId: number; code: string; carrier: string; eligibility: string; totalJobs: number | null; version: number;
   systemScore: number | null; humanScore: number | null; finalScore: number | null; systemWeightAvailable: number; band: string; status: string;
   reason: string; calculatedAt: string | null; decision: string;
+  decisionNote: string; decidedBy: string; decidedAt: string | null;
+  /** Links still live for this carrier, and how many were answered — absent on a single result. */
+  invited: number; responses: number;
+  /** Why the score no longer matches the evidence; empty when it does. */
+  stale: string[] | null; departments: CarrierDepartmentLine[] | null;
 };
+
+/** The words for a decision, from the campaign's own list; a dash when none is recorded. */
+export function decisionLabel(decisions: DecisionOption[], code: string): string {
+  return code ? decisions.find((one) => one.code === code)?.label ?? code : "—";
+}
+
+/** The shortest reason a decision is taken with — the API's EvaluationReview.MinimumNote. */
+export const DECISION_NOTE_MINIMUM = 4;
+
+/**
+ * Whether a decision needs its reason written down, as the API decides it (EvaluationReview.NeedsNote): every decision but
+ * continuing does, and so does changing one already recorded. The screen only says so before the API is asked.
+ */
+export function needsDecisionNote(decision: string, previous: string): boolean {
+  return decision !== "continue" || (previous.length > 0 && previous !== decision);
+}
+
+/** Where a carrier's score stands, as the board and its filter name it. */
+export function scoreState(row: Pick<ResultRow, "version" | "status" | "stale">): "not-calculated" | "stale" | "insufficient" | "calculated" {
+  if (row.version === 0) return "not-calculated";
+  if ((row.stale ?? []).length > 0) return "stale";
+  return row.status === "insufficient-data" ? "insufficient" : "calculated";
+}
 export type KpiLine = {
   code: string; name: string; weight: number; method: string; metric: string; metricStatus: string; value: number | null;
   score: number | null; counted: boolean; why: string;
