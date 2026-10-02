@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Scmos.Api.Auth;
 using Scmos.Api.Rules;
@@ -38,6 +40,26 @@ public static class AnnualEvaluationEndpoints
         campaigns.MapPost("", async ([FromBody] CreateCampaignInput body, HttpContext context, IUserAccessor users,
             AnnualEvaluationService service, CancellationToken token) =>
             await WriteAsync(context, users, user => service.CreateAsync(user, body, token)));
+
+        // Phase 11: the evaluations before SCMOS and the carriers' certificates (2 Oct 2026).
+        campaigns.MapGet("/history", async (HttpContext context, IUserAccessor users, LegacyEvaluationService history, CancellationToken token) =>
+            await ReadAsync(context, users, async user => await history.HistoryAsync(user, token)));
+
+        campaigns.MapPost("/history/preview", async (HttpContext context, IUserAccessor users, LegacyEvaluationService history, CancellationToken token) =>
+            await LegacyAsync(context, users, (user, file, name, year, chosen) => history.PreviewAsync(user, file, name, year, chosen, token), token))
+            .DisableAntiforgery();
+
+        campaigns.MapPost("/history/import", async (HttpContext context, IUserAccessor users, LegacyEvaluationService history, CancellationToken token) =>
+            await LegacyAsync(context, users, (user, file, name, year, chosen) => history.ImportAsync(user, file, name, year, chosen, token), token))
+            .DisableAntiforgery();
+
+        campaigns.MapPost("/history/certificates", async ([FromBody] CertificateInput body, HttpContext context, IUserAccessor users,
+            LegacyEvaluationService history, CancellationToken token) =>
+            await WriteAsync(context, users, user => history.SaveCertificateAsync(user, null, body, token)));
+
+        campaigns.MapPut("/history/certificates/{certificate:long}", async (long certificate, [FromBody] CertificateInput body, HttpContext context,
+            IUserAccessor users, LegacyEvaluationService history, CancellationToken token) =>
+            await WriteAsync(context, users, user => history.SaveCertificateAsync(user, certificate, body, token)));
 
         campaigns.MapGet("/{id:int}", async (int id, HttpContext context, IUserAccessor users, AnnualEvaluationService service,
             CancellationToken token) =>
@@ -172,6 +194,39 @@ public static class AnnualEvaluationEndpoints
         if (user is null) return ApiResults.SignInRequired;
         var result = await work(user);
         return result.Ok ? Results.Json(new { message = result.Message, links = result.Links ?? [] }) : ApiResults.Error(result.Message, result.Status);
+    }
+
+    /// <summary>
+    /// A workbook of past evaluations, read as a form: the file, the year it is for, and the carriers somebody chose by hand
+    /// (<c>chosen</c>, JSON <c>{"row": supplierId}</c>, 0 to leave a row out). Five megabytes is ten times the department's file.
+    /// </summary>
+    private static async Task<IResult> LegacyAsync(HttpContext context, IUserAccessor users,
+        Func<AppUser, Stream, string, int, IReadOnlyDictionary<int, int>, Task<LegacyOutcome>> work, CancellationToken token)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var user = users.Current(context);
+        if (user is null) return ApiResults.SignInRequired;
+        if (!context.Request.HasFormContentType) return ApiResults.Error("ต้องส่งไฟล์แบบ multipart/form-data", StatusCodes.Status400BadRequest);
+        var form = await context.Request.ReadFormAsync(token);
+        var file = form.Files["file"];
+        if (file is null || file.Length == 0) return ApiResults.Error("ยังไม่ได้เลือกไฟล์", StatusCodes.Status400BadRequest);
+        if (file.Length > 5 * 1024 * 1024) return ApiResults.Error("ไฟล์ใหญ่เกิน 5 MB", StatusCodes.Status400BadRequest);
+        if (!int.TryParse(form["year"].ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out var year))
+            return ApiResults.Error("ระบุปีของผลประเมิน", StatusCodes.Status400BadRequest);
+        Dictionary<int, int> chosen = [];
+        var picked = form["chosen"].ToString();
+        if (picked.Length > 0)
+        {
+            try { chosen = JsonSerializer.Deserialize<Dictionary<int, int>>(picked) ?? []; }
+            catch (JsonException) { return ApiResults.Error("รายการผู้ขนส่งที่เลือกไม่ถูกต้อง", StatusCodes.Status400BadRequest); }
+        }
+        await using var stream = new MemoryStream();
+        await file.CopyToAsync(stream, token);
+        stream.Position = 0;
+        var outcome = await work(user, stream, Path.GetFileName(file.FileName), year, chosen);
+        return outcome.Ok || outcome.Preview is not null
+            ? Results.Json(new { ok = outcome.Ok, message = outcome.Message, preview = outcome.Preview }, statusCode: outcome.Ok ? 200 : outcome.Status)
+            : ApiResults.Error(outcome.Message, outcome.Status);
     }
 
     private static async Task<IResult> WriteAsync(HttpContext context, IUserAccessor users, Func<AppUser, Task<AnnualEvaluationResult>> work)

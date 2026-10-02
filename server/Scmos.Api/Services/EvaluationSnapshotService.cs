@@ -169,6 +169,16 @@ public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, Jo
                 need.Expires && (held is null || SupplierCompliance.MonitorsExpiry(need, held.ExpiryDate))));
         }).ToList();
 
+        // Each carrier's latest record of each certificate up to the campaign's year (Phase 11).
+        var certificates = (await db.SupplierCertificates.AsNoTracking().Where(row => supplierIds.Contains(row.SupplierId) && row.Year <= campaign.Year)
+                .ToListAsync(token))
+            .GroupBy(row => (row.SupplierId, row.Type)).Select(group => group.OrderByDescending(row => row.Year).First())
+            .ToLookup(row => row.SupplierId);
+        IReadOnlyList<EvaluationEvidence.Certificate> CertificatesOf(int supplier) => certificates[supplier]
+            .OrderBy(row => SupplierCertificates.Types.Select(type => type.Code).ToList().IndexOf(row.Type))
+            .Select(row => new EvaluationEvidence.Certificate(row.Type, row.Year,
+                SupplierCertificates.StateOf(row.Held, row.Verification, row.ExpiresOn, today), row.ExpiresOn)).ToList();
+
         var bangkokToday = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime);
         return supplier =>
         {
@@ -177,7 +187,8 @@ public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, Jo
             return new EvaluationEvidence.Inputs(jobs,
                 jobKeys.SelectMany(key => delays[key]).Select(row => new EvaluationEvidence.Delay(row.JobKey, row.AgainstCarrier)).ToList(),
                 issuesOf[supplier].ToList(), caseStages, invoicesOf[supplier].ToList(), slaOf[supplier].ToList(),
-                withPod.Where(jobKeys.Contains).ToHashSet(StringComparer.Ordinal), ComplianceOf(supplier), campaign.MinimumJobs, bangkokToday);
+                withPod.Where(jobKeys.Contains).ToHashSet(StringComparer.Ordinal), ComplianceOf(supplier), campaign.MinimumJobs, bangkokToday,
+                CertificatesOf(supplier));
         };
     }
 

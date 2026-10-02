@@ -277,6 +277,45 @@ public class SupplierEvaluation
     public string ImportedBy { get; set; } = "";
 }
 
+/// <summary>
+/// One of a carrier's management-system certificates — Q-Mark, ISO 9001 / 14001 / 39001 / 45001 (2 Oct 2026, Annual
+/// Evaluation Phase 11). A row a carrier, certificate and year: what the department recorded about it that year. A
+/// declaration ("มี" in the department's own table) has no number, date or copy and is never a valid certificate; one seen
+/// is entered with its number and dates and marked verified. See <see cref="Rules.SupplierCertificates"/>.
+/// </summary>
+public class SupplierCertificate
+{
+    public long Id { get; set; }
+    public int SupplierId { get; set; }
+
+    /// <summary>q-mark · iso-9001 · iso-14001 · iso-39001 · iso-45001</summary>
+    public string Type { get; set; } = "";
+
+    /// <summary>The year the record is about — the evaluation year it was declared for, or the year it was entered.</summary>
+    public int Year { get; set; }
+
+    /// <summary>Whether the carrier holds it. A "ไม่มี" is kept too: checked and not held is not the same as never asked.</summary>
+    public bool Held { get; set; }
+
+    public string Number { get; set; } = "";
+
+    /// <summary>DD/MM/YYYY, as the register writes dates; empty when nobody recorded one.</summary>
+    public string IssuedOn { get; set; } = "";
+    public string ExpiresOn { get; set; } = "";
+
+    /// <summary>declared · verified</summary>
+    public string Verification { get; set; } = Rules.SupplierCertificates.Declared;
+
+    /// <summary>manual · legacy-import</summary>
+    public string Source { get; set; } = Rules.SupplierCertificates.Manual;
+
+    public string Note { get; set; } = "";
+    public string RecordedBy { get; set; } = "";
+    public DateTimeOffset RecordedAt { get; set; }
+    public string UpdatedBy { get; set; } = "";
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
 /* --------------------------------------------------------------- rates */
 
 /// <summary>One step of the fuel clause, shared by every quoted lane.</summary>

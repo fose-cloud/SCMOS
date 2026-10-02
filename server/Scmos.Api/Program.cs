@@ -129,6 +129,7 @@ builder.Services.AddScoped<EvaluationScoringService>();
 builder.Services.AddScoped<EvaluationInvitationService>();
 builder.Services.AddScoped<EvaluationReviewService>();
 builder.Services.AddScoped<EvaluationPlanService>();
+builder.Services.AddScoped<LegacyEvaluationService>();
 builder.Services.AddScoped<ExternalEvaluationService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();

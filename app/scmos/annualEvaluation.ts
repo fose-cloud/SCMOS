@@ -65,6 +65,53 @@ export type EvaluationPlan = {
   targetDate: string; ownerName: string;
 };
 
+/* ---- Phase 11: the evaluations before SCMOS, and the carriers' certificates ---- */
+
+export type LegacyPreviewRow = {
+  row: number; name: string; number: string; supplierId: number | null; supplier: string; matchedBy: string; finalPercent: number | null;
+  result: string; evaluators: number; held: Record<string, boolean | null> | null; problems: string[]; existing: string; skip: boolean;
+};
+export type LegacyPreview = { kind: "results" | "certificates"; year: number; fileName: string; rows: LegacyPreviewRow[]; certificates: DecisionOption[] };
+
+export type HistoryEvaluation = { period: string; source: string; finalPercent: number | null; totalScore: number | null; grade: string; result: string; note: string };
+export type HistoryCertificate = {
+  id: number; type: string; label: string; year: number; held: boolean; state: string; verification: string; source: string; number: string;
+  issuedOn: string; expiresOn: string; note: string;
+};
+export type HistoryRow = { supplierId: number; code: string; name: string; status: string; evaluations: HistoryEvaluation[]; certificates: HistoryCertificate[] };
+
+/** A certificate's state as the API names it, in words and colour. A declaration is never shown as a valid certificate. */
+export const CERTIFICATE_STATE: Record<string, { label: string; tone: string; background: string }> = {
+  valid: { label: "ใช้ได้", tone: "#16794C", background: "#EDF7F1" },
+  expiring: { label: "ใกล้หมดอายุ", tone: "#8A6D0B", background: "#FFFBEB" },
+  expired: { label: "หมดอายุ", tone: "#B42318", background: "#FEF3F2" },
+  "no-expiry": { label: "มี (ไม่ระบุวันหมดอายุ)", tone: "#1D5FA8", background: "#E7F0FA" },
+  declared: { label: "แจ้งว่ามี (ยังไม่ยืนยัน)", tone: "#6D28D9", background: "#F3EEFE" },
+  "not-held": { label: "ไม่มี", tone: "#94A3B8", background: "#F8FAFC" },
+};
+
+/** Where an evaluation in a carrier's history came from. */
+export const HISTORY_SOURCE: Record<string, string> = { "legacy-import": "นำเข้า", "annual-evaluation": "แคมเปญ", scmos: "หน้าจอเดิม" };
+
+/**
+ * Periods newest first, by the year in them — "AE-2026" (a campaign), "2026" (the old screen) and "2025" (imported) sort
+ * by 2026, 2026, 2025, not as text, where a letter would put every campaign ahead of every year.
+ */
+export function newestFirst(periods: string[]): string[] {
+  const yearOf = (period: string) => Number(/\d{4}/.exec(period)?.[0] ?? 0);
+  return [...periods].sort((a, b) => yearOf(b) - yearOf(a) || b.localeCompare(a));
+}
+
+/** Each certificate type's latest record — the history keeps every year, a carrier is shown by its newest. */
+export function latestCertificates(certificates: HistoryCertificate[]): HistoryCertificate[] {
+  const newest = new Map<string, HistoryCertificate>();
+  for (const one of certificates) {
+    const known = newest.get(one.type);
+    if (!known || one.year > known.year) newest.set(one.type, one);
+  }
+  return [...newest.values()];
+}
+
 /** The API's draft as the wizard takes it. Every field stays the person's to change before the plan is made. */
 export function prefillOf(draft: PlanDraft): PlanPrefill {
   return {

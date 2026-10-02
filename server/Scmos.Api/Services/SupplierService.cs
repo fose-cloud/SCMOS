@@ -969,6 +969,17 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
                 moved++;
             }
 
+            // Certificates likewise (2 Oct 2026): one a certificate and year, so a clash stays put and keeps the row —
+            // removing it would take the certificate with it.
+            var certificates = await db.SupplierCertificates.Where(r => r.SupplierId == keepId)
+                .Select(r => new { r.Type, r.Year }).ToListAsync(token);
+            foreach (var row in await db.SupplierCertificates.Where(r => r.SupplierId == foldId).ToListAsync(token))
+            {
+                if (certificates.Any(one => one.Type == row.Type && one.Year == row.Year)) { clashes++; continue; }
+                row.SupplierId = keepId;
+                moved++;
+            }
+
             // The official spelling survives the merge even when the history
             // sat on the row spelled short.
             if (fold.Name.Length > keep.Name.Length) keep.Name = fold.Name;
@@ -986,7 +997,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
 
         return new SupplierResult(true,
             clashes > 0
-                ? $"ย้ายข้อมูล {moved} รายการมาที่ {keep.Name} แล้ว — แต่ยังลบ {fold.Code} ไม่ได้ เพราะมีผลประเมินรอบเดียวกันทั้งสองราย"
+                ? $"ย้ายข้อมูล {moved} รายการมาที่ {keep.Name} แล้ว — แต่ยังลบ {fold.Code} ไม่ได้ เพราะมีผลประเมินหรือใบรับรองปีเดียวกันทั้งสองราย"
                 : $"รวม {fold.Code} เข้ากับ {keep.Name} แล้ว — ย้ายข้อมูล {moved} รายการ",
             keepId);
     }

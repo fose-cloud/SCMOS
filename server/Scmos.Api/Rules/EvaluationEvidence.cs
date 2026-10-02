@@ -16,7 +16,8 @@ namespace Scmos.Api.Rules;
 /// <para>
 /// Nothing missing is a zero: a rate with no base is <see cref="AnnualEvaluationRules.NotAvailable"/>, one below the
 /// campaign's minimum is <see cref="AnnualEvaluationRules.InsufficientData"/>, and what SCMOS does not record at all
-/// (fatal accidents, alcohol, a market price benchmark, ISO certificates) says so rather than being invented.
+/// (fatal accidents, alcohol, a market price benchmark) says so rather than being invented. ISO / Q-Mark certificates are read
+/// from the register's certificates (Phase 11) — a declaration is shown as one, never as a valid certificate.
 /// </para>
 /// </summary>
 public static class EvaluationEvidence
@@ -35,10 +36,15 @@ public static class EvaluationEvidence
     /// <param name="JobsWithPod">The job keys that have a POD filed.</param>
     /// <param name="Compliance">The state of each of the register's required documents, one per requirement.</param>
     /// <param name="Today">The day the snapshot is taken, Bangkok — what "not yet due" is read against.</param>
+    /// <param name="Certificates">The carrier's latest record of each certificate, none when nothing is recorded.</param>
     public sealed record Inputs(
         IReadOnlyList<Job> Jobs, IReadOnlyList<Delay> Delays, IReadOnlyList<OperationalIssue> Issues,
         IReadOnlyDictionary<long, string> CaseStages, IReadOnlyList<Invoice> Invoices, IReadOnlyList<SlaCase> SlaCases,
-        IReadOnlySet<string> JobsWithPod, IReadOnlyList<(string Code, string State)> Compliance, int MinimumBase, DateOnly Today);
+        IReadOnlySet<string> JobsWithPod, IReadOnlyList<(string Code, string State)> Compliance, int MinimumBase, DateOnly Today,
+        IReadOnlyList<Certificate>? Certificates = null);
+
+    /// <summary>One certificate as the register last recorded it: its type, the year of the record, and its state now.</summary>
+    public sealed record Certificate(string Type, int Year, string State, string ExpiresOn);
 
     public sealed record Metric(string Code, string Status, decimal? Value, decimal? Numerator, decimal? Denominator,
         string Formula, string Note, IReadOnlyList<string> Sources, bool External);
@@ -166,7 +172,14 @@ public static class EvaluationEvidence
                 string.Join(" · ", input.Compliance.Select(one => $"{one.Code}: {one.State}")),
                 input.Compliance.Where(one => one.State is not (SupplierCompliance.State.Valid or SupplierCompliance.State.Expiring))
                     .Select(one => one.Code).ToList(), false));
-        metrics.Add(Missing("iso-certificates", "ทะเบียนผู้ขนส่งยังไม่มีช่องเก็บ ISO 9001 / 14001 / 45001 / Q-Mark"));
+        var certificates = input.Certificates ?? [];
+        var holding = certificates.Where(one => SupplierCertificates.Holds(one.State)).ToList();
+        metrics.Add(certificates.Count == 0
+            ? Missing("iso-certificates", "ยังไม่มีบันทึกใบรับรอง ISO / Q-Mark ของผู้ขนส่งรายนี้")
+            : new Metric("iso-certificates", AnnualEvaluationRules.Available, holding.Count, holding.Count, certificates.Count,
+                "ใบรับรองที่ถืออยู่ ÷ ใบรับรองที่มีบันทึก (นับรวมที่แจ้งว่ามีแต่ยังไม่ได้ยืนยัน)",
+                string.Join(" · ", certificates.Select(one => $"{SupplierCertificates.LabelOf(one.Type)}: {CertificateWords(one)}")),
+                holding.Select(one => SupplierCertificates.LabelOf(one.Type)).ToList(), false));
         metrics.Add(Missing("pricing", "ยังไม่มีราคาอ้างอิงตลาดที่เชื่อถือได้ — Subcontract Management ประเมินเอง (0–100)"));
         return metrics;
     }
@@ -175,6 +188,16 @@ public static class EvaluationEvidence
 
     private static Metric Count(string code, int value, string note, IReadOnlyList<string> sources, bool external = false) =>
         new(code, AnnualEvaluationRules.Available, value, value, null, "", note, sources, external);
+
+    private static string CertificateWords(Certificate one) => one.State switch
+    {
+        SupplierCertificates.NotHeld => $"ไม่มี (บันทึกปี {one.Year})",
+        SupplierCertificates.Declared => $"แจ้งว่ามี (ปี {one.Year}, ยังไม่ได้ยืนยัน)",
+        SupplierCompliance.State.NoExpiry => "มี (ไม่ระบุวันหมดอายุ)",
+        SupplierCompliance.State.Expired => $"หมดอายุ {one.ExpiresOn}",
+        SupplierCompliance.State.Expiring => $"ใกล้หมดอายุ {one.ExpiresOn}",
+        _ => $"มี ใช้ได้ถึง {one.ExpiresOn}",
+    };
 
     private static Metric Missing(string code, string note, bool external = false) =>
         new(code, AnnualEvaluationRules.NotAvailable, null, null, null, "", note, [], external);

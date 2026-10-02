@@ -15,6 +15,7 @@ import { EvaluationBoard } from "./EvaluationBoard";
 import { EvaluationCarrierPanel } from "./EvaluationCarrierPanel";
 import { EvaluationDecisions } from "./EvaluationDecisions";
 import { EvaluationEvaluators } from "./EvaluationEvaluators";
+import { EvaluationHistory } from "./EvaluationHistory";
 
 /**
  * Annual Carrier Evaluation (1 Oct 2026, Phase 5) — in place of the screen that averaged a few scores into a grade.
@@ -35,6 +36,8 @@ export function AnnualEvaluation({ canManage, onToast, onActionPlan, onOpenPlan 
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [copyFrom, setCopyFrom] = useState("");
   const [busy, setBusy] = useState(false);
+  /** The campaigns, or the carriers' history year by year with their certificates (Phase 11). */
+  const [view, setView] = useState<"campaigns" | "history">("campaigns");
 
   const load = useCallback(async () => {
     try {
@@ -70,11 +73,20 @@ export function AnnualEvaluation({ canManage, onToast, onActionPlan, onOpenPlan 
     return <CampaignScreen id={openId} canManage={canManage} onToast={onToast} onActionPlan={onActionPlan} onOpenPlan={onOpenPlan}
       onBack={() => { setOpenId(null); void load(); }} />;
   }
+  const views = (
+    <div style={css("display:flex;gap:6px")}>
+      {([["campaigns", "แคมเปญ"], ["history", "ประวัติการประเมิน"]] as const).map(([key, label]) => (
+        <button key={key} type="button" onClick={() => setView(key)} style={css(view === key ? PRIMARY : OUTLINE)}>{label}</button>
+      ))}
+    </div>
+  );
+  if (view === "history") return <div style={css("display:flex;flex-direction:column;gap:14px")}>{views}<EvaluationHistory canManage={canManage} onToast={onToast} /></div>;
   if (failure) return <Notice tone="#B45309">{failure}</Notice>;
   if (!list) return <Notice tone="#7B8CA0">กำลังโหลด…</Notice>;
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
+      {views}
       {canManage && (
         <div style={css(PANEL + "display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap")}>
           <label style={css("display:flex;flex-direction:column;gap:3px")}>

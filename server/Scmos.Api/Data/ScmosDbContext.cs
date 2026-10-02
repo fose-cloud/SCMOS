@@ -130,6 +130,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Dropdown cells the rules propose to change, waiting for the job's owner (22 Sep 2026).</summary>
     public DbSet<JobCorrection> JobCorrections => Set<JobCorrection>();
     public DbSet<SupplierEvaluation> SupplierEvaluations => Set<SupplierEvaluation>();
+    public DbSet<SupplierCertificate> SupplierCertificates => Set<SupplierCertificate>();
 
     public DbSet<FuelBand> FuelBands => Set<FuelBand>();
     public DbSet<RateLane> RateLanes => Set<RateLane>();
@@ -1589,6 +1590,23 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Result).HasMaxLength(60).HasDefaultValue("");
             e.Property(x => x.ImportedBy).HasMaxLength(200).HasDefaultValue("");
             e.HasIndex(x => new { x.SupplierId, x.Period }).IsUnique().HasDatabaseName("supplier_evaluation_idx");
+        });
+
+        // A carrier's ISO / Q-Mark certificates (2 Oct 2026): one row a carrier, certificate and year.
+        model.Entity<SupplierCertificate>(e =>
+        {
+            e.ToTable("supplier_certificates");
+            e.Property(x => x.Type).HasMaxLength(20);
+            e.Property(x => x.Number).HasMaxLength(80).HasDefaultValue("");
+            e.Property(x => x.IssuedOn).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.ExpiresOn).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.Verification).HasMaxLength(20).HasDefaultValue(Rules.SupplierCertificates.Declared);
+            e.Property(x => x.Source).HasMaxLength(20).HasDefaultValue(Rules.SupplierCertificates.Manual);
+            e.Property(x => x.Note).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.RecordedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.UpdatedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.SupplierId, x.Type, x.Year }).IsUnique().HasDatabaseName("supplier_certificate_idx");
+            e.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Cascade);
         });
 
         model.Entity<FuelBand>(e =>
