@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
-import type { PlanPrefill } from "../actionPlanRequest";
-import { METRIC_LABEL, METRIC_STATUS, shown, type CampaignView, type ResultDetail, type Snapshot } from "../annualEvaluation";
+import { STATUS as PLAN_STATUS, shownStatus } from "../actionPlan";
+import { METRIC_LABEL, METRIC_STATUS, shown, type CampaignView, type EvaluationPlan, type ResultDetail, type Snapshot } from "../annualEvaluation";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
-import { CELL, HEAD, INPUT, LABEL, MONO, OUTLINE, SAVE, TITLE } from "./ActionPlanParts";
+import { Badge, CELL, HEAD, INPUT, LABEL, MONO, OUTLINE, SAVE, TITLE } from "./ActionPlanParts";
 
 /**
  * One carrier of a campaign (Annual Evaluation, Phase 5): its score and how it was reached — each KPI's figure, band
  * score and weight, each department's score — and the evidence behind it, by snapshot version, down to the records.
- * Pricing is assessed here; an improvement plan can be started from here.
+ * Pricing is assessed here; an improvement plan is started from here, drafted by the API from what the evaluation
+ * found (Phase 10), and the plans already opened for the carrier are listed.
  */
-export function EvaluationCarrierPanel({ campaignId, carrierId, view, canManage, onClose, onChanged, onToast, onActionPlan }: {
+export function EvaluationCarrierPanel({ campaignId, carrierId, view, canManage, plans, onClose, onChanged, onToast, onPlan, onOpenPlan }: {
   campaignId: number;
   carrierId: number;
   view: CampaignView;
@@ -21,7 +22,11 @@ export function EvaluationCarrierPanel({ campaignId, carrierId, view, canManage,
   onClose: () => void;
   onChanged: () => void;
   onToast: (message: string) => void;
-  onActionPlan?: (prefill: PlanPrefill) => void;
+  /** The Action Plans opened from this carrier's evaluation. */
+  plans: EvaluationPlan[];
+  /** Starts a plan from the API's draft; absent without EditActionPlans. */
+  onPlan?: () => void;
+  onOpenPlan?: (planId: number) => void;
 }) {
   const [result, setResult] = useState<ResultDetail | null>(null);
   const [resultVersion, setResultVersion] = useState<number | null>(null);
@@ -80,18 +85,29 @@ export function EvaluationCarrierPanel({ campaignId, carrierId, view, canManage,
             <div style={css(LABEL)}>{view.campaign.code}</div>
             <div style={css("font-size:15px;font-weight:700;color:#0A2240")}>{carrier}</div>
           </div>
-          {onActionPlan && snapshot && (
-            <button type="button" style={css(OUTLINE)} onClick={() => onActionPlan({
-              developmentType: "subcontractor", targetType: "carrier", supplierId: snapshot.supplierId, category: "Carrier Performance Development",
-              title: `${carrier} — แผนปรับปรุงจาก ${view.campaign.code}`,
-              references: [{ kind: "evaluation", refId: `${view.campaign.code}:${carrierId}`,
-                label: `Annual Evaluation ${view.campaign.code} · ${carrier}${result?.row.finalScore != null ? ` · ${shown(result.row.finalScore)}` : ""}` }],
-            })}>+ Action Plan</button>
-          )}
+          {onPlan && <button type="button" style={css(OUTLINE)} onClick={onPlan}>+ Action Plan</button>}
           <button type="button" onClick={onClose} aria-label="ปิด" style={css("height:30px;width:30px;border:1px solid #C9D6E2;border-radius:5px;background:#fff;color:#465A6E;font-size:15px;cursor:pointer")}>×</button>
         </div>
 
         <div style={css("flex:1;overflow:auto;padding:14px 18px;display:flex;flex-direction:column;gap:14px")}>
+          {plans.length > 0 && (
+            <div style={css("display:flex;flex-direction:column;gap:5px")}>
+              <div style={css(TITLE)}>แผนพัฒนา · {plans.length}</div>
+              {plans.map((plan) => {
+                const status = PLAN_STATUS[shownStatus(plan)] ?? { label: plan.status, tone: "#475569", background: "#F1F5F9" };
+                return (
+                  <button key={plan.planId} type="button" disabled={!onOpenPlan} onClick={() => onOpenPlan?.(plan.planId)}
+                    style={css("display:flex;gap:8px;align-items:center;text-align:left;padding:6px 9px;border:1px solid #E3E8EE;border-radius:5px;background:#fff;"
+                      + `font-family:inherit;cursor:${onOpenPlan ? "pointer" : "default"}`)}>
+                    <span style={css(MONO + "font-weight:700;color:#0A2240")}>{plan.number}</span>
+                    <span style={css("flex:1;font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap")}>{plan.title}</span>
+                    <Badge label={status.label} tone={status.tone} background={status.background} />
+                    <span style={css(LABEL + MONO)}>{plan.progress == null ? "—" : `${plan.progress}%`}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {/* The score */}
           <section style={css("display:flex;flex-direction:column;gap:8px")}>
             <div style={css("display:flex;gap:10px;align-items:baseline;flex-wrap:wrap")}>

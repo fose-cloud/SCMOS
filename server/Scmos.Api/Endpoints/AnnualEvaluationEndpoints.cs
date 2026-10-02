@@ -139,6 +139,15 @@ public static class AnnualEvaluationEndpoints
             HttpContext context, IUserAccessor users, EvaluationReviewService review, CancellationToken token) =>
             await WriteAsync(context, users, user => review.DecideAsync(user, id, carrier, body.Decision, body.Note, token)));
 
+        // Phase 10: a carrier's improvement plan is an Action Plan, drafted from its findings; the campaign lists them (2 Oct 2026).
+        campaigns.MapGet("/{id:int}/carriers/{carrier:int}/plan-draft", async (int id, int carrier, HttpContext context, IUserAccessor users,
+            EvaluationPlanService plans, CancellationToken token) =>
+            await ReadAsync(context, users, async user => await plans.DraftAsync(user, id, carrier, token)));
+
+        campaigns.MapGet("/{id:int}/plans", async (int id, HttpContext context, IUserAccessor users, EvaluationPlanService plans,
+            CancellationToken token) =>
+            await ReadAsync(context, users, async user => await plans.PlansAsync(user, id, token)));
+
         campaigns.MapPost("/{id:int}/status", async (int id, [FromBody] MoveBody body, HttpContext context, IUserAccessor users,
             AnnualEvaluationService service, CancellationToken token) =>
             await WriteAsync(context, users, user => service.MoveAsync(user, id, body.Status, body.Reason, token)));

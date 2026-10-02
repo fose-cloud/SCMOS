@@ -27,7 +27,7 @@ test("scores are shown to two places and a missing one as a dash, never a nought
 
 test("Annual Evaluation replaces the old screen, and reads and writes only through the API's routes", () => {
   const app = read("app/SCMOSApp.tsx");
-  assert.match(app, /\{screen === "evaluation" && <AnnualEvaluation canManage=\{able\("ManageAnnualEvaluation"\)\} onToast=\{setToast\} onActionPlan=\{startActionPlan\} \/>\}/);
+  assert.match(app, /\{screen === "evaluation" && <AnnualEvaluation canManage=\{able\("ManageAnnualEvaluation"\)\} onToast=\{setToast\} onActionPlan=\{startActionPlan\}\s+onOpenPlan=\{openActionPlan\} \/>\}/);
   assert.doesNotMatch(app, /<Evaluation /);
   const screen = read("app/scmos/screens/AnnualEvaluation.tsx");
   for (const route of ['"/status"', '"/generate-snapshot"', '"/calculate"', '"/carriers"', '"/carriers/count"']) assert.ok(screen.includes(route), route);

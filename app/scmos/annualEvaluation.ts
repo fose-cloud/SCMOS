@@ -1,3 +1,5 @@
+import type { PlanPrefill } from "./actionPlanRequest";
+
 /**
  * Annual Carrier Evaluation (1 Oct 2026): the shapes the API answers in and the words the screens use for them.
  * Every rule — what may open, what a figure is, how a score is reached — is the API's (Rules/AnnualEvaluationRules.cs,
@@ -36,12 +38,41 @@ export type CampaignView = {
 /** A decision the Supplier Register has to carry out — the campaign never changes a carrier's status itself. */
 export type FollowUp = { evaluationCarrierId: number; supplierId: number; carrier: string; decision: string; label: string; note: string };
 
-/** The campaign at a glance (Phases 8–9). */
+/** The campaign at a glance (Phases 8–10). */
 export type CampaignSummary = {
   year: number; status: string; carriers: number; evaluators: number; invited: number; responses: number; pending: number; expired: number;
   completion: number | null; calculated: number; insufficient: number; notCalculated: number; stale: number; decided: number; published: number;
   approvalProblems: string[]; followUps: FollowUp[];
+  /** Action Plans opened from the campaign and not cancelled, and the carriers whose decision still waits for one. */
+  plans: number; planFollowUps: FollowUp[];
 };
+
+/** What the evaluation found short (Phase 10): a KPI below full marks, or a question averaging under "good". */
+export type Finding = { kind: "kpi" | "question"; code: string; name: string; value: number | null; target: number | null; score: number | null;
+  pointsLost: number; text: string };
+
+/** A development plan as the evaluation would open it — the API's draft, for the Action Plan wizard. */
+export type PlanDraft = {
+  developmentType: "subcontractor"; targetType: string; supplierId: number; category: string; title: string; developmentArea: string;
+  currentLevel: string; targetLevel: string; gap: string; objective: string; metric: string; baseline: number | null; targetValue: number | null;
+  priority: string; items: { action: string; expectedResult: string }[]; references: { kind: string; refId: string; label: string }[];
+  findings: Finding[];
+};
+
+/** An Action Plan opened from one of the campaign's carriers. */
+export type EvaluationPlan = {
+  evaluationCarrierId: number; planId: number; number: string; title: string; status: string; overdue: boolean; progress: number | null;
+  targetDate: string; ownerName: string;
+};
+
+/** The API's draft as the wizard takes it. Every field stays the person's to change before the plan is made. */
+export function prefillOf(draft: PlanDraft): PlanPrefill {
+  return {
+    developmentType: draft.developmentType, targetType: draft.targetType, supplierId: draft.supplierId, category: draft.category, title: draft.title,
+    developmentArea: draft.developmentArea, currentLevel: draft.currentLevel, targetLevel: draft.targetLevel, gap: draft.gap, objective: draft.objective,
+    metric: draft.metric, baseline: draft.baseline, targetValue: draft.targetValue, priority: draft.priority, items: draft.items, references: draft.references,
+  };
+}
 
 export type CarrierDepartmentLine = { departmentId: number; score: number | null; responses: number; invited: number };
 

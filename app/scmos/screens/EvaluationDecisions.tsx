@@ -1,21 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import { STATUS as PLAN_STATUS, shownStatus } from "../actionPlan";
 import {
-  DECISION_NOTE_MINIMUM, bangkokTime, decisionLabel, needsDecisionNote, shown, type CampaignSummary, type CampaignView, type ResultRow,
+  DECISION_NOTE_MINIMUM, bangkokTime, decisionLabel, needsDecisionNote, shown, type CampaignSummary, type CampaignView, type EvaluationPlan, type ResultRow,
 } from "../annualEvaluation";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
-import { CELL, EMPTY, HEAD, INPUT, LABEL, MONO, Notice, SAVE } from "./ActionPlanParts";
+import { Badge, CELL, EMPTY, HEAD, INPUT, LABEL, MONO, Notice, SAVE, SMALL } from "./ActionPlanParts";
 
 /**
  * Management review (2 Oct 2026, Annual Evaluation Phase 9): a decision and its reason per carrier, recorded while the
  * campaign is under review and confirmed by approving it. The calculated band sits beside the decision and never fills it
  * in. What approval still waits for, and the decisions the Supplier Register has to carry out, come from the API.
+ * A carrier's improvement plan is an Action Plan (Phase 10): its plans are listed beside the decision, and one is started
+ * from the API's draft of what the evaluation found.
  */
-export function EvaluationDecisions({ view, results, summary, editable, busy, onDecide }: {
-  view: CampaignView; results: ResultRow[]; summary: CampaignSummary | null; editable: boolean; busy: boolean;
+export function EvaluationDecisions({ view, results, summary, plans, editable, busy, onDecide, onPlan, onOpenPlan }: {
+  view: CampaignView; results: ResultRow[]; summary: CampaignSummary | null; plans: EvaluationPlan[]; editable: boolean; busy: boolean;
   onDecide: (evaluationCarrierId: number, decision: string, note: string) => Promise<boolean>;
+  /** Absent without EditActionPlans. */
+  onPlan?: (evaluationCarrierId: number) => void;
+  onOpenPlan?: (planId: number) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<number, { decision: string; note: string }>>({});
   const status = view.campaign.status;
@@ -53,10 +59,19 @@ export function EvaluationDecisions({ view, results, summary, editable, busy, on
         </Notice>
       )}
 
+      {(summary?.planFollowUps ?? []).length > 0 && (
+        <Notice tone="#B45309">
+          <div style={css("font-weight:650;color:#8A4B08;margin-bottom:4px")}>รอแผนพัฒนา · {summary!.planFollowUps.length}</div>
+          <ul style={css("margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px")}>
+            {summary!.planFollowUps.map((one) => <li key={one.evaluationCarrierId}>{one.carrier} — {one.label}</li>)}
+          </ul>
+        </Notice>
+      )}
+
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <ZoomBox>
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
-            <thead><tr>{["ผู้ขนส่ง", "คะแนนรวม", "ช่วงคะแนน", "การตัดสิน", "เหตุผล", "บันทึกโดย", ""].map((head) => <th key={head} style={css(HEAD)}>{head}</th>)}</tr></thead>
+            <thead><tr>{["ผู้ขนส่ง", "คะแนนรวม", "ช่วงคะแนน", "การตัดสิน", "เหตุผล", "บันทึกโดย", "แผนพัฒนา", ""].map((head) => <th key={head} style={css(HEAD)}>{head}</th>)}</tr></thead>
             <tbody>
               {results.map((row) => {
                 const draft = draftOf(row);
@@ -88,6 +103,23 @@ export function EvaluationDecisions({ view, results, summary, editable, busy, on
                     <td style={css(CELL + "font-size:11.5px")}>
                       {row.decidedBy ? <><div>{row.decidedBy}</div><div style={css(LABEL + MONO)}>{bangkokTime(row.decidedAt)}</div></> : "—"}
                     </td>
+                    <td style={css(CELL)}>
+                      <div style={css("display:flex;flex-direction:column;gap:3px;align-items:flex-start")}>
+                        {plans.filter((plan) => plan.evaluationCarrierId === row.evaluationCarrierId).map((plan) => {
+                          const status = PLAN_STATUS[shownStatus(plan)] ?? { label: plan.status, tone: "#475569", background: "#F1F5F9" };
+                          return (
+                            <button key={plan.planId} type="button" disabled={!onOpenPlan} onClick={() => onOpenPlan?.(plan.planId)} title={plan.title}
+                              style={css(`display:flex;gap:5px;align-items:center;border:0;background:none;padding:0;font-family:inherit;cursor:${onOpenPlan ? "pointer" : "default"}`)}>
+                              <span style={css(MONO + "color:#0A5C97;text-decoration:underline")}>{plan.number}</span>
+                              <Badge label={status.label} tone={status.tone} background={status.background} />
+                            </button>
+                          );
+                        })}
+                        {onPlan && (
+                          <button type="button" style={css(SMALL)} onClick={() => onPlan(row.evaluationCarrierId)}>+ แผน</button>
+                        )}
+                      </div>
+                    </td>
                     <td style={css(CELL + "white-space:nowrap")}>
                       {editable && (
                         <button type="button" disabled={blocked} style={css(SAVE + (blocked ? "opacity:.45;cursor:default" : ""))}
@@ -100,7 +132,7 @@ export function EvaluationDecisions({ view, results, summary, editable, busy, on
                   </tr>
                 );
               })}
-              {results.length === 0 && <tr><td colSpan={7} style={css(EMPTY)}>ยังไม่ได้เลือกผู้ขนส่ง</td></tr>}
+              {results.length === 0 && <tr><td colSpan={8} style={css(EMPTY)}>ยังไม่ได้เลือกผู้ขนส่ง</td></tr>}
             </tbody>
           </table>
         </ZoomBox>

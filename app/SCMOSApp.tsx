@@ -923,6 +923,9 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     ? (prefill: PlanPrefill) => { requestActionPlan({ create: prefill }); go("actionplan"); }
     : undefined;
 
+  /** An existing plan, opened from the screen that made it — Action Plan decides who may read it. */
+  const openActionPlan = (id: number) => { requestActionPlan({ open: id }); go("actionplan"); };
+
   /** Held by the role, but refused until this session is stronger. Worth saying so. */
   const guardedAway = (capability: string) =>
     can.has(capability) && refusedForWeakSignIn.has(capability);
@@ -3583,7 +3586,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             {screen === "actionplan" && <ActionPlan onToast={setToast} />}
             {/* Annual Evaluation campaigns (1 Oct 2026) in place of the screen that averaged a few scores into a grade;
                 its rows stay in supplier_evaluations as history. */}
-            {screen === "evaluation" && <AnnualEvaluation canManage={able("ManageAnnualEvaluation")} onToast={setToast} onActionPlan={startActionPlan} />}
+            {screen === "evaluation" && <AnnualEvaluation canManage={able("ManageAnnualEvaluation")} onToast={setToast} onActionPlan={startActionPlan}
+              onOpenPlan={openActionPlan} />}
             {screen === "quotation" && <Quotation view={quoteView} onView={setQuoteView}
               canEditRates={able("EditRates")} canSaveQuote={able("QuoteToSheet")}
               // Held by the role but refused until the sign-in is stronger.

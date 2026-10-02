@@ -48,6 +48,14 @@ export function ActionPlanWizard({ meta, prefill, onToast, onCreated, onCancel }
     ...(prefill?.currentLevel ? { currentLevel: prefill.currentLevel } : {}),
     ...(prefill?.targetLevel ? { targetLevel: prefill.targetLevel } : {}),
     ...(prefill?.title ? { title: prefill.title } : {}),
+    ...(prefill?.gap ? { gap: prefill.gap } : {}),
+    ...(prefill?.objective ? { objective: prefill.objective } : {}),
+    ...(prefill?.metric ? { metric: prefill.metric } : {}),
+    ...(prefill?.baseline != null ? { baseline: String(prefill.baseline) } : {}),
+    ...(prefill?.targetValue != null ? { targetValue: String(prefill.targetValue) } : {}),
+    ...(prefill?.priority ? { priority: prefill.priority } : {}),
+    ...(prefill?.items?.length
+      ? { items: prefill.items.map((item) => ({ action: item.action, ownerId: meta.me, targetDate: "", expectedResult: item.expectedResult })) } : {}),
   });
 
   useEffect(() => {
