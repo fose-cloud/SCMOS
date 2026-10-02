@@ -387,6 +387,13 @@ public static class SupplierEndpoints
             return Results.Json(await service.ListAsync(stage, kind, token));
         });
 
+        // Every case an issue may still be linked to — all stages, none already linked (2 Oct 2026).
+        incidents.MapGet("/linkable", async (HttpContext context, IUserAccessor users, IncidentService service, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await service.LinkableAsync(token));
+        });
+
         incidents.MapGet("/{id:long}", async (long id, HttpContext context, IUserAccessor users,
             IncidentService service, CancellationToken token) =>
         {

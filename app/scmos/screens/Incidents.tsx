@@ -10,6 +10,7 @@ import { css } from "../theme";
 import { StatCard, StatGlyph } from "../StatCard";
 import { Badge, PAGE_SIZES, Pager, Pick } from "../BoardBits";
 import { STAGES, STAGE_TH } from "../incidentStages";
+import { importedColumns } from "../incidentNote";
 
 /**
  * Incident and CAR/PAR — the status monitor.
@@ -719,7 +720,9 @@ function Detail({ case_, busy, canManage, job, onOpenJob, onOpenIssue, onRename,
   const position = STAGES.indexOf(case_.stage);
   const onView = (index: number) => setViewing(index);
   const facts = CASE_FACTS.filter(([key]) => String(case_[key] ?? "").trim().length > 0);
-  const note = excelStatus(case_) ? case_.teamNote.split("\n").slice(2).join("\n").trim() : (case_.teamNote ?? "").trim();
+  // An imported case's note ends with its source row as JSON (2 Oct 2026): shown as a table, folded away, not as braces.
+  const { rest: note, columns: original } = importedColumns(
+    excelStatus(case_) ? case_.teamNote.split("\n").slice(2).join("\n").trim() : (case_.teamNote ?? "").trim());
 
   function rename() {
     const wanted = (renaming ?? "").trim().toUpperCase();
@@ -823,7 +826,7 @@ function Detail({ case_, busy, canManage, job, onOpenJob, onOpenIssue, onRename,
         </div>
       )}
 
-      {(facts.length > 0 || note) && (
+      {(facts.length > 0 || note || original.length > 0) && (
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5")}>
           <div style={css("font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;margin-bottom:7px")}>รายละเอียดเคส</div>
           <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 16px")}>
@@ -836,6 +839,19 @@ function Detail({ case_, busy, canManage, job, onOpenJob, onOpenIssue, onRename,
           </div>
           {note && (
             <div style={css("margin-top:8px;font-size:11.5px;color:#16232F;white-space:pre-wrap;line-height:1.6;background:#F8FAFC;border:1px solid #E9EFF5;border-radius:4px;padding:8px 10px")}>{note}</div>
+          )}
+          {original.length > 0 && (
+            <details style={css("margin-top:8px;font-size:11.5px;background:#F8FAFC;border:1px solid #E9EFF5;border-radius:4px;padding:6px 10px")}>
+              <summary style={css("cursor:pointer;color:#5A6B7D;font-weight:600")}>ข้อมูลต้นฉบับจากไฟล์ CAR/PAR · {original.length} ช่อง</summary>
+              <div style={css("display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:3px 10px;margin-top:6px")}>
+                {original.map(([key, value]) => (
+                  <div key={key} style={css("display:contents")}>
+                    <span style={css("color:#7B8CA0")}>{key}</span>
+                    <span style={css("color:#16232F;white-space:pre-wrap;overflow-wrap:anywhere")}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
         </div>
       )}

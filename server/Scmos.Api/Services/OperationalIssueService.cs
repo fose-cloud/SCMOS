@@ -194,6 +194,10 @@ public class OperationalIssueService(ScmosDbContext db, CarrierDirectory carrier
         {
             var found = await db.IncidentCases.AsNoTracking().Where(row => row.Id == wanted).Select(row => row.Reference).FirstOrDefaultAsync(token);
             if (found is null) return new IssueResult(false, "ไม่พบเคส CAR/PAR นี้");
+            // A case answers one issue (2 Oct 2026): one already linked elsewhere is not offered, and not taken.
+            var taken = await db.OperationalIssues.AsNoTracking().Where(row => row.CaseId == wanted && row.Id != id).Select(row => row.Code)
+                .FirstOrDefaultAsync(token);
+            if (taken is not null) return new IssueResult(false, $"{found} ผูกกับ {taken} อยู่แล้ว");
             reference = found;
         }
         issue.CaseId = caseId;

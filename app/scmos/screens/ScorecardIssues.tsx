@@ -74,21 +74,24 @@ export function ScorecardIssues({ period, carrier, column, label, canEdit, onClo
     return () => window.removeEventListener("keydown", pressed);
   }, [onClose]);
 
+  /** Every case still free to link — all stages, none already linked to an issue (2 Oct 2026). */
+  const loadCases = useCallback(async () => {
+    const response = await apiFetch("/api/incidents/linkable", { headers: { accept: "application/json" } });
+    setCases(response.ok ? await response.json() as CaseOption[] : []);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [form, incidents] = await Promise.all([
-        apiFetch("/api/issues/form", { headers: { accept: "application/json" } }),
-        apiFetch("/api/incidents", { headers: { accept: "application/json" } }),
-      ]);
+      const form = await apiFetch("/api/issues/form", { headers: { accept: "application/json" } });
       const formBody = form.ok ? await form.json() as { scorecardColumns?: string[] } : null;
-      const caseBody = incidents.ok ? await incidents.json() as CaseOption[] : [];
-      if (cancelled) return;
-      setColumns(formBody?.scorecardColumns ?? []);
-      setCases(caseBody.map((one) => ({ id: one.id, reference: one.reference, title: one.title, jobKey: one.jobKey, stage: one.stage, kind: one.kind })));
+      if (!cancelled) setColumns(formBody?.scorecardColumns ?? []);
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadCases(); }, [loadCases]);
 
   async function send(path: string, method: "PATCH" | "PUT", body: unknown, done: string) {
     if (busy) return;
@@ -97,15 +100,14 @@ export function ScorecardIssues({ period, carrier, column, label, canEdit, onClo
       const response = await apiFetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const reply = await response.json().catch(() => ({})) as { message?: string; error?: string };
       onToast(response.ok ? reply.message ?? done : reply.error ?? `บันทึกไม่สำเร็จ (${response.status})`);
-      if (response.ok) { await load(); onChanged(); }
+      if (response.ok) { await Promise.all([load(), loadCases()]); onChanged(); }
     } finally { setBusy(false); }
   }
 
-  /** The cases worth offering first: on the same job, then the ones still open, newest first. */
+  /** Every linkable case, those on the same job first, then the rest newest first — open or closed. */
   function options(row: Row): CaseOption[] {
-    const open = cases.filter((one) => one.stage !== "closed");
     const sameJob = row.jobKey ? cases.filter((one) => one.jobKey === row.jobKey) : [];
-    return [...sameJob, ...open.filter((one) => !sameJob.includes(one))].slice(0, 80);
+    return [...sameJob, ...cases.filter((one) => !sameJob.includes(one))];
   }
 
   return (
@@ -185,7 +187,7 @@ export function ScorecardIssues({ period, carrier, column, label, canEdit, onClo
                       <option value="">ผูกกับเคสที่มีอยู่…</option>
                       {options(row).map((one) => (
                         <option key={one.id} value={one.id}>
-                          {one.reference} · {one.title.slice(0, 50)}{row.jobKey && one.jobKey === row.jobKey ? " (งานเดียวกัน)" : ""}
+                          {one.reference} · {one.title.slice(0, 50)}{one.stage === "closed" ? " · ปิดแล้ว" : ""}{row.jobKey && one.jobKey === row.jobKey ? " (งานเดียวกัน)" : ""}
                         </option>
                       ))}
                     </select>
