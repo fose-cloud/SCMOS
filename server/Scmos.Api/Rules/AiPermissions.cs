@@ -62,6 +62,8 @@ public static class AiPermissions
         // The Booking Agent (28 Sep 2026): booking text read into an add-job draft, each field checked against its own words.
         new("draft_booking", Operation, AiPermission.Allow, "อ่านข้อความ booking ที่วางหรืออีเมลที่ยังไม่ได้จับคู่ เป็นร่างฟอร์มเพิ่มงาน — เก็บเฉพาะช่องที่ยืนยันกับข้อความต้นฉบับได้ ผู้ใช้ตรวจก่อนบันทึก"),
         new("analyze_excel", Document, AiPermission.Allow, "อ่านและวิเคราะห์ไฟล์ Excel"),
+        // Annual Evaluation Phase 12 (2 Oct 2026): a dedicated endpoint beside a carrier's evaluation, not a chat tool.
+        new("summarize_evaluation", Management, AiPermission.Allow, "สรุปหลักฐานผลประเมินผู้ขนส่งประจำปีจาก snapshot — ทุกบรรทัดต้องอ้างข้อเท็จจริงและตัวเลขที่มีอยู่จริง ไม่ให้คะแนน ไม่ตัดสินแทน"),
         new("calculate_kpi", Kpi, AiPermission.Allow, "คำนวณ KPI ทั้ง 8 ตัวตามช่วงเวลา"),
         new("analyze_kpi", Kpi, AiPermission.Allow, "วิเคราะห์แนวโน้มและเปรียบเทียบ KPI"),
         // Phase 2 (20 Sep 2026): the Data Agent's connected read — SCMOS's own figures, the rule named on the answer.

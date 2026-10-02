@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { STATUS as PLAN_STATUS, shownStatus } from "../actionPlan";
 import { METRIC_LABEL, METRIC_STATUS, shown, type CampaignView, type EvaluationPlan, type ResultDetail, type Snapshot } from "../annualEvaluation";
 import { ZoomBox } from "../TableFrame";
+import { EvaluationAiSummary } from "./EvaluationAiSummary";
 import { css } from "../theme";
 import { Badge, CELL, HEAD, INPUT, LABEL, MONO, OUTLINE, SAVE, TITLE } from "./ActionPlanParts";
 
@@ -12,7 +13,8 @@ import { Badge, CELL, HEAD, INPUT, LABEL, MONO, OUTLINE, SAVE, TITLE } from "./A
  * One carrier of a campaign (Annual Evaluation, Phase 5): its score and how it was reached — each KPI's figure, band
  * score and weight, each department's score — and the evidence behind it, by snapshot version, down to the records.
  * Pricing is assessed here; an improvement plan is started from here, drafted by the API from what the evaluation
- * found (Phase 10), and the plans already opened for the carrier are listed.
+ * found (Phase 10), and the plans already opened for the carrier are listed. The AI summary (Phase 12) sits under the
+ * score, each of its lines citing the evidence it rests on.
  */
 export function EvaluationCarrierPanel({ campaignId, carrierId, view, canManage, plans, onClose, onChanged, onToast, onPlan, onOpenPlan }: {
   campaignId: number;
@@ -157,6 +159,10 @@ export function EvaluationCarrierPanel({ campaignId, carrierId, view, canManage,
               </>
             )}
           </section>
+
+          <EvaluationAiSummary base={base} onToast={onToast}
+            snapshotVersion={snapshot?.versions.find((one) => one.current)?.version ?? null}
+            resultVersion={result && result.versions.length > 0 ? Math.max(...result.versions) : null} />
 
           {canManage && manualKpis.map((kpi) => (
             <section key={kpi.code} style={css("display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;border:1px solid #E3E8EE;border-radius:6px;padding:10px 12px")}>

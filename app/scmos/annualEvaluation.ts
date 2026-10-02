@@ -262,3 +262,31 @@ export function isBackward(from: string, to: string): boolean {
 export function dayInput(value: string | null | undefined): string {
   return value ? value.slice(0, 10) : "";
 }
+
+/* ---- the AI summary (Phase 12) ---- */
+
+export type SummaryFact = { id: string; kind: string; text: string };
+export type EvaluationAiSummary = {
+  id: number; summary: string; strengths: string; improvements: string; trends: string; facts: SummaryFact[];
+  dropped: number; model: string; mock: boolean; requestedBy: string; requestedAt: string;
+  snapshotVersion: number | null; resultVersion: number | null;
+};
+export type EvaluationSummaryState = {
+  availability: { enabled: boolean; configured: boolean; mock: boolean; canRun: boolean };
+  latest: EvaluationAiSummary | null;
+};
+
+/** The four parts of a summary, in the order they are read. */
+export const SUMMARY_PARTS = [
+  { key: "summary", label: "สรุป" }, { key: "strengths", label: "จุดแข็ง" },
+  { key: "improvements", label: "ควรปรับปรุง" }, { key: "trends", label: "แนวโน้ม" },
+] as const;
+
+/** A citation as the API checks it — [F3], [F3][F7] or [F3, F7]; the same pattern as Rules/EvaluationSummary.cs. */
+export const CITATION = /\[\s*F\d{1,3}(?:\s*,\s*F\d{1,3})*\s*\]/g;
+
+/** A kept line split into its words and the facts it cites, so each citation can show its fact. */
+export function citedLine(line: string): { text: string; cites: string[] } {
+  const cites = [...new Set((line.match(CITATION) ?? []).flatMap((group) => group.match(/F\d{1,3}/g) ?? []))];
+  return { text: line.replace(CITATION, "").replace(/\s+/g, " ").trim(), cites };
+}

@@ -341,6 +341,34 @@ public class EvaluationResult
     public DateTimeOffset CalculatedAt { get; set; }
 }
 
+/// <summary>
+/// An AI summary of one carrier's evaluation (2 Oct 2026, Phase 12), kept with the numbered facts it was written from so
+/// every line can be traced back. Only the lines that cited real facts and real figures are here; how many were dropped
+/// is kept too. It is a reading aid: no score or decision reads it.
+/// </summary>
+public class EvaluationAiSummary
+{
+    public long Id { get; set; }
+    public int CampaignId { get; set; }
+    public int EvaluationCarrierId { get; set; }
+    public long? SnapshotId { get; set; }
+    public long? ResultId { get; set; }
+    public string Summary { get; set; } = "";
+    public string Strengths { get; set; } = "";
+    public string Improvements { get; set; } = "";
+    public string Trends { get; set; } = "";
+
+    /// <summary>The facts as given to the model, JSON: [{id, kind, text}].</summary>
+    public string Facts { get; set; } = "[]";
+
+    /// <summary>Lines the model wrote that were not kept — no fact cited, an unknown fact, a figure not in the facts, a decision.</summary>
+    public int Dropped { get; set; }
+    public string Model { get; set; } = "";
+    public bool Mock { get; set; }
+    public string RequestedBy { get; set; } = "";
+    public DateTimeOffset RequestedAt { get; set; }
+}
+
 /// <summary>One department's score inside a result: its evaluators' scores averaged, before its weight is applied.</summary>
 public class EvaluationDepartmentScore
 {

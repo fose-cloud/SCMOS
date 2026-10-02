@@ -33,7 +33,8 @@ export const RUN_RESULTS = ["succeeded", "failed", "cancelled", "timeout", "prov
 export const AUDIT_AGENTS = ["operations-agent", "data-agent", "communication-agent", "document-agent", "engineering-agent",
   "sre-agent", "management-agent", "booking-agent"] as const;
 export const AUDIT_TOOLS = ["query_shipments", "search_shipment", "query_delays", "query_followup", "query_kpi", "query_messages",
-  "query_documents", "extract_document", "analyze_billing", "query_repository", "read_source", "query_platform", "draft_booking"] as const;
+  "query_documents", "extract_document", "analyze_billing", "query_repository", "read_source", "query_platform", "draft_booking",
+  "summarize_evaluation"] as const;
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 

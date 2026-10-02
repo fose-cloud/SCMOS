@@ -131,6 +131,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<JobCorrection> JobCorrections => Set<JobCorrection>();
     public DbSet<SupplierEvaluation> SupplierEvaluations => Set<SupplierEvaluation>();
     public DbSet<SupplierCertificate> SupplierCertificates => Set<SupplierCertificate>();
+    public DbSet<EvaluationAiSummary> EvaluationAiSummaries => Set<EvaluationAiSummary>();
 
     public DbSet<FuelBand> FuelBands => Set<FuelBand>();
     public DbSet<RateLane> RateLanes => Set<RateLane>();
@@ -1590,6 +1591,20 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Result).HasMaxLength(60).HasDefaultValue("");
             e.Property(x => x.ImportedBy).HasMaxLength(200).HasDefaultValue("");
             e.HasIndex(x => new { x.SupplierId, x.Period }).IsUnique().HasDatabaseName("supplier_evaluation_idx");
+        });
+
+        // An AI summary of a carrier's evaluation (2 Oct 2026, Phase 12), with the facts it was written from.
+        model.Entity<EvaluationAiSummary>(e =>
+        {
+            e.ToTable("evaluation_ai_summaries");
+            foreach (var text in new[] { nameof(EvaluationAiSummary.Summary), nameof(EvaluationAiSummary.Strengths),
+                nameof(EvaluationAiSummary.Improvements), nameof(EvaluationAiSummary.Trends) })
+                e.Property(text).HasMaxLength(1000).HasDefaultValue("");
+            e.Property(x => x.Facts).HasDefaultValue("[]");
+            e.Property(x => x.Model).HasMaxLength(100).HasDefaultValue("");
+            e.Property(x => x.RequestedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.EvaluationCarrierId, x.Id }).HasDatabaseName("evaluation_ai_summary_idx");
+            e.HasOne<EvaluationCarrier>().WithMany().HasForeignKey(x => x.EvaluationCarrierId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // A carrier's ISO / Q-Mark certificates (2 Oct 2026): one row a carrier, certificate and year.

@@ -170,6 +170,24 @@ public static class AnnualEvaluationEndpoints
             CancellationToken token) =>
             await ReadAsync(context, users, async user => await plans.PlansAsync(user, id, token)));
 
+        // Phase 12: an AI summary of a carrier's evidence, every line checked against the facts it cites (2 Oct 2026).
+        campaigns.MapGet("/{id:int}/carriers/{carrier:int}/ai-summary", async (int id, int carrier, HttpContext context, IUserAccessor users,
+            EvaluationSummaryService summaries, CancellationToken token) =>
+            await ReadAsync(context, users, async user => await summaries.LatestAsync(user, id, carrier, token)));
+
+        campaigns.MapPost("/{id:int}/carriers/{carrier:int}/ai-summary", async (int id, int carrier, HttpContext context, IUserAccessor users,
+            EvaluationSummaryService summaries, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            var correlation = Scmos.Api.Ai.AiAuditRules.CorrelationOf(context.Request.Headers["x-correlation-id"].FirstOrDefault(), context.TraceIdentifier);
+            var outcome = await summaries.SummarizeAsync(user, id, carrier, correlation, token);
+            return outcome.Ok
+                ? Results.Json(new { message = outcome.Message, summary = outcome.Summary })
+                : Results.Json(new { error = outcome.Message, code = outcome.Code }, statusCode: outcome.Status);
+        });
+
         campaigns.MapPost("/{id:int}/status", async (int id, [FromBody] MoveBody body, HttpContext context, IUserAccessor users,
             AnnualEvaluationService service, CancellationToken token) =>
             await WriteAsync(context, users, user => service.MoveAsync(user, id, body.Status, body.Reason, token)));
