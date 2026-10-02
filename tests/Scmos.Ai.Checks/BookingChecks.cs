@@ -162,7 +162,7 @@ static class BookingChecks
         using var limiter = new AiRunLimiter();
         var on = new AiOptions { Enabled = true, BookingAgentEnabled = true };
         BookingDraftService Service(AiOptions ai) => new(reader, reads, limiter, new DefaultGovernance(), new FixedCustomers(Customers),
-            Options.Create(ai), new OperationsClock(Now), Options.Create(new OpenAiOptions { Model = "gpt-4.1" }));
+            Options.Create(ai), new OperationsClock(Now), Options.Create(new OpenAiOptions { Model = "gpt-4.1" }), policyGateway: OfflineReviewedPolicyGateway.Instance);
         check((await Service(new AiOptions { Enabled = true }).DraftAsync(Operator, "IMPORT", Sample, "corr-b", default)).Status == 503 && reader.Calls == 0,
             "booking: with its flag off nothing is read");
         var pasted = await Service(on).DraftAsync(Operator, "import", Sample, "corr-b-1", default);
@@ -252,7 +252,7 @@ static class BookingChecks
                 var log = new AiDecisionLog(db, agents, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance), clock);
                 using var limiter = new AiRunLimiter();
                 var pass = new BookingMailPass(db, reader, audit, limiter, log, Options.Create(with ?? ai), clock, NullLogger<BookingMailPass>.Instance,
-                    Options.Create(new OpenAiOptions { Model = "gpt-4.1" }));
+                    Options.Create(new OpenAiOptions { Model = "gpt-4.1" }), policyGateway: OfflineReviewedPolicyGateway.Instance);
                 return await pass.PassAsync(agents.Find(BookingAgent.Id)!, true, AiAutonomy.Recommend, Customers, default);
             }
             async Task<List<AiDecision>> Decisions()

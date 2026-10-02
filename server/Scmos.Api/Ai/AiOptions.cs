@@ -5,6 +5,11 @@ public sealed class AiOptions
 {
     public const string Section = "AI";
     public bool Enabled { get; set; }
+    // Revocations only. Policy grants remain version-controlled and cannot be edited by agents/admin UI.
+    public string[] DisabledTools { get; set; } = [];
+    public string[] DisabledAgentGroups { get; set; } = [];
+    public bool DisableWriteActions { get; set; } = true;
+    public bool DisableExternalCommunication { get; set; } = true;
     public bool ChatEnabled { get; set; }
     public bool MockMode { get; set; }
     public bool OperationsAgentEnabled { get; set; }
@@ -73,7 +78,9 @@ public sealed class AiOptions
     public string PriceList { get; set; } = "";
     public string PriceCurrency { get; set; } = "USD";
 
-    public bool Valid => TimeoutSeconds is >= 1 and <= 60 && MaxOutputTokens is >= 64 and <= 2000
+    public bool Valid => DisabledTools is not null && DisabledTools.All(t => AiPolicyEntry.ToolContracts.ContainsKey(t ?? ""))
+        && DisabledAgentGroups is not null && DisabledAgentGroups.All(g => g is "platform" or "communication" or "documents" or "analysis" or "operations")
+        && TimeoutSeconds is >= 1 and <= 60 && MaxOutputTokens is >= 64 and <= 2000
         && ContextMinutes is >= 1 and <= 60
         && BreakerDegradedAfter is >= 1 and <= 20 && BreakerPauseAfter >= BreakerDegradedAfter && BreakerPauseAfter <= 50
         && BreakerCoolDownMinutes is >= 1 and <= 240 && PriceCurrency.Length is >= 1 and <= 8

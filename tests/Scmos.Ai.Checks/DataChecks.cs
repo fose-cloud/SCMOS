@@ -66,7 +66,7 @@ static class DataChecks
         catch (InvalidOperationException) { check(true, "2: the read service answers only its own tool"); }
 
         /* ---- the registry, the guard, the audit vocabulary ---- */
-        var registry = new ToolRegistry(null, service);
+        var registry = new ToolRegistry(null, service, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var tool = registry.Find("query_kpi")!;
         check(tool.AgentId == "data-agent" && tool.Handler is not null && tool.Policy?.OutputType == typeof(DataAnswer)
             && registry.Find("query_shipments")!.Handler is null, "2: the KPI tool is bound to the Data Agent and nothing else is bound by it");
@@ -144,7 +144,7 @@ static class DataChecks
         /* ---- through the orchestrator ---- */
         var options = Options.Create(new AiOptions { Enabled = true, ChatEnabled = true, DataAgentEnabled = true, OperationsAgentEnabled = true });
         using var limiter = new AiRunLimiter();
-        var orchestrator = new AgentOrchestrator(options, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, data: runtime);
+        var orchestrator = new AgentOrchestrator(options, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, data: runtime, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var status = orchestrator.Status(Supervisor);
         check(status.Agents.Single(a => a.Id == "data-agent") is { Enabled: true, Connected: true } && status.AuditReady, "2: the status shows the Data Agent enabled and connected");
         var outcome = await orchestrator.RunAsync(new("KPI 2026-09", AgentId: "data-agent"), Supervisor, default, "corr-orch");

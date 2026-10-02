@@ -36,7 +36,7 @@ namespace Scmos.Api.Ai.Booking;
 /// </summary>
 public sealed class BookingMailPass(ScmosDbContext db, IBookingTextReader reader, IAiExecutionAudit audit, AiRunLimiter limiter,
     AiDecisionLog decisions, IOptions<AiOptions> options, TimeProvider clock, ILogger<BookingMailPass> log,
-    IOptions<OpenAiOptions>? providerOptions = null)
+    IOptions<OpenAiOptions>? providerOptions = null, IAiPolicyGateway? policyGateway = null)
 {
     public const string NotBooking = "NOT_BOOKING";
     public const string FieldSource = ".text#";
@@ -47,6 +47,9 @@ public sealed class BookingMailPass(ScmosDbContext db, IBookingTextReader reader
         IReadOnlyCollection<string> knownCustomers, CancellationToken token)
     {
         var ai = options.Value;
+        var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+            AiAuthorizationRequest.Pass(agent.Id, AiAction.BookingCreateDraft, "scan_booking"), token);
+        if (!authorization.Allowed) return new(agent.Id, authorization.ReasonCode, 0, 0, 0, 0, 0, 0, 0);
         if (!reader.Configured) return new(agent.Id, "not_configured", 0, 0, 0, 0, 0, 0, 0);
         var now = clock.GetUtcNow();
 

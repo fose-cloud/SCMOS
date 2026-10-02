@@ -161,7 +161,7 @@ static class SreChecks
         catch (InvalidOperationException) { check(true, "7: the runs source refuses a limit over the cap before requesting"); }
 
         /* ---- registry, guard, audit ---- */
-        var registry = new ToolRegistry(platform: service);
+        var registry = new ToolRegistry(platform: service, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var tool = registry.Find(PlatformReadService.Tool)!;
         check(tool.Handler is not null && tool.AgentId == "sre-agent" && tool.RequiredCapability == Capability.AdministerData
             && tool.Policy is { Source: "platform", MaxEvidenceRows: 50 } && tool.Policy.OutputType == typeof(PlatformAnswer), "7: the platform tool is the SRE Agent's, Administrator only");
@@ -221,7 +221,7 @@ static class SreChecks
         /* ---- through the orchestrator ---- */
         using var limiter = new AiRunLimiter();
         var orchestrator = new AgentOrchestrator(Options.Create(new AiOptions { Enabled = true, ChatEnabled = true, SreAgentEnabled = true }),
-            new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, sre: runtime);
+            new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, sre: runtime, policyGateway: OfflineReviewedPolicyGateway.Instance);
         check(orchestrator.Status(Admin).Agents.Single(a => a.Id == "sre-agent") is { Enabled: true, Connected: true }, "7: the status shows the SRE Agent enabled and connected");
         var outcome = await orchestrator.RunAsync(new("ระบบโอเคไหม", AgentId: "sre-agent"), Admin, default, "corr-sre-orch");
         check(outcome.Status == 200 && outcome.Response.Platform is { View: "health", Returned: 10 } && outcome.Response.Evidence is null && outcome.Response.Engineering is null

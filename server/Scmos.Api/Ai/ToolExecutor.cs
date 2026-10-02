@@ -18,7 +18,7 @@ public sealed class AiDispatchBudget(int maxToolCalls = AiDispatchBudget.MaxTool
 public sealed class ToolExecutor(QueryPolicyGuard guard)
 {
     public async Task<OperationsAnswer> ReadAsync(AiToolCall call, AppUser user, AgentDefinition agent,
-        bool auditReady, AiDispatchBudget budget, string runId, DateTimeOffset now, CancellationToken token)
+        bool auditReady, AiDispatchBudget budget, string runId, DateTimeOffset now, CancellationToken token, string correlationId = "")
     {
         token.ThrowIfCancellationRequested();
         var tool = guard.Resolve(user, agent, call, auditReady)
@@ -26,7 +26,7 @@ public sealed class ToolExecutor(QueryPolicyGuard guard)
         var scope = AiPermissionPolicy.Scope(user) ?? throw new InvalidOperationException("Missing scope.");
         if (!budget.TryConsume()) throw new InvalidOperationException("Tool budget exhausted.");
         using var json = JsonDocument.Parse(call.Arguments);
-        var result = await tool.Handler!.ReadAsync(json.RootElement, new(runId, user.UserId, scope, now), token);
+        var result = await tool.Handler!.ReadAsync(json.RootElement, new(runId, user.UserId, scope, now, User: user, OriginAgentId: agent.Id, CorrelationId: correlationId), token);
         var evidence = result.Deserialize<OperationsAnswer>();
         if (evidence is null || evidence.Rows is null || evidence.Returned != evidence.Rows.Count
             || evidence.Returned < 0 || evidence.Total < evidence.Returned

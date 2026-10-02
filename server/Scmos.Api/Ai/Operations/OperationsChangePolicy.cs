@@ -25,6 +25,9 @@ public static class OperationsChangePolicy
         && user.Can(Capability.EditOwnJobs);
     public static bool CanApprove(AppUser? user) => CanRequest(user)
         && user!.Can(Capability.ApproveAi | Capability.EditAnyJob | Capability.AssignJobs);
+    public static bool IndependentApprover(AppUser? user, OperationsChangePayload payload) => CanApprove(user)
+        && user!.UserId != payload.RequesterId
+        && (string.IsNullOrWhiteSpace(user.OperatorId) || user.OperatorId != payload.RequesterOperatorId);
     public static bool Owns(AppUser user, OperationJob job) => user.Can(Capability.EditAnyJob)
         || (!string.IsNullOrWhiteSpace(user.OperatorId) && user.OperatorId == job.OwnerId);
     public static bool Assignable(StaffMember? person) => person is { Active: true }

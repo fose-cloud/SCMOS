@@ -95,6 +95,8 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
         if (!Connected) return new("not_connected", "ยังไม่มีผู้เชี่ยวชาญที่เชื่อมต่อครบตามแผนใด");
         if (!await CheckAuditReadyAsync(token)) return new("audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้อ่านข้อมูลใด");
         if (!provider.Configured || provider.IsMock) return new("provider_unavailable", "AI provider is unavailable.");
+        var authorization = await tools.AuthorizeRunAsync(agent.Id, user, correlationId, token);
+        if (!authorization.Allowed) return new(authorization.ReasonCode, "AI policy refused execution.");
 
         string? toolName = null, toolCallId = null, view = null;
         int? limit = null;
@@ -153,11 +155,13 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
             }
             if (selection.Mock || selection.ToolCalls is not { Count: 1 })
             {
+                await tools.AuditRejectedCallsAsync(agent.Id, selection.ToolCalls, user, correlationId, token);
                 await Audit("run_completed", "clarification_required");
                 return new("clarification_required", "ระบุว่าต้องการสรุปงานใด (เลขงาน ตู้ หรือลูกค้า) หรือต้องการดูงานล่าช้าที่เอกสารยังไม่ครบ");
             }
             var call = selection.ToolCalls[0];
-            plan = offered.FirstOrDefault(candidate => candidate.Name == call.Name);
+            var callAuthorization = await tools.AuthorizeCallAsync(agent.Id, call, user, correlationId, token, offered: offered.Any(p => p.Name == call.Name));
+            plan = callAuthorization.Allowed ? offered.FirstOrDefault(candidate => candidate.Name == call.Name) : null;
             if (plan is null || string.IsNullOrWhiteSpace(call.Id) || call.Id.Length > 200 || !plan.Schema.Valid(call.Arguments))
             {
                 await Audit("run_completed", "invalid_tool");
@@ -193,7 +197,8 @@ public sealed class ManagementAgent(ToolRegistry tools, AgentRegistry agents, IA
                 if (!budget.TryConsume()) throw new InvalidOperationException("Tool budget exhausted.");
                 // The job plan's search reaches finished jobs: a summary is most often asked about one.
                 var result = await definition.Handler!.ReadAsync(arguments,
-                    new(runId, user.UserId, scope, clock.GetUtcNow(), IncludeDone: plan.Name == ManagementPlans.JobPlan && step.Tool == "search_shipment"), token);
+                    new(runId, user.UserId, scope, clock.GetUtcNow(), IncludeDone: plan.Name == ManagementPlans.JobPlan && step.Tool == "search_shipment",
+                        User: user, OriginAgentId: agent.Id, CorrelationId: correlationId, Step: index), token);
                 switch (step.Tool)
                 {
                     case "search_shipment" or "query_delays":

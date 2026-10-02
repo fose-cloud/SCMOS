@@ -37,6 +37,8 @@ var admin = new AppUser("test-admin", "", "Test", Roles.Admin, "", "test", true)
 var op = admin with { UserId = "test-operator", Role = Roles.Operation, OperatorId = "OP-TEST" };
 var carrier = op with { Role = Roles.Subcontractor };
 var agents = new AgentRegistry();
+await PermissionEnforcementChecks.Run(Check);
+await PermissionSqlChecks.Run(Check, args.Contains("--permission-local-db"));
 var operations = agents.Find("operations-agent")!;
 var registry = new ToolRegistry();
 var schema = registry.Find("search_shipment")!.InputSchema;

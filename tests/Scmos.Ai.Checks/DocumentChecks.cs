@@ -147,7 +147,7 @@ static class DocumentChecks
         check(!new DocumentsReadService(null, new OperationsClock(Now)).Connected, "5: without the tables the read is not connected");
 
         /* ---- the registry, the guard, the audit ---- */
-        var registry = new ToolRegistry(null, null, null, service);
+        var registry = new ToolRegistry(null, null, null, service, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var tool = registry.Find("query_documents")!;
         check(tool.AgentId == "document-agent" && tool.Handler is not null && tool.RequiredCapability == Capability.UploadDocuments
             && tool.Policy?.OutputType == typeof(DocumentsAnswer) && tool.Policy.Source == "documents", "5: the documents tool is the Document & Invoice Agent's, behind the Document Center's own capability");
@@ -207,7 +207,7 @@ static class DocumentChecks
         /* ---- through the orchestrator ---- */
         var options = Options.Create(new AiOptions { Enabled = true, ChatEnabled = true, DocumentAgentEnabled = true });
         using var limiter = new AiRunLimiter();
-        var orchestrator = new AgentOrchestrator(options, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, documents: runtime);
+        var orchestrator = new AgentOrchestrator(options, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, documents: runtime, policyGateway: OfflineReviewedPolicyGateway.Instance);
         check(orchestrator.Status(Supervisor).Agents.Single(a => a.Id == "document-agent") is { Enabled: true, Connected: true }, "5: the status shows the Document & Invoice Agent enabled and connected");
         var outcome = await orchestrator.RunAsync(new("ตู้ TEMU5246902", AgentId: "document-agent"), Supervisor, default, "corr-orch-doc");
         check(outcome.Status == 200 && outcome.Response.Documents!.Total == 5 && outcome.Response.Evidence is null && outcome.Response.Kpi is null && outcome.Response.Messages is null
@@ -220,7 +220,7 @@ static class DocumentChecks
         var extractor = new DocumentFixtureExtractor();
         var reads = new OperationsTestAudit();
         var parts = new List<DocumentPart> { new("ใบจอง (1).pdf", "application/pdf", BinaryData.FromString("%PDF")) };
-        var run = new ExtractionRun(reads, limiter, new OperationsClock(Now), Options.Create(new OpenAiOptions { Model = "gpt-4.1" }));
+        var run = new ExtractionRun(reads, limiter, new OperationsClock(Now), Options.Create(new OpenAiOptions { Model = "gpt-4.1" }), policyGateway: OfflineReviewedPolicyGateway.Instance);
         var read = await run.ReadAsync(Operator, "IMPORT", parts, extractor, "corr-x-1", default);
         check(read.Fields is { Count: 1 } && read.Status == 200 && extractor.Calls == 1, "5: the reader still answers the fields it always did");
         var trail = reads.Entries;

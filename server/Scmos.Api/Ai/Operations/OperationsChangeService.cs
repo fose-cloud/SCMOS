@@ -20,7 +20,7 @@ public sealed record OperationsChangePreview(string Key, string Version, Diction
 /// No model call occurs here and legacy approval routes cannot execute this contract.
 /// </summary>
 public sealed class OperationsChangeService(ScmosDbContext db, AuditService audit,
-    JobRegisterCache cache, TimeProvider clock, IOptions<AiOptions> options, IAiGovernance? governance = null)
+    JobRegisterCache cache, TimeProvider clock, IOptions<AiOptions> options, IAiGovernance? governance = null, IAiPolicyGateway? policyGateway = null)
 {
     public bool Configured => options.Value.OperationsWritesEnabled && !options.Value.OperationsEmergencyDisabled;
     private async Task<bool> Enabled(CancellationToken token) => Configured
@@ -33,8 +33,8 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
     /// have to allow it (Agent Platform foundation). In shadow mode it proposes
     /// nothing and a person makes the change on the grid.
     /// </summary>
-    private async Task<bool> GovernedAsync(CancellationToken token) => governance is null
-        || (await governance.SnapshotAsync(token)).Gate("operations-agent", flagEnabled: true, AgentNeed.ExecuteWithApproval).Allowed;
+    private async Task<bool> GovernedAsync(CancellationToken token) => governance is not null
+        && (await governance.SnapshotAsync(token)).Gate("operations-agent", flagEnabled: true, AgentNeed.ExecuteWithApproval).Allowed;
     private async Task<bool> CurrentStaff(AppUser user, Capability capability, CancellationToken token)
     {
         var person = await db.Staff.AsNoTracking().SingleOrDefaultAsync(s => s.Id == user.OperatorId, token);
@@ -92,6 +92,10 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
         => Atomic(async () =>
         {
             if (!OperationsChangePolicy.CanRequest(user) || !await CurrentStaff(user, Capability.EditOwnJobs, token)) return new("forbidden");
+            var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+                AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingUpdateCriticalField, "update_shipment", user,
+                    resourceType: "shipment", resourceId: request.Key), token);
+            if (!authorization.Allowed) return new(authorization.ReasonCode);
             if (!await Enabled(token)) return new("write_disabled");
             if (request.Key is null || request.Key.Length is < 1 or > 80) return new("invalid_request");
             var job = await db.OperationJobs.SingleOrDefaultAsync(j => j.Key == request.Key, token);
@@ -107,6 +111,9 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
             var row = new Approval { Agent = OperationsChangePolicy.Agent, Tool = "update_shipment",
                 Summary = "Operations change: " + job.Key, Payload = JsonSerializer.Serialize(payload),
                 State = "pending", RequestedBy = user.Signature, RequestedAt = clock.GetUtcNow() };
+            row.RequesterId = user.UserId;
+            row.ExpiresAt = payload.ExpiresAt;
+            row.PayloadHash = ApprovalPolicy.Hash(row.Payload);
             db.Approvals.Add(row);
             audit.Stage(user, "propose", "job", job.Key, row.Summary, "", "", "pending", request.Reason, "ai");
             await db.SaveChangesAsync(token);
@@ -122,10 +129,20 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
         var row = await db.Approvals.SingleOrDefaultAsync(a => a.Id == id && a.Agent == OperationsChangePolicy.Agent, token);
         var payload = row is null ? null : ReadPayload(row);
         if (row is null || payload is null || payload.Fingerprint != fingerprint) return new("invalid_proposal");
+        if (!OperationsChangePolicy.IndependentApprover(user, payload)) return new("self_approval_forbidden");
+        if (row.Tool != "update_shipment" || row.RequesterId != payload.RequesterId || row.ExpiresAt != payload.ExpiresAt
+            || row.PayloadHash != ApprovalPolicy.Hash(row.Payload)) return new("invalid_proposal");
         // Same id has at most one effect, including a retry after a lost response.
         if (row.State == "applied") return new("already_applied", row.Id);
         if (row.State != "pending") return new("already_decided", row.Id);
         if (approve && !await Enabled(token)) return new("write_disabled");
+        if (approve)
+        {
+            var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+                AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingUpdateCriticalField, "update_shipment", user,
+                    resourceType: "shipment", resourceId: payload.Key) with { ApprovalId = row.Id.ToString() }, token);
+            if (!authorization.Allowed) return new(authorization.ReasonCode);
+        }
         var state = approve ? "applied" : "rejected";
         if (approve && payload.ExpiresAt <= clock.GetUtcNow()) state = "expired";
         if (state == "applied")

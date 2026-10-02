@@ -98,7 +98,7 @@ static class CommunicationChecks
         }
 
         /* ---- the registry, the guard, the audit ---- */
-        var registry = new ToolRegistry(null, null, service);
+        var registry = new ToolRegistry(null, null, service, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var tool = registry.Find("query_messages")!;
         check(tool.AgentId == "communication-agent" && tool.Handler is not null && tool.RequiredCapability == Capability.ViewMailbox
             && tool.Policy?.OutputType == typeof(MessagesAnswer), "4: the messages tool is the Communication Agent's, behind ViewMailbox");
@@ -153,7 +153,7 @@ static class CommunicationChecks
         /* ---- through the orchestrator ---- */
         var options = Options.Create(new AiOptions { Enabled = true, ChatEnabled = true, CommunicationAgentEnabled = true });
         using var limiter = new AiRunLimiter();
-        var orchestrator = new AgentOrchestrator(options, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, communication: runtime);
+        var orchestrator = new AgentOrchestrator(options, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, communication: runtime, policyGateway: OfflineReviewedPolicyGateway.Instance);
         check(orchestrator.Status(Supervisor).Agents.Single(a => a.Id == "communication-agent") is { Enabled: true, Connected: true }, "4: the status shows the Communication Agent enabled and connected");
         var outcome = await orchestrator.RunAsync(new("ตู้ TEMU5246902", AgentId: "communication-agent"), Supervisor, default, "corr-orch");
         check(outcome.Status == 200 && outcome.Response.Messages!.Total == 5 && outcome.Response.Evidence is null && outcome.Response.Kpi is null

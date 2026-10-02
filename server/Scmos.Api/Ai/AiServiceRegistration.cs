@@ -11,6 +11,9 @@ public static class AiServiceRegistration
     {
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.Section));
         services.AddSingleton<AgentRegistry>();
+        services.AddSingleton(AiPolicyCatalog.Current);
+        services.AddScoped<IAiPolicyGateway>(sp => sp.GetRequiredService<Scmos.Api.Services.AiGateway>());
+        services.AddScoped<IAiPolicyAudit>(sp => sp.GetRequiredService<SqlAiExecutionAudit>());
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         // 1D context pilot: per instance, in memory, structured facts only.
         services.AddSingleton<AiContextService>();

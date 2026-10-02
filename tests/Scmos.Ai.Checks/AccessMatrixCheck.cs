@@ -52,7 +52,7 @@ static class AccessMatrixCheck
             documents: new DocumentsReadService(new DocumentFixture([], [], []), clock),
             engineering: new EngineeringReadService(new EngineeringFixtureSource([]), clock),
             source: new SourceReadService(new SourceTreeFixture(new Dictionary<string, string>())),
-            platform: new PlatformReadService(new PlatformFixture(), new DeploymentFixture([]), clock));
+            platform: new PlatformReadService(new PlatformFixture(), new DeploymentFixture([]), clock), policyGateway: OfflineReviewedPolicyGateway.Instance);
         var agents = new AgentRegistry();
         var guard = new QueryPolicyGuard(tools);
         check(tools.All.All(tool => tool.Handler is not null), "9: every reviewed read is connected for this matrix — a refusal below is a permission, never a missing adapter");

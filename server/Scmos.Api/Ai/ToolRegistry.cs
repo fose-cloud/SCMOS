@@ -71,7 +71,8 @@ public sealed record AiReadScope(bool Team, string? OperatorId);
 /// Agent's job summary (Phase 8) sets it, because a finished job's paperwork and messages are
 /// exactly what a summary is for; the Operations Agent's own search stays on active work.
 /// </param>
-public sealed record AiToolContext(string RunId, string UserId, AiReadScope Scope, DateTimeOffset? AsOf = null, bool IncludeDone = false);
+public sealed record AiToolContext(string RunId, string UserId, AiReadScope Scope, DateTimeOffset? AsOf = null, bool IncludeDone = false,
+    Scmos.Api.Auth.AppUser? User = null, string? OriginAgentId = null, string CorrelationId = "", int Step = 1);
 public interface IAiReadToolHandler
 {
     Task<JsonElement> ReadAsync(JsonElement arguments, AiToolContext context, CancellationToken token);
@@ -89,10 +90,12 @@ public sealed record AiToolDefinition(string Name, string Description, string Ag
 public sealed class ToolRegistry
 {
     public const int OperationsEvidenceLimit = 50;
+    private readonly IAiPolicyGateway? _policyGateway;
     public ToolRegistry(OperationsReadService? operations = null, DataReadService? data = null, MessagesReadService? messages = null,
         DocumentsReadService? documents = null, EngineeringReadService? engineering = null, SourceReadService? source = null,
-        PlatformReadService? platform = null)
+        PlatformReadService? platform = null, IAiPolicyGateway? policyGateway = null)
     {
+        _policyGateway = policyGateway;
         AiToolDefinition Read(string name, string description, AiInputSchema schema) => new(name,
             description, "operations-agent", Capability.ViewDashboard, AiRisk.Low, schema,
             operations is null ? null : new OperationsReadHandler(name, operations))
@@ -172,9 +175,53 @@ public sealed class ToolRegistry
                 Policy = new(AiActionLevel.Read, "1", "platform", typeof(PlatformAnswer), PlatformReadService.EvidenceLimit),
             },
         });
+        // No executable handler is exposed without a policy gate, including direct/internal callers.
+        All = Array.AsReadOnly(All.Select(tool => tool.Handler is null ? tool : tool with
+        {
+            Handler = new PolicyReadHandler(tool, policyGateway)
+        }).ToArray());
     }
 
     public IReadOnlyList<AiToolDefinition> All { get; }
 
     public AiToolDefinition? Find(string name) => All.FirstOrDefault(t => t.Name == name);
+
+    public Task<AiAuthorizationDecision> AuthorizeRunAsync(string agentId, Scmos.Api.Auth.AppUser user,
+        string correlation, CancellationToken token)
+    {
+        var contract = AiPolicyEntry.RunContract(agentId);
+        return AiPolicyEntry.AuthorizeAsync(_policyGateway,
+            AiAuthorizationRequest.For(agentId, contract.Action, contract.Tool, user, correlation), token);
+    }
+
+    public Task<AiAuthorizationDecision> AuthorizeCallAsync(string agentId, AiToolCall call,
+        Scmos.Api.Auth.AppUser user, string correlation, CancellationToken token, bool offered = true)
+    {
+        var name = call.Name ?? "";
+        var schema = Find(name)?.InputSchema
+            ?? (agentId == AgentIds.Management ? Management.ManagementPlans.All.FirstOrDefault(p => p.Name == name)?.Schema : null);
+        var request = AiAuthorizationRequest.For(agentId,
+            AiPolicyEntry.ToolContracts.GetValueOrDefault(name, AiPolicyEntry.RunContract(agentId).Action), name, user, correlation) with
+        {
+            InputValid = offered && !string.IsNullOrWhiteSpace(call.Id) && call.Id.Length <= 200 && schema?.Valid(call.Arguments) == true,
+            NetworkDestination = name is "query_repository" or "read_source" ? "api.github.com" : null
+        };
+        // Unknown and malformed model requests reach the same durable denial/security audit as valid calls.
+        return AiPolicyEntry.AuthorizeAsync(_policyGateway, request, token);
+    }
+
+    public async Task AuditRejectedCallsAsync(string agentId, IReadOnlyList<AiToolCall>? calls,
+        Scmos.Api.Auth.AppUser user, string correlation, CancellationToken token)
+    {
+        if (calls is null) return;
+        foreach (var call in calls.Take(8))
+            await AuthorizeCallAsync(agentId, call, user, correlation, token, offered: false);
+        if (calls.Count > 8)
+        {
+            var contract = AiPolicyEntry.RunContract(agentId);
+            await AiPolicyEntry.AuthorizeAsync(_policyGateway,
+                AiAuthorizationRequest.For(agentId, contract.Action, "unregistered_tool_call_overflow", user, correlation,
+                    "rejected_tool_batch", calls.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)), token);
+        }
+    }
 }

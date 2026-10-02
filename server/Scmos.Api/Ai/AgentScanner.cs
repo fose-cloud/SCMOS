@@ -41,7 +41,7 @@ public sealed record ScanSummary(string AgentId, string Code, int Jobs, int Find
 /// </summary>
 public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, AgentRegistry agents, IAiGovernance governance,
     AiDecisionLog decisions, SupplierService suppliers, IOptions<AiOptions> options, TimeProvider clock, ILogger<AgentScanner> log,
-    BookingMailPass? bookingMail = null)
+    BookingMailPass? bookingMail = null, IAiPolicyGateway? policyGateway = null)
 {
     /// <summary>The rule-first agents this pass runs, in order.</summary>
     public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id, CommunicationAgent.Id, BookingAgent.Id];
@@ -83,6 +83,16 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
                 : new GovernanceGate(false, "agent_disabled", "SCMOS AI is disabled in configuration.", AiAutonomy.Disabled);
             if (gate.Allowed && !Switched(agent, ai, setting)) gate = new(false, "agent_disabled", "This pass is switched off.", gate.Effective);
             if (!gate.Allowed) { summaries.Add(new(id, gate.Code, 0, 0, 0, 0, 0, 0, 0)); continue; }
+            var (action, tool) = id switch
+            {
+                AgentIds.Otd => (AiAction.OtdCalculate, "scan_otd"),
+                AgentIds.Validation => (AiAction.ValidationAnalyze, "scan_validation"),
+                AgentIds.Carrier => (AiAction.CarrierRecommend, "scan_carrier"),
+                AgentIds.Communication => (AiAction.CommunicationDraft, "scan_communication"),
+                _ => (AiAction.BookingCreateDraft, "scan_booking")
+            };
+            var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway, AiAuthorizationRequest.Pass(id, action, tool), token);
+            if (!authorization.Allowed) { summaries.Add(new(id, authorization.ReasonCode, 0, 0, 0, 0, 0, 0, 0)); continue; }
             // A background pass can wait for the register; it never takes the stale-while-revalidate
             // answer a person's screen does, so it judges "now" against the register as it is.
             jobs ??= await register.ReadAsync(token);

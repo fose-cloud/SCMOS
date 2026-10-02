@@ -10,6 +10,7 @@ import {
   type GovernanceReport,
 } from "../aiGovernance";
 import s from "./AiControlTower.module.css";
+import { AiPolicyPanel } from "./AiPolicyPanel";
 
 type Draft = { autonomy: number; shadowMode: boolean; status: string; reason: string };
 /** A switch waiting for its confirmation: one agent's, its pass's, Operations' own, or every one still off. */
@@ -261,5 +262,6 @@ export function AiGovernancePanel({ operations, onOperationsChanged }: {
             </table>
           </ZoomBox>
         </>}
+    <AiPolicyPanel />
   </section>;
 }

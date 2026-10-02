@@ -32,6 +32,8 @@ public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit,
         if (!Connected) return new("not_connected", "ยังไม่ได้เชื่อมเครื่องมืออ่านข้อมูล");
         if (!await CheckAuditReadyAsync(token)) return new("audit_not_ready", "Audit ถาวรไม่พร้อมใช้งาน ยังไม่ได้อ่านข้อมูลงาน");
         if (!provider.Configured || provider.IsMock) return new("provider_unavailable", "AI provider is unavailable.");
+        var authorization = await tools.AuthorizeRunAsync(agent.Id, user, correlationId, token);
+        if (!authorization.Allowed) return new(authorization.ReasonCode, "AI policy refused execution.");
 
         var now = clock.GetUtcNow();
         string? toolName = null;
@@ -97,12 +99,14 @@ public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit,
             }
             if (selection.Mock || selection.ToolCalls is not { Count: 1 })
             {
+                await tools.AuditRejectedCallsAsync(agent.Id, selection.ToolCalls, user, correlationId, token);
                 await Audit("run_completed", "clarification_required");
                 // Ignore free-form provider text, which has no source evidence.
                 return new("clarification_required", "ขณะนี้รองรับงานวันนี้ งานเสี่ยงวันนี้ ค้นหางาน และงานล่าช้าเท่านั้น");
             }
             var call = selection.ToolCalls[0];
-            var definition = guard.Resolve(user, agent, call, audit.Ready);
+            var callAuthorization = await tools.AuthorizeCallAsync(agent.Id, call, user, correlationId, token, offered: offered.Any(t => t.Name == call.Name));
+            var definition = callAuthorization.Allowed ? guard.Resolve(user, agent, call, audit.Ready) : null;
             if (definition is null || !offered.Any(t => t.Name == call.Name))
             {
                 await Audit("run_completed", "invalid_tool");
@@ -117,7 +121,7 @@ public sealed class OperationsAgent(ToolRegistry tools, IAiExecutionAudit audit,
             limit = json.RootElement.GetProperty("limit").GetInt32();
             await Audit("tool_started", "running");
             toolStarted = true;
-            var evidence = await executor.ReadAsync(call, user, agent, audit.Ready, budget, runId, now, token);
+            var evidence = await executor.ReadAsync(call, user, agent, audit.Ready, budget, runId, now, token, correlationId);
             await Audit("tool_completed", "succeeded", evidence);
             toolCompleted = true;
             await Audit("run_completed", "succeeded", evidence);

@@ -1,5 +1,16 @@
 # SCMOS AI — documents
 
+Governing policy: **[SCMOS AI Governance Constitution v1.0](SCMOS_AI_GOVERNANCE_CONSTITUTION_V1.md)**.
+It applies to all existing and future SCMOS AI agents. The original user-supplied
+text is preserved. See the **[2 October 2026 adoption assessment](SCMOS_AI_GOVERNANCE_ADOPTION_20261002.md)**
+for source evidence, gaps and the implementation sequence. Adoption as repository
+policy does not mean every requirement is already enforced at runtime.
+
+Current implementation: [AI permission enforcement status, 2 October 2026](SCMOS_AI_PERMISSION_STATUS_20261002.md)
+and the [pre-edit implementation map](SCMOS_AI_PERMISSION_IMPLEMENTATION_MAP.md).
+The candidate is fail-closed and not Production-ready; see the status record
+for completed boundaries, tests and remaining release gates.
+
 Where to start: **[SCMOS_AI_AGENT_PLATFORM_OPERATIONS.md](SCMOS_AI_AGENT_PLATFORM_OPERATIONS.md)**
 covers what is deployed, what each setting turns on, what runs when, how to stop it,
 and what to watch.
