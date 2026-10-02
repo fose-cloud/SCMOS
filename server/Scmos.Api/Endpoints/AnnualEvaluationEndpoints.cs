@@ -17,6 +17,8 @@ public static class AnnualEvaluationEndpoints
     /// <param name="Carriers">Which of the campaign's carriers (their campaign row ids); empty means every included one.</param>
     public record SnapshotBody(List<int>? Carriers, string? Reason);
     public record ManualScoreBody(string? KpiCode, decimal Score, string? Note);
+    public record ReasonBody(string? Reason);
+    public record ExtendBody(string? ExpiresOn);
 
     public static void MapAnnualEvaluations(this IEndpointRouteBuilder routes)
     {
@@ -98,6 +100,35 @@ public static class AnnualEvaluationEndpoints
             HttpContext context, IUserAccessor users, EvaluationScoringService scoring, CancellationToken token) =>
             await WriteAsync(context, users, user => scoring.SetManualScoreAsync(user, id, carrier, body.KpiCode, body.Score, body.Note, token)));
 
+        // Phase 7: evaluators and their links. A link's token is in the answer once, never again (1 Oct 2026).
+        campaigns.MapGet("/{id:int}/evaluators", async (int id, HttpContext context, IUserAccessor users, EvaluationInvitationService invitations,
+            CancellationToken token) =>
+            await ReadAsync(context, users, async user => await invitations.EvaluatorsAsync(user, id, token)));
+
+        campaigns.MapPost("/{id:int}/evaluators", async (int id, [FromBody] EvaluatorInput body, HttpContext context, IUserAccessor users,
+            EvaluationInvitationService invitations, CancellationToken token) =>
+            await LinkAsync(context, users, user => invitations.AddEvaluatorAsync(user, id, body, token)));
+
+        campaigns.MapPost("/{id:int}/invitations", async (int id, [FromBody] InvitationRequest body, HttpContext context, IUserAccessor users,
+            EvaluationInvitationService invitations, CancellationToken token) =>
+            await LinkAsync(context, users, user => invitations.GenerateAsync(user, id, body, token)));
+
+        campaigns.MapPost("/{id:int}/invitations/{invitation:long}/revoke", async (int id, long invitation, [FromBody] ReasonBody body,
+            HttpContext context, IUserAccessor users, EvaluationInvitationService invitations, CancellationToken token) =>
+            await LinkAsync(context, users, user => invitations.RevokeAsync(user, id, invitation, body.Reason, token)));
+
+        campaigns.MapPost("/{id:int}/invitations/{invitation:long}/renew", async (int id, long invitation, HttpContext context, IUserAccessor users,
+            EvaluationInvitationService invitations, CancellationToken token) =>
+            await LinkAsync(context, users, user => invitations.RenewAsync(user, id, invitation, token)));
+
+        campaigns.MapPost("/{id:int}/invitations/{invitation:long}/extend", async (int id, long invitation, [FromBody] ExtendBody body,
+            HttpContext context, IUserAccessor users, EvaluationInvitationService invitations, CancellationToken token) =>
+            await LinkAsync(context, users, user => invitations.ExtendAsync(user, id, invitation, body.ExpiresOn, token)));
+
+        campaigns.MapPost("/{id:int}/invitations/{invitation:long}/sent", async (int id, long invitation, HttpContext context, IUserAccessor users,
+            EvaluationInvitationService invitations, CancellationToken token) =>
+            await LinkAsync(context, users, user => invitations.MarkSentAsync(user, id, invitation, token)));
+
         campaigns.MapPost("/{id:int}/status", async (int id, [FromBody] MoveBody body, HttpContext context, IUserAccessor users,
             AnnualEvaluationService service, CancellationToken token) =>
             await WriteAsync(context, users, user => service.MoveAsync(user, id, body.Status, body.Reason, token)));
@@ -112,6 +143,16 @@ public static class AnnualEvaluationEndpoints
         if (!user.Can(Capability.ViewAnnualEvaluation))
             return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์ดู Annual Evaluation", StatusCodes.Status403Forbidden);
         return await read(user) is { } found ? Results.Json(found) : ApiResults.Error("ไม่พบแคมเปญนี้", StatusCodes.Status404NotFound);
+    }
+
+    /// <summary>An invitation change; a new link's token is in <c>links</c> and nowhere else, and the answer is not cached.</summary>
+    private static async Task<IResult> LinkAsync(HttpContext context, IUserAccessor users, Func<AppUser, Task<InvitationOutcome>> work)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        var user = users.Current(context);
+        if (user is null) return ApiResults.SignInRequired;
+        var result = await work(user);
+        return result.Ok ? Results.Json(new { message = result.Message, links = result.Links ?? [] }) : ApiResults.Error(result.Message, result.Status);
     }
 
     private static async Task<IResult> WriteAsync(HttpContext context, IUserAccessor users, Func<AppUser, Task<AnnualEvaluationResult>> work)

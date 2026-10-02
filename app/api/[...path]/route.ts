@@ -34,7 +34,9 @@ const IDENTITY_HEADERS = [
 ];
 
 /** Passed through because the request needs them; everything else is dropped. */
-const REQUEST_HEADERS = ["content-type", "accept", "accept-language", "range", "x-scmos-ai-control", "x-correlation-id"];
+const REQUEST_HEADERS = ["content-type", "accept", "accept-language", "range", "x-scmos-ai-control", "x-correlation-id",
+  // The evaluation page outside SCMOS (1 Oct 2026): its link's token, the whole of that caller's identity.
+  "x-evaluation-token"];
 
 /**
  * Passed back because the browser needs them; everything else is dropped.

@@ -3,13 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import type { PlanPrefill } from "../actionPlanRequest";
-import { ELIGIBILITY, MOVE_LABEL, STATUS, isBackward, shown, type CampaignRow, type CampaignView, type CarrierRow, type ResultRow } from "../annualEvaluation";
+import {
+  ELIGIBILITY, MOVE_LABEL, STATUS, isBackward, shown, type CampaignRow, type CampaignView, type CarrierRow, type IssuedLink, type ResultRow,
+} from "../annualEvaluation";
 import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
 import { Badge, CELL, EMPTY, HEAD, INPUT, LABEL, MONO, Notice, OUTLINE, PANEL, PRIMARY, SMALL, TITLE } from "./ActionPlanParts";
 import { AnnualEvaluationSetup } from "./AnnualEvaluationSetup";
 import { EvaluationCarrierPanel } from "./EvaluationCarrierPanel";
+import { EvaluationEvaluators } from "./EvaluationEvaluators";
 
 /**
  * Annual Carrier Evaluation (1 Oct 2026, Phase 5) — in place of the screen that averaged a few scores into a grade.
@@ -114,7 +117,7 @@ export function StatusBadge({ status }: { status: string }) {
   return <Badge label={style.label} tone={style.tone} background={style.background} />;
 }
 
-type Tab = "results" | "carriers" | "setup";
+type Tab = "results" | "carriers" | "evaluators" | "setup";
 
 function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   id: number; canManage: boolean; onBack: () => void; onToast: (message: string) => void; onActionPlan?: (prefill: PlanPrefill) => void;
@@ -128,6 +131,7 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState("");
   const [register, setRegister] = useState<{ id: number; code: string; name: string }[]>([]);
+  const [issued, setIssued] = useState<IssuedLink[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -181,7 +185,12 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
     return answer === null ? null : answer.trim();
   }
 
-  if (failure) return <div style={css("display:flex;flex-direction:column;gap:10px")}><Back onBack={onBack} /><Notice tone="#B45309">{failure}</Notice></div>;
+  /** Leaving the campaign drops any link still on screen; it is never shown again, so ask first. */
+  const leave = () => {
+    if (issued.length === 0 || window.confirm(`ลิงก์ใหม่ ${issued.length} ลิงก์จะไม่แสดงอีก — ออกจากแคมเปญ?`)) onBack();
+  };
+
+  if (failure) return <div style={css("display:flex;flex-direction:column;gap:10px")}><Back onBack={leave} /><Notice tone="#B45309">{failure}</Notice></div>;
   if (!view) return <Notice tone="#7B8CA0">กำลังโหลด…</Notice>;
 
   const campaign = view.campaign;
@@ -212,7 +221,7 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   return (
     <div style={css("display:flex;flex-direction:column;gap:12px")}>
       <div style={css(PANEL + "display:flex;gap:12px;align-items:center;flex-wrap:wrap")}>
-        <Back onBack={onBack} />
+        <Back onBack={leave} />
         <div style={css("flex:1;min-width:200px")}>
           <div style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap")}>
             <span style={css(MONO + "font-weight:700;color:#0A2240")}>{campaign.code}</span>
@@ -244,7 +253,7 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
       )}
 
       <div style={css("display:flex;gap:6px")}>
-        {([["results", "ผลการประเมิน"], ["carriers", `ผู้ขนส่ง (${view.included})`], ["setup", "ตั้งค่าเกณฑ์"]] as [Tab, string][]).map(([key, label]) => (
+        {([["results", "ผลการประเมิน"], ["carriers", `ผู้ขนส่ง (${view.included})`], ["evaluators", "ผู้ประเมิน"], ["setup", "ตั้งค่าเกณฑ์"]] as [Tab, string][]).map(([key, label]) => (
           <button key={key} type="button" onClick={() => setTab(key)}
             style={css(tab === key ? PRIMARY : OUTLINE)}>{label}</button>
         ))}
@@ -339,6 +348,9 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
           </div>
         </div>
       )}
+
+      {tab === "evaluators" && <EvaluationEvaluators campaignId={id} view={view} carriers={carriers} manage={manage}
+        issued={issued} setIssued={setIssued} onToast={onToast} />}
 
       {tab === "setup" && (
         <AnnualEvaluationSetup view={view} editable={manage && !view.locked} busy={busy}

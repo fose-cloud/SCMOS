@@ -126,6 +126,8 @@ builder.Services.AddScoped<SkillMatrixService>();
 builder.Services.AddScoped<AnnualEvaluationService>();
 builder.Services.AddScoped<EvaluationSnapshotService>();
 builder.Services.AddScoped<EvaluationScoringService>();
+builder.Services.AddScoped<EvaluationInvitationService>();
+builder.Services.AddScoped<ExternalEvaluationService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();
 builder.Services.AddScoped<CarrierService>();
@@ -294,8 +296,30 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             });
     });
+    // The evaluation page for people outside SCMOS (1 Oct 2026): per token, not per address — every evaluator arrives
+    // through the web app's proxy, so they would all share one address and one bucket.
+    options.AddPolicy(ExternalEvaluationEndpoints.RateLimitPolicy, context =>
+    {
+        var partition = EvaluationInvitations.PartitionOf(ExternalEvaluationEndpoints.TokenOf(context));
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(partition,
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = EvaluationInvitations.AllowanceOf(partition),
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            });
+    });
     options.OnRejected = async (rejected, token) =>
+    {
+        if (rejected.HttpContext.Request.Path.StartsWithSegments("/api/external"))
+        {
+            rejected.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            rejected.HttpContext.Response.Headers.RetryAfter = "60";
+            await rejected.HttpContext.Response.WriteAsJsonAsync(new { error = "มีการเรียกถี่เกินไป — ลองใหม่ในอีกหนึ่งนาที" }, token);
+            return;
+        }
         await CarrierApiEndpoints.WriteRateLimitedAsync(rejected.HttpContext, token);
+    };
 });
 builder.Services.AddOpenApi();
 
@@ -505,6 +529,7 @@ app.MapFleet();
 app.MapAuditPlan();
 app.MapActionPlans();
 app.MapAnnualEvaluations();
+app.MapExternalEvaluation();
 app.MapCorrections();
 app.MapVehicleTypes();
 app.MapCarrier();

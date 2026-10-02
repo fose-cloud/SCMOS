@@ -58,6 +58,36 @@ export type ResultDetail = {
   versions: number[];
 };
 
+export type InvitationRow = {
+  id: number; evaluatorId: number; evaluationCarrierId: number; carrier: string; state: string; expiresAt: string;
+  sentAt: string | null; openedAt: string | null; submittedAt: string | null; revokeReason: string;
+};
+export type EvaluatorRow = { id: number; name: string; email: string; departmentId: number; department: string; invitations: InvitationRow[] };
+/** A link as it was made: the only time its token is on a screen. */
+export type IssuedLink = { invitationId: number; evaluator: string; department: string; carrier: string; token: string; expiresAt: string };
+
+export const INVITATION_STATE: Record<string, { label: string; tone: string; background: string }> = {
+  pending: { label: "ยังไม่ส่ง", tone: "#475569", background: "#F1F5F9" },
+  sent: { label: "ส่งแล้ว", tone: "#1D5FA8", background: "#E7F0FA" },
+  opened: { label: "เปิดแล้ว", tone: "#8A6D0B", background: "#FFFBEB" },
+  submitted: { label: "ตอบแล้ว", tone: "#16794C", background: "#EDF7F1" },
+  revoked: { label: "ยกเลิก", tone: "#94A3B8", background: "#F8FAFC" },
+  expired: { label: "หมดอายุ", tone: "#B42318", background: "#FEF3F2" },
+};
+
+/**
+ * The address an evaluator opens. The token rides in the fragment, which a browser never sends to a server, so no
+ * access log, proxy or link preview ever holds it.
+ */
+export function evaluationLink(origin: string, token: string): string {
+  return `${origin.replace(/\/+$/, "")}/evaluation#${token}`;
+}
+
+/** An API time as Bangkok's day and minute (YYYY-MM-DD HH:mm), or a dash. */
+export function bangkokTime(value: string | null | undefined): string {
+  return value ? new Date(value).toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" }).slice(0, 16) : "—";
+}
+
 export const STATUS: Record<string, { label: string; tone: string; background: string }> = {
   draft: { label: "ร่าง", tone: "#475569", background: "#F1F5F9" },
   "data-preparation": { label: "เตรียมข้อมูล", tone: "#1D5FA8", background: "#E7F0FA" },
