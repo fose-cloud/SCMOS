@@ -34,7 +34,7 @@ public record CertificateInput(int SupplierId, string? Type, int Year, bool Held
 /// recorded as declared, never as valid, and never over one somebody has verified.
 /// </para>
 /// </summary>
-public class LegacyEvaluationService(ScmosDbContext db, AuditService audit)
+public class LegacyEvaluationService(ScmosDbContext db, AuditService audit, ILogger<LegacyEvaluationService>? log = null)
 {
     private const int FirstYear = 2015;
 
@@ -170,6 +170,8 @@ public class LegacyEvaluationService(ScmosDbContext db, AuditService audit)
             return (null, new LegacyOutcome(false, "บัญชีนี้ไม่มีสิทธิ์นำเข้าผลประเมิน", StatusCodes.Status403Forbidden));
         if (year < FirstYear || year > DateTime.UtcNow.Year) return (null, new LegacyOutcome(false, "ปีไม่ถูกต้อง", StatusCodes.Status400BadRequest));
         var (kind, rows) = Read(file);
+        if (kind is null) log?.LogWarning("Annual evaluation history: {File} from {User} is neither the results workbook nor the ISO / Q-Mark table",
+            fileName, user.Signature);
         if (kind is null) return (null, new LegacyOutcome(false,
             "อ่านไฟล์ไม่ออก — ต้องเป็นไฟล์ผลประเมิน (มีคอลัมน์ Percentage และ Result) หรือตาราง ISO / Q-Mark", StatusCodes.Status400BadRequest));
 

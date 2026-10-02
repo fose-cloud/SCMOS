@@ -23,9 +23,11 @@ public record ExternalOutcome(int Status, string Message, ExternalView? View = n
 /// <summary>
 /// The evaluation page outside SCMOS (1 Oct 2026, Annual Evaluation Phase 6). A token is the whole of the evaluator's
 /// identity: it names one campaign, one evaluator and one carrier, and nothing on the request can change which — there is
-/// no id to alter. Unknown, revoked, expired and closed are refused before anything is read; a sheet is submitted once.
+/// no id to alter. Unknown, revoked, expired and closed are refused before anything is read; a sheet is submitted once,
+/// its response, answers and the link's state together (Phase 13). A refused or failed submission is logged by the link's
+/// row id — never by its token or the token's hash.
 /// </summary>
-public class ExternalEvaluationService(ScmosDbContext db, AuditService audit)
+public class ExternalEvaluationService(ScmosDbContext db, AuditService audit, ILogger<ExternalEvaluationService>? log = null)
 {
     private const string Unknown = "ลิงก์ไม่ถูกต้อง";
 
@@ -53,41 +55,54 @@ public class ExternalEvaluationService(ScmosDbContext db, AuditService audit)
     public async Task<ExternalOutcome> SubmitAsync(string? token, ExternalSubmission submission, CancellationToken cancel)
     {
         var (found, refusal) = await FindAsync(token, cancel);
-        if (found is null) return refusal!;
+        if (found is null) return Refused(refusal!, null);
         var (invitation, evaluator, campaign) = found.Value;
         if (invitation.Status == AnnualEvaluationRules.InvitationSubmitted)
-            return new ExternalOutcome(StatusCodes.Status409Conflict, "ส่งแบบประเมินนี้แล้ว — ส่งได้ครั้งเดียว");
-        if (!Accepting(campaign)) return new ExternalOutcome(StatusCodes.Status410Gone, "ปิดรับการประเมินแล้ว");
+            return Refused(new ExternalOutcome(StatusCodes.Status409Conflict, AlreadySent), invitation.Id);
+        if (!Accepting(campaign)) return Refused(new ExternalOutcome(StatusCodes.Status410Gone, "ปิดรับการประเมินแล้ว"), invitation.Id);
 
         var asked = await AskedAsync(campaign, evaluator.DepartmentId, cancel);
         var answers = submission.Answers ?? [];
         var problems = EvaluationInvitations.Problems(asked.Select(one => one.Asked).ToList(), answers, submission.Comment);
-        if (problems.Count > 0) return new ExternalOutcome(StatusCodes.Status400BadRequest, string.Join(" · ", problems));
+        if (problems.Count > 0) return Refused(new ExternalOutcome(StatusCodes.Status400BadRequest, string.Join(" · ", problems)), invitation.Id);
 
         var now = DateTimeOffset.UtcNow;
-        var response = new EvaluationResponse
+        var byCode = asked.ToDictionary(one => one.Asked.Code, one => one.Id);
+        try
         {
-            InvitationId = invitation.Id, CampaignId = campaign.Id, EvaluationCarrierId = invitation.EvaluationCarrierId, EvaluatorId = evaluator.Id,
-            DepartmentId = evaluator.DepartmentId, Comment = (submission.Comment ?? "").Trim(), SubmittedAt = now,
-        };
-        db.EvaluationResponses.Add(response);
-        var tracked = await db.EvaluationInvitations.FirstAsync(row => row.Id == invitation.Id, cancel);
-        tracked.Status = AnnualEvaluationRules.InvitationSubmitted;
-        tracked.SubmittedAt = now;
-        tracked.OpenedAt ??= now;
-        try { await db.SaveChangesAsync(cancel); }
-        catch (DbUpdateException)
+            // One transaction: a failure between the response and its answers left the link submitted with nothing in it.
+            await EvaluationWrites.InOneAsync(db, async () =>
+            {
+                var response = new EvaluationResponse
+                {
+                    InvitationId = invitation.Id, CampaignId = campaign.Id, EvaluationCarrierId = invitation.EvaluationCarrierId,
+                    EvaluatorId = evaluator.Id, DepartmentId = evaluator.DepartmentId, Comment = (submission.Comment ?? "").Trim(), SubmittedAt = now,
+                };
+                db.EvaluationResponses.Add(response);
+                var tracked = await db.EvaluationInvitations.FirstAsync(row => row.Id == invitation.Id, cancel);
+                tracked.Status = AnnualEvaluationRules.InvitationSubmitted;
+                tracked.SubmittedAt = now;
+                tracked.OpenedAt ??= now;
+                await db.SaveChangesAsync(cancel);
+                db.EvaluationAnswers.AddRange(answers.Where(answer => byCode.ContainsKey((answer.Code ?? "").Trim())).Select(answer => new EvaluationAnswer
+                {
+                    ResponseId = response.Id, QuestionId = byCode[(answer.Code ?? "").Trim()],
+                    Rating = answer.NotApplicable ? null : answer.Rating, Comment = (answer.Comment ?? "").Trim(),
+                }));
+                await db.SaveChangesAsync(cancel);
+            }, cancel);
+        }
+        catch (DbUpdateException problem) when (EvaluationWrites.Duplicate(problem))
         {
             // Two submissions at once: the unique index on the invitation keeps the first.
-            return new ExternalOutcome(StatusCodes.Status409Conflict, "ส่งแบบประเมินนี้แล้ว — ส่งได้ครั้งเดียว");
+            return Refused(new ExternalOutcome(StatusCodes.Status409Conflict, AlreadySent), invitation.Id);
         }
-        var byCode = asked.ToDictionary(one => one.Asked.Code, one => one.Id);
-        db.EvaluationAnswers.AddRange(answers.Where(answer => byCode.ContainsKey((answer.Code ?? "").Trim())).Select(answer => new EvaluationAnswer
+        catch (Exception problem) when (problem is not OperationCanceledException)
         {
-            ResponseId = response.Id, QuestionId = byCode[(answer.Code ?? "").Trim()],
-            Rating = answer.NotApplicable ? null : answer.Rating, Comment = (answer.Comment ?? "").Trim(),
-        }));
-        await db.SaveChangesAsync(cancel);
+            log?.LogError(problem, "External evaluation: the submission for invitation {Invitation} ({Campaign}) failed — nothing saved, the link stays open",
+                invitation.Id, campaign.Code);
+            return new ExternalOutcome(StatusCodes.Status500InternalServerError, "ส่งไม่สำเร็จ — ยังไม่ได้บันทึก กรุณากดส่งอีกครั้ง");
+        }
         await audit.RecordAsync(Evaluator(evaluator), AuditActions.Register, "annual-evaluation", campaign.Id.ToString(CultureInfo.InvariantCulture),
             campaign.Code, $"invitation:{invitation.Id}", "", AnnualEvaluationRules.InvitationSubmitted, "", cancel, "external");
         invitation.Status = AnnualEvaluationRules.InvitationSubmitted;
@@ -96,6 +111,16 @@ public class ExternalEvaluationService(ScmosDbContext db, AuditService audit)
     }
 
     /* ------------------------------------------------------------------ helpers */
+
+    private const string AlreadySent = "ส่งแบบประเมินนี้แล้ว — ส่งได้ครั้งเดียว";
+
+    /// <summary>A refused submission, logged by the link's row id when it is known — the token never is, nor its hash.</summary>
+    private ExternalOutcome Refused(ExternalOutcome outcome, long? invitationId)
+    {
+        log?.LogWarning("External evaluation: submission refused ({Status}) for invitation {Invitation}: {Reason}",
+            outcome.Status, invitationId?.ToString(CultureInfo.InvariantCulture) ?? "unknown", outcome.Message);
+        return outcome;
+    }
 
     private async Task<((EvaluationInvitation Invitation, EvaluationEvaluator Evaluator, EvaluationCampaign Campaign)? Found, ExternalOutcome? Refusal)>
         FindAsync(string? token, CancellationToken cancel)

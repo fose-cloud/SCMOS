@@ -30,7 +30,8 @@ public record EvaluationSummaryOutcome(bool Ok, string Code, string Message, int
 /// </para>
 /// </summary>
 public sealed class EvaluationSummaryService(ScmosDbContext db, IAiProvider provider, IAiExecutionAudit aiAudit, AiRunLimiter limiter,
-    AuditService audit, TimeProvider clock, IOptions<AiOptions> aiOptions, IOptions<OpenAiOptions> providerOptions)
+    AuditService audit, TimeProvider clock, IOptions<AiOptions> aiOptions, IOptions<OpenAiOptions> providerOptions,
+    ILogger<EvaluationSummaryService>? log = null)
 {
     public const string AgentId = "management-agent";
     public const string Tool = "summarize_evaluation";
@@ -64,6 +65,16 @@ public sealed class EvaluationSummaryService(ScmosDbContext db, IAiProvider prov
     }
 
     public async Task<EvaluationSummaryOutcome> SummarizeAsync(AppUser user, int campaignId, int carrierId, string correlationId, CancellationToken token)
+    {
+        var outcome = await SummarizeOnceAsync(user, campaignId, carrierId, correlationId, token);
+        // Who may run it and whether it is switched on are settings, not failures; the rest is worth an operator's eye.
+        if (!outcome.Ok && outcome.Code is not ("FORBIDDEN" or "DISABLED"))
+            log?.LogWarning("Annual evaluation AI summary: campaign {Campaign}, carrier row {Carrier}, by {User} — {Code}",
+                campaignId, carrierId, user.Signature, outcome.Code);
+        return outcome;
+    }
+
+    private async Task<EvaluationSummaryOutcome> SummarizeOnceAsync(AppUser user, int campaignId, int carrierId, string correlationId, CancellationToken token)
     {
         if (!Allowed(user)) return Fail("FORBIDDEN", "บัญชีนี้ไม่มีสิทธิ์สร้างสรุปด้วย AI", StatusCodes.Status403Forbidden);
         if (!_ai.Enabled || !_ai.EvaluationAiEnabled) return Fail("DISABLED", "การสรุปด้วย AI ยังไม่เปิดใช้งาน", StatusCodes.Status409Conflict);
