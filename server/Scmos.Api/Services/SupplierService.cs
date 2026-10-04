@@ -79,7 +79,21 @@ public record SupplierProfileView(
     SupplierScore? Performance,
     IReadOnlyList<IncidentCase> Incidents);
 
-public record SupplierResult(bool Ok, string Message, int? Id = null);
+/// <param name="Changes">
+/// What the action changed, field by field, for the audit trail. The message
+/// is for the screen and is gone once read; this is the only place the value a
+/// field held before survives. Null from an action that has nothing to say
+/// field by field, and the caller's own description is recorded instead.
+/// </param>
+public record SupplierResult(bool Ok, string Message, int? Id = null,
+    IReadOnlyList<SupplierChange>? Changes = null);
+
+/// <summary>One stored field a supplier action changed: what it held before, what it holds now.</summary>
+/// <param name="SupplierId">
+/// The company the change is recorded against when it is not the one the
+/// action was on — the company a spelling was taken from. Null for the action's own.
+/// </param>
+public record SupplierChange(string Field, string OldValue, string NewValue, int? SupplierId = null);
 
 /// <summary>
 /// The supplier register.
@@ -369,6 +383,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         var supplier = await db.Suppliers.FirstOrDefaultAsync(entry => entry.Id == id, token);
         if (supplier is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
 
+        var before = supplier.Status;
         supplier.Status = wanted;
         supplier.UpdatedAt = DateTimeOffset.UtcNow;
         if (wanted == "approved")
@@ -378,7 +393,8 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         }
 
         await db.SaveChangesAsync(token);
-        return new SupplierResult(true, $"{supplier.Name}: {wanted}", supplier.Id);
+        return new SupplierResult(true, $"{supplier.Name}: {wanted}", supplier.Id,
+            [new SupplierChange("สถานะ", before, wanted)]);
     }
 
     /// <summary>What one import of the carrier directory did.</summary>
@@ -606,9 +622,14 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         if (supplier is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
 
         var existing = await db.SupplierAliases.FirstOrDefaultAsync(entry => entry.Alias == key, token);
+        var changes = new List<SupplierChange>();
         if (existing is not null)
         {
             if (existing.SupplierId == id) return new SupplierResult(false, "ผูกไว้แล้ว");
+            // Taken from another company, which loses the spelling and the
+            // rate lanes that follow it — written down against that company
+            // too, or its history would show it still holding both.
+            changes.Add(new SupplierChange("ชื่อที่ผูก", key, "", existing.SupplierId));
             existing.SupplierId = id;
             existing.Confirmed = true;
             existing.Source = "manual";
@@ -622,9 +643,10 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         // Rate lanes carrying that spelling now belong to this supplier too.
         var lanes = await db.RateLanes.Where(lane => lane.Carrier.ToUpper() == key).ToListAsync(token);
         foreach (var lane in lanes) lane.SupplierId = id;
+        changes.Add(new SupplierChange("ชื่อที่ผูก", "", key));
 
         await db.SaveChangesAsync(token);
-        return new SupplierResult(true, $"ผูก {key} เข้ากับ {supplier.Name} แล้ว ({lanes.Count} เส้นทางราคา)", id);
+        return new SupplierResult(true, $"ผูก {key} เข้ากับ {supplier.Name} แล้ว ({lanes.Count} เส้นทางราคา)", id, changes);
     }
 
     /// <summary>
@@ -660,6 +682,9 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
 
         var existing = await db.SupplierEvaluations
             .FirstOrDefaultAsync(entry => entry.SupplierId == id && entry.Period == period.Trim(), token);
+        // A period scored twice is overwritten, so the first scoring survives
+        // only in the audit row.
+        var before = existing is null ? "" : Scored(existing);
 
         if (existing is null)
         {
@@ -688,7 +713,17 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             total is null
                 ? "บันทึกการประเมินแล้ว — ยังไม่มีข้อมูลพอให้คะแนน"
                 : $"ประเมิน {supplier.Name} รอบ {period}: {total} คะแนน (เกรด {grade})",
-            id);
+            id, [new SupplierChange("ผลประเมิน", before, Scored(existing))]);
+    }
+
+    /// <summary>An evaluation's scores as one line of the audit trail.</summary>
+    private static string Scored(SupplierEvaluation row)
+    {
+        static string Score(int? value) => value?.ToString() ?? "—";
+        return (row.TotalScore is null ? "ยังไม่มีคะแนน" : $"{Score(row.TotalScore)} (เกรด {row.Grade})")
+            + $" · ตรงเวลา {Score(row.OnTimeScore)} · ตอบยืนยัน {Score(row.ConfirmationScore)}"
+            + $" · ความล่าช้า {Score(row.DelayScore)} · ความปลอดภัย {Score(row.SafetyScore)}"
+            + $" · เอกสาร {Score(row.DocumentScore)}";
     }
 
     /// <summary>One haulier the register holds more than once.</summary>
@@ -923,6 +958,8 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         var fold = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == foldId, token);
         if (keep is null || fold is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
 
+        // Read before the work, which may be retried after it has renamed the row.
+        var keepName = keep.Name;
         var moved = 0;
         var clashes = 0;
         var strategy = db.Database.CreateExecutionStrategy();
@@ -995,11 +1032,19 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             await work.CommitAsync(token);
         });
 
+        // When the folded row goes, this is the last record of what it was
+        // called; and the rename above is a change to the surviving row.
+        var changes = new List<SupplierChange>
+        {
+            new("รวมรายการซ้ำ", $"{fold.Code} · {fold.Name} · #{foldId}", $"{keep.Code} · {keepName} · #{keepId}"),
+        };
+        if (keep.Name != keepName) changes.Add(new SupplierChange("ชื่อ", keepName, keep.Name));
+
         return new SupplierResult(true,
             clashes > 0
                 ? $"ย้ายข้อมูล {moved} รายการมาที่ {keep.Name} แล้ว — แต่ยังลบ {fold.Code} ไม่ได้ เพราะมีผลประเมินหรือใบรับรองปีเดียวกันทั้งสองราย"
                 : $"รวม {fold.Code} เข้ากับ {keep.Name} แล้ว — ย้ายข้อมูล {moved} รายการ",
-            keepId);
+            keepId, changes);
     }
 
     /// <summary>What a supplier row is holding, and therefore whether it can go.</summary>
@@ -1097,6 +1142,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
                     : ""));
 
         var name = supplier.Name;
+        var code = supplier.Code;
         var strategy = db.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
@@ -1108,7 +1154,9 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             await work.CommitAsync(token);
         });
 
-        return new SupplierResult(true, $"ลบ {name} ออกจากทะเบียนแล้ว", id);
+        // The row is gone; the audit trail is the only place its id still means a company.
+        return new SupplierResult(true, $"ลบ {name} ออกจากทะเบียนแล้ว", id,
+            [new SupplierChange("รหัส", code, ""), new SupplierChange("ชื่อ", name, "")]);
     }
 
     /// <summary>
@@ -1166,7 +1214,17 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         var supplier = await db.Suppliers.FirstOrDefaultAsync(row => row.Id == id, token);
         if (supplier is null) return new SupplierResult(false, "ไม่พบผู้ขนส่งรายนี้");
 
+        // Each change is said twice: a sentence for the screen, and the field
+        // with what it held before and after for the audit trail — which is
+        // the only place the old value survives the save.
         var changed = new List<string>();
+        var changes = new List<SupplierChange>();
+        static string Shown(string value) => value.Length == 0 ? "(ว่าง)" : value;
+        void Changed(string field, string before, string after, string? said = null)
+        {
+            changes.Add(new SupplierChange(field, before, after));
+            changed.Add(said ?? $"{field} {Shown(before)} → {Shown(after)}");
+        }
 
         // The ABS number is the join to procurement's list and what the import
         // matches on first; two rows with one number would be one company
@@ -1178,7 +1236,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             {
                 if (absNo.Length > 0 && await db.Suppliers.AnyAsync(row => row.Id != id && row.AbsNo == absNo, token))
                     return new SupplierResult(false, $"ABS No {absNo} เป็นของผู้ขนส่งรายอื่นอยู่แล้ว");
-                changed.Add($"ABS No {(supplier.AbsNo.Length == 0 ? "(ว่าง)" : supplier.AbsNo)} → {(absNo.Length == 0 ? "(ว่าง)" : absNo)}");
+                Changed("ABS No", supplier.AbsNo, absNo);
                 supplier.AbsNo = absNo;
             }
         }
@@ -1190,7 +1248,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
                 return new SupplierResult(false, "ASL-BSL ต้องเป็น ASL, BSL หรือว่าง");
             if (listType != supplier.ListType)
             {
-                changed.Add($"ASL-BSL {(supplier.ListType.Length == 0 ? "(ว่าง)" : supplier.ListType)} → {(listType.Length == 0 ? "(ว่าง)" : listType)}");
+                Changed("ASL-BSL", supplier.ListType, listType);
                 supplier.ListType = listType;
             }
         }
@@ -1203,7 +1261,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             {
                 if (await db.Suppliers.AnyAsync(row => row.Id != id && row.Code == code, token))
                     return new SupplierResult(false, $"รหัส {code} มีผู้ขนส่งรายอื่นใช้อยู่แล้ว");
-                changed.Add($"รหัส {supplier.Code} → {code}");
+                Changed("รหัส", supplier.Code, code, $"รหัส {supplier.Code} → {code}");
                 supplier.Code = code;
             }
         }
@@ -1220,7 +1278,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
                 if (held is not null && held.SupplierId != id)
                     return new SupplierResult(false, $"ชื่อ {name} เป็นของผู้ขนส่งรายอื่นอยู่แล้ว");
 
-                changed.Add($"ชื่อ {supplier.Name} → {name}");
+                Changed("ชื่อ", supplier.Name, name, $"ชื่อ {supplier.Name} → {name}");
                 // The old spelling stays. Every job this company has done says
                 // the old name, and nothing else joins the two.
                 if (held is null)
@@ -1235,7 +1293,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             var wanted = edit.Status.Trim();
             var allowed = new[] { "draft", "pending-audit", "approved", "suspended", "rejected" };
             if (!allowed.Contains(wanted)) return new SupplierResult(false, $"สถานะ {wanted} ไม่ถูกต้อง");
-            changed.Add($"สถานะ {supplier.Status} → {wanted}");
+            Changed("สถานะ", supplier.Status, wanted, $"สถานะ {supplier.Status} → {wanted}");
             supplier.Status = wanted;
             if (wanted == "approved")
             {
@@ -1249,7 +1307,7 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
             if (value is null) return;
             var trimmed = value.Trim();
             if (trimmed == read()) return;
-            changed.Add($"{label} → {(trimmed.Length == 0 ? "(ว่าง)" : trimmed)}");
+            Changed(label, read(), trimmed, $"{label} → {Shown(trimmed)}");
             write(trimmed);
         }
 
@@ -1272,7 +1330,8 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         void Flag(string label, bool? value, Func<bool> read, Action<bool> write)
         {
             if (value is null || value.Value == read()) return;
-            changed.Add($"{label}: {(value.Value ? "ใช่" : "ไม่")}");
+            static string Said(bool flag) => flag ? "ใช่" : "ไม่";
+            Changed(label, Said(read()), Said(value.Value), $"{label}: {Said(value.Value)}");
             write(value.Value);
         }
 
@@ -1281,10 +1340,10 @@ public class SupplierService(ScmosDbContext db, KpiEngine kpi)
         Flag("ไอโซแท็งก์", edit.IsoTankCapable, () => supplier.IsoTankCapable, value => supplier.IsoTankCapable = value);
         Flag("มี GPS", edit.GpsEquipped, () => supplier.GpsEquipped, value => supplier.GpsEquipped = value);
 
-        if (changed.Count == 0) return new SupplierResult(true, "ไม่มีอะไรเปลี่ยน", id);
+        if (changed.Count == 0) return new SupplierResult(true, "ไม่มีอะไรเปลี่ยน", id, changes);
 
         supplier.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(token);
-        return new SupplierResult(true, $"แก้ไข {supplier.Name} แล้ว — {string.Join(" · ", changed)}", id);
+        return new SupplierResult(true, $"แก้ไข {supplier.Name} แล้ว — {string.Join(" · ", changed)}", id, changes);
     }
 }

@@ -284,6 +284,7 @@ await LegacyEvaluationChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await EvaluationSummaryChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await EvaluationHardeningChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await IssueCaseLinkChecks.RunAsync(Check, args.Contains("--write-local-db"));
+await SupplierAuditChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await AuditChecks.RunAsync(Check, args.Contains("--local-db"), args.Contains("--isolated"));
 Console.WriteLine($"All {count} AI foundation/Operations/audit checks passed. No production data or live OpenAI calls.");
 
