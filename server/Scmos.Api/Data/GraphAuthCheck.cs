@@ -224,6 +224,36 @@ public static class GraphAuthCheck
         Check(spoke, "every status, consented or not, comes back with a code and a sentence");
 
         Console.WriteLine();
+        Console.WriteLine("Which identity reads the mail: the managed identity, or the cross-tenant app (4 Oct 2026).");
+        Console.WriteLine();
+
+        const string tenant = "b129e0ef-627a-4f14-a0c0-7aab3bf95405", client = "11111111-2222-3333-4444-555555555555";
+        Check(GraphMailIdentity.Read(null, null).Mode == GraphMailIdentity.Mode.ManagedIdentity
+            && GraphMailIdentity.Read("  ", "").Mode == GraphMailIdentity.Mode.ManagedIdentity,
+            "no cross-tenant settings: the managed identity reads its own tenant, as before");
+        var cross = GraphMailIdentity.Read($" {tenant} ", client);
+        Check(cross.Mode == GraphMailIdentity.Mode.CrossTenant && cross.Tenant == tenant && cross.Client == client && cross.Problem == "",
+            "both ids set: the cross-tenant app, its ids trimmed");
+        Check(GraphMailIdentity.Read(tenant, "").Mode == GraphMailIdentity.Mode.Misconfigured
+            && GraphMailIdentity.Read("", client).Mode == GraphMailIdentity.Mode.Misconfigured
+            && GraphMailIdentity.Read("leschaco.com", client).Mode == GraphMailIdentity.Mode.Misconfigured
+            && GraphMailIdentity.Read(tenant, "SCMOS Mail Reader").Problem.Contains("Graph__MailClientId"),
+            "one id without the other, or a name where an id belongs, is refused and says which setting — never guessed");
+        Check(GraphMailIdentity.TooBroad(GraphMailIdentity.Mode.CrossTenant, tokenGrantsMailRead: true)
+            && !GraphMailIdentity.TooBroad(GraphMailIdentity.Mode.CrossTenant, tokenGrantsMailRead: false)
+            && !GraphMailIdentity.TooBroad(GraphMailIdentity.Mode.ManagedIdentity, tokenGrantsMailRead: true),
+            "across tenants a token carrying Entra's Mail.Read reads every company mailbox — no RBAC scope narrows it — so it is refused");
+        Check(!GraphDiagnosis.TooBroad.Ok && GraphDiagnosis.TooBroad.Code == GraphDiagnosis.Code.TooBroad
+            && GraphDiagnosis.TooBroad.Message.Contains("Application Mail.Read") && GraphDiagnosis.TooBroad.Message.Contains("ถอนสิทธิ์"),
+            "the refusal names the fix: withdraw the Entra consent, grant through Exchange RBAC");
+        Check(MailQueue.Decide(GraphDiagnosis.Code.TooBroad, ok: false, retries: 0) == MailQueue.Next.Pause
+            && MailQueue.Halts(GraphDiagnosis.Code.TooBroad, ok: false),
+            "and the mail queue pauses on it rather than retrying or giving up on each message");
+        Check(!GraphDiagnosis.NoCrossTenantToken.Ok && GraphDiagnosis.NoCrossTenantToken.Message.Contains("federated credential")
+            && !GraphDiagnosis.Misconfigured("x").Ok,
+            "no cross-tenant token, or settings that disagree, stop the reading and say where to look");
+
+        Console.WriteLine();
         Console.WriteLine(failed == 0
             ? "All Graph authentication checks passed."
             : $"{failed} Graph authentication check(s) failed.");

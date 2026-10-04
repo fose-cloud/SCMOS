@@ -110,9 +110,10 @@ public static class GraphEndpoints
 
             // Consent is read off our own token, so a 403 below means Exchange
             // scoping rather than consent. Without this the two are one answer.
-            var access = await graph.TokenAsync(token);
-            if (access is null) return Answer(mailbox, GraphDiagnosis.NoToken);
-            var consented = GraphToken.Grants(access, GraphAuth.MailRead);
+            // Across tenants Exchange RBAC is the only grant, and a token wider
+            // than that is refused here (GraphAuth.AccessAsync).
+            var (_, consented, withheld) = await graph.AccessAsync(token);
+            if (withheld is not null) return Answer(mailbox, withheld);
 
             var client = await graph.ClientAsync(token);
             if (client is null) return Answer(mailbox, GraphDiagnosis.NoToken);

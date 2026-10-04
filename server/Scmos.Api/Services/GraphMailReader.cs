@@ -186,9 +186,8 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
             + $"/messages/{Uri.EscapeDataString(messageId)}"
             + $"/attachments/{Uri.EscapeDataString(attachmentId)}/$value";
 
-        var access = await graph.TokenAsync(token);
-        if (access is null) return Refused<Stream>(GraphDiagnosis.NoToken);
-        var consented = GraphToken.Grants(access, GraphAuth.MailRead);
+        var (_, consented, refusal) = await graph.AccessAsync(token);
+        if (refusal is not null) return Refused<Stream>(refusal);
 
         var client = await graph.ClientAsync(token);
         if (client is null) return Refused<Stream>(GraphDiagnosis.NoToken);
@@ -285,9 +284,8 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
     private async Task<(GraphDiagnosis.Finding Finding, JsonDocument? Body)> GetAsync(string url,
         string mailbox, CancellationToken token)
     {
-        var access = await graph.TokenAsync(token);
-        if (access is null) return (GraphDiagnosis.NoToken, null);
-        var consented = GraphToken.Grants(access, GraphAuth.MailRead);
+        var (_, consented, refusal) = await graph.AccessAsync(token);
+        if (refusal is not null) return (refusal, null);
 
         var client = await graph.ClientAsync(token);
         if (client is null) return (GraphDiagnosis.NoToken, null);

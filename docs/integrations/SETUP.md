@@ -68,63 +68,97 @@ on the first real day.
 
 ## 2. Outlook / Microsoft Graph
 
-**There is no app registration and no client secret.** This section used to ask
-for both. The API already holds a system-assigned managed identity and already
-calls Graph with it — that is how the Administration screen invites a colleague
-— so `Mail.Read` goes on that same identity. Nothing here is a secret, and
-there is nothing to send anybody.
+**Two tenants (4 Oct 2026).** SCMOS runs in its own Entra tenant
+(`e66b7b39-4a09-4b99-8c77-71cc0fb10836`, "Default Directory"); the company's
+mail is in leschaco.com's (`b129e0ef-627a-4f14-a0c0-7aab3bf95405`). The API's
+managed identity can only ever be given mailboxes of its own tenant, so it
+cannot read the company's mail. That needs a multi-tenant app registration,
+**SCMOS Mail Reader**, in SCMOS's tenant. The app trusts the managed identity
+through a **federated credential**. There is still **no client secret**: the
+managed identity vouches for the app, and Entra issues the app a token for
+leschaco.com.
 
-### In Entra ID — you run these
+**Exchange RBAC is the only grant.** Microsoft's rule is that a `Mail.Read`
+consented in Entra and a `Mail.Read` assigned through Exchange RBAC for
+Applications are a *union*. An Entra grant reads every mailbox, whatever the
+Exchange scope says
+([RBAC for Applications, FAQ](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac)).
+So nothing is consented in Entra, and Exchange assigns `Application Mail.Read`
+on a scope holding only the booking mailboxes. SCMOS enforces this. Across
+tenants, a token that carries `Mail.Read` is refused (`too_broad`) and no mail
+is read until the consent is withdrawn.
 
-1. Find the API App Service's **system-assigned managed identity** (App Service
-   → Identity → System assigned). Note its **Object (principal) ID**.
-2. Grant it **Microsoft Graph → `Mail.Read` as an application permission**, and
-   **admin-consent it**. Delegated permissions are not usable here — there is
-   no signed-in user in a background worker.
+> Earlier versions of this page consented `Mail.Read` in Entra and then scoped
+> it with `New-ManagementRoleAssignment`. Under the union rule that scoping does
+> nothing. Do not follow them.
 
-   A managed identity has no "API permissions" blade, so this is a PowerShell
-   grant rather than a portal click:
+### A. In SCMOS's tenant — its administrator
+
+1. Entra admin center → **App registrations** → **New registration**:
+   - Name: `SCMOS Mail Reader`.
+   - Supported account types: **Accounts in any organizational directory
+     (Multitenant)**.
+   - No redirect URI.
+
+   Note the **Application (client) ID**.
+2. **API permissions**: remove the default `User.Read` and add **nothing**.
+3. **Certificates & secrets → Federated credentials → Add credential**:
+   - Scenario: **Managed identity**.
+   - Identity: the API App Service's system-assigned identity (`scmos-api-3936`).
+   - Name: `scmos-api`.
+   - Leave the audience as `api://AzureADTokenExchange`.
+
+   Create no client secret.
+
+### B. In leschaco.com's tenant — its administrator
+
+1. Create the app's service principal there, with nothing consented:
 
    ```powershell
-   Connect-MgGraph -Scopes AppRoleAssignment.ReadWrite.All,Application.Read.All
-   $graph = Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'"
-   $role  = $graph.AppRole | Where-Object { $_.Value -eq 'Mail.Read' -and $_.AllowedMemberTypes -contains 'Application' }
-   New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId <object-id> `
-       -PrincipalId <object-id> -ResourceId $graph.Id -AppRoleId $role.Id
+   Connect-MgGraph -TenantId b129e0ef-627a-4f14-a0c0-7aab3bf95405 -Scopes Application.ReadWrite.All
+   $sp = New-MgServicePrincipal -AppId <client id>
+   $sp.Id   # the service principal's object id, for step 2
    ```
 
-3. Nothing else. No secret to create, store, rotate, or hand over.
+2. Give it the booking mailboxes only, in Exchange Online PowerShell:
 
-**The cost of this choice, stated rather than buried:** that one identity then
-holds both `User.ReadWrite.All` and `Mail.Read`. A separate registration would
-keep them apart, at the price of a secret somebody has to look after. The
-Exchange scoping below narrows `Mail.Read` either way. If you would rather have
-the separation, say so — it is a small change to `GraphAuth`.
+   ```powershell
+   Connect-ExchangeOnline
+   New-ServicePrincipal -AppId <client id> -ObjectId <$sp.Id> -DisplayName "SCMOS Mail Reader"
+   New-ManagementScope -Name "SCMOS Mailboxes" -RecipientRestrictionFilter "CustomAttribute1 -eq 'SCMOS'"
+   Set-Mailbox <booking mailbox> -CustomAttribute1 SCMOS
+   New-ManagementRoleAssignment -App <client id> -Role "Application Mail.Read" -CustomResourceScope "SCMOS Mailboxes"
+   Test-ServicePrincipalAuthorization -Identity <client id> -Resource <booking mailbox>    # InScope: True
+   Test-ServicePrincipalAuthorization -Identity <client id> -Resource <another mailbox>    # InScope: False
+   ```
 
-### Then scope it, in Exchange Online PowerShell
+   The second test is the point of the exercise. If `CustomAttribute1` is
+   already used for something else, filter on another attribute. A new
+   assignment takes **30 minutes to 2 hours** to reach Graph (Exchange's cache).
 
-Without this step, `Mail.Read` as an application permission reads **every
-mailbox in the tenant**. For a forwarding company's mail that is not a
-theoretical concern.
+3. Enterprise applications → **SCMOS Mail Reader** → **Permissions** must list
+   no Microsoft Graph application permission. If `Mail.Read` appears there,
+   revoke it. SCMOS refuses to read while it is granted.
 
-```powershell
-New-ServicePrincipal -AppId <managed-identity-app-id> -ServiceId <object-id> -DisplayName "SCMOS Mail Reader"
-New-ManagementScope -Name "SCMOS Mailboxes" -RecipientRestrictionFilter "CustomAttribute1 -eq 'SCMOS'"
-New-ManagementRoleAssignment -App <service-principal> -Role "Application Mail.Read" -CustomResourceScope "SCMOS Mailboxes"
-```
+### C. App settings on the API
 
-Then stamp `CustomAttribute1 = SCMOS` on each mailbox SCMOS may read. Confirm
-with `Test-ServicePrincipalAuthorization` that a mailbox outside the scope is
-refused — that test is the point of the exercise.
-
-### App settings on the API
-
-Two, and neither is a secret.
+None of these is a secret.
 
 | Setting | What it is |
 |---|---|
+| `Graph__MailTenantId` | `b129e0ef-627a-4f14-a0c0-7aab3bf95405` — the tenant the mail is in |
+| `Graph__MailClientId` | The client id from A1 |
 | `Graph__Mailboxes` | Comma-separated addresses SCMOS may read. **Empty approves nothing**, deliberately — the alternative reading is how every mailbox in the tenant becomes readable because somebody forgot a setting |
-| `Graph__WebhookBase` | The origin Graph will call, e.g. `https://scmos-api-3936.azurewebsites.net`. Origin only — the paths are fixed in code so they cannot be mistyped here |
+| `Graph__WebhookBase` | The origin Graph will call, `https://scmos-api-3936.azurewebsites.net`. Origin only — the paths are fixed in code. Set it last (see *Checking it worked*) |
+
+How the two id settings combine:
+- **Both set:** SCMOS reads mail through the cross-tenant app.
+- **Neither set:** the managed identity reads its own tenant, as before.
+- **Only one set:** refused, and the status names the missing setting.
+
+Graph change notifications are not documented for RBAC for Applications. If
+SCMOS cannot create subscriptions, the 15-minute catch-up still reads every
+active mailbox, so mail arrives at worst 15 minutes late.
 
 `clientState` is **not** an app setting. SCMOS generates 256 bits per
 subscription, stores it, and checks it in fixed time on every delivery — one
@@ -175,13 +209,17 @@ reason those checks are not optional.
 Each of these tells you something the next one cannot, so run them in order.
 Both endpoints are Administrator-only.
 
-1. `GET /api/integrations/graph/status` — configuration and consent, without
-   touching a mailbox. Says which of "no mailboxes set", "not an address", "no
-   token" or "no `Mail.Read` consent" is in the way.
-2. `POST /api/integrations/graph/test` with `{"mailbox":"ops@leschaco.co.th"}`
-   — reads one real message. A 403 here means the **Exchange scoping**, because
-   consent was already proved in step 1; the answer says so and names
-   `New-ManagementRoleAssignment`.
+1. `GET /api/integrations/graph/status` — configuration and identity, without
+   touching a mailbox. It says what is in the way: "no mailboxes set", "not an
+   address", "no token", a misconfigured id pair, or (across tenants) a grant
+   that is too broad. For the managed identity it also checks the
+   `Mail.Read` consent. Across tenants consent is not read off the token,
+   because Exchange grants per mailbox, so step 2 is the proof.
+2. `POST /api/integrations/graph/test` with `{"mailbox":"<booking mailbox>"}`
+   — reads one real message. A 403 here means the **Exchange scoping**: the
+   mailbox is not in the management scope yet, or the 30-minute to 2-hour cache
+   has not caught up. The answer names `New-ManagementRoleAssignment`. Then add
+   the mailbox on the Outlook screen and switch it on.
 3. Once both pass, set `Graph__WebhookBase`. The API restarts, and an hourly
    loop creates and renews the subscriptions from then on. If the Easy Auth
    exclusion is missing, the create fails with a message saying exactly that.

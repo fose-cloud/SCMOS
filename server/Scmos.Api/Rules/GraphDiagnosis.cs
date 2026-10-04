@@ -35,6 +35,7 @@ public static class GraphDiagnosis
         public const string NoToken = "no_token";
         public const string NoConsent = "no_consent";
         public const string NotScoped = "not_scoped";
+        public const string TooBroad = "too_broad";
         public const string NotFound = "not_found";
         public const string Rejected = "rejected";
         public const string Throttled = "throttled";
@@ -57,6 +58,26 @@ public static class GraphDiagnosis
     /// <summary>Entra would not issue a token at all.</summary>
     public static readonly Finding NoToken = new(Code.NoToken,
         "ขอ token จาก Microsoft Graph ไม่ได้ — API ยังไม่มี managed identity หรือยังต่อ Entra ไม่ได้", false);
+
+    /// <summary>
+    /// Entra would not issue the cross-tenant app a token for the company's tenant (4 Oct 2026). The three places it
+    /// fails, in the order they are set up: the federated credential, the app's service principal in that tenant, the ids.
+    /// </summary>
+    public static readonly Finding NoCrossTenantToken = new(Code.NoToken,
+        "ขอ token ข้าม tenant ไม่ได้ — ตรวจ federated credential ของแอป SCMOS Mail Reader (ต้องเชื่อถือ managed identity ของ API), "
+        + "ตรวจว่าสร้าง service principal ของแอปใน tenant อีเมลแล้ว และ Graph__MailTenantId / Graph__MailClientId ถูกต้อง", false);
+
+    /// <summary>The two cross-tenant settings disagree; nothing is asked of Entra until they are corrected.</summary>
+    public static Finding Misconfigured(string problem) => new(Code.NoToken, problem, false);
+
+    /// <summary>
+    /// The cross-tenant token carries Entra's tenant-wide Mail.Read: the app can read every mailbox of the company, and
+    /// no Exchange scope narrows that. Refused until the consent is withdrawn — see <see cref="GraphMailIdentity"/>.
+    /// </summary>
+    public static readonly Finding TooBroad = new(Code.TooBroad,
+        "แอป SCMOS Mail Reader มีสิทธิ์ Mail.Read ทั้งบริษัทใน Entra (admin consent) — อ่านได้ทุกกล่องอีเมล SCMOS จึงไม่อ่าน: "
+        + "ถอนสิทธิ์ Mail.Read ของแอปใน Entra (Enterprise applications → Permissions) แล้วให้สิทธิ์ผ่าน Exchange RBAC "
+        + "(New-ManagementRoleAssignment -Role \"Application Mail.Read\") เฉพาะกล่องที่กำหนดเท่านั้น", false);
 
     /// <summary>
     /// A paging link that does not point at Graph, and so was not followed.
@@ -98,8 +119,8 @@ public static class GraphDiagnosis
         // granted tenant-wide; Exchange is refusing this particular mailbox,
         // which means the RBAC scoping is missing or does not include it.
         403 => new(Code.NotScoped,
-            "consent ให้ Mail.Read แล้ว แต่ Exchange ยังไม่อนุญาตให้ identity นี้อ่านตู้นี้ — "
-            + "ต้อง scope ด้วย New-ManagementRoleAssignment ให้ครอบคลุมตู้จดหมายนี้", false),
+            "มีสิทธิ์ Mail.Read แล้ว แต่ Exchange ยังไม่อนุญาตให้ identity นี้อ่านตู้นี้ — "
+            + "ต้อง scope ด้วย New-ManagementRoleAssignment ให้ครอบคลุมตู้จดหมายนี้ (สิทธิ์ใหม่มีผลภายใน 30 นาที–2 ชั่วโมง)", false),
 
         // A tenant-wide grant with no RBAC scoping reads every mailbox, so a
         // 404 here is far more likely a misspelt address than a permission

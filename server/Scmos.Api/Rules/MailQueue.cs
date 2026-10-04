@@ -101,6 +101,7 @@ public static class MailQueue
             GraphDiagnosis.Code.NoToken => Next.Pause,
             GraphDiagnosis.Code.NoConsent => Next.Pause,
             GraphDiagnosis.Code.NotScoped => Next.Pause,
+            GraphDiagnosis.Code.TooBroad => Next.Pause,
             GraphDiagnosis.Code.NotApproved => Next.Pause,
             GraphDiagnosis.Code.Rejected => Next.Pause,
             // Throttling especially: continuing is what makes it worse, and
