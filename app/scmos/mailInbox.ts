@@ -140,3 +140,16 @@ export function sizeLabel(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/**
+ * Whose mailbox a row is, as the settings offer it (4 Oct 2026): the owner it was declared with, else the member of
+ * staff whose own address it is — never "shared" by default for a person's mailbox.
+ */
+export function ownerChoice(box: { owner: string; staffOwner: string }): string {
+  return box.owner || box.staffOwner || "";
+}
+
+/** A mailbox's kind in the settings' words: shared reads everything; personal reads the listed senders only. */
+export function mailboxKindLabel(ownerName: string): string {
+  return ownerName ? `ส่วนตัว · ${ownerName} · อ่านเฉพาะผู้ส่งที่กำหนด` : "กล่องกลาง · อ่านทุกฉบับ";
+}

@@ -160,6 +160,42 @@ Graph change notifications are not documented for RBAC for Applications. If
 SCMOS cannot create subscriptions, the 15-minute catch-up still reads every
 active mailbox, so mail arrives at worst 15 minutes late.
 
+### D. Personal mailboxes, and who is read from them (4 Oct 2026)
+
+The department reads the Leschaco mailboxes of Operation, Supervisors and
+the Assistant Manager. Exchange grants a mailbox whole, so SCMOS does the
+filtering: **from a personal mailbox it reads only the senders listed in
+SCMOS**. Each listed sender is a full address; a domain is never accepted.
+
+How it reads a personal mailbox:
+- **From anyone else, nothing is fetched beyond the sender, and nothing is
+  kept, not even the subject.**
+- A personal mailbox with nobody listed reads nothing.
+- A shared mailbox is read whole, as before.
+- Mail that arrived before a sender was listed is not read back.
+
+For each person's mailbox:
+1. Add it to `Graph__Mailboxes` (the Portal).
+2. Stamp it `CustomAttribute1 = SCMOS` so it is in the Exchange scope (B2).
+3. In SCMOS: **Outlook → ตั้งค่าการอ่าน → กล่องอีเมล**. Choose its owner and
+   tick *เปิดอ่าน*. This needs the Administrator, signed in with a second
+   factor.
+
+   A member of staff's own address cannot be declared shared: that would read
+   their whole mailbox. *ทดสอบ* reads one message to prove access.
+
+The sender list is kept in the same place (**ผู้ส่งที่อ่านจากกล่องส่วนตัว**)
+by Supervisor and above. Every change is in the audit trail.
+
+Who sees what is kept from a personal mailbox:
+- **The Communication Center, its attachments, and the Booking Agent's
+  drafts:** the mailbox's owner, Supervisor and above, and the owner of a job
+  the message is linked to.
+- **The AI chat:** shared-mailbox mail only. A personal mailbox's mail is never
+  given to the model.
+- **An attachment filed to a job by a confirmed link:** becomes that job's
+  paperwork.
+
 `clientState` is **not** an app setting. SCMOS generates 256 bits per
 subscription, stores it, and checks it in fixed time on every delivery — one
 secret per mailbox, so a leak from one does not authenticate deliveries for
@@ -218,8 +254,8 @@ Both endpoints are Administrator-only.
 2. `POST /api/integrations/graph/test` with `{"mailbox":"<booking mailbox>"}`
    — reads one real message. A 403 here means the **Exchange scoping**: the
    mailbox is not in the management scope yet, or the 30-minute to 2-hour cache
-   has not caught up. The answer names `New-ManagementRoleAssignment`. Then add
-   the mailbox on the Outlook screen and switch it on.
+   has not caught up. The answer names `New-ManagementRoleAssignment`. Then
+   declare the mailbox and switch it on (D).
 3. Once both pass, set `Graph__WebhookBase`. The API restarts, and an hourly
    loop creates and renews the subscriptions from then on. If the Easy Auth
    exclusion is missing, the create fails with a message saying exactly that.

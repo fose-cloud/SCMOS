@@ -20,6 +20,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /* The Communication Center. Seven tables — see MailEntities for why that is
        not the six the plan's heading claims. */
     public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
+    public DbSet<MailAllowedSender> MailAllowedSenders => Set<MailAllowedSender>();
     public DbSet<Email> Emails => Set<Email>();
     public DbSet<EmailParticipant> EmailParticipants => Set<EmailParticipant>();
     public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
@@ -327,12 +328,25 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.GraphUserId).HasColumnName("graph_user_id").HasMaxLength(64).HasDefaultValue("");
             entry.Property(e => e.FolderId).HasColumnName("folder_id").HasMaxLength(200).HasDefaultValue("");
             entry.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(false);
+            entry.Property(e => e.OwnerOperatorId).HasColumnName("owner_operator_id").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.LastSyncedAt).HasColumnName("last_synced_at");
             entry.Property(e => e.CreatedAt).HasColumnName("created_at");
             entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             // One row per address. Two would be two places the same mail lands,
             // and a message would be stored, extracted and linked twice.
             entry.HasIndex(e => e.Address).IsUnique().HasDatabaseName("mailboxes_address_idx");
+        });
+
+        model.Entity<MailAllowedSender>(entry =>
+        {
+            entry.ToTable("mail_allowed_senders");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(MailText.Address);
+            entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.AddedBy).HasColumnName("added_by").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.AddedAt).HasColumnName("added_at");
+            entry.HasIndex(e => e.Address).IsUnique().HasDatabaseName("mail_allowed_senders_address_idx");
         });
 
         model.Entity<Email>(entry =>

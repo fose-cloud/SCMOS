@@ -66,15 +66,16 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
     /// </para>
     /// </summary>
     /// <param name="since">Read from this moment on. Null reads from the beginning.</param>
+    /// <param name="fields">What each listed message carries; the catch-up asks for <see cref="GraphMessages.ListFields"/>.</param>
     public async Task<Fetched<GraphMessages.Page>> PageAsync(string mailbox, DateTimeOffset? since,
-        CancellationToken token, int size = DefaultPageSize)
+        CancellationToken token, int size = DefaultPageSize, string fields = GraphMessages.Fields)
     {
         var address = GraphMailboxes.Normalise(mailbox);
         if (!graph.Approves(address)) return Refused<GraphMessages.Page>(GraphDiagnosis.NotApproved);
 
         var url = $"{GraphAuth.Endpoint}/users/{Uri.EscapeDataString(address)}/messages"
             + $"?$top={Math.Clamp(size, 1, 999)}"
-            + $"&$select={Uri.EscapeDataString(GraphMessages.Fields)}"
+            + $"&$select={Uri.EscapeDataString(fields)}"
             + "&$orderby=" + Uri.EscapeDataString("receivedDateTime asc");
 
         if (since is { } from)
@@ -131,6 +132,27 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
             // A message that has gone is not a fault; 404 was already turned
             // into its own finding, so a null here is a body we could not read.
             return new(finding, GraphMessages.ReadOne(body.RootElement));
+    }
+
+    /// <summary>
+    /// Who sent a message, and nothing else of it (4 Oct 2026) — what a personal mailbox's message is judged on before
+    /// anything more is fetched (<see cref="MailSenders"/>). Ok with an empty address is a message whose sender could
+    /// not be read, which no list allows; Ok with null is a message already gone.
+    /// </summary>
+    public async Task<Fetched<string?>> SenderAsync(string mailbox, string messageId, CancellationToken token)
+    {
+        var address = GraphMailboxes.Normalise(mailbox);
+        if (!graph.Approves(address)) return Refused<string?>(GraphDiagnosis.NotApproved);
+        if (string.IsNullOrWhiteSpace(messageId)) return Refused<string?>(GraphDiagnosis.ForStatus(400, true));
+
+        var url = $"{GraphAuth.Endpoint}/users/{Uri.EscapeDataString(address)}"
+            + $"/messages/{Uri.EscapeDataString(messageId)}"
+            + $"?$select={Uri.EscapeDataString(GraphMessages.SenderFields)}";
+
+        var (finding, body) = await GetAsync(url, address, token);
+        if (body is null) return new(finding, null);
+        using (body)
+            return new(finding, GraphMessages.ReadOne(body.RootElement)?.Message.FromAddress ?? "");
     }
 
     /// <summary>

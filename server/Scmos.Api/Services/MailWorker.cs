@@ -143,6 +143,9 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
         if (recovered > 0)
             log.LogWarning("Mail worker returned {Count} abandoned message(s) to the queue", recovered);
 
+        // The senders read out of personal mailboxes, once for the pass.
+        var allowed = await AllowedAsync(db, stopping);
+
         var waiting = await db.Emails.AsNoTracking()
             .Where(one => one.ProcessingStatus == MailProcessing.Received)
             .OrderBy(one => one.ReceivedAt)
@@ -165,7 +168,7 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
                     .SetProperty(one => one.ProcessedAt, now), stopping);
             if (claimed == 0) continue;
 
-            if (!await FillAsync(db, reader, linker, id, stopping)) return;
+            if (!await FillAsync(db, reader, linker, id, allowed, stopping)) return;
         }
     }
 
@@ -173,7 +176,7 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
     /// Fetch one message and write what came back. False means stop the pass.
     /// </summary>
     private async Task<bool> FillAsync(ScmosDbContext db, GraphMailReader reader, MailLinker linker,
-        long id, CancellationToken stopping)
+        long id, IReadOnlySet<string> allowed, CancellationToken stopping)
     {
         var row = await db.Emails.FirstOrDefaultAsync(one => one.Id == id, stopping);
         if (row is null) return true;
@@ -192,49 +195,23 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
             return true;
         }
 
-        var fetched = await reader.MessageAsync(mailbox.Address, row.GraphMessageId, stopping);
-        var decision = MailQueue.Decide(fetched.Finding.Code, fetched.Ok, row.RetryCount);
-
-        switch (decision)
+        // A personal mailbox: the sender first, and nothing more of a message from anybody not listed — not fetched,
+        // not kept, not even its subject (4 Oct 2026, MailSenders).
+        if (MailSenders.Personal(mailbox.OwnerOperatorId))
         {
-            case MailQueue.Next.Pause:
-                // Put this row back untouched — it did nothing wrong — and stop.
-                row.ProcessingStatus = MailProcessing.Received;
+            var sender = await reader.SenderAsync(mailbox.Address, row.GraphMessageId, stopping);
+            if (await SettleAsync(db, row, sender.Finding, sender.Ok, id, stopping) is { } stop) return stop;
+            if (!MailSenders.Reads(mailbox.OwnerOperatorId, sender.Value, allowed))
+            {
+                db.Emails.Remove(row);
                 await db.SaveChangesAsync(stopping);
-                log.LogWarning("Mail worker paused: {Why}", fetched.Finding.Message);
-                return false;
-
-            case MailQueue.Next.Retry:
-                row.ProcessingStatus = MailProcessing.Received;
-                row.RetryCount += 1;
-                row.ErrorCode = fetched.Finding.Code;
-                row.ErrorMessage = Fit(fetched.Finding.Message);
-                await db.SaveChangesAsync(stopping);
+                log.LogDebug("A message in a personal mailbox was left unread: its sender is not listed");
                 return true;
-
-            case MailQueue.Next.GiveUp:
-                row.ProcessingStatus = MailProcessing.Failed;
-                row.RetryCount += 1;
-                row.ErrorCode = fetched.Finding.Code;
-                row.ErrorMessage = Fit(fetched.Finding.Message);
-                row.ProcessedAt = DateTimeOffset.UtcNow;
-                await db.SaveChangesAsync(stopping);
-                log.LogError("Mail message {Id} failed after {Attempts} attempts: {Why}",
-                    id, row.RetryCount, fetched.Finding.Message);
-                return true;
-
-            case MailQueue.Next.Gone:
-                // The queue is finished with it. PROCESSED here means "nothing
-                // further to do", not "we hold its contents" — the error code
-                // is what says which, and a deleted message is not a fault
-                // anybody should be shown a red count for.
-                row.ProcessingStatus = MailProcessing.Processed;
-                row.ErrorCode = "message_gone";
-                row.ErrorMessage = "ข้อความถูกลบหรือย้ายไปแล้วก่อนที่ระบบจะอ่านได้";
-                row.ProcessedAt = DateTimeOffset.UtcNow;
-                await db.SaveChangesAsync(stopping);
-                return true;
+            }
         }
+
+        var fetched = await reader.MessageAsync(mailbox.Address, row.GraphMessageId, stopping);
+        if (await SettleAsync(db, row, fetched.Finding, fetched.Ok, id, stopping) is { } done) return done;
 
         // Ok, but nothing came back that could be read. Treated as a retry
         // rather than a success: the alternative is a stored message with no
@@ -250,8 +227,69 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
             return true;
         }
 
+        // The sender again, from the message itself: what is kept from a personal mailbox is only ever a listed sender's.
+        if (!MailSenders.Reads(mailbox.OwnerOperatorId, message.Message.FromAddress, allowed))
+        {
+            db.Emails.Remove(row);
+            await db.SaveChangesAsync(stopping);
+            return true;
+        }
+
         await StoreAsync(db, reader, linker, row, mailbox, message, stopping);
         return true;
+    }
+
+    /// <summary>
+    /// What a fetch that did not come back whole means for the row: put it back and stop (pause), try it later (retry),
+    /// give up on it, or finish with it (gone). Null when the fetch is good and the caller carries on.
+    /// </summary>
+    private async Task<bool?> SettleAsync(ScmosDbContext db, Email row, GraphDiagnosis.Finding finding, bool ok,
+        long id, CancellationToken stopping)
+    {
+        var decision = MailQueue.Decide(finding.Code, ok, row.RetryCount);
+
+        switch (decision)
+        {
+            case MailQueue.Next.Pause:
+                // Put this row back untouched — it did nothing wrong — and stop.
+                row.ProcessingStatus = MailProcessing.Received;
+                await db.SaveChangesAsync(stopping);
+                log.LogWarning("Mail worker paused: {Why}", finding.Message);
+                return false;
+
+            case MailQueue.Next.Retry:
+                row.ProcessingStatus = MailProcessing.Received;
+                row.RetryCount += 1;
+                row.ErrorCode = finding.Code;
+                row.ErrorMessage = Fit(finding.Message);
+                await db.SaveChangesAsync(stopping);
+                return true;
+
+            case MailQueue.Next.GiveUp:
+                row.ProcessingStatus = MailProcessing.Failed;
+                row.RetryCount += 1;
+                row.ErrorCode = finding.Code;
+                row.ErrorMessage = Fit(finding.Message);
+                row.ProcessedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(stopping);
+                log.LogError("Mail message {Id} failed after {Attempts} attempts: {Why}",
+                    id, row.RetryCount, finding.Message);
+                return true;
+
+            case MailQueue.Next.Gone:
+                // The queue is finished with it. PROCESSED here means "nothing
+                // further to do", not "we hold its contents" — the error code
+                // is what says which, and a deleted message is not a fault
+                // anybody should be shown a red count for.
+                row.ProcessingStatus = MailProcessing.Processed;
+                row.ErrorCode = "message_gone";
+                row.ErrorMessage = "ข้อความถูกลบหรือย้ายไปแล้วก่อนที่ระบบจะอ่านได้";
+                row.ProcessedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(stopping);
+                return true;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -422,6 +460,7 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
         var graph = scope.ServiceProvider.GetRequiredService<GraphAuth>();
 
         var mailboxes = await db.Mailboxes.Where(one => one.IsActive).ToListAsync(stopping);
+        var allowed = await AllowedAsync(db, stopping);
 
         foreach (var mailbox in mailboxes)
         {
@@ -433,7 +472,8 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
             var highWater = mailbox.LastSyncedAt;
             var found = 0;
 
-            var page = await reader.PageAsync(mailbox.Address, from, stopping);
+            // Which message, when and from whom — the drain fetches the rest of one that is kept (4 Oct 2026).
+            var page = await reader.PageAsync(mailbox.Address, from, stopping, fields: GraphMessages.ListFields);
             for (var read = 0; read < PagesPerCatchUp; read++)
             {
                 if (!page.Ok || page.Value is not { } current)
@@ -453,6 +493,15 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
                         // Already known. Still moves the mark: this message is
                         // accounted for, and re-reading it forever would make
                         // the mark stick at the first message we ever saw.
+                        if (message.Message.ReceivedAt > (highWater ?? DateTimeOffset.MinValue))
+                            highWater = message.Message.ReceivedAt;
+                        continue;
+                    }
+
+                    // A personal mailbox's message from anybody not listed: passed over, its place in the
+                    // mailbox still counted so the mark moves on — nothing of it is written down.
+                    if (!MailSenders.Reads(mailbox.OwnerOperatorId, message.Message.FromAddress, allowed))
+                    {
                         if (message.Message.ReceivedAt > (highWater ?? DateTimeOffset.MinValue))
                             highWater = message.Message.ReceivedAt;
                         continue;
@@ -509,6 +558,11 @@ public class MailWorker(IServiceProvider services, ILogger<MailWorker> log) : Ba
                     found, mailbox.Address);
         }
     }
+
+    /// <summary>The listed senders, normalised, for one pass.</summary>
+    private static async Task<IReadOnlySet<string>> AllowedAsync(ScmosDbContext db, CancellationToken stopping) =>
+        (await db.MailAllowedSenders.AsNoTracking().Select(one => one.Address).ToListAsync(stopping))
+            .Select(MailSenders.Normalise).ToHashSet(StringComparer.Ordinal);
 
     /* ------------------------------------------------------- attachments */
 

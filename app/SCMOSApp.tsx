@@ -3464,7 +3464,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               <CarrierApiClients canManage={able("ManageSuppliers")} onToast={setToast} />
             )}
             {screen === "outlook" && (
-              <Outlook canDecide={able("EditAnyJob")} onToast={setToast} />
+              <Outlook canDecide={able("EditAnyJob")} canMailboxes={able("AdministerMailbox")} onToast={setToast} />
             )}
             {/* A carrier's Dashboard is the department's, over its own jobs; its other screens are the portal's. */}
             {isCarrier && screen === "carrier" && (

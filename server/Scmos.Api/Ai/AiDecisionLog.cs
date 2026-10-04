@@ -115,11 +115,23 @@ public sealed class AiDecisionLog(ScmosDbContext db, AgentRegistry agents, Audit
     public static bool CanList(AppUser? user) => AiPermissionPolicy.Authenticated(user) && AiPermissionPolicy.InternalUser(user!)
         && user!.Can(Capability.ViewDashboard);
 
+    /// <summary>
+    /// A finding about a message from somebody's own mailbox (4 Oct 2026) — the Booking Agent's draft — carries that
+    /// person as its owner, and is seen by them and by Supervisor and above, never by the rest of the team: the same
+    /// line the Communication Center draws (<c>MailVisibility</c>). Every other finding is listed as before.
+    /// </summary>
+    public static IQueryable<AiDecision> WithoutOthersMail(IQueryable<AiDecision> rows, AppUser user)
+    {
+        if (ApprovalPolicy.IsApprover(user)) return rows;
+        var me = user.OperatorId;
+        return rows.Where(row => row.EntityType != "email" || row.OwnerId == "" || row.OwnerId == me);
+    }
+
     public async Task<(IReadOnlyList<AiDecisionView> Items, int Total)> ListAsync(AppUser user, string? status,
         string? agentId, string? entityType, string? entityId, int page, int size, CancellationToken token,
         DecisionSearch? search = null)
     {
-        var query = db.AiDecisions.AsNoTracking();
+        var query = WithoutOthersMail(db.AiDecisions.AsNoTracking(), user);
         // The team's decisions for a role that sees the team; otherwise the person's own jobs, and no one's without an id.
         if (!user.Can(Capability.ViewTeam))
         {

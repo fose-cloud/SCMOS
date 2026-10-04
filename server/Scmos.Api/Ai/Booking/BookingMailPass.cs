@@ -79,7 +79,12 @@ public sealed class BookingMailPass(ScmosDbContext db, IBookingTextReader reader
                 && (mail.ProcessingStatus == MailProcessing.Processed || mail.ProcessingStatus == MailProcessing.NeedReview)
                 && !db.EmailJobLinks.Any(link => link.EmailId == mail.Id && (link.Status == MailLink.Confirmed || link.Status == MailLink.Suggested)))
             .OrderBy(mail => mail.ReceivedAt).ThenBy(mail => mail.Id)
-            .Select(mail => new { mail.Id, mail.Subject, mail.FromAddress, mail.FromName, mail.BodyText, mail.ReceivedAt })
+            .Select(mail => new
+            {
+                mail.Id, mail.Subject, mail.FromAddress, mail.FromName, mail.BodyText, mail.ReceivedAt,
+                // Whose mailbox it came from: a draft from somebody's own mailbox is theirs (4 Oct 2026).
+                Owner = db.Mailboxes.Where(box => box.Id == mail.MailboxId).Select(box => box.OwnerOperatorId).FirstOrDefault() ?? "",
+            })
             .Take(200).ToListAsync(token);
         var candidateIds = candidates.Select(mail => mail.Id.ToString()).ToList();
         var read = (await db.AiDecisions.AsNoTracking()
@@ -101,7 +106,7 @@ public sealed class BookingMailPass(ScmosDbContext db, IBookingTextReader reader
                 ? Draft(mail.Id, mail.Subject, mail.FromName, mail.FromAddress, mail.ReceivedAt, reading,
                     BookingVerification.Check(reading.Category, text, reading.Fields, knownCustomers, received))
                 : NotABooking(mail.Id, mail.Subject, mail.FromAddress, mail.ReceivedAt);
-            var (row, problems) = decisions.Stage(result, runId, "", shadow, autonomy);
+            var (row, problems) = decisions.Stage(result, runId, mail.Owner, shadow, autonomy);
             if (row is null)
             {
                 refused++;

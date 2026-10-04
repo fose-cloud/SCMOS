@@ -55,6 +55,15 @@ public static class GraphMessages
     /// quoted history is a response measured in megabytes for the sake of the
     /// four fields a queue actually needs.
     /// </summary>
+    /// <summary>
+    /// What the catch-up lists (4 Oct 2026): which message, when, from whom — never the subject or the body, because in a
+    /// personal mailbox the sender decides whether the rest is read at all. The drain fetches the rest of a message it keeps.
+    /// </summary>
+    public const string ListFields = "id,receivedDateTime,from";
+
+    /// <summary>What deciding a personal mailbox's message needs: its sender, nothing else.</summary>
+    public const string SenderFields = "id,from";
+
     public const string Fields =
         "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,bccRecipients,"
         + "sentDateTime,receivedDateTime,hasAttachments,body";

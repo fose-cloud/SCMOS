@@ -33,12 +33,16 @@ public static class DocumentEndpoints
                 : Results.Json(new { job = BlobPaths.JobFolders, supplier = BlobPaths.SupplierFolders }));
 
         group.MapGet("", async (string? jobKey, int? supplierId, long? caseId, long? issueId, string? folder,
-            HttpContext context, IUserAccessor users, CarrierDocumentAccess access,
+            HttpContext context, IUserAccessor users, CarrierDocumentAccess access, ScmosDbContext db,
             CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            return Results.Json(await access.ListAsync(user, jobKey, supplierId, caseId, issueId, folder, token));
+            var listed = await access.ListAsync(user, jobKey, supplierId, caseId, issueId, folder, token);
+            if (MailVisibility.SeesAll(user)) return Results.Json(listed);
+            // Files that came on mail this person may not see are left out (4 Oct 2026).
+            var hidden = (await MailVisibility.HiddenDocuments(db, user).ToListAsync(token)).ToHashSet();
+            return Results.Json(hidden.Count == 0 ? listed : listed.Where(one => !hidden.Contains(one.Id)).ToList());
         });
 
         group.MapPost("", async (HttpContext context, IUserAccessor users, DocumentService documents,
@@ -224,7 +228,7 @@ public static class DocumentEndpoints
         // uploader's — see that file for why the stored content type is no part
         // of it.
         group.MapGet("/{id:long}/content", async (long id, string? inline, HttpContext context,
-            IUserAccessor users, DocumentService documents, CarrierDocumentAccess access,
+            IUserAccessor users, DocumentService documents, CarrierDocumentAccess access, ScmosDbContext db,
             CancellationToken token) =>
         {
             var user = users.Current(context);
@@ -233,6 +237,9 @@ public static class DocumentEndpoints
             var document = await documents.FindAsync(id, token);
             if (document is null) return ApiResults.Error("ไม่พบไฟล์นี้", StatusCodes.Status404NotFound);
             if (!await access.CanReadAsync(user, document, token))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์เปิดเอกสารนี้", StatusCodes.Status403Forbidden);
+            // A file that came on a message is seen by whoever may see the message (4 Oct 2026, MailVisibility).
+            if (await MailVisibility.HidesDocumentAsync(db, user, document, token))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์เปิดเอกสารนี้", StatusCodes.Status403Forbidden);
             if (!documents.StorageReady)
                 return ApiResults.Error("ยังไม่ได้ตั้งค่าที่เก็บไฟล์", StatusCodes.Status503ServiceUnavailable);
