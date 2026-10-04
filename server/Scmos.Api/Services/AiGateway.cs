@@ -54,7 +54,9 @@ public record ApprovalView(
 /// The routes ask for the second factor before a decision.
 /// </para>
 /// </summary>
-public class AiGateway(ScmosDbContext db)
+public partial class AiGateway(ScmosDbContext db, AiPolicyCatalog? policies = null, IAiPolicyAudit? policyAudit = null,
+    IAiGovernance? governance = null, Microsoft.Extensions.Options.IOptions<AiOptions>? aiOptions = null,
+    TimeProvider? clock = null, IAiOwnerDirectory? owners = null) : IAiPolicyGateway
 {
     // Additive chat entry; legacy tools/approval/extraction behavior is unchanged.
     public AiStatus Status(AppUser user, AgentOrchestrator orchestrator) => orchestrator.Status(user);
@@ -97,6 +99,24 @@ public class AiGateway(ScmosDbContext db)
         Func<Task<object?>>? execute, CancellationToken token, string correlationId = "")
     {
         var name = (toolName ?? "").Trim();
+        var legacy = AiPermissions.Find(name);
+        var id = legacy?.Agent switch
+        {
+            AiPermissions.Operation => name == "draft_booking" ? AgentIds.Booking : AgentIds.Operations,
+            AiPermissions.Document => AgentIds.DocumentInvoice,
+            AiPermissions.Kpi => AgentIds.Data,
+            AiPermissions.SupplierAgent => AgentIds.Carrier,
+            AiPermissions.Management => AgentIds.Management,
+            AiPermissions.Communication => AgentIds.Communication,
+            AiPermissions.Engineering => AgentIds.Engineering,
+            AiPermissions.Sre => AgentIds.Sre,
+            _ => "unknown"
+        };
+        var action = (policies ?? AiPolicyCatalog.Current).Tools.GetValueOrDefault(name, (AiAction)(-1));
+        var authorization = await AuthorizeAsync(AiAuthorizationRequest.For(id, action, name, user, correlationId), token);
+        if (!authorization.Allowed) return new(false, authorization.ReasonCode, "refused");
+        // Legacy arbitrary callbacks have no registered schema/output/scope contract. Never execute one.
+        if (execute is not null) return new(false, "unregistered_execution_adapter", "refused");
 
         if (AiPermissions.IsForbidden(name))
         {

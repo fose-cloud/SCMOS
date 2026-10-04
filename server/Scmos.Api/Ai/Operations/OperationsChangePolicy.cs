@@ -13,9 +13,11 @@ namespace Scmos.Api.Ai.Operations;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record OperationsChangeRequest(string Key, string Version,
     Dictionary<string, string> Changes, string Reason);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record OperationsChangePayload(int Version, string Key, string Fingerprint,
     Dictionary<string, string> Before, Dictionary<string, string> Changes, string Reason,
-    string RequesterId, string RequesterOperatorId, DateTimeOffset ExpiresAt);
+    string RequesterId, string RequesterOperatorId, DateTimeOffset ExpiresAt,
+    string AgentId = AgentIds.Operations, string AgentVersion = "", string PolicyVersion = "", string CorrelationId = "");
 
 /// <summary>Reviewed edits only. No whole-job replacement, raw SQL or permission changes.</summary>
 public static class OperationsChangePolicy
@@ -25,6 +27,19 @@ public static class OperationsChangePolicy
         && user.Can(Capability.EditOwnJobs);
     public static bool CanApprove(AppUser? user) => CanRequest(user)
         && user!.Can(Capability.ApproveAi | Capability.EditAnyJob | Capability.AssignJobs);
+    public static bool IndependentApprover(AppUser? user, OperationsChangePayload payload) => CanApprove(user)
+        && user!.UserId != payload.RequesterId
+        && (string.IsNullOrWhiteSpace(user.OperatorId) || user.OperatorId != payload.RequesterOperatorId);
+    public static bool BoundApproval(Approval row, OperationsChangePayload payload, string policyVersion)
+        => payload.Version == 2 && payload.AgentId == AgentIds.Operations && payload.AgentVersion == AiPolicyCatalog.AgentVersion
+            && payload.PolicyVersion == policyVersion && !string.IsNullOrWhiteSpace(payload.RequesterId)
+            && !string.IsNullOrWhiteSpace(payload.RequesterOperatorId) && !string.IsNullOrWhiteSpace(payload.Key)
+            && payload.Before is { Count: 4 } && payload.Changes is { Count: > 0 and <= 4 }
+            && payload.Changes.Keys.All(payload.Before.ContainsKey)
+            && AiAuditRules.IsCorrelation(payload.CorrelationId) && payload.CorrelationId.Length > 0
+            && row.Agent == Agent && row.Tool == "update_shipment" && row.RequesterId == payload.RequesterId
+            && row.ExpiresAt == payload.ExpiresAt && row.CorrelationId == payload.CorrelationId
+            && row.PayloadHash == ApprovalPolicy.Hash(row.Payload);
     public static bool Owns(AppUser user, OperationJob job) => user.Can(Capability.EditAnyJob)
         || (!string.IsNullOrWhiteSpace(user.OperatorId) && user.OperatorId == job.OwnerId);
     public static bool Assignable(StaffMember? person) => person is { Active: true }

@@ -57,7 +57,7 @@ static class EngineeringChecks
             try { await reader.ReadAsync(Args(view, limit), default); check(false, "6: invalid read"); }
             catch (InvalidOperationException) { check(true, "6: invalid view or cap refused"); }
         }
-        var registry = new ToolRegistry(engineering: reader);
+        var registry = new ToolRegistry(engineering: reader, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var tool = registry.Find(EngineeringReadService.Tool)!;
         check(tool.Handler is not null && tool.Policy is { Source: "github_public_repo", MaxEvidenceRows: 20 }
             && tool.InputSchema.Valid("{\"view\":\"open_prs\",\"limit\":5}")
@@ -108,7 +108,7 @@ static class EngineeringChecks
         using var limiter = new AiRunLimiter();
         var orchestrator = new AgentOrchestrator(Options.Create(new AiOptions
             { Enabled = true, ChatEnabled = true, EngineeringAgentEnabled = true }), new TestEnvironment(),
-            provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, engineering: runtime);
+            provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, engineering: runtime, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var outcome = await orchestrator.RunAsync(asked, Admin, default);
         check(outcome.Status == 200 && outcome.Response.Engineering?.Rows.Single().Id == "pr:3"
             && outcome.Response.Evidence is null && outcome.Response.Documents is null,

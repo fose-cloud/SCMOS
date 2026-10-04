@@ -37,6 +37,8 @@ var admin = new AppUser("test-admin", "", "Test", Roles.Admin, "", "test", true)
 var op = admin with { UserId = "test-operator", Role = Roles.Operation, OperatorId = "OP-TEST" };
 var carrier = op with { Role = Roles.Subcontractor };
 var agents = new AgentRegistry();
+await PermissionEnforcementChecks.Run(Check);
+await PermissionSqlChecks.Run(Check, args.Contains("--permission-local-db"));
 var operations = agents.Find("operations-agent")!;
 var registry = new ToolRegistry();
 var schema = registry.Find("search_shipment")!.InputSchema;
@@ -250,7 +252,7 @@ try
 finally { await app.StopAsync(); }
 SharedContractChecks.Run(Check);
 BillingParityChecks.Run(Check);
-await OperationsChangeChecks.RunAsync(Check, args.Contains("--write-local-db"));
+await OperationsChangeChecks.RunAsync(Check, args.Contains("--write-local-db") || args.Contains("--approval-local-db"));
 await ApprovalChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await DataChecks.RunAsync(Check);
 await CommunicationChecks.RunAsync(Check);
@@ -281,7 +283,7 @@ await EvaluationInvitationChecks.RunAsync(Check, args.Contains("--write-local-db
 await EvaluationReviewChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await EvaluationPlanChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await LegacyEvaluationChecks.RunAsync(Check, args.Contains("--write-local-db"));
-await EvaluationSummaryChecks.RunAsync(Check, args.Contains("--write-local-db"));
+await EvaluationSummaryChecks.RunAsync(Check, args.Contains("--write-local-db") || args.Contains("--summary-local-db"));
 await EvaluationHardeningChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await IssueCaseLinkChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await MailPrivacyChecks.RunAsync(Check, args.Contains("--write-local-db"));

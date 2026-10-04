@@ -9,7 +9,7 @@ import { parseChangePreview, type ChangeDraft, type ChangePreview as Preview } f
 import s from "./AiControlTower.module.css";
 
 type Fields = Record<string, string>;
-type Proposal = { id: number; state: string; requestedBy: string; canApprove: boolean;
+type Proposal = { id: number; state: string; requestedBy: string; canApprove: boolean; payloadHash: string;
   requestedAt?: string; decidedBy?: string | null; decidedAt?: string | null;
   payload: { key: string; fingerprint: string; before: Fields; changes: Fields; reason: string; expiresAt: string } };
 type Attention = { total: number; returned: number; undated: number; invalidRows: number; asOfDate: string;
@@ -21,7 +21,12 @@ const CODES: Fields = { pending: "บันทึกข้อเสนอแล�
   workflow_required: "กรุณาเปลี่ยนสถานะผ่าน Workflow เดิม", write_disabled: "ยังไม่เปิดการเขียนแบบยืนยันที่เซิร์ฟเวอร์",
   write_unavailable: "ยังยืนยันการบันทึกไม่ได้ ให้รีเฟรชคิวก่อนลองอีกครั้ง", forbidden: "ไม่มีสิทธิ์ดำเนินการ",
   invalid_date: "วันที่ไม่ถูกต้อง", invalid_time: "เวลาไม่ถูกต้อง", invalid_assignee: "ผู้รับผิดชอบไม่พร้อมรับงาน",
-  no_change: "ไม่มีค่าที่เปลี่ยน", reason_required: "กรุณาระบุเหตุผล" };
+  no_change: "ไม่มีค่าที่เปลี่ยน", reason_required: "กรุณาระบุเหตุผล",
+  reviewed_payload_required: "ข้อมูลที่ยืนยันไม่ตรงกับข้อเสนอ กรุณาโหลดคิวและตรวจข้อมูลก่อน–หลังใหม่",
+  legacy_proposal_requires_review: "ข้อเสนอเวอร์ชันเดิมใช้ยืนยันไม่ได้ กรุณาสร้างข้อเสนอใหม่และตรวจอีกครั้ง",
+  approval_mfa_required: "ต้องยืนยันตัวตนสองชั้นก่อนอนุมัติการแก้ข้อมูลของ AI",
+  self_approval_forbidden: "ไม่สามารถอนุมัติข้อเสนอของตัวเองได้",
+  policy_review_required: "ยังไม่ได้อนุมัตินโยบายสำหรับ Agent นี้" };
 
 /** Human-reviewed changes are separate from the read-only model answer. No automatic POST retries. */
 export function OperationsChanges({ onOpenJob, initialDraft, onBusyChange }: {
@@ -160,7 +165,8 @@ export function OperationsChanges({ onOpenJob, initialDraft, onBusyChange }: {
       <label>เหตุผลการตัดสินใจ <input value={note} maxLength={400} disabled={busy} onChange={e => setNote(e.target.value)} /></label>
       <div className={s.actions}>{[true, false].map(approve => <button key={String(approve)} className={s.button}
         disabled={busy || !note.trim()} onClick={() => void action(async signal => {
-          await post(`/${review.id}/confirm`, { fingerprint: review.payload.fingerprint, approve, note }, signal);
+          await post(`/${review.id}/confirm`, { fingerprint: review.payload.fingerprint,
+            payloadHash: review.payloadHash, approve, note }, signal);
           setReview(null); await loadQueue(signal);
         })}>{approve ? "ยืนยันและบันทึกจริง" : "ปฏิเสธ"}</button>)}
       </div></>}

@@ -55,6 +55,29 @@ static class EvaluationSummaryChecks
             && alone.Trends == "AE-2026: รวม 51.5 [F1]",
             "summary: the development stand-in quotes its facts — best KPIs as strengths, a nought as a weakness, this year alone when no other is recorded — and passes the same check a real answer does");
 
+        // No database provider: a missing/denied gateway must return before any evidence query or model call.
+        await using var noSql = new ScmosDbContext(new DbContextOptionsBuilder<ScmosDbContext>().Options);
+        var noCall = new ScriptedProvider(_ => throw new InvalidOperationException("An unreviewed summary must not call the model."));
+        var supervisor = new AppUser("summary-reviewer", "reviewer@test.invalid", "Reviewer", Roles.Supervisor, "SV-S", "test", true);
+        var on = Options.Create(new AiOptions { Enabled = true, EvaluationAiEnabled = true });
+        var providerOptions = Options.Create(new OpenAiOptions { Model = "offline" });
+        var executionAudit = new OperationsTestAudit();
+        using var limiter = new AiRunLimiter();
+        var auditService = new AuditService(noSql, new HttpContextAccessor(), NullLogger<AuditService>.Instance);
+        var missing = new EvaluationSummaryService(noSql, noCall, executionAudit, limiter, auditService, TimeProvider.System, on, providerOptions);
+        check((await missing.SummarizeAsync(supervisor, 1, 2, "summary-missing", default)).Code == "POLICY_DENIED"
+            && !missing.Availability(supervisor).CanRun && noCall.Asked.Count == 0,
+            "summary governance: missing gateway denies before SQL or provider, even with feature flags on");
+        var policyAudit = new PolicyFixtureAudit();
+        var gateway = new AiGateway(noSql, AiPolicyCatalog.Current, policyAudit);
+        var candidate = new EvaluationSummaryService(noSql, noCall, executionAudit, limiter, auditService, TimeProvider.System, on,
+            providerOptions, policyGateway: gateway);
+        check((await candidate.SummarizeAsync(supervisor, 1, 2, "summary-candidate", default)).Code == "POLICY_DENIED"
+            && !candidate.Availability(supervisor).CanRun && noCall.Asked.Count == 0
+            && policyAudit.Entries.Count == 1 && policyAudit.Entries[0].Request.ResourceId == "1:2"
+            && policyAudit.Entries[0].Decision.Decision == AiAuthorizationVerdict.Deny && executionAudit.Entries.Count == 0,
+            "summary governance: candidate has no new tool grant; exact resource denial is audited without SQL/provider/summary write");
+
         if (sql) await SqlAsync(check);
     }
 
@@ -78,7 +101,7 @@ static class EvaluationSummaryChecks
     private static async Task SqlAsync(Action<bool, string> check)
     {
         var database = "SCMOS_EVALUATION_SUMMARY_TEST_" + Guid.NewGuid().ToString("N");
-        var connection = $"Server=(localdb)\\MSSQLLocalDB;Database={database};Integrated Security=true;TrustServerCertificate=true";
+        var connection = $"Server=(localdb)\\ScmosAiAuditCheck_20260907;Database={database};Integrated Security=true;TrustServerCertificate=true";
         var options = new DbContextOptionsBuilder<ScmosDbContext>().UseSqlServer(connection,
             s => { s.UseCompatibilityLevel(150); s.EnableRetryOnFailure(3); }).Options;
         await using var db = new ScmosDbContext(options);
@@ -138,7 +161,9 @@ static class EvaluationSummaryChecks
             var audit = new SqlAiExecutionAudit(options, Options.Create(new AiOptions { TimeoutSeconds = 20 }));
             using var limiter = new AiRunLimiter();
             EvaluationSummaryService Service(IAiProvider provider, AiOptions ai) => new(db, provider, audit, limiter, auditing, TimeProvider.System,
-                Options.Create(ai), Options.Create(new OpenAiOptions { Model = "gpt-4.1" }));
+                Options.Create(ai), Options.Create(new OpenAiOptions { Model = "gpt-4.1" }),
+                policyGateway: OfflineReviewedPolicyGateway.Instance,
+                policies: AiPolicyCatalog.Parse(PermissionEnforcementChecks.ReviewedFixture().ToJsonString()));
             var on = new AiOptions { Enabled = true, EvaluationAiEnabled = true };
 
             // The model writes one true line in each field and one that is not: an invented figure, a decision, no citation.
@@ -197,6 +222,9 @@ static class EvaluationSummaryChecks
         }
         finally
         {
+            if (!database.StartsWith("SCMOS_EVALUATION_SUMMARY_TEST_", StringComparison.Ordinal)
+                || db.Database.GetDbConnection().DataSource != "(localdb)\\ScmosAiAuditCheck_20260907")
+                throw new InvalidOperationException("Unsafe summary cleanup target");
             await db.Database.EnsureDeletedAsync();
         }
     }

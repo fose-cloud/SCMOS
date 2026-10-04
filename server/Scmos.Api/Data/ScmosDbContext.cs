@@ -62,6 +62,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Append-only. Nothing in the codebase deletes from it.</summary>
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<AiAuditLog> AiAuditLogs => Set<AiAuditLog>();
+    public DbSet<AiAuthorizationLog> AiAuthorizationLogs => Set<AiAuthorizationLog>();
     public DbSet<AiOperationsControl> AiOperationsControls => Set<AiOperationsControl>();
     public DbSet<AiAgentConfig> AiAgentConfigs => Set<AiAgentConfig>();
     public DbSet<AiDecision> AiDecisions => Set<AiDecision>();
@@ -165,6 +166,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     protected override void OnModelCreating(ModelBuilder model)
     {
         AiAuditLog.Configure(model);
+        AiAuthorizationLog.Configure(model);
         AiOperationsControl.Configure(model);
         AiAgentConfig.Configure(model);
         AiDecision.Configure(model);

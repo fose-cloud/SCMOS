@@ -49,7 +49,7 @@ public static class BookingAgent
 /// </summary>
 public sealed class BookingDraftService(IBookingTextReader reader, IAiExecutionAudit audit, AiRunLimiter limiter,
     IAiGovernance governance, IKnownCustomers customers, IOptions<AiOptions> options, TimeProvider clock,
-    IOptions<OpenAiOptions>? providerOptions = null)
+    IOptions<OpenAiOptions>? providerOptions = null, IAiPolicyGateway? policyGateway = null)
 {
     public async Task<BookingDraftResult> DraftAsync(AppUser user, string? category, string? text, string correlationId, CancellationToken token)
     {
@@ -62,6 +62,9 @@ public sealed class BookingDraftService(IBookingTextReader reader, IAiExecutionA
         if (body.Length > BookingTextReader.MaxText)
             return new(null, $"The text is too long — paste the booking itself, up to {BookingTextReader.MaxText} characters.", StatusCodes.Status413PayloadTooLarge);
         var wanted = BookingVerification.CategoryOf(category);
+        var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+            AiAuthorizationRequest.For(BookingAgent.Id, AiAction.BookingCreateDraft, BookingAgent.Tool, user, correlationId), token);
+        if (!authorization.Allowed) return new(null, authorization.ReasonCode, StatusCodes.Status503ServiceUnavailable);
         // AI__Enabled is the server's own switch; under it the Control Tower's switch, or the flag, decides.
         var gate = ai.Enabled
             ? (await governance.SnapshotAsync(token)).Gate(BookingAgent.Id, ai.BookingAgentEnabled, AgentNeed.Recommend)

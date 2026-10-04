@@ -1,0 +1,406 @@
+{
+  "policyVersion": "scmos-permission-4-candidate",
+  "changedBy": "user-request:2026-10-04",
+  "changedAt": "2026-10-04T00:00:00Z",
+  "reason": "Human nominated primary/fallback email references for all 14 agents; live directory eligibility remains unverified. Shared limits USD 0.20/day and USD 10/month; policy/isolation/agent bounds still require review. No new tool/action grants.",
+  "previousVersion": "scmos-permission-1-candidate",
+  "approvalReference": null,
+  "sharedBudget": {
+    "scope": "all-registered-agents",
+    "currency": "USD",
+    "monthlyCostLimit": 10,
+    "dailyCostLimit": 0.20
+  },
+  "tools": {
+    "query_shipments": "BookingRead",
+    "search_shipment": "BookingRead",
+    "query_delays": "DelayDetect",
+    "query_followup": "DelayDetect",
+    "query_kpi": "KpiGenerate",
+    "query_messages": "CommunicationRead",
+    "query_documents": "DocumentRead",
+    "extract_document": "DocumentExtract",
+    "analyze_billing": "BillingAnalyze",
+    "query_repository": "CodeRead",
+    "read_source": "CodeRead",
+    "query_platform": "SystemHealthRead",
+    "draft_booking": "BookingCreateDraft",
+    "scan_otd": "OtdCalculate",
+    "scan_validation": "ValidationAnalyze",
+    "scan_carrier": "CarrierRecommend",
+    "scan_communication": "CommunicationDraft",
+    "scan_booking": "BookingCreateDraft",
+    "summarise_job": "ManagementAnalyze",
+    "summarise_late_paperwork": "ManagementAnalyze",
+    "update_shipment": "BookingUpdateCriticalField",
+    "request_communication_draft": "CommunicationDraft",
+    "summarize_evaluation": "ManagementAnalyze"
+  },
+  "agents": [
+    {
+      "agentId": "operations-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing operations-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "BookingRead": "Read",
+        "DelayDetect": "Analyze"
+      },
+      "allowedTools": [
+        "query_shipments",
+        "search_shipment",
+        "query_delays",
+        "query_followup"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "vendor-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing vendor-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "CarrierRecommend": "Draft"
+      },
+      "allowedTools": [
+        "scan_carrier"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": true
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "rate-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing rate-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {},
+      "allowedTools": [],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "data-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing data-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "KpiGenerate": "Analyze"
+      },
+      "allowedTools": [
+        "query_kpi"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "incident-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing incident-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {},
+      "allowedTools": [],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "document-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing document-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "DocumentRead": "Read",
+        "DocumentExtract": "Analyze",
+        "BillingAnalyze": "Analyze"
+      },
+      "allowedTools": [
+        "query_documents",
+        "extract_document",
+        "analyze_billing"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "compliance-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing compliance-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {},
+      "allowedTools": [],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "management-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing management-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "ManagementAnalyze": "Analyze"
+      },
+      "allowedTools": [
+        "summarise_job",
+        "summarise_late_paperwork"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "communication-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing communication-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "CommunicationRead": "Read",
+        "CommunicationDraft": "Draft"
+      },
+      "allowedTools": [
+        "query_messages",
+        "scan_communication"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": true
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "engineering-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing engineering-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "CodeRead": "Read"
+      },
+      "allowedTools": [
+        "query_repository",
+        "read_source"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "otd-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing otd-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "OtdCalculate": "Analyze"
+      },
+      "allowedTools": [
+        "scan_otd"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": true
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "validation-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing validation-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "ValidationAnalyze": "Analyze"
+      },
+      "allowedTools": [
+        "scan_validation"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": true
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "booking-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing booking-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "BookingCreateDraft": "Draft"
+      },
+      "allowedTools": [
+        "draft_booking",
+        "scan_booking"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": true
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    },
+    {
+      "agentId": "sre-agent",
+      "agentVersion": "governance-1",
+      "purpose": "Govern existing sre-agent contracts without granting new execution privileges.",
+      "humanOwner": "email:K.nattikorn-fos@hotmail.com",
+      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "permissions": {
+        "SystemHealthRead": "Read"
+      },
+      "allowedTools": [
+        "query_platform"
+      ],
+      "allowedApiScopes": [
+        "scmos.ai"
+      ],
+      "networkAllowList": [],
+      "dataScope": {
+        "team": true,
+        "operator": true,
+        "systemPass": false
+      },
+      "maximumRiskLevel": "Low",
+      "budget": null,
+      "auditRequired": true,
+      "failClosed": true
+    }
+  ]
+}

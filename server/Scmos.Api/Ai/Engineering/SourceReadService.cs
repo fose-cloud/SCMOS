@@ -170,5 +170,5 @@ public sealed class SourceReadHandler(SourceReadService service) : IAiReadToolHa
     /// <summary>The service itself, for the agent that numbers each step of a run.</summary>
     public SourceReadService Service => service;
     public async Task<JsonElement> ReadAsync(JsonElement arguments, AiToolContext context, CancellationToken token)
-        => JsonSerializer.SerializeToElement(await service.ReadAsync(arguments, 1, token));
+        => JsonSerializer.SerializeToElement(await service.ReadAsync(arguments, context.Step, token));
 }

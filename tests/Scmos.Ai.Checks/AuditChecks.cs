@@ -190,7 +190,7 @@ static class AuditChecks
             check(!await missing.CheckReadyAsync(default), "D SQL: missing migration refuses readiness");
             var noSchemaSource = new OperationsFixtureSource([]);
             var noSchemaProvider = new OperationsFixtureProvider();
-            var noSchemaAgent = new OperationsAgent(new ToolRegistry(new(noSchemaSource, new OperationsClock(Now))),
+            var noSchemaAgent = new OperationsAgent(new ToolRegistry(new(noSchemaSource, new OperationsClock(Now)), policyGateway: OfflineReviewedPolicyGateway.Instance),
                 missing, noSchemaProvider, new OperationsClock(Now));
             check((await noSchemaAgent.RunAsync(Guid.NewGuid().ToString("N"), new("today"), Operator,
                 new AgentRegistry().Find("operations-agent")!, default)).Code == "audit_not_ready"
@@ -280,7 +280,7 @@ static class AuditChecks
             await HttpAsync(check, options);
             var cancellationProvider = new AuditCancellationProvider();
             var cancellationSource = new OperationsFixtureSource([]);
-            var cancellationAgent = new OperationsAgent(new ToolRegistry(new(cancellationSource, new OperationsClock(Now))),
+            var cancellationAgent = new OperationsAgent(new ToolRegistry(new(cancellationSource, new OperationsClock(Now)), policyGateway: OfflineReviewedPolicyGateway.Instance),
                 Sink(), cancellationProvider, new OperationsClock(Now));
             var cancelledRun = Guid.NewGuid().ToString("N");
             using (var cancellation = new CancellationTokenSource())

@@ -34,6 +34,16 @@ public static class AiGovernanceEndpoints
     {
         var ai = routes.MapGroup("/api/ai").WithTags("AI");
 
+        // Grants have no API mutation route. Normal administrators may inspect/revoke runtime switches, not expand policy.
+        ai.MapGet("/policies", async (HttpContext context, IUserAccessor users, AiGateway gateway, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (!AiPermissionPolicy.Authenticated(user)) return ApiResults.SignInRequired;
+            if (!AiGovernanceService.CanView(user)) return ApiResults.Error("AI policy is for administrators and auditors", 403);
+            return Results.Json(await gateway.PoliciesAsync(token));
+        });
+
         ai.MapGet("/agents", async (HttpContext context, IUserAccessor users, AiGovernanceService governance, CancellationToken token) =>
         {
             context.Response.Headers.CacheControl = "no-store";

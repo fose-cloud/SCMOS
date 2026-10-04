@@ -36,7 +36,7 @@ public sealed record BillingAiView(long Id, long InvoiceId, long? BillingCaseId,
 public sealed class BillingAiService(ScmosDbContext db, DocumentService documents,
     IDocumentExtractor extractor, ExtractionRun extractionRun, IAiProvider provider,
     IAiExecutionAudit aiAudit, AiRunLimiter limiter, AuditService audit, TimeProvider clock,
-    IOptions<AiOptions> aiOptions, IOptions<OpenAiOptions> providerOptions)
+    IOptions<AiOptions> aiOptions, IOptions<OpenAiOptions> providerOptions, IAiPolicyGateway? policyGateway = null)
 {
     private readonly AiOptions _ai = aiOptions.Value;
     private readonly OpenAiOptions _provider = providerOptions.Value;
@@ -71,6 +71,10 @@ public sealed class BillingAiService(ScmosDbContext db, DocumentService document
             return Fail("INVALID_KIND", "ประเภทการวิเคราะห์ AI ไม่ถูกต้อง");
         if (!_ai.Enabled || (BillingAiKinds.IsDocument(kind) ? !_ai.DocumentAiEnabled : !_ai.BillingAiEnabled))
             return Fail("DISABLED", "ฟังก์ชัน AI นี้ยังไม่เปิดใช้งาน");
+        var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+            AiAuthorizationRequest.For(AgentIds.DocumentInvoice, BillingAiKinds.IsDocument(kind) ? AiAction.DocumentExtract : AiAction.BillingAnalyze,
+                BillingAiKinds.IsDocument(kind) ? "extract_document" : "analyze_billing", user, correlationId, "billing_invoice", invoiceId.ToString(System.Globalization.CultureInfo.InvariantCulture)), token);
+        if (!authorization.Allowed) return Fail(authorization.ReasonCode, "AI policy denied this analysis; manual billing remains available.");
 
         var invoice = await db.BillingInvoices.AsNoTracking().FirstOrDefaultAsync(x => x.Id == invoiceId, token);
         if (invoice is null) return Fail("NOT_FOUND", "ไม่พบใบวางบิลนี้");

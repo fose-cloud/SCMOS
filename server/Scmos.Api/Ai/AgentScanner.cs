@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Ai.Booking;
 using Scmos.Api.Ai.Carrier;
@@ -39,9 +38,9 @@ public sealed record ScanSummary(string AgentId, string Code, int Jobs, int Find
 /// the carrier now on the job), and whether that was the one recommended.
 /// </para>
 /// </summary>
-public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, AgentRegistry agents, IAiGovernance governance,
+public sealed class AgentScanner(AiPassRepository data, JobRegisterCache register, AgentRegistry agents, IAiGovernance governance,
     AiDecisionLog decisions, SupplierService suppliers, IOptions<AiOptions> options, TimeProvider clock, ILogger<AgentScanner> log,
-    BookingMailPass? bookingMail = null)
+    BookingMailPass? bookingMail = null, IAiPolicyGateway? policyGateway = null)
 {
     /// <summary>The rule-first agents this pass runs, in order.</summary>
     public static readonly string[] Agents = [OtdAgent.Id, ValidationAgent.Id, CarrierAgent.Id, CommunicationAgent.Id, BookingAgent.Id];
@@ -83,6 +82,9 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
                 : new GovernanceGate(false, "agent_disabled", "SCMOS AI is disabled in configuration.", AiAutonomy.Disabled);
             if (gate.Allowed && !Switched(agent, ai, setting)) gate = new(false, "agent_disabled", "This pass is switched off.", gate.Effective);
             if (!gate.Allowed) { summaries.Add(new(id, gate.Code, 0, 0, 0, 0, 0, 0, 0)); continue; }
+            var (action, tool) = AiPolicyEntry.PassContract(id);
+            var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway, AiAuthorizationRequest.Pass(id, action, tool), token);
+            if (!authorization.Allowed) { summaries.Add(new(id, authorization.ReasonCode, 0, 0, 0, 0, 0, 0, 0)); continue; }
             // A background pass can wait for the register; it never takes the stale-while-revalidate
             // answer a person's screen does, so it judges "now" against the register as it is.
             jobs ??= await register.ReadAsync(token);
@@ -100,21 +102,23 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
     }
 
     /// <summary>The agent's judgement of one row, with whatever it needs read once for the whole pass.</summary>
-    private async Task<Func<CachedJobRow, AgentResult?>> AssessorAsync(string agentId, JobRegisterSnapshot jobs,
+    private async Task<Func<CachedJobRow, Task<AgentResult?>>> AssessorAsync(string agentId, JobRegisterSnapshot jobs,
         DateTimeOffset now, CancellationToken token)
     {
         var ai = options.Value;
         switch (agentId)
         {
-            case OtdAgent.Id: return row => OtdAgent.Assess(row, now, ai.OtdWatchMinutes, ai.OtdHighMinutes);
-            case ValidationAgent.Id: return row => ValidationAgent.Assess(row, now);
+            case OtdAgent.Id: return row => Task.FromResult(OtdAgent.Assess(row, now, ai.OtdWatchMinutes, ai.OtdHighMinutes));
+            case ValidationAgent.Id: return row => Task.FromResult(ValidationAgent.Assess(row, now));
             case CarrierAgent.Id:
                 var context = await CarrierContextAsync(jobs, now, token);
-                return row => CarrierAgent.Assess(row, now, context);
+                return row => Task.FromResult(CarrierAgent.Assess(row, now, context));
             case CommunicationAgent.Id:
                 var communication = await CommunicationContextAsync(jobs, now, token);
-                return row => CommunicationDrafts.Assess(row, now, communication);
-            default: return _ => null;
+                return row => AiGateway.DraftCommunicationAsync(policyGateway,
+                    AiAuthorizationRequest.Pass(AgentIds.Communication, AiAction.CommunicationDraft, "scan_communication")
+                        with { ResourceType = "shipment", ResourceId = row.Key }, row, communication, now, token);
+            default: return _ => Task.FromResult<AgentResult?>(null);
         }
     }
 
@@ -132,9 +136,7 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
         var attempts = new Dictionary<string, IReadOnlyList<Attempt>>(StringComparer.Ordinal);
         foreach (var chunk in scope.Select(row => row.Key).Chunk(500))
         {
-            var asked = await db.SupplierRequests.AsNoTracking().Where(one => chunk.Contains(one.JobKey))
-                .OrderBy(one => one.Rank).ThenBy(one => one.Id)
-                .Select(one => new { one.JobKey, one.Carrier, one.Outcome, one.Rank }).ToListAsync(token);
+            var asked = await data.CarrierAttemptsAsync(chunk, token);
             foreach (var group in asked.GroupBy(one => one.JobKey, StringComparer.Ordinal))
                 attempts[group.Key] = group.Select(one => new Attempt(one.Carrier, one.Outcome, one.Rank)).ToList();
         }
@@ -169,10 +171,7 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
     {
         var ai = options.Value;
         var today = DateOnly.FromDateTime(now.ToOffset(Formats.Zone).DateTime);
-        var pending = new Dictionary<string, PendingRequest>(StringComparer.Ordinal);
-        foreach (var one in await db.SupplierRequests.AsNoTracking().Where(one => one.Outcome == CarrierAssignment.Pending)
-                     .Select(one => new { one.Id, one.JobKey, one.Carrier, one.RequestedAt }).ToListAsync(token))
-            pending[one.JobKey] = new PendingRequest(one.Id, one.Carrier, one.RequestedAt);
+        var pending = await data.PendingRequestsAsync(token);
 
         // Only the finished jobs inside the POD window can be drafted for, so only theirs are looked up.
         var done = jobs.Rows.Where(row => row.Key.Length > 0 && row.Record is { } job && JobRules.IsDone(job.Status)
@@ -181,12 +180,9 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
             .Select(row => row.Key).ToList();
         var withPod = new HashSet<string>(StringComparer.Ordinal);
         foreach (var chunk in done.Chunk(500))
-            withPod.UnionWith(await db.Documents.AsNoTracking().Where(file => file.Folder == "POD" && chunk.Contains(file.JobKey))
-                .Select(file => file.JobKey).Distinct().ToListAsync(token));
+            withPod.UnionWith(await data.PodKeysAsync(chunk, token));
 
-        var wrote = (await db.LineEvents.AsNoTracking()
-            .Where(one => one.ProcessingStatus == LineProcessing.NeedReview && one.JobKey != "")
-            .Select(one => one.JobKey).Distinct().ToListAsync(token)).ToHashSet(StringComparer.Ordinal);
+        var wrote = (await data.ReviewMessageKeysAsync(token)).ToHashSet(StringComparer.Ordinal);
         return new CommunicationContext(pending, withPod, wrote, ai.CarrierReminderMinutes, ai.PodReminderDays);
     }
 
@@ -196,9 +192,9 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
         var assess = await AssessorAsync(agent.Id, jobs, now, token);
         var findings = new Dictionary<string, (AgentResult Result, string Owner)>(StringComparer.Ordinal);
         foreach (var row in jobs.Rows)
-            if (assess(row) is { } result) findings[result.EntityId] = (result, row.Record?.OpId ?? "");
+            if (await assess(row) is { } result) findings[result.EntityId] = (result, row.Record?.OpId ?? "");
 
-        var open = await db.AiDecisions.Where(one => one.AgentId == agent.Id && one.Status == AiDecisionLog.Open).ToListAsync(token);
+        var open = await data.OpenDecisionsAsync(agent.Id, token);
         var openByEntity = open.GroupBy(one => one.EntityId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.OrderByDescending(one => one.Id).ToList(), StringComparer.Ordinal);
 
@@ -207,12 +203,7 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
         var answered = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var chunk in unopened.Chunk(500))
         {
-            var rows = await db.AiDecisions.AsNoTracking()
-                .Where(one => one.AgentId == agent.Id && chunk.Contains(one.EntityId)
-                    && (one.Status == AiDecisionLog.Accepted || one.Status == AiDecisionLog.Overridden || one.Status == AiDecisionLog.Dismissed))
-                .Select(one => new { one.Id, one.EntityId, one.Fingerprint }).ToListAsync(token);
-            foreach (var latest in rows.GroupBy(one => one.EntityId).Select(group => group.MaxBy(one => one.Id)!))
-                answered[latest.EntityId] = latest.Fingerprint;
+            foreach (var entry in await data.AnsweredAsync(agent.Id, chunk, token)) answered[entry.Key] = entry.Value;
         }
 
         int created = 0, unchanged = 0, superseded = 0, resolved = 0, refused = 0;
@@ -250,12 +241,10 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
             foreach (var row in rows) { Close(row, AiDecisionLog.Resolved, "รอบตรวจใหม่ไม่พบประเด็นนี้แล้ว"); resolved++; }
         }
         if (agent.Id == CarrierAgent.Id && closed.Count > 0) await ObserveCarrierChoicesAsync(closed, jobs, token);
-        try { await db.SaveChangesAsync(token); }
-        catch (DbUpdateConcurrencyException)
+        if (!await data.SaveAsync(agent.Id, token))
         {
             // A person answered one of these decisions while the pass ran. Their answer stands;
             // this pass writes nothing, and the next one starts from what they decided.
-            db.ChangeTracker.Clear();
             log.LogInformation("{Agent}: a decision was answered during the pass; nothing written this time", agent.Id);
             return new ScanSummary(agent.Id, "answered_meanwhile", jobs.Rows.Count, findings.Count, 0, 0, 0, 0, refused);
         }
@@ -275,11 +264,9 @@ public sealed class AgentScanner(ScmosDbContext db, JobRegisterCache register, A
     private async Task ObserveCarrierChoicesAsync(IReadOnlyList<AiDecision> closed, JobRegisterSnapshot jobs, CancellationToken token)
     {
         var keys = closed.Select(one => one.EntityId).Distinct(StringComparer.Ordinal).ToList();
-        var requests = new List<(string JobKey, string Carrier, string By, DateTimeOffset At, long Id)>();
+        var requests = new List<PassCarrierChoice>();
         foreach (var chunk in keys.Chunk(500))
-            requests.AddRange((await db.SupplierRequests.AsNoTracking().Where(one => chunk.Contains(one.JobKey))
-                .Select(one => new { one.JobKey, one.Carrier, one.RequestedBy, one.RequestedAt, one.Id }).ToListAsync(token))
-                .Select(one => (one.JobKey, one.Carrier, one.RequestedBy, one.RequestedAt, one.Id)));
+            requests.AddRange(await data.CarrierChoicesAsync(chunk, token));
         var rows = jobs.Rows.Where(row => row.Key.Length > 0).GroupBy(row => row.Key, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         foreach (var decision in closed)

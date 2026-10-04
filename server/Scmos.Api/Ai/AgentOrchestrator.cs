@@ -18,7 +18,7 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
     IAgentExecutor<DataExecution>? data = null, IAgentExecutor<CommunicationExecution>? communication = null,
     IAgentExecutor<DocumentExecution>? documents = null,
     IAgentExecutor<EngineeringExecution>? engineering = null, IAgentExecutor<SreExecution>? sre = null,
-    IAgentExecutor<ManagementExecution>? management = null, IAiGovernance? governance = null)
+    IAgentExecutor<ManagementExecution>? management = null, IAiGovernance? governance = null, IAiPolicyGateway? policyGateway = null)
 {
     private readonly AiOptions _options = options.Value;
     private const string Instructions = "You are an SCMOS assistant. Approved SCMOS rules and source evidence are authoritative. "
@@ -129,6 +129,7 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
             CollaborationAnswer? collaboration = null)
             => new(status, new(runId, code, summary, agent?.Id, mock, usage, evidence, correlation, contextUsed, kpi, messages, paperwork, repositoryEvidence, source, platform, collaboration));
 
+
         if (!AiPermissionPolicy.Authenticated(user)) return Reply(401, "unauthenticated", "Sign in is required.");
         if (!AiPermissionPolicy.InternalUser(user!)) return Reply(403, "forbidden", "AI is not available for this account scope.");
         if (!AiRequestValidator.Valid(request)) return Reply(400, "invalid_request", "Provide a message of 1–4000 characters and a valid page/agent.");
@@ -168,6 +169,15 @@ public sealed class AgentOrchestrator(IOptions<AiOptions> options, IHostEnvironm
         }
         else if (!provider.IsMock || !provider.Configured)
             return Reply(503, "provider_unavailable", "Development mock provider is unavailable.");
+        // No provider, tool or data access precedes this mandatory live authorization.
+        // Development mock has no data/tool/network execution. Live mode never falls back to it.
+        if (!_options.MockMode)
+        {
+            var contract = AiPolicyEntry.RunContract(agent.Id);
+            var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+                AiAuthorizationRequest.For(agent.Id, contract.Action, contract.Tool, user, correlation), token);
+            if (!authorization.Allowed) return Reply(503, authorization.ReasonCode, "AI policy denied this run; manual SCMOS remains available.");
+        }
         using var lease = limiter.TryEnter();
         if (lease is null) return Reply(429, "busy", "AI is busy. Try again in a minute.");
         var watch = Stopwatch.StartNew();

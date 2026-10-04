@@ -9,7 +9,7 @@ namespace Scmos.Api.Endpoints;
 public static class OperationsChangeEndpoints
 {
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-    public sealed record Confirmation(string Fingerprint, [property: JsonRequired] bool Approve, string Note);
+    public sealed record Confirmation(string Fingerprint, [property: JsonRequired] bool Approve, string Note, string PayloadHash = "");
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     public sealed record CommandRequest(string Message);
     public static void MapOperationsChanges(this IEndpointRouteBuilder routes)
@@ -72,7 +72,7 @@ public static class OperationsChangeEndpoints
             if (ApiResults.NeedsSecondFactor(users, user!, Capability.ApproveAi) is { } refusal) return refusal;
             var body = await Read<Confirmation>(context, token);
             if (body is null || id <= 0) return ApiResults.Error("คำขอยืนยันไม่ถูกต้อง", 400);
-            return Reply(await service.ConfirmAsync(id, body.Fingerprint, body.Approve, body.Note, user!, token));
+            return Reply(await service.ConfirmAsync(id, body.Fingerprint, body.Approve, body.Note, user!, token, body.PayloadHash));
         });
     }
     private static IResult Reply(OperationsChangeResult result) => Results.Json(result,

@@ -119,7 +119,7 @@ static class SourceChecks
         check(await github.ReadAsync("app/scmos", default) is null, "6b: a directory read as a file is null, not an error");
 
         /* ---- registry, guard, audit vocabulary ---- */
-        var registry = new ToolRegistry(source: service);
+        var registry = new ToolRegistry(source: service, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var tool = registry.Find(SourceReadService.Tool)!;
         check(tool.Handler is not null && tool.AgentId == EngineeringAgent.Id && tool.RequiredCapability == Capability.AdministerData
             && tool.Policy is { Source: "github_public_repo", MaxEvidenceRows: 50 } && tool.Policy.OutputType == typeof(SourceStep),
@@ -207,7 +207,7 @@ static class SourceChecks
         audit.FailAt = "tool_completed";
         check((await runtime.RunAsync("src-run-8", ask, Admin, agent, default)).Code == "audit_not_ready", "6b: a read the audit cannot record releases nothing");
         audit.FailAt = null;
-        var metadataOnly = new EngineeringAgent(new ToolRegistry(engineering: new EngineeringReadService(new EngineeringFixtureSource([]), new OperationsClock(Now))), audit, provider, new OperationsClock(Now));
+        var metadataOnly = new EngineeringAgent(new ToolRegistry(engineering: new EngineeringReadService(new EngineeringFixtureSource([]), new OperationsClock(Now)), policyGateway: OfflineReviewedPolicyGateway.Instance), audit, provider, new OperationsClock(Now));
         provider.Reset([new("ok", "", [new("c", "read_source", "{\"mode\":\"file\",\"path\":\"app/scmos/ops.ts\",\"from\":1,\"lines\":5,\"limit\":1}")], new(1, 1))]);
         check((await metadataOnly.RunAsync("src-run-9", ask, Admin, agent, default)).Code == "invalid_tool" && provider.Requests.Single().Tools.Count == 1
             && !provider.Requests.Single().Instructions.Contains("read_source"), "6b: with the source switch off the tool is neither offered nor described, and a call to it is refused");
@@ -216,7 +216,7 @@ static class SourceChecks
         provider.Reset([new("ok", "", [new("c", "read_source", "{\"mode\":\"file\",\"path\":\"app/scmos/ops.ts\",\"from\":330,\"lines\":5,\"limit\":1}")], new(1, 1)), new("ok", "analysis MODEL_OPINION", null, new(1, 1))]);
         using var limiter = new AiRunLimiter();
         var orchestrator = new AgentOrchestrator(Options.Create(new AiOptions { Enabled = true, ChatEnabled = true, EngineeringAgentEnabled = true, EngineeringSourceEnabled = true }),
-            new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, engineering: runtime);
+            new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, engineering: runtime, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var outcome = await orchestrator.RunAsync(ask, Admin, default, "corr-src-orch");
         check(outcome.Status == 200 && outcome.Response.Source is { Steps.Count: 1 } && outcome.Response.Source.Analysis.Contains("MODEL_OPINION")
             && outcome.Response.Engineering is null && outcome.Response.Evidence is null && outcome.Response.Documents is null,

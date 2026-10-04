@@ -36,6 +36,8 @@ public sealed class DataAgent(ToolRegistry tools, IAiExecutionAudit audit, IAiPr
         if (!Connected) return new("not_connected", "ยังไม่ได้เชื่อมเครื่องมืออ่าน KPI");
         if (!await CheckAuditReadyAsync(token)) return new("audit_not_ready", "Audit ถาวรไม่พร้อมใช้งาน ยังไม่ได้อ่านข้อมูล");
         if (!provider.Configured || provider.IsMock) return new("provider_unavailable", "AI provider is unavailable.");
+        var authorization = await tools.AuthorizeRunAsync(agent.Id, user, correlationId, token);
+        if (!authorization.Allowed) return new(authorization.ReasonCode, "AI policy refused execution.");
 
         var now = clock.GetUtcNow();
         string? toolName = null;
@@ -92,11 +94,13 @@ public sealed class DataAgent(ToolRegistry tools, IAiExecutionAudit audit, IAiPr
             }
             if (selection.Mock || selection.ToolCalls is not { Count: 1 })
             {
+                await tools.AuditRejectedCallsAsync(agent.Id, selection.ToolCalls, user, correlationId, token);
                 await Audit("run_completed", "clarification_required");
                 return new("clarification_required", "ขณะนี้ตอบได้เฉพาะจำนวนงานและ KPI ตรงเวลาตามช่วงเวลา (ปี เดือน หรือวัน) โดยระบุลูกค้าหรือผู้ขนส่งได้");
             }
             var call = selection.ToolCalls[0];
-            var definition = guard.Resolve(user, agent, call, audit.Ready);
+            var callAuthorization = await tools.AuthorizeCallAsync(agent.Id, call, user, correlationId, token, offered: offered.Any(t => t.Name == call.Name));
+            var definition = callAuthorization.Allowed ? guard.Resolve(user, agent, call, audit.Ready) : null;
             if (definition is null || !offered.Any(t => t.Name == call.Name))
             {
                 await Audit("run_completed", "invalid_tool");
@@ -116,7 +120,7 @@ public sealed class DataAgent(ToolRegistry tools, IAiExecutionAudit audit, IAiPr
             toolStarted = true;
             var scope = AiPermissionPolicy.Scope(user) ?? throw new InvalidOperationException("Missing scope.");
             if (!budget.TryConsume()) throw new InvalidOperationException("Tool budget exhausted.");
-            var result = await definition.Handler!.ReadAsync(json.RootElement, new(runId, user.UserId, scope, now), token);
+            var result = await definition.Handler!.ReadAsync(json.RootElement, new(runId, user.UserId, scope, now, User: user, OriginAgentId: agent.Id, CorrelationId: correlationId), token);
             var evidence = result.Deserialize<DataAnswer>();
             if (evidence is null || evidence.Carriers is null || evidence.Returned != evidence.Carriers.Count
                 || evidence.CarriersTotal < evidence.Returned || evidence.Returned > limit

@@ -31,7 +31,8 @@ public record EvaluationSummaryOutcome(bool Ok, string Code, string Message, int
 /// </summary>
 public sealed class EvaluationSummaryService(ScmosDbContext db, IAiProvider provider, IAiExecutionAudit aiAudit, AiRunLimiter limiter,
     AuditService audit, TimeProvider clock, IOptions<AiOptions> aiOptions, IOptions<OpenAiOptions> providerOptions,
-    ILogger<EvaluationSummaryService>? log = null)
+    ILogger<EvaluationSummaryService>? log = null, IAiPolicyGateway? policyGateway = null,
+    AiPolicyCatalog? policies = null)
 {
     public const string AgentId = "management-agent";
     public const string Tool = "summarize_evaluation";
@@ -53,7 +54,10 @@ public sealed class EvaluationSummaryService(ScmosDbContext db, IAiProvider prov
         + "lines comparing the years in the facts, or one line saying only one year is recorded, citing it. Separate lines with a newline.";
 
     public EvaluationSummaryAvailability Availability(AppUser user) => new(_ai.Enabled && _ai.EvaluationAiEnabled,
-        _ai.MockMode || provider.Configured, _ai.MockMode, Allowed(user) && _ai.Enabled && _ai.EvaluationAiEnabled && (_ai.MockMode || provider.Configured));
+        _ai.MockMode || provider.Configured, _ai.MockMode, Allowed(user) && _ai.Enabled && _ai.EvaluationAiEnabled
+        && (_ai.MockMode || provider.Configured) && policyGateway is not null
+        && (policies ?? AiPolicyCatalog.Current).Readiness(AgentId) is null
+        && (policies ?? AiPolicyCatalog.Current).Find(AgentId)?.AllowedTools.Contains(Tool) == true);
 
     public async Task<EvaluationSummaryState?> LatestAsync(AppUser user, int campaignId, int carrierId, CancellationToken token)
     {
@@ -79,6 +83,14 @@ public sealed class EvaluationSummaryService(ScmosDbContext db, IAiProvider prov
         if (!Allowed(user)) return Fail("FORBIDDEN", "บัญชีนี้ไม่มีสิทธิ์สร้างสรุปด้วย AI", StatusCodes.Status403Forbidden);
         if (!_ai.Enabled || !_ai.EvaluationAiEnabled) return Fail("DISABLED", "การสรุปด้วย AI ยังไม่เปิดใช้งาน", StatusCodes.Status409Conflict);
         if (!_ai.MockMode && !provider.Configured) return Fail("NOT_CONFIGURED", "AI ยังไม่ได้ตั้งค่า", StatusCodes.Status409Conflict);
+
+        // This dedicated path is still a Management Agent run: flags and user RBAC cannot bypass its manifest.
+        // Authorize before reading evaluation evidence, calling the model or writing a summary.
+        var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+            AiAuthorizationRequest.For(AgentId, AiAction.ManagementAnalyze, Tool, user, correlationId,
+                "evaluation-carrier", $"{campaignId}:{carrierId}"), token);
+        if (!authorization.Allowed)
+            return Fail("POLICY_DENIED", "AI policy ปฏิเสธการสรุป — ระบบประเมินแบบ Manual ยังใช้งานได้", StatusCodes.Status503ServiceUnavailable);
 
         var campaign = await db.EvaluationCampaigns.AsNoTracking().FirstOrDefaultAsync(row => row.Id == campaignId, token);
         var carrier = await db.EvaluationCarriers.AsNoTracking().FirstOrDefaultAsync(row => row.Id == carrierId && row.CampaignId == campaignId, token);

@@ -81,7 +81,7 @@ static class ManagementChecks
         var operations = new OperationsReadService(operationsSource, clock);
         var documents = new DocumentsReadService(documentsSource, clock);
         var messages = new MessagesReadService(messagesSource, clock);
-        var tools = new ToolRegistry(operations: operations, documents: documents, messages: messages);
+        var tools = new ToolRegistry(operations: operations, documents: documents, messages: messages, policyGateway: OfflineReviewedPolicyGateway.Instance);
         var agents = new AgentRegistry();
         var agent = agents.Find(ManagementAgent.Id)!;
         var audit = new OperationsTestAudit();
@@ -134,7 +134,7 @@ static class ManagementChecks
             control: new TestOperationsControl(new(true, false, 3, false)));
         check(await operationsByControl.RefusalAsync(late, Supervisor, agent, guard, default) is null && await operationsOff.RefusalAsync(late, Supervisor, agent, guard, default) == "operations-agent:disabled",
             "8: the Operations step follows the pilot's control switch, as the orchestrator does");
-        var noMessages = new ManagementAgent(new ToolRegistry(operations: operations, documents: documents), agents, audit, provider, clock, everyone);
+        var noMessages = new ManagementAgent(new ToolRegistry(operations: operations, documents: documents, policyGateway: OfflineReviewedPolicyGateway.Instance), agents, audit, provider, clock, everyone);
         check(await noMessages.RefusalAsync(job, Supervisor, agent, guard, default) == "query_messages:not_connected" && noMessages.Connected && !new ManagementAgent(new ToolRegistry(), agents, audit, provider, clock, everyone).Connected,
             "8: a read without an adapter refuses its plan; the agent is connected while any plan is whole, and not at all on a bare registry");
 
@@ -265,7 +265,7 @@ static class ManagementChecks
 
         /* ---- a failed step releases nothing ---- */
         provider.Selection = new("ok", "", [new("c8", ManagementPlans.JobPlan, "{\"query\":\"260900760079\"}")], new(3, 1));
-        var brokenDocuments = new ManagementAgent(new ToolRegistry(operations: operations, documents: new DocumentsReadService(new ThrowingDocumentSource(), clock), messages: messages), agents, audit, provider, clock, everyone);
+        var brokenDocuments = new ManagementAgent(new ToolRegistry(operations: operations, documents: new DocumentsReadService(new ThrowingDocumentSource(), clock), messages: messages, policyGateway: OfflineReviewedPolicyGateway.Instance), agents, audit, provider, clock, everyone);
         var broken = await brokenDocuments.RunAsync("0000000000000000000000000000000b", new("สรุปงาน 260900760079", ManagementAgent.Id), Supervisor, agent, default);
         check(broken.Code == "source_unavailable" && broken.Summary.StartsWith("ขั้นที่ 2 ของแผน สรุปงานหนึ่งงาน (query_documents) อ่านไม่สำเร็จ — ไม่ปล่อยผลบางส่วน")
             && broken.Operations is null && broken.Documents is null && broken.Messages is null && broken.Evidence is null && !broken.Summary.Contains("PRIVATE"),
@@ -277,7 +277,7 @@ static class ManagementChecks
         // match. J-1 also matches J-100; the plan must never show that second job.
         var extraJob = (Key: "J-10", Owner: "OP-M1", Json: Job("J-10", "OP-M1", "22/09/2026", "RECEIVED", "OTHER", "SHORE", "J-100", "MSKU9999999"));
         var ambiguousDocuments = new DocumentsReadService(new DocumentFixture(jobs.Append(extraJob).ToArray(), [], []), clock);
-        var documentLeak = new ManagementAgent(new ToolRegistry(operations: operations, documents: ambiguousDocuments, messages: messages), agents, audit, provider, clock, everyone);
+        var documentLeak = new ManagementAgent(new ToolRegistry(operations: operations, documents: ambiguousDocuments, messages: messages, policyGateway: OfflineReviewedPolicyGateway.Instance), agents, audit, provider, clock, everyone);
         var rejectedDocument = await documentLeak.RunAsync("00000000000000000000000000000013", new("สรุปงาน 260900760079", ManagementAgent.Id), Supervisor, agent, default);
         check(rejectedDocument.Code == "source_unavailable" && rejectedDocument.Operations is null && rejectedDocument.Documents is null && rejectedDocument.Evidence is null
             && audit.Entries.Last() is { Step: 2, Status: "source_unavailable" },
@@ -285,7 +285,7 @@ static class ManagementChecks
         var extraMessageJob = new MessageJob(extraJob.Key, "J-100", "OTHER", "SHORE", extraJob.Owner, "IMPORT", "22/09/2026", "RECEIVED");
         var originalMessageJobs = await messagesSource.FindJobsAsync("J-1", 5, default);
         var ambiguousMessages = new MessagesReadService(new CommunicationFixture(originalMessageJobs.Append(extraMessageJob).ToList(), [], []), clock);
-        var messageLeak = new ManagementAgent(new ToolRegistry(operations: operations, documents: documents, messages: ambiguousMessages), agents, audit, provider, clock, everyone);
+        var messageLeak = new ManagementAgent(new ToolRegistry(operations: operations, documents: documents, messages: ambiguousMessages, policyGateway: OfflineReviewedPolicyGateway.Instance), agents, audit, provider, clock, everyone);
         var rejectedMessage = await messageLeak.RunAsync("00000000000000000000000000000014", new("สรุปงาน 260900760079", ManagementAgent.Id), Supervisor, agent, default);
         check(rejectedMessage.Code == "source_unavailable" && rejectedMessage.Operations is null && rejectedMessage.Messages is null && rejectedMessage.Evidence is null
             && audit.Entries.Last() is { Step: 3, Status: "source_unavailable" },
@@ -322,7 +322,7 @@ static class ManagementChecks
 
         /* ---- through the orchestrator ---- */
         using var limiter = new AiRunLimiter();
-        var orchestrator = new AgentOrchestrator(everyone, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, management: runtime);
+        var orchestrator = new AgentOrchestrator(everyone, new TestEnvironment(), provider, agents, limiter, NullLogger<AgentOrchestrator>.Instance, management: runtime, policyGateway: OfflineReviewedPolicyGateway.Instance);
         check(orchestrator.Status(Supervisor).Agents.Single(a => a.Id == ManagementAgent.Id) is { Enabled: true, Connected: true }, "8: the status shows the Management Agent enabled and connected");
         provider.Selection = new("ok", "", [new("c15", ManagementPlans.JobPlan, "{\"query\":\"260900760079\"}")], new(3, 1));
         var outcome = await orchestrator.RunAsync(new("สรุปงาน 260900760079", Context: new("management")), Supervisor, default, "corr-mgmt-orch");

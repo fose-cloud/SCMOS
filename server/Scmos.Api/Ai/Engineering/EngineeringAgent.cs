@@ -44,6 +44,8 @@ public sealed class EngineeringAgent(ToolRegistry tools, IAiExecutionAudit audit
         if (!Connected) return new("not_connected", "ยังไม่ได้เชื่อมแหล่งข้อมูล Engineering");
         if (!await CheckAuditReadyAsync(token)) return new("audit_not_ready", "Audit ถาวรไม่พร้อม ยังไม่ได้อ่าน GitHub");
         if (!provider.Configured || provider.IsMock) return new("provider_unavailable", "AI provider is unavailable.");
+        var authorization = await tools.AuthorizeRunAsync(agent.Id, user, correlationId, token);
+        if (!authorization.Allowed) return new(authorization.ReasonCode, "AI policy refused execution.");
 
         string? toolName = null, toolCallId = null, view = null;
         int? limit = null;
@@ -104,11 +106,13 @@ public sealed class EngineeringAgent(ToolRegistry tools, IAiExecutionAudit audit
                 }
                 if (selection.Mock)
                 {
+                    await tools.AuditRejectedCallsAsync(agent.Id, selection.ToolCalls, user, correlationId, token);
                     await Audit("run_completed", "clarification_required");
                     return new("clarification_required", "ระบุว่าต้องการดู issue, PR, commit หรือไฟล์ใดของโค้ด");
                 }
                 if (selection.ToolCalls is not { Count: 1 })
                 {
+                    await tools.AuditRejectedCallsAsync(agent.Id, selection.ToolCalls, user, correlationId, token);
                     // The model answered in words. With no source read behind them, that is a clarification;
                     // with reads behind them, it is the analysis — the model's, and labelled so.
                     if (steps.Count == 0)
@@ -126,7 +130,9 @@ public sealed class EngineeringAgent(ToolRegistry tools, IAiExecutionAudit audit
                     return new("ok", Summarise(source), Usage: usage, Source: source);
                 }
                 var call = selection.ToolCalls[0];
-                var definition = guard.Resolve(user, agent, call, audit.Ready);
+                var callAuthorization = await tools.AuthorizeCallAsync(agent.Id, call, user, correlationId, token,
+                    offered: !last && offered.Any(t => t.Name == call.Name));
+                var definition = callAuthorization.Allowed ? guard.Resolve(user, agent, call, audit.Ready) : null;
                 // A call after the last read was offered no tool: the model was told to answer.
                 if (last || definition is null || !offered.Any(t => t.Name == definition.Name))
                 {
@@ -158,8 +164,10 @@ public sealed class EngineeringAgent(ToolRegistry tools, IAiExecutionAudit audit
                 SourceStep step;
                 try
                 {
-                    var read = await ((SourceReadHandler)definition.Handler!).Service.ReadAsync(json.RootElement, stepsTaken, token);
-                    step = read;
+                    var read = await definition.Handler!.ReadAsync(json.RootElement,
+                        new(runId, user.UserId, scope, clock.GetUtcNow(), User: user, OriginAgentId: agent.Id,
+                            CorrelationId: correlationId, Step: stepsTaken), token);
+                    step = read.Deserialize<SourceStep>() ?? throw new InvalidOperationException("Invalid source output.");
                 }
                 catch (SourceRefusedException refused)
                 {
@@ -184,7 +192,8 @@ public sealed class EngineeringAgent(ToolRegistry tools, IAiExecutionAudit audit
                 await Audit("tool_started", "running");
                 toolStarted = true;
                 if (!budget.TryConsume()) throw new InvalidOperationException("Tool budget exhausted.");
-                var result = await definition.Handler!.ReadAsync(arguments, new(runId, user.UserId, readScope, clock.GetUtcNow()), token);
+                var result = await definition.Handler!.ReadAsync(arguments, new(runId, user.UserId, readScope, clock.GetUtcNow(),
+                    User: user, OriginAgentId: agent.Id, CorrelationId: correlationId), token);
                 var evidence = result.Deserialize<EngineeringAnswer>();
                 if (evidence is null || evidence.View != view || evidence.Repository != GitHubEngineeringSource.Repository
                     || evidence.Rows is null || evidence.Returned != evidence.Rows.Count

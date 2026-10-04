@@ -23,7 +23,7 @@ namespace Scmos.Api.Ai.Documents;
 /// prompt or document content is written to the audit.
 /// </summary>
 public sealed class ExtractionRun(IAiExecutionAudit audit, AiRunLimiter limiter, TimeProvider clock,
-    IOptions<OpenAiOptions>? providerOptions = null, IAiGovernance? governance = null)
+    IOptions<OpenAiOptions>? providerOptions = null, IAiGovernance? governance = null, IAiPolicyGateway? policyGateway = null)
 {
     public const string Tool = "extract_document";
 
@@ -36,6 +36,9 @@ public sealed class ExtractionRun(IAiExecutionAudit audit, AiRunLimiter limiter,
             return new ExtractionResult(null, "Document reading is for the department's own accounts.", StatusCodes.Status403Forbidden);
         if (parts.Count is < 1 or > 4)
             return new ExtractionResult(null, "Attach one to four files.", StatusCodes.Status400BadRequest);
+        var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+            AiAuthorizationRequest.For(AgentIds.DocumentInvoice, AiAction.DocumentExtract, Tool, user, correlationId), token);
+        if (!authorization.Allowed) return new(null, authorization.ReasonCode, StatusCodes.Status503ServiceUnavailable);
         // It is the Document & Invoice Agent reading: paused, at L0 or resting on its breaker, it reads nothing.
         if (governance is not null
             && (await governance.SnapshotAsync(token)).Gate(DocumentAgent.Id, flagEnabled: true, AgentNeed.Run) is { Allowed: false } refused)

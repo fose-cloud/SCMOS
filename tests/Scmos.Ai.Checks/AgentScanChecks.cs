@@ -182,8 +182,8 @@ static class AgentScanChecks
                 register.Invalidate();
                 var suppliers = new SupplierService(db, new KpiEngine(db, register, new CarrierDirectory(db, cache), cache,
                     Options.Create(new PreRunOptions())));
-                var scanner = new AgentScanner(db, register, agents, governance, new AiDecisionLog(db, agents, audit, clock),
-                    suppliers, Options.Create(with ?? ai), clock, NullLogger<AgentScanner>.Instance);
+                var scanner = new AgentScanner(new AiPassRepository(db, OfflineReviewedPolicyGateway.Instance), register, agents, governance, new AiDecisionLog(db, agents, audit, clock),
+                    suppliers, Options.Create(with ?? ai), clock, NullLogger<AgentScanner>.Instance, policyGateway: OfflineReviewedPolicyGateway.Instance);
                 return await scanner.ScanAsync(default);
             }
             async Task<List<AiDecision>> Decisions()
