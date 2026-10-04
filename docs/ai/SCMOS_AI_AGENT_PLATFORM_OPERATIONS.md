@@ -107,9 +107,13 @@ built higher is the earlier Operations Agent's change pilot (L3, every change
 approved by a supervisor). Anything beyond recommending needs
 the department's open decisions first:
 1. the carrier confirmation time limit, and whether an expired request may move on by itself;
-2. whether reminders may be sent to carriers at all, and on which channel;
+2. ~~whether reminders may be sent to carriers at all, and on which channel~~ — **decided 4 Oct 2026: no.**
+   No agent sends anything outward, on any channel. The Communication Agent drafts; a person sends
+   from their own LINE or mail and records it. (LINE outbound was already off; SCMOS sends no email.)
 3. the Customer Requirement master (for the RequirementRisk agent);
-4. model prices for the cost column;
+4. ~~model prices for the cost column~~ — **decided 4 Oct 2026: gpt-4.1 at USD 2.00 input / 8.00 output
+   per million tokens.** In the Portal: `AI__PriceList` = `gpt-4.1=2.00/8.00` (`AI__PriceCurrency` is
+   `USD` by default). Until it is set, the cost column says "ราคาไม่ครบ" rather than zero;
 5. the text of Rule −1 to 3 and AP-01 to 04.
 
 ## Permissions and audit
