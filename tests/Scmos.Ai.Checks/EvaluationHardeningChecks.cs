@@ -69,7 +69,7 @@ static class EvaluationHardeningChecks
             AppUser User(string id, string role) => new(id.ToLowerInvariant(), id.ToLowerInvariant() + "@test.invalid", id, role, id, "test", true);
             var operation = User("OP-1", Roles.Operation);
             var supervisor = User("SV-1", Roles.Supervisor);
-            var manager = User("MG-1", Roles.Manager);
+            var assistant = User("AM-1", Roles.AssistantManager);
             var carrier = User("SUB-1", Roles.Subcontractor);
             var snapshotLog = new Captured<EvaluationSnapshotService>();
             var scoringLog = new Captured<EvaluationScoringService>();
@@ -173,16 +173,20 @@ static class EvaluationHardeningChecks
             check(scored.Ok && results.Count == 2 && results.All(one => one.Version == 1 && one.Current && one.HumanScore != null),
                 "flow: SCMOS aggregates the department answers and calculates — version 1 for both, nothing left from the failure");
 
-            // Management reviews, approves; the campaign is finalized into the Supplier Register.
+            // Management reviews: the user's rules of 4 Oct 2026 — a supervisor records the decisions, an Assistant Manager or
+            // above approves and finalizes, and a decision to stop giving a carrier work never changes its status by itself.
             await campaigns.MoveAsync(supervisor, id, AnnualEvaluationRules.Closed, null, default);
             await campaigns.MoveAsync(supervisor, id, AnnualEvaluationRules.UnderReview, null, default);
-            await review.DecideAsync(manager, id, alphaRow.Id, EvaluationReview.Continue, "", default);
-            await review.DecideAsync(manager, id, bravoRow.Id, EvaluationReview.ContinueWithPlan, "Ratings of 3 across the sheet", default);
-            var approved = await campaigns.MoveAsync(manager, id, AnnualEvaluationRules.Approved, null, default);
-            var finalized = await campaigns.MoveAsync(manager, id, AnnualEvaluationRules.Finalized, null, default);
+            var recorded = await review.DecideAsync(supervisor, id, alphaRow.Id, EvaluationReview.Continue, "", default);
+            var suspended = await review.DecideAsync(supervisor, id, bravoRow.Id, EvaluationReview.SuspendNewAllocation, "Ratings of 3 across the sheet", default);
+            var bySupervisor = await campaigns.MoveAsync(supervisor, id, AnnualEvaluationRules.Approved, null, default);
+            var approved = await campaigns.MoveAsync(assistant, id, AnnualEvaluationRules.Approved, null, default);
+            var finalized = await campaigns.MoveAsync(assistant, id, AnnualEvaluationRules.Finalized, null, default);
             var published = await db.SupplierEvaluations.AsNoTracking().Where(row => row.Period == code).ToListAsync();
-            check(approved.Ok && finalized.Ok && published.Count == 2 && published.All(row => row.Source == SupplierEvaluation.CampaignSource),
-                "flow: management decides each carrier, approves, and finalizing writes both results into the Supplier Register");
+            check(recorded.Ok && suspended.Ok && bySupervisor.Status == StatusCodes.Status403Forbidden && approved.Ok && finalized.Ok
+                && published.Count == 2 && published.All(row => row.Source == SupplierEvaluation.CampaignSource)
+                && (await db.Suppliers.AsNoTracking().SingleAsync(row => row.Id == bravo.Id)).Status == "approved",
+                "flow: a supervisor records each decision but cannot approve; an Assistant Manager approves and finalizes into the Supplier Register — a carrier suspended from new work keeps its register status");
 
             // §35: each step of the flow is in the audit trail, the evaluator's own steps marked as coming from outside.
             var trail = await db.AuditEvents.AsNoTracking().Where(row => row.Entity == "annual-evaluation").ToListAsync();
@@ -206,7 +210,7 @@ static class EvaluationHardeningChecks
                 && everything.All(line => secrets.All(secret => !line.Text.Contains(secret, StringComparison.OrdinalIgnoreCase))),
                 "observability: refused and failed submissions are logged by the link's row id — no token and no token hash in any line");
 
-            // Who reaches what, asked of the services: Operation reads, a supervisor runs, a manager decides, a carrier account reaches nothing.
+            // Who reaches what, asked of the services: Operation reads, a supervisor runs, an Assistant Manager or above approves, a carrier account reaches nothing.
             var fresh = (int)(await campaigns.CreateAsync(supervisor, new CreateCampaignInput(2027, null, null), default)).Id!.Value;
             check((await Snapshots(db).GenerateAsync(operation, fresh, null, null, default)).Status == StatusCodes.Status403Forbidden
                 && (await Scoring(db).CalculateAsync(operation, fresh, null, null, default)).Status == StatusCodes.Status403Forbidden

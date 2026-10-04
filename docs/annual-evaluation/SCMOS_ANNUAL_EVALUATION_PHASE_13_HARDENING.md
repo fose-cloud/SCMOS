@@ -41,8 +41,11 @@ No email and no OTP exist, by decision of 1 Oct 2026: SCMOS sends no email. An a
   |---|---|---|
   | View | `ViewAnnualEvaluation` | Operation and above |
   | Manage, Configure | `ManageAnnualEvaluation` | Supervisor and above |
-  | Review | `ManageAnnualEvaluation` or `DecideAnnualEvaluation` | decisions while under review |
-  | Approve, Finalize | `DecideAnnualEvaluation` | Manager, Assistant Manager, Administrator |
+  | Review | `ManageAnnualEvaluation` or `DecideAnnualEvaluation` | a supervisor records the decisions while under review |
+  | Approve, Finalize | `DecideAnnualEvaluation` | Assistant Manager and above (Assistant Manager, Manager, Administrator) |
+
+  Decided by the user on 4 Oct 2026: a supervisor may record decisions, and the approval is the Assistant Manager's or above.
+  "Suspend new allocation" and "inactive" are listed for whoever finalizes, never applied to the supplier's status.
 
   Carrier (Subcontractor) accounts reach none of it.
 - **Privacy (§39).** The external page receives a whitelisted DTO (`ExternalView`): no ids, no other carrier, no rates, no notes, no records. The AI summary's facts carry no evaluator name and no internal pricing note.
@@ -78,7 +81,7 @@ The project has no browser E2E harness. The flow runs through the same services 
 5. ยกเลิกลิงก์หนึ่งลิงก์ → เปิดลิงก์นั้น — ต้องขึ้นว่า "ถูกยกเลิกแล้ว"
 6. **คำนวณคะแนน** → ผลการประเมิน — คะแนน System / Department / รวม ตรงกับที่คิดด้วยมือ 1 ราย
 7. ผู้ขนส่ง 1 ราย → **สรุปด้วย AI** (เมื่อเปิด `AI__EvaluationAiEnabled`) — ทุกบรรทัดมี [F#] และกดดูข้อเท็จจริงได้
-8. ปิดรับ → **การพิจารณา** → ตัดสินทุกราย (ทุกอย่างยกเว้น "ใช้งานต่อ" ต้องมีเหตุผล) → Manager อนุมัติ → สรุปผล — ผลเข้าทะเบียนผู้ขนส่ง (Supplier Register → ประวัติการประเมิน)
+8. ปิดรับ → **การพิจารณา** → ตัดสินทุกราย (ทุกอย่างยกเว้น "ใช้งานต่อ" ต้องมีเหตุผล) → Assistant Manager ขึ้นไปอนุมัติ (Supervisor บันทึกการตัดสินได้ แต่อนุมัติไม่ได้) → สรุปผล — ผลเข้าทะเบียนผู้ขนส่ง (Supplier Register → ประวัติการประเมิน); ผู้ขนส่งที่ตัดสิน "ระงับการจ่ายงานใหม่" หรือ "เลิกใช้งาน" ต้องยังมีสถานะเดิมในทะเบียน — เปลี่ยนเองที่ Supplier Register ถ้าต้องการ
 9. บัญชี Operation: เห็นผลได้ แต่ปุ่มสร้าง/คำนวณ/ตัดสินต้องไม่ทำงาน
 10. **ประวัติการประเมิน** → นำเข้า `Subcontractor Evaluation.xlsx` ปี 2025 และตาราง ISO & Q-Mark — ตรวจตัวอย่างก่อนกดนำเข้า; รายที่จับคู่ไม่ได้ต้องเลือกเอง
 
