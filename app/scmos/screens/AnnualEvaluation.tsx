@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import type { PlanPrefill } from "../actionPlanRequest";
 import {
-  ELIGIBILITY, MOVE_LABEL, STATUS, isBackward, type CampaignRow, type CampaignSummary, type CampaignView, type CarrierRow, type IssuedLink, type ResultRow,
+  ELIGIBILITY, MOVE_LABEL, STATUS, isBackward, prefillOf, type CampaignRow, type CampaignSummary, type CampaignView, type CarrierRow, type EvaluationPlan,
+  type IssuedLink, type PlanDraft, type ResultRow,
 } from "../annualEvaluation";
 import { ZoomBox } from "../TableFrame";
 import { css } from "../theme";
@@ -14,17 +15,20 @@ import { EvaluationBoard } from "./EvaluationBoard";
 import { EvaluationCarrierPanel } from "./EvaluationCarrierPanel";
 import { EvaluationDecisions } from "./EvaluationDecisions";
 import { EvaluationEvaluators } from "./EvaluationEvaluators";
+import { EvaluationHistory } from "./EvaluationHistory";
 
 /**
  * Annual Carrier Evaluation (1 Oct 2026, Phase 5) — in place of the screen that averaged a few scores into a grade.
  * A campaign is one year's evaluation: its rules, its carriers, the evidence each is scored on and the scores. Every
  * figure and every rule is the API's; this screen asks, shows, and sends what a person decided.
  */
-export function AnnualEvaluation({ canManage, onToast, onActionPlan }: {
+export function AnnualEvaluation({ canManage, onToast, onActionPlan, onOpenPlan }: {
   canManage: boolean;
   onToast: (message: string) => void;
   /** Starts an improvement plan for a carrier from its result; absent without EditActionPlans. */
   onActionPlan?: (prefill: PlanPrefill) => void;
+  /** Opens an Action Plan made from a carrier's evaluation. */
+  onOpenPlan?: (planId: number) => void;
 }) {
   const [list, setList] = useState<CampaignRow[] | null>(null);
   const [failure, setFailure] = useState("");
@@ -32,6 +36,8 @@ export function AnnualEvaluation({ canManage, onToast, onActionPlan }: {
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [copyFrom, setCopyFrom] = useState("");
   const [busy, setBusy] = useState(false);
+  /** The campaigns, or the carriers' history year by year with their certificates (Phase 11). */
+  const [view, setView] = useState<"campaigns" | "history">("campaigns");
 
   const load = useCallback(async () => {
     try {
@@ -64,14 +70,23 @@ export function AnnualEvaluation({ canManage, onToast, onActionPlan }: {
   }
 
   if (openId !== null) {
-    return <CampaignScreen id={openId} canManage={canManage} onToast={onToast} onActionPlan={onActionPlan}
+    return <CampaignScreen id={openId} canManage={canManage} onToast={onToast} onActionPlan={onActionPlan} onOpenPlan={onOpenPlan}
       onBack={() => { setOpenId(null); void load(); }} />;
   }
+  const views = (
+    <div style={css("display:flex;gap:6px")}>
+      {([["campaigns", "แคมเปญ"], ["history", "ประวัติการประเมิน"]] as const).map(([key, label]) => (
+        <button key={key} type="button" onClick={() => setView(key)} style={css(view === key ? PRIMARY : OUTLINE)}>{label}</button>
+      ))}
+    </div>
+  );
+  if (view === "history") return <div style={css("display:flex;flex-direction:column;gap:14px")}>{views}<EvaluationHistory canManage={canManage} onToast={onToast} /></div>;
   if (failure) return <Notice tone="#B45309">{failure}</Notice>;
   if (!list) return <Notice tone="#7B8CA0">กำลังโหลด…</Notice>;
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
+      {views}
       {canManage && (
         <div style={css(PANEL + "display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap")}>
           <label style={css("display:flex;flex-direction:column;gap:3px")}>
@@ -120,13 +135,15 @@ export function StatusBadge({ status }: { status: string }) {
 
 type Tab = "results" | "review" | "carriers" | "evaluators" | "setup";
 
-function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
+function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan, onOpenPlan }: {
   id: number; canManage: boolean; onBack: () => void; onToast: (message: string) => void; onActionPlan?: (prefill: PlanPrefill) => void;
+  onOpenPlan?: (planId: number) => void;
 }) {
   const [view, setView] = useState<CampaignView | null>(null);
   const [carriers, setCarriers] = useState<CarrierRow[]>([]);
   const [results, setResults] = useState<ResultRow[]>([]);
   const [summary, setSummary] = useState<CampaignSummary | null>(null);
+  const [plans, setPlans] = useState<EvaluationPlan[]>([]);
   const [failure, setFailure] = useState("");
   const [tab, setTab] = useState<Tab>("results");
   const [picked, setPicked] = useState<number | null>(null);
@@ -138,13 +155,15 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
   const load = useCallback(async () => {
     try {
       const read = (path: string) => apiFetch(`/api/annual-evaluations/${id}${path}`, { headers: { accept: "application/json" } });
-      const [campaign, carrierList, resultList, summaryRead] = await Promise.all([read(""), read("/carriers"), read("/results"), read("/summary")]);
+      const [campaign, carrierList, resultList, summaryRead, planList] = await Promise.all([
+        read(""), read("/carriers"), read("/results"), read("/summary"), read("/plans")]);
       const body = await campaign.json().catch(() => null) as CampaignView & { error?: string } | null;
       if (!campaign.ok || !body) throw new Error(body?.error ?? `เปิดแคมเปญไม่ได้ (${campaign.status})`);
       setView(body);
       setCarriers(carrierList.ok ? await carrierList.json() as CarrierRow[] : []);
       setResults(resultList.ok ? await resultList.json() as ResultRow[] : []);
       setSummary(summaryRead.ok ? await summaryRead.json() as CampaignSummary : null);
+      setPlans(planList.ok ? await planList.json() as EvaluationPlan[] : []);
       setFailure("");
     } catch (problem) {
       setFailure(problem instanceof Error ? problem.message : String(problem));
@@ -180,6 +199,14 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
       return response.ok;
     } finally { setBusy(false); }
   }
+
+  /** A carrier's improvement plan, opened in Action Plan with what its evaluation found filled in (Phase 10). */
+  const startPlan = onActionPlan ? async (carrier: number) => {
+    const response = await apiFetch(`/api/annual-evaluations/${id}/carriers/${carrier}/plan-draft`, { headers: { accept: "application/json" } });
+    const draft = await response.json().catch(() => null) as PlanDraft & { error?: string } | null;
+    if (!response.ok || !draft) { onToast(draft?.error ?? `เปิดร่างแผนไม่ได้ (${response.status})`); return; }
+    onActionPlan(prefillOf(draft));
+  } : undefined;
 
   /** A reason, when the API will want one; null when somebody cancelled. */
   function reasonFor(needed: boolean, question: string): string | null {
@@ -264,7 +291,7 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
       {tab === "results" && <EvaluationBoard view={view} results={results} summary={summary} onPick={setPicked} />}
 
       {tab === "review" && (
-        <EvaluationDecisions view={view} results={results} summary={summary} busy={busy}
+        <EvaluationDecisions view={view} results={results} summary={summary} busy={busy} plans={plans} onPlan={startPlan} onOpenPlan={onOpenPlan}
           editable={(manage || view.canDecide) && campaign.status === "under-review"}
           onDecide={(carrier, decision, note) => send(`/carriers/${carrier}/decision`, "PUT", { decision, note })} />
       )}
@@ -338,7 +365,8 @@ function CampaignScreen({ id, canManage, onBack, onToast, onActionPlan }: {
 
       {picked !== null && (
         <EvaluationCarrierPanel campaignId={id} carrierId={picked} view={view} canManage={manage && !closedForEvidence}
-          onClose={() => setPicked(null)} onChanged={() => void load()} onToast={onToast} onActionPlan={onActionPlan} />
+          plans={plans.filter((plan) => plan.evaluationCarrierId === picked)} onPlan={startPlan ? () => void startPlan(picked) : undefined}
+          onOpenPlan={onOpenPlan} onClose={() => setPicked(null)} onChanged={() => void load()} onToast={onToast} />
       )}
     </div>
   );

@@ -34,6 +34,14 @@ public static class MailEndpoints
     /// <param name="Status">CONFIRMED or REJECTED — see <see cref="MailReview.IsADecision"/>.</param>
     public record DecisionBody(string? JobKey, string? Status);
 
+    /// <summary>A sender whose mail is read out of the personal mailboxes, and who it is.</summary>
+    public record SenderBody(string? Address, string? Note);
+
+    /// <summary>
+    /// A mailbox SCMOS reads: whose it is (an operator id, or empty for a shared one) and whether it is on.
+    /// </summary>
+    public record MailboxBody(string? Address, string? Owner, bool Active);
+
     public static void MapMail(this IEndpointRouteBuilder routes)
     {
         var group = routes.MapGroup("/api/mail").WithTags("Mail");
@@ -60,7 +68,8 @@ public static class MailEndpoints
             var size = Math.Clamp(per is > 0 ? per.Value : 50, 1, 200);
             var wantedPage = Math.Max(page ?? 1, 1);
 
-            var rows = db.Emails.AsNoTracking().AsQueryable();
+            // A personal mailbox's mail only for its owner, Supervisor and above, or the owner of a job it is about.
+            var rows = db.Emails.AsNoTracking().VisibleTo(db, user);
 
             // The status half of the view is a column, so it is a predicate the
             // database can answer. The linked half is a join, below.
@@ -119,7 +128,7 @@ public static class MailEndpoints
                 page = wantedPage,
                 pageCount = (int)Math.Ceiling(total / (double)size),
                 view = wanted,
-                waiting = await db.Emails.AsNoTracking().CountAsync(one =>
+                waiting = await db.Emails.AsNoTracking().VisibleTo(db, user).CountAsync(one =>
                     one.ProcessingStatus == MailProcessing.NeedReview
                     || one.ProcessingStatus == MailProcessing.Failed, token),
                 messages = found.Select(one => new
@@ -149,18 +158,22 @@ public static class MailEndpoints
             if (!user.Can(Capability.ViewMailbox))
                 return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์อ่านศูนย์รวมการติดต่อ", StatusCodes.Status403Forbidden);
 
-            var message = await db.Emails.AsNoTracking().FirstOrDefaultAsync(one => one.Id == id, token);
+            // Not found, rather than forbidden, for a message this person may not see: the answer says nothing of it.
+            var message = await db.Emails.AsNoTracking().Where(one => one.Id == id).VisibleTo(db, user).FirstOrDefaultAsync(token);
             if (message is null) return ApiResults.Error("ไม่พบข้อความนี้", StatusCodes.Status404NotFound);
 
-            var mailbox = await db.Mailboxes.AsNoTracking()
+            var box = await db.Mailboxes.AsNoTracking()
                 .Where(one => one.Id == message.MailboxId)
-                .Select(one => one.Address)
-                .FirstOrDefaultAsync(token) ?? "";
+                .Select(one => new { one.Address, one.OwnerOperatorId })
+                .FirstOrDefaultAsync(token);
+            var mailbox = box?.Address ?? "";
+            var personal = MailSenders.Personal(box?.OwnerOperatorId);
 
             return Results.Json(new
             {
                 message.Id,
                 mailbox,
+                personal,
                 message.Subject,
                 message.FromAddress,
                 message.FromName,
@@ -207,6 +220,137 @@ public static class MailEndpoints
                         one.StoredDocumentId, one.Kind, one.FetchError, one.FetchedAt,
                     })
                     .ToListAsync(token),
+            });
+        });
+
+        /*
+         * The senders read out of the personal mailboxes (4 Oct 2026). Anybody who reads the Communication Center may
+         * see the list; Supervisor and above keep it, every change in the audit trail. Full addresses only.
+         */
+        group.MapGet("/senders", async (HttpContext context, IUserAccessor users, ScmosDbContext db, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.ViewMailbox))
+                return ApiResults.Error("บัญชีนี้ไม่มีสิทธิ์อ่านศูนย์รวมการติดต่อ", StatusCodes.Status403Forbidden);
+            var senders = await db.MailAllowedSenders.AsNoTracking().OrderBy(one => one.Address)
+                .Select(one => new { one.Id, one.Address, one.Note, one.AddedBy, one.AddedAt }).ToListAsync(token);
+            return Results.Json(new { senders, canManage = MailVisibility.SeesAll(user) });
+        });
+
+        group.MapPost("/senders", async (SenderBody body, HttpContext context, IUserAccessor users, ScmosDbContext db,
+            AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!MailVisibility.SeesAll(user))
+                return ApiResults.Error("กำหนดผู้ส่งได้เฉพาะ Supervisor ขึ้นไป", StatusCodes.Status403Forbidden);
+            var address = MailSenders.Normalise(body?.Address);
+            if (!MailSenders.IsAddress(address))
+                return ApiResults.Error("ต้องเป็นอีเมลเต็ม เช่น booking@customer.com", StatusCodes.Status400BadRequest);
+            if (await db.MailAllowedSenders.AnyAsync(one => one.Address == address, token))
+                return ApiResults.Error($"{address} อยู่ในรายชื่อแล้ว", StatusCodes.Status409Conflict);
+            var note = (body?.Note ?? "").Trim();
+            if (note.Length > MailSenders.NoteLength) note = note[..MailSenders.NoteLength];
+            var row = new MailAllowedSender { Address = address, Note = note, AddedBy = user.Signature, AddedAt = DateTimeOffset.UtcNow };
+            db.MailAllowedSenders.Add(row);
+            try { await db.SaveChangesAsync(token); }
+            catch (DbUpdateException) { return ApiResults.Error($"{address} อยู่ในรายชื่อแล้ว", StatusCodes.Status409Conflict); }
+            await audit.RecordAsync(user, AuditActions.Register, "mail-sender", row.Id.ToString(), address, "sender", "", address, note, token);
+            return Results.Json(new { message = $"เพิ่ม {address} แล้ว — อ่านอีเมลจากผู้ส่งนี้ตั้งแต่นี้ไป", id = row.Id });
+        });
+
+        group.MapDelete("/senders/{id:long}", async (long id, HttpContext context, IUserAccessor users, ScmosDbContext db,
+            AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!MailVisibility.SeesAll(user))
+                return ApiResults.Error("กำหนดผู้ส่งได้เฉพาะ Supervisor ขึ้นไป", StatusCodes.Status403Forbidden);
+            var row = await db.MailAllowedSenders.FirstOrDefaultAsync(one => one.Id == id, token);
+            if (row is null) return ApiResults.Error("ไม่พบผู้ส่งนี้", StatusCodes.Status404NotFound);
+            db.MailAllowedSenders.Remove(row);
+            await db.SaveChangesAsync(token);
+            await audit.RecordAsync(user, AuditActions.Delete, "mail-sender", id.ToString(), row.Address, "sender", row.Address, "", "", token);
+            return Results.Json(new { message = $"เอา {row.Address} ออกแล้ว — อีเมลที่อ่านไว้แล้วยังอยู่" });
+        });
+
+        /*
+         * The mailboxes SCMOS reads (4 Oct 2026): the addresses Graph__Mailboxes approves, each declared personal — whose —
+         * or shared, and switched on. The Administrator's, with the second factor, like the mailbox test. An address
+         * that is a member of staff's own email cannot be declared shared: that would read a person's whole mailbox.
+         */
+        group.MapGet("/mailboxes", async (HttpContext context, IUserAccessor users, ScmosDbContext db, GraphAuth graph,
+            CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AdministerMailbox))
+                return ApiResults.Error("จัดการกล่องอีเมลได้เฉพาะ Administrator", StatusCodes.Status403Forbidden);
+            var rows = await db.Mailboxes.AsNoTracking().ToListAsync(token);
+            var staff = await db.Staff.AsNoTracking().Where(one => one.Active && one.SupplierId == null)
+                .Select(one => new { one.Id, one.Name, one.Email, one.Role }).ToListAsync(token);
+            var addresses = graph.Approved.Union(rows.Select(one => GraphMailboxes.Normalise(one.Address))).Distinct().OrderBy(one => one);
+            return Results.Json(new
+            {
+                mailboxes = addresses.Select(address =>
+                {
+                    var row = rows.FirstOrDefault(one => GraphMailboxes.Normalise(one.Address) == address);
+                    var owner = row?.OwnerOperatorId ?? "";
+                    var mine = staff.FirstOrDefault(one => GraphMailboxes.Normalise(one.Email) == address);
+                    return new
+                    {
+                        address, id = row?.Id, active = row?.IsActive ?? false, owner,
+                        ownerName = staff.FirstOrDefault(one => one.Id == owner)?.Name ?? "",
+                        approved = graph.Approves(address), lastSyncedAt = row?.LastSyncedAt,
+                        // Whose address it is, when it is a member of staff's — the owner the screen offers first.
+                        staffOwner = mine?.Id ?? "",
+                    };
+                }),
+                staff = staff.OrderBy(one => one.Name).Select(one => new { one.Id, one.Name, one.Role }),
+            });
+        });
+
+        group.MapPut("/mailboxes", async (MailboxBody body, HttpContext context, IUserAccessor users, ScmosDbContext db,
+            GraphAuth graph, AuditService audit, CancellationToken token) =>
+        {
+            var user = users.Current(context);
+            if (user is null) return ApiResults.SignInRequired;
+            if (!user.Can(Capability.AdministerMailbox))
+                return ApiResults.Error("จัดการกล่องอีเมลได้เฉพาะ Administrator", StatusCodes.Status403Forbidden);
+            if (ApiResults.NeedsSecondFactor(users, user, Capability.AdministerMailbox) is { } weak) return weak;
+
+            var address = GraphMailboxes.Normalise(body?.Address);
+            if (!graph.Approves(address))
+                return ApiResults.Error("กล่องนี้ไม่ได้อยู่ใน Graph__Mailboxes — เพิ่มใน Portal ก่อน", StatusCodes.Status400BadRequest);
+            var owner = (body?.Owner ?? "").Trim();
+            var staff = await db.Staff.AsNoTracking().Where(one => one.Active && one.SupplierId == null)
+                .Select(one => new { one.Id, one.Email, one.Name }).ToListAsync(token);
+            if (owner.Length > 0 && staff.All(one => one.Id != owner))
+                return ApiResults.Error("ไม่พบพนักงานที่เป็นเจ้าของกล่องนี้", StatusCodes.Status400BadRequest);
+            if (owner.Length == 0 && staff.FirstOrDefault(one => GraphMailboxes.Normalise(one.Email) == address) is { } person)
+                return ApiResults.Error($"{address} เป็นอีเมลของ {person.Name} — ต้องตั้งเป็นกล่องส่วนตัวของเขา ไม่ใช่กล่องกลาง",
+                    StatusCodes.Status400BadRequest);
+
+            var row = (await db.Mailboxes.ToListAsync(token)).FirstOrDefault(one => GraphMailboxes.Normalise(one.Address) == address);
+            var now = DateTimeOffset.UtcNow;
+            var (existed, wasOwner, wasActive) = (row is not null, row?.OwnerOperatorId ?? "", row?.IsActive ?? false);
+            if (row is null)
+                db.Mailboxes.Add(row = new Mailbox { Address = address, DisplayName = address, CreatedAt = now });
+            row.OwnerOperatorId = owner;
+            row.IsActive = body!.Active;
+            row.UpdatedAt = now;
+            await db.SaveChangesAsync(token);
+
+            string Kind(string who, bool on) => (who.Length == 0 ? "กล่องกลาง" : $"ส่วนตัว {who}") + (on ? " · เปิด" : " · ปิด");
+            await audit.RecordAsync(user, AuditActions.Configure, "mailbox", row.Id.ToString(), address, "mailbox",
+                existed ? Kind(wasOwner, wasActive) : "", Kind(owner, row.IsActive), "", token);
+            return Results.Json(new
+            {
+                message = row.IsActive
+                    ? owner.Length > 0 ? $"เปิดอ่าน {address} แล้ว — อ่านเฉพาะผู้ส่งที่กำหนด" : $"เปิดอ่าน {address} แล้ว — กล่องกลาง อ่านทุกฉบับ"
+                    : $"ปิดการอ่าน {address} แล้ว",
+                id = row.Id,
             });
         });
 

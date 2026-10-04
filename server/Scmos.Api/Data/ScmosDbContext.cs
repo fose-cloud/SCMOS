@@ -20,6 +20,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /* The Communication Center. Seven tables — see MailEntities for why that is
        not the six the plan's heading claims. */
     public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
+    public DbSet<MailAllowedSender> MailAllowedSenders => Set<MailAllowedSender>();
     public DbSet<Email> Emails => Set<Email>();
     public DbSet<EmailParticipant> EmailParticipants => Set<EmailParticipant>();
     public DbSet<EmailAttachment> EmailAttachments => Set<EmailAttachment>();
@@ -131,6 +132,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     /// <summary>Dropdown cells the rules propose to change, waiting for the job's owner (22 Sep 2026).</summary>
     public DbSet<JobCorrection> JobCorrections => Set<JobCorrection>();
     public DbSet<SupplierEvaluation> SupplierEvaluations => Set<SupplierEvaluation>();
+    public DbSet<SupplierCertificate> SupplierCertificates => Set<SupplierCertificate>();
+    public DbSet<EvaluationAiSummary> EvaluationAiSummaries => Set<EvaluationAiSummary>();
 
     public DbSet<FuelBand> FuelBands => Set<FuelBand>();
     public DbSet<RateLane> RateLanes => Set<RateLane>();
@@ -327,12 +330,25 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.GraphUserId).HasColumnName("graph_user_id").HasMaxLength(64).HasDefaultValue("");
             entry.Property(e => e.FolderId).HasColumnName("folder_id").HasMaxLength(200).HasDefaultValue("");
             entry.Property(e => e.IsActive).HasColumnName("is_active").HasDefaultValue(false);
+            entry.Property(e => e.OwnerOperatorId).HasColumnName("owner_operator_id").HasMaxLength(20).HasDefaultValue("");
             entry.Property(e => e.LastSyncedAt).HasColumnName("last_synced_at");
             entry.Property(e => e.CreatedAt).HasColumnName("created_at");
             entry.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             // One row per address. Two would be two places the same mail lands,
             // and a message would be stored, extracted and linked twice.
             entry.HasIndex(e => e.Address).IsUnique().HasDatabaseName("mailboxes_address_idx");
+        });
+
+        model.Entity<MailAllowedSender>(entry =>
+        {
+            entry.ToTable("mail_allowed_senders");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.Address).HasColumnName("address").HasMaxLength(MailText.Address);
+            entry.Property(e => e.Note).HasColumnName("note").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.AddedBy).HasColumnName("added_by").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.AddedAt).HasColumnName("added_at");
+            entry.HasIndex(e => e.Address).IsUnique().HasDatabaseName("mail_allowed_senders_address_idx");
         });
 
         model.Entity<Email>(entry =>
@@ -1591,6 +1607,37 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             e.Property(x => x.Result).HasMaxLength(60).HasDefaultValue("");
             e.Property(x => x.ImportedBy).HasMaxLength(200).HasDefaultValue("");
             e.HasIndex(x => new { x.SupplierId, x.Period }).IsUnique().HasDatabaseName("supplier_evaluation_idx");
+        });
+
+        // An AI summary of a carrier's evaluation (2 Oct 2026, Phase 12), with the facts it was written from.
+        model.Entity<EvaluationAiSummary>(e =>
+        {
+            e.ToTable("evaluation_ai_summaries");
+            foreach (var text in new[] { nameof(EvaluationAiSummary.Summary), nameof(EvaluationAiSummary.Strengths),
+                nameof(EvaluationAiSummary.Improvements), nameof(EvaluationAiSummary.Trends) })
+                e.Property(text).HasMaxLength(1000).HasDefaultValue("");
+            e.Property(x => x.Facts).HasDefaultValue("[]");
+            e.Property(x => x.Model).HasMaxLength(100).HasDefaultValue("");
+            e.Property(x => x.RequestedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.EvaluationCarrierId, x.Id }).HasDatabaseName("evaluation_ai_summary_idx");
+            e.HasOne<EvaluationCarrier>().WithMany().HasForeignKey(x => x.EvaluationCarrierId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // A carrier's ISO / Q-Mark certificates (2 Oct 2026): one row a carrier, certificate and year.
+        model.Entity<SupplierCertificate>(e =>
+        {
+            e.ToTable("supplier_certificates");
+            e.Property(x => x.Type).HasMaxLength(20);
+            e.Property(x => x.Number).HasMaxLength(80).HasDefaultValue("");
+            e.Property(x => x.IssuedOn).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.ExpiresOn).HasMaxLength(20).HasDefaultValue("");
+            e.Property(x => x.Verification).HasMaxLength(20).HasDefaultValue(Rules.SupplierCertificates.Declared);
+            e.Property(x => x.Source).HasMaxLength(20).HasDefaultValue(Rules.SupplierCertificates.Manual);
+            e.Property(x => x.Note).HasMaxLength(500).HasDefaultValue("");
+            e.Property(x => x.RecordedBy).HasMaxLength(200).HasDefaultValue("");
+            e.Property(x => x.UpdatedBy).HasMaxLength(200).HasDefaultValue("");
+            e.HasIndex(x => new { x.SupplierId, x.Type, x.Year }).IsUnique().HasDatabaseName("supplier_certificate_idx");
+            e.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Cascade);
         });
 
         model.Entity<FuelBand>(e =>

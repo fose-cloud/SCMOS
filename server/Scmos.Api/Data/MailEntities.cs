@@ -56,6 +56,14 @@ public class Mailbox
     /// <summary>Off until somebody connects it, like every other integration here.</summary>
     public bool IsActive { get; set; }
 
+    /// <summary>
+    /// Whose own mailbox this is — their operator id — or empty for a shared one (4 Oct 2026). A personal mailbox is
+    /// read for the senders Supervisors listed (<see cref="MailAllowedSender"/>) and nothing else: a message from anyone
+    /// else is never fetched, and nothing of it is kept. What is kept is seen by the owner, Supervisor and above, and
+    /// whoever owns a job it is linked to (<c>MailVisibility</c>).
+    /// </summary>
+    public string OwnerOperatorId { get; set; } = "";
+
     /// <summary>When a message was last read out of it, for the screen to show staleness.</summary>
     public DateTimeOffset? LastSyncedAt { get; set; }
 
@@ -350,6 +358,24 @@ public class GraphSubscription
 /// subject line.
 /// </para>
 /// </summary>
+/// <summary>
+/// A sender whose mail is read out of the personal mailboxes (4 Oct 2026) — a full address, as the user decided: a
+/// whole domain would let in every person at a customer. Kept by Supervisor and above, each change in the audit trail.
+/// </summary>
+public class MailAllowedSender
+{
+    public long Id { get; set; }
+
+    /// <summary>Lower-case, trimmed — see <c>MailSenders.Normalise</c>.</summary>
+    public string Address { get; set; } = "";
+
+    /// <summary>Who it is, for the list — "KWE booking desk".</summary>
+    public string Note { get; set; } = "";
+
+    public string AddedBy { get; set; } = "";
+    public DateTimeOffset AddedAt { get; set; }
+}
+
 public static class MailText
 {
     /// <summary>An email address. 320 is the RFC maximum: 64 local, @, 255 domain.</summary>

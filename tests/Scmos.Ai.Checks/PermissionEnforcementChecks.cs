@@ -42,7 +42,7 @@ static class PermissionEnforcementChecks
                 permissions["DelayDetect"] = "Analyze";
                 permissions["DocumentRead"] = "Read";
                 permissions["CommunicationRead"] = "Read";
-                foreach (var tool in new[] { "search_shipment", "query_delays", "query_documents", "query_messages" })
+                foreach (var tool in new[] { "search_shipment", "query_delays", "query_documents", "query_messages", "summarize_evaluation" })
                     agent["allowedTools"]!.AsArray().Add(tool);
             }
             if (agent["agentId"]!.GetValue<string>() is AgentIds.Engineering or AgentIds.Sre)

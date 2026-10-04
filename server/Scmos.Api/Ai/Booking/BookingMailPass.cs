@@ -70,7 +70,7 @@ public sealed class BookingMailPass(AiPassRepository data, IBookingTextReader re
                 ? Draft(mail.Id, mail.Subject, mail.FromName, mail.FromAddress, mail.ReceivedAt, reading,
                     BookingVerification.Check(reading.Category, text, reading.Fields, knownCustomers, received))
                 : NotABooking(mail.Id, mail.Subject, mail.FromAddress, mail.ReceivedAt);
-            var (row, problems) = decisions.Stage(result, runId, "", shadow, autonomy);
+            var (row, problems) = decisions.Stage(result, runId, mail.Owner, shadow, autonomy);
             if (row is null)
             {
                 refused++;

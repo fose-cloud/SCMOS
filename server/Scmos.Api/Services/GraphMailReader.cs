@@ -66,15 +66,16 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
     /// </para>
     /// </summary>
     /// <param name="since">Read from this moment on. Null reads from the beginning.</param>
+    /// <param name="fields">What each listed message carries; the catch-up asks for <see cref="GraphMessages.ListFields"/>.</param>
     public async Task<Fetched<GraphMessages.Page>> PageAsync(string mailbox, DateTimeOffset? since,
-        CancellationToken token, int size = DefaultPageSize)
+        CancellationToken token, int size = DefaultPageSize, string fields = GraphMessages.Fields)
     {
         var address = GraphMailboxes.Normalise(mailbox);
         if (!graph.Approves(address)) return Refused<GraphMessages.Page>(GraphDiagnosis.NotApproved);
 
         var url = $"{GraphAuth.Endpoint}/users/{Uri.EscapeDataString(address)}/messages"
             + $"?$top={Math.Clamp(size, 1, 999)}"
-            + $"&$select={Uri.EscapeDataString(GraphMessages.Fields)}"
+            + $"&$select={Uri.EscapeDataString(fields)}"
             + "&$orderby=" + Uri.EscapeDataString("receivedDateTime asc");
 
         if (since is { } from)
@@ -134,6 +135,27 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
     }
 
     /// <summary>
+    /// Who sent a message, and nothing else of it (4 Oct 2026) — what a personal mailbox's message is judged on before
+    /// anything more is fetched (<see cref="MailSenders"/>). Ok with an empty address is a message whose sender could
+    /// not be read, which no list allows; Ok with null is a message already gone.
+    /// </summary>
+    public async Task<Fetched<string?>> SenderAsync(string mailbox, string messageId, CancellationToken token)
+    {
+        var address = GraphMailboxes.Normalise(mailbox);
+        if (!graph.Approves(address)) return Refused<string?>(GraphDiagnosis.NotApproved);
+        if (string.IsNullOrWhiteSpace(messageId)) return Refused<string?>(GraphDiagnosis.ForStatus(400, true));
+
+        var url = $"{GraphAuth.Endpoint}/users/{Uri.EscapeDataString(address)}"
+            + $"/messages/{Uri.EscapeDataString(messageId)}"
+            + $"?$select={Uri.EscapeDataString(GraphMessages.SenderFields)}";
+
+        var (finding, body) = await GetAsync(url, address, token);
+        if (body is null) return new(finding, null);
+        using (body)
+            return new(finding, GraphMessages.ReadOne(body.RootElement)?.Message.FromAddress ?? "");
+    }
+
+    /// <summary>
     /// What a message has attached, as metadata. The bytes are step 13's.
     /// </summary>
     public async Task<Fetched<IReadOnlyList<EmailAttachment>>> AttachmentsAsync(string mailbox,
@@ -186,9 +208,8 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
             + $"/messages/{Uri.EscapeDataString(messageId)}"
             + $"/attachments/{Uri.EscapeDataString(attachmentId)}/$value";
 
-        var access = await graph.TokenAsync(token);
-        if (access is null) return Refused<Stream>(GraphDiagnosis.NoToken);
-        var consented = GraphToken.Grants(access, GraphAuth.MailRead);
+        var (_, consented, refusal) = await graph.AccessAsync(token);
+        if (refusal is not null) return Refused<Stream>(refusal);
 
         var client = await graph.ClientAsync(token);
         if (client is null) return Refused<Stream>(GraphDiagnosis.NoToken);
@@ -285,9 +306,8 @@ public sealed class GraphMailReader(GraphAuth graph, ILogger<GraphMailReader> lo
     private async Task<(GraphDiagnosis.Finding Finding, JsonDocument? Body)> GetAsync(string url,
         string mailbox, CancellationToken token)
     {
-        var access = await graph.TokenAsync(token);
-        if (access is null) return (GraphDiagnosis.NoToken, null);
-        var consented = GraphToken.Grants(access, GraphAuth.MailRead);
+        var (_, consented, refusal) = await graph.AccessAsync(token);
+        if (refusal is not null) return (refusal, null);
 
         var client = await graph.ClientAsync(token);
         if (client is null) return (GraphDiagnosis.NoToken, null);

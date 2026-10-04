@@ -7,6 +7,7 @@ import {
   VIEWS, confidenceLabel, linkLabel, linkSummary, linkTone, matchedOnLabel,
   sizeLabel, statusLabel, statusTone, whenLabel,
 } from "../mailInbox";
+import { MailSettings } from "./MailSettings";
 
 /**
  * The Communication Center — the shared mailbox, and which job each message is
@@ -51,7 +52,7 @@ type Row = {
 type Inbox = { total: number; waiting: number; view: string; messages: Row[] };
 
 type Detail = {
-  id: number; mailbox: string; subject: string; fromAddress: string; fromName: string;
+  id: number; mailbox: string; personal?: boolean; subject: string; fromAddress: string; fromName: string;
   receivedAt: string; status: string; error: string;
   bodyText: string; bodyHtml: string;
   participants: { kind: string; address: string; displayName: string }[];
@@ -69,12 +70,15 @@ type Detail = {
   }[];
 };
 
-export function Outlook({ canDecide, onToast }: {
+export function Outlook({ canDecide, canMailboxes, onToast }: {
   /** Whether this account may say which job a message belongs to. */
   canDecide: boolean;
+  /** Whether this account administers the mailboxes SCMOS reads. */
+  canMailboxes: boolean;
   onToast: (message: string) => void;
 }) {
   const [view, setView] = useState(VIEWS[0].key);
+  const [settings, setSettings] = useState(false);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -175,8 +179,8 @@ export function Outlook({ canDecide, onToast }: {
           <button
             key={one.key}
             type="button"
-            onClick={() => { setView(one.key); setDetail(null); setOpenId(null); }}
-            style={css(`${BUTTON};${one.key === view
+            onClick={() => { setView(one.key); setSettings(false); setDetail(null); setOpenId(null); }}
+            style={css(`${BUTTON};${!settings && one.key === view
               ? "background:#0A2240;color:#fff;border-color:#0A2240"
               : "background:#fff;color:#0A2240;border-color:#D3DBE3"}`)}
           >
@@ -184,28 +188,33 @@ export function Outlook({ canDecide, onToast }: {
             {one.key === "WAITING" && (inbox?.waiting ?? 0) > 0 ? ` · ${inbox?.waiting}` : ""}
           </button>
         ))}
+        <button type="button" onClick={() => setSettings(!settings)}
+          style={css(`${BUTTON};${settings ? "background:#0A2240;color:#fff;border-color:#0A2240" : "background:#fff;color:#0A2240;border-color:#D3DBE3"}`)}>
+          ตั้งค่าการอ่าน
+        </button>
         <span style={css("flex:1")} />
         <span style={css("font-size:11.5px;color:#64748B")}>
-          {inbox ? `${rows.length} จาก ${inbox.total} ฉบับ` : ""}
+          {inbox && !settings ? `${rows.length} จาก ${inbox.total} ฉบับ` : ""}
         </span>
       </div>
 
-      {error && (
+      {settings && <MailSettings canMailboxes={canMailboxes} onToast={onToast} />}
+
+      {!settings && error && (
         <div style={css(`${CARD};padding:12px 14px;margin-bottom:12px;color:#9B1C1C`)}>{error}</div>
       )}
 
-      {!error && rows.length === 0 && (
+      {!settings && !error && rows.length === 0 && (
         /* Empty because nothing has arrived, which until the Entra grant is made
            is the expected state — so it says which of the two it is rather than
            leaving somebody to wonder whether the screen is broken. */
         <div style={css(`${CARD};padding:16px 18px;color:#475569;font-size:12.5px;line-height:1.7`)}>
           <div style={css("font-weight:600;color:#0A2240;margin-bottom:4px")}>ยังไม่มีอีเมลในระบบ</div>
-          อีเมลจะเข้ามาเองเมื่อผู้ดูแลระบบให้สิทธิ์ <code>Mail.Read</code> กับ managed identity ของ API
-          และตั้งค่า <code>Graph__Mailboxes</code> แล้ว — ตรวจสถานะได้ที่เมนู Integrations
+          อีเมลจะเข้ามาเมื่อเชื่อม Microsoft 365 และเปิดอ่านกล่องอีเมลใน &quot;ตั้งค่าการอ่าน&quot; แล้ว — ตรวจสถานะได้ที่เมนู Integrations
         </div>
       )}
 
-      <div style={css("display:grid;grid-template-columns:minmax(320px,1fr) minmax(0,1.25fr);gap:14px;align-items:start")}>
+      {!settings && <div style={css("display:grid;grid-template-columns:minmax(320px,1fr) minmax(0,1.25fr);gap:14px;align-items:start")}>
         {rows.length > 0 && (
           <div style={css(`${CARD};overflow:hidden`)}>
             {rows.map((row) => (
@@ -247,6 +256,7 @@ export function Outlook({ canDecide, onToast }: {
             <div style={css("font-size:11.5px;color:#64748B;margin-bottom:12px")}>
               {detail.fromName ? `${detail.fromName} · ` : ""}{detail.fromAddress}
               {detail.mailbox ? ` → ${detail.mailbox}` : ""}
+              {detail.personal && <span style={css(chip("amber") + ";margin-left:6px")}>กล่องส่วนตัว</span>}
             </div>
 
             <div style={css(LABEL)}>งานที่จับคู่</div>
@@ -354,7 +364,7 @@ export function Outlook({ canDecide, onToast }: {
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

@@ -4822,6 +4822,91 @@ namespace Scmos.Api.Data.Migrations
                     b.ToTable("email_participants", (string)null);
                 });
 
+            modelBuilder.Entity("Scmos.Api.Data.EvaluationAiSummary", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("CampaignId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Dropped")
+                        .HasColumnType("int");
+
+                    b.Property<int>("EvaluationCarrierId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Facts")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
+
+                    b.Property<string>("Improvements")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasDefaultValue("");
+
+                    b.Property<bool>("Mock")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasDefaultValue("");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RequestedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("");
+
+                    b.Property<long?>("ResultId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("SnapshotId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Strengths")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("Trends")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasDefaultValue("");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EvaluationCarrierId", "Id")
+                        .HasDatabaseName("evaluation_ai_summary_idx");
+
+                    b.ToTable("evaluation_ai_summaries", (string)null);
+                });
+
             modelBuilder.Entity("Scmos.Api.Data.EvaluationAnswer", b =>
                 {
                     b.Property<long>("Id")
@@ -6942,6 +7027,50 @@ namespace Scmos.Api.Data.Migrations
                     b.ToTable("line_users", (string)null);
                 });
 
+            modelBuilder.Entity("Scmos.Api.Data.MailAllowedSender", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("added_at");
+
+                    b.Property<string>("AddedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("added_by");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)")
+                        .HasColumnName("address");
+
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("note");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Address")
+                        .IsUnique()
+                        .HasDatabaseName("mail_allowed_senders_address_idx");
+
+                    b.ToTable("mail_allowed_senders", (string)null);
+                });
+
             modelBuilder.Entity("Scmos.Api.Data.Mailbox", b =>
                 {
                     b.Property<long>("Id")
@@ -6994,6 +7123,14 @@ namespace Scmos.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("LastSyncedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("last_synced_at");
+
+                    b.Property<string>("OwnerOperatorId")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("")
+                        .HasColumnName("owner_operator_id");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
@@ -9271,6 +9408,99 @@ namespace Scmos.Api.Data.Migrations
                     b.ToTable("supplier_capacity", (string)null);
                 });
 
+            modelBuilder.Entity("Scmos.Api.Data.SupplierCertificate", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ExpiresOn")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("");
+
+                    b.Property<bool>("Held")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("IssuedOn")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasDefaultValue("");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RecordedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("manual");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("Verification")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("declared");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SupplierId", "Type", "Year")
+                        .IsUnique()
+                        .HasDatabaseName("supplier_certificate_idx");
+
+                    b.ToTable("supplier_certificates", (string)null);
+                });
+
             modelBuilder.Entity("Scmos.Api.Data.SupplierContact", b =>
                 {
                     b.Property<int>("Id")
@@ -10191,6 +10421,15 @@ namespace Scmos.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Scmos.Api.Data.EvaluationAiSummary", b =>
+                {
+                    b.HasOne("Scmos.Api.Data.EvaluationCarrier", null)
+                        .WithMany()
+                        .HasForeignKey("EvaluationCarrierId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Scmos.Api.Data.EvaluationAnswer", b =>
                 {
                     b.HasOne("Scmos.Api.Data.EvaluationQuestion", null)
@@ -10411,6 +10650,15 @@ namespace Scmos.Api.Data.Migrations
                         .HasForeignKey("BillingInvoiceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_documents_billing_invoices_billing_invoice_id");
+                });
+
+            modelBuilder.Entity("Scmos.Api.Data.SupplierCertificate", b =>
+                {
+                    b.HasOne("Scmos.Api.Data.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Scmos.Api.Data.SupplierRequest", b =>

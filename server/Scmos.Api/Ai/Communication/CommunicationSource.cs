@@ -59,7 +59,10 @@ public sealed class CommunicationSource(ScmosDbContext db) : ICommunicationSourc
         var wanted = jobKeys.ToList();
         return await db.EmailJobLinks.AsNoTracking()
             .Where(link => wanted.Contains(link.JobKey))
-            .Join(db.Emails.AsNoTracking(), link => link.EmailId, mail => mail.Id, (link, mail) => new { link, mail })
+            // Shared mailboxes only (4 Oct 2026): a chat answer reaches whoever asked, and a personal mailbox's mail is
+            // for its owner, Supervisor and above, and the job's owner — so the model is never given it.
+            .Join(db.Emails.AsNoTracking().Where(mail => db.Mailboxes.Any(box => box.Id == mail.MailboxId && box.OwnerOperatorId == "")),
+                link => link.EmailId, mail => mail.Id, (link, mail) => new { link, mail })
             .OrderByDescending(pair => pair.mail.SentAt)
             .Take(take)
             .Select(pair => new MailMessageRow(pair.mail.Id, pair.mail.Subject, pair.mail.FromName, pair.mail.SentAt, pair.mail.ProcessingStatus,

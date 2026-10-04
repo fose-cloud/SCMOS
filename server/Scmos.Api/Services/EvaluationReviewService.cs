@@ -12,7 +12,9 @@ public record FollowUp(int EvaluationCarrierId, int SupplierId, string Carrier, 
 /// <summary>The campaign at a glance: who was asked, who answered, what is scored and decided.</summary>
 public record CampaignSummary(int Year, string Status, int Carriers, int Evaluators, int Invited, int Responses, int Pending, int Expired,
     decimal? Completion, int Calculated, int Insufficient, int NotCalculated, int Stale, int Decided, int Published,
-    IReadOnlyList<string> ApprovalProblems, IReadOnlyList<FollowUp> FollowUps);
+    IReadOnlyList<string> ApprovalProblems, IReadOnlyList<FollowUp> FollowUps,
+    /// <summary>Phase 10: Action Plans opened from the campaign and not cancelled, and the decisions still waiting for one.</summary>
+    int Plans, IReadOnlyList<FollowUp> PlanFollowUps);
 /// <summary>One department's part of one carrier: its score in the current result, and its links now.</summary>
 public record CarrierDepartmentLine(int DepartmentId, decimal? Score, int Responses, int Invited);
 
@@ -44,16 +46,21 @@ public class EvaluationReviewService(ScmosDbContext db, AuditService audit)
         var expired = states.Count(state => state == EvaluationInvitations.Expired);
         var evaluators = await db.EvaluationEvaluators.CountAsync(row => row.CampaignId == campaignId && row.Active, token);
         var published = await db.SupplierEvaluations.CountAsync(row => row.Source == SupplierEvaluation.CampaignSource && row.Period == campaign.Code, token);
-        var followUps = board.Where(row => EvaluationReview.NeedsRegisterFollowUp(row.Carrier.Decision))
-            .Select(row => new FollowUp(row.Carrier.Id, row.Carrier.SupplierId, row.Name, row.Carrier.Decision, EvaluationReview.LabelOf(row.Carrier.Decision),
-                row.Carrier.DecisionNote)).ToList();
+        FollowUp FollowUpOf(BoardRow row) => new(row.Carrier.Id, row.Carrier.SupplierId, row.Name, row.Carrier.Decision,
+            EvaluationReview.LabelOf(row.Carrier.Decision), row.Carrier.DecisionNote);
+        var followUps = board.Where(row => EvaluationReview.NeedsRegisterFollowUp(row.Carrier.Decision)).Select(FollowUpOf).ToList();
+        var plans = (await EvaluationPlanService.LinkedAsync(db, campaign, token)).Where(one => one.Row.Status != ActionPlanRules.Cancelled)
+            .Select(one => one.Row).ToList();
+        var planless = board.Where(row => EvaluationReview.NeedsActionPlan(row.Carrier.Decision) && plans.All(plan => plan.EvaluationCarrierId != row.Carrier.Id))
+            .Select(FollowUpOf).ToList();
         return new CampaignSummary(campaign.Year, campaign.Status, board.Count, evaluators, states.Count, responses, states.Count - responses - expired, expired,
             EvaluationReview.Completion(responses, states.Count),
             board.Count(row => row.Result?.Status == EvaluationScoring.Calculated),
             board.Count(row => row.Result is not null && row.Result.Status != EvaluationScoring.Calculated),
             board.Count(row => row.Result is null), board.Count(row => row.Stale.Count > 0),
             board.Count(row => EvaluationReview.IsDecision(row.Carrier.Decision)), published,
-            campaign.Status is AnnualEvaluationRules.Closed or AnnualEvaluationRules.UnderReview ? Problems(board) : [], followUps);
+            campaign.Status is AnnualEvaluationRules.Closed or AnnualEvaluationRules.UnderReview ? Problems(board) : [], followUps,
+            plans.Count, planless);
     }
 
     /// <summary>

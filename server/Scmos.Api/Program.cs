@@ -128,6 +128,9 @@ builder.Services.AddScoped<EvaluationSnapshotService>();
 builder.Services.AddScoped<EvaluationScoringService>();
 builder.Services.AddScoped<EvaluationInvitationService>();
 builder.Services.AddScoped<EvaluationReviewService>();
+builder.Services.AddScoped<EvaluationPlanService>();
+builder.Services.AddScoped<LegacyEvaluationService>();
+builder.Services.AddScoped<EvaluationSummaryService>();
 builder.Services.AddScoped<ExternalEvaluationService>();
 builder.Services.AddScoped<VehicleTypeService>();
 builder.Services.AddScoped<MonitorService>();
@@ -314,6 +317,9 @@ builder.Services.AddRateLimiter(options =>
     {
         if (rejected.HttpContext.Request.Path.StartsWithSegments("/api/external"))
         {
+            // By path alone: the evaluation token travels in a header and is never written down (Phase 13).
+            rejected.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Scmos.Api.ExternalEvaluation")
+                .LogWarning("External evaluation: a request to {Path} was refused by the rate limit", rejected.HttpContext.Request.Path.Value);
             rejected.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             rejected.HttpContext.Response.Headers.RetryAfter = "60";
             await rejected.HttpContext.Response.WriteAsJsonAsync(new { error = "มีการเรียกถี่เกินไป — ลองใหม่ในอีกหนึ่งนาที" }, token);

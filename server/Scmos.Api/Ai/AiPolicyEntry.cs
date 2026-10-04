@@ -20,7 +20,8 @@ public static class AiPolicyEntry
             ["scan_communication"] = AiAction.CommunicationDraft, ["scan_booking"] = AiAction.BookingCreateDraft,
             ["summarise_job"] = AiAction.ManagementAnalyze, ["summarise_late_paperwork"] = AiAction.ManagementAnalyze,
             ["update_shipment"] = AiAction.BookingUpdateCriticalField,
-            ["request_communication_draft"] = AiAction.CommunicationDraft
+            ["request_communication_draft"] = AiAction.CommunicationDraft,
+            ["summarize_evaluation"] = AiAction.ManagementAnalyze
         }, StringComparer.Ordinal);
 
     public static (AiAction Action, string Tool) RunContract(string agent) => agent switch

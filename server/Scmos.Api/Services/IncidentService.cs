@@ -31,6 +31,9 @@ public record LinkedIssue(long Id, string Code, string FoundOn, string Category,
 
 public record IncidentResult(bool Ok, string Message, long? Id = null);
 
+/// <summary>A case an operational issue may still be linked to (2 Oct 2026): every stage, none already answering an issue.</summary>
+public record LinkableCase(long Id, string Reference, string Title, string JobKey, string Stage, string Kind);
+
 /// <summary>
 /// CAR / PAR.
 ///
@@ -47,6 +50,17 @@ public class IncidentService(ScmosDbContext db)
 
     public static readonly string[] Categories =
         ["accident", "damage", "delay", "safety", "quality", "other"];
+
+    /// <summary>
+    /// The cases an issue may be linked to: all of them, open or closed, newest first — except a case already linked to an
+    /// issue, which answers that one (2 Oct 2026, the department's rule).
+    /// </summary>
+    public async Task<IReadOnlyList<LinkableCase>> LinkableAsync(CancellationToken token)
+    {
+        var linked = db.OperationalIssues.Where(issue => issue.CaseId != null).Select(issue => issue.CaseId!.Value);
+        return await db.IncidentCases.AsNoTracking().Where(c => !linked.Contains(c.Id)).OrderByDescending(c => c.Id)
+            .Select(c => new LinkableCase(c.Id, c.Reference, c.Title, c.JobKey, c.Stage, c.Kind)).ToListAsync(token);
+    }
 
     public async Task<IReadOnlyList<IncidentView>> ListAsync(string? stage, string? kind, CancellationToken token)
     {

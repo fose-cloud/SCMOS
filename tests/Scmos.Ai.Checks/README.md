@@ -16,10 +16,10 @@ For the 4 October governance hardening increment, run only the focused
 authorization and bound Operations approval SQL suites with:
 
 ```powershell
-dotnet run --project tests/Scmos.Ai.Checks -- --permission-local-db --approval-local-db
+dotnet run --project tests/Scmos.Ai.Checks -- --permission-local-db --approval-local-db --summary-local-db
 ```
 
-Both targets are hardcoded to `(localdb)\ScmosAiAuditCheck_20260907` with fresh
+These targets are hardcoded to `(localdb)\ScmosAiAuditCheck_20260907` with fresh
 GUID-named scratch databases, exact-target cleanup and offline-only reviewed
 policy fixtures. This option does not run the unrelated older `--write-local-db`
 suites or connect to Production. It tests actual approval writes/replay/races,
@@ -30,6 +30,12 @@ inactive and demoted owners,
 stored tool revocation, and shared USD daily/monthly caps across fourteen agents
 and policy versions. Production candidate limits are USD 0.20/day and USD 10/month;
 only explicit offline fixtures raise the daily cap to exercise the monthly boundary.
+
+`--summary-local-db` also verifies the integrated Annual Evaluation summary on
+this isolated instance with explicit offline reviewed fixtures. Default checks
+prove that a missing gateway and the embedded unapproved candidate refuse the
+summary before any evidence query or model call. No candidate tool grant is
+added by this binding. Combined focused preflight: 1,456 assertions (4 Oct 2026).
 
 On Windows with a working default SQL Server LocalDB:
 

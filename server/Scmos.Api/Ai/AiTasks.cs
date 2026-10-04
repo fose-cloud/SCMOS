@@ -46,7 +46,7 @@ public sealed class AiTasksService(ScmosDbContext db, JobRegisterCache register,
         var team = user.Can(Capability.ViewTeam);
         var approver = ApprovalPolicy.IsApprover(user);
         var mine = user.OperatorId;
-        var open = db.AiDecisions.AsNoTracking().Where(row => row.Status == AiDecisionLog.Open);
+        var open = AiDecisionLog.WithoutOthersMail(db.AiDecisions.AsNoTracking(), user).Where(row => row.Status == AiDecisionLog.Open);
         if (!team) open = mine.Length == 0 ? open.Where(_ => false) : open.Where(row => row.OwnerId == mine);
 
         var handling = await open.CountAsync(token);

@@ -8,7 +8,7 @@ namespace Scmos.Api.Data;
 
 public sealed record PassCarrierAttempt(string JobKey, string Carrier, string Outcome, int Rank);
 public sealed record PassCarrierChoice(string JobKey, string Carrier, string By, DateTimeOffset At, long Id);
-public sealed record PassMail(long Id, string Subject, string FromAddress, string FromName, string BodyText, DateTimeOffset ReceivedAt);
+public sealed record PassMail(long Id, string Subject, string FromAddress, string FromName, string BodyText, DateTimeOffset ReceivedAt, string Owner);
 
 /// <summary>
 /// Finite, policy-checked data operations for existing scheduled passes. Never exposes
@@ -110,7 +110,9 @@ public sealed class AiPassRepository(ScmosDbContext db, IAiPolicyGateway gateway
             && (x.ProcessingStatus == MailProcessing.Processed || x.ProcessingStatus == MailProcessing.NeedReview)
             && !db.EmailJobLinks.Any(link => link.EmailId == x.Id && (link.Status == MailLink.Confirmed || link.Status == MailLink.Suggested)))
             .OrderBy(x => x.ReceivedAt).ThenBy(x => x.Id)
-            .Select(x => new PassMail(x.Id, x.Subject, x.FromAddress, x.FromName, x.BodyText, x.ReceivedAt)).Take(200).ToListAsync(token);
+            .Select(x => new PassMail(x.Id, x.Subject, x.FromAddress, x.FromName, x.BodyText, x.ReceivedAt,
+                db.Mailboxes.Where(box => box.Id == x.MailboxId).Select(box => box.OwnerOperatorId).FirstOrDefault() ?? ""))
+            .Take(200).ToListAsync(token);
         var ids = candidates.Select(x => x.Id.ToString()).ToList();
         var read = (await db.AiDecisions.AsNoTracking().Where(x => x.AgentId == AgentIds.Booking && x.EntityType == "email" && ids.Contains(x.EntityId))
             .Select(x => x.EntityId).ToListAsync(token)).ToHashSet(StringComparer.Ordinal);

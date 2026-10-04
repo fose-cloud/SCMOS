@@ -22,9 +22,11 @@ namespace Scmos.Api.Services;
 /// The cost of that choice, stated rather than buried: one identity then holds
 /// both <c>User.ReadWrite.All</c> and <c>Mail.Read</c>. A separate app
 /// registration would keep them apart, at the price of a secret somebody has to
-/// look after. Exchange RBAC still narrows <c>Mail.Read</c> to the approved
-/// mailboxes either way, so the separation buys less than the secret costs —
-/// but it is a security posture, and it is the operator's to overrule.
+/// look after. Note that an Entra <c>Mail.Read</c> is NOT narrowed by Exchange
+/// RBAC for Applications — Microsoft treats the two as a union — so in its own
+/// tenant this identity reads every mailbox unless an Application Access Policy
+/// restricts it. The company's mail is read the other way (below), where Exchange
+/// RBAC is the only grant.
 /// </para>
 ///
 /// <para>
@@ -39,6 +41,13 @@ namespace Scmos.Api.Services;
 /// A singleton, because the credential probes several sources when it is built
 /// and that probe should happen once for the process rather than once per
 /// request.
+/// </para>
+///
+/// <para>
+/// <b>Across tenants (4 Oct 2026).</b> The company's mail is in another tenant than SCMOS, which the managed identity
+/// can never be given. With <c>Graph__MailTenantId</c> and <c>Graph__MailClientId</c> set, the token comes instead from
+/// a multi-tenant app that trusts the managed identity through a federated credential — still no secret — and access is
+/// Exchange RBAC's alone (<see cref="GraphMailIdentity"/>).
 /// </para>
 /// </summary>
 public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config, ILogger<GraphAuth> log)
@@ -56,7 +65,30 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
 
     private static readonly string[] Scope = ["https://graph.microsoft.com/.default"];
 
-    private readonly TokenCredential _credential = new DefaultAzureCredential();
+    /// <summary>Which identity reads the mail, from <c>Graph__MailTenantId</c> and <c>Graph__MailClientId</c>.</summary>
+    private readonly GraphMailIdentity.Setting _identity =
+        GraphMailIdentity.Read(config[GraphMailIdentity.TenantKey], config[GraphMailIdentity.ClientKey]);
+
+    private TokenCredential? _built;
+
+    /// <summary>Built on first use: a misconfigured pair builds nothing and asks Entra for nothing.</summary>
+    private TokenCredential? Credential => _built ??= _identity.Mode switch
+    {
+        GraphMailIdentity.Mode.ManagedIdentity => new DefaultAzureCredential(),
+        GraphMailIdentity.Mode.CrossTenant => CrossTenant(_identity),
+        _ => null,
+    };
+
+    /// <summary>The app's token for the company's tenant, vouched for by the managed identity — no secret anywhere.</summary>
+    private static ClientAssertionCredential CrossTenant(GraphMailIdentity.Setting identity)
+    {
+        var managed = new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned);
+        return new ClientAssertionCredential(identity.Tenant, identity.Client, async token =>
+            (await managed.GetTokenAsync(new TokenRequestContext([GraphMailIdentity.TokenExchange]), token)).Token);
+    }
+
+    /// <summary>Which identity reads the mail.</summary>
+    public GraphMailIdentity.Mode Mode => _identity.Mode;
 
     /// <summary>
     /// Parsed once. App Service restarts the container when an app setting
@@ -81,9 +113,14 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
     /// </summary>
     public async Task<string?> TokenAsync(CancellationToken token)
     {
+        if (Credential is not { } credential)
+        {
+            log.LogWarning("Microsoft Graph mail identity misconfigured: {Problem}", _identity.Problem);
+            return null;
+        }
         try
         {
-            var access = await _credential.GetTokenAsync(new TokenRequestContext(Scope), token);
+            var access = await credential.GetTokenAsync(new TokenRequestContext(Scope), token);
             return access.Token;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -93,7 +130,7 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
         }
         catch (Exception problem)
         {
-            log.LogError(problem, "Could not get a Microsoft Graph token for the managed identity.");
+            log.LogError(problem, "Could not get a Microsoft Graph token ({Mode}).", _identity.Mode);
             return null;
         }
     }
@@ -110,10 +147,10 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
     /// whether it may be read at all is <see cref="Approves"/>'s.
     /// </para>
     /// </summary>
+    /// <summary>A client carrying the token — only one <see cref="AccessAsync"/> allows, so no reader can go around it.</summary>
     public async Task<HttpClient?> ClientAsync(CancellationToken token)
     {
-        var access = await TokenAsync(token);
-        if (access is null) return null;
+        if ((await AccessAsync(token)).Token is not { } access) return null;
 
         var client = factory.CreateClient(ClientName);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", access);
@@ -128,6 +165,34 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
     /// <param name="Mailboxes">The approved list, as configured.</param>
     /// <param name="Token">Whether Entra issued a token at all.</param>
     /// <param name="MailRead">Whether that token carries <c>Mail.Read</c>.</param>
+    /// <param name="Token">The bearer token, or null when there is none or it may not be used.</param>
+    /// <param name="Consented">
+    /// Whether a 403 means Exchange scoping rather than missing consent: the token's Mail.Read claim for the managed
+    /// identity; always true across tenants, where Exchange RBAC is the only grant there is.
+    /// </param>
+    /// <param name="Refusal">Why the token may not be used: none, a misconfiguration, or a grant wider than allowed.</param>
+    public record Access(string? Token, bool Consented, GraphDiagnosis.Finding? Refusal);
+
+    /// <summary>
+    /// The token and what it means, for every caller that reads mail — the one place the identity's rules live, rather
+    /// than one copy per reader.
+    /// </summary>
+    public async Task<Access> AccessAsync(CancellationToken token)
+    {
+        if (_identity.Mode == GraphMailIdentity.Mode.Misconfigured)
+            return new(null, false, GraphDiagnosis.Misconfigured(_identity.Problem));
+        var access = await TokenAsync(token);
+        var crossTenant = _identity.Mode == GraphMailIdentity.Mode.CrossTenant;
+        if (access is null) return new(null, false, crossTenant ? GraphDiagnosis.NoCrossTenantToken : GraphDiagnosis.NoToken);
+        var granted = GraphToken.Grants(access, MailRead);
+        if (GraphMailIdentity.TooBroad(_identity.Mode, granted))
+        {
+            log.LogWarning("Microsoft Graph: the cross-tenant app holds tenant-wide Mail.Read; mail is not read until it is withdrawn");
+            return new(null, false, GraphDiagnosis.TooBroad);
+        }
+        return new(access, crossTenant || granted, null);
+    }
+
     public record Ready(bool Ok, string Message, IReadOnlyList<string> Mailboxes, bool Token, bool MailRead);
 
     /// <summary>
@@ -159,6 +224,16 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
             return new(false, $"Graph__Mailboxes มีค่าที่ไม่ใช่อีเมล: {string.Join(", ", wrong)}",
                 _approved, false, false);
 
+        if (_identity.Mode != GraphMailIdentity.Mode.ManagedIdentity)
+        {
+            // Across tenants a token without Mail.Read is the expected shape: Exchange RBAC grants per mailbox, and
+            // the mailbox test is what proves it. A token WITH Mail.Read is the one that may not be used.
+            var cross = await AccessAsync(token);
+            return cross.Refusal is { } refusal
+                ? new(false, refusal.Message, _approved, cross.Token is not null, false)
+                : new(true, $"พร้อมอ่านเมล {_approved.Count} ตู้ข้าม tenant — สิทธิ์ผ่าน Exchange RBAC: ทดสอบแต่ละตู้ก่อนเปิดใช้",
+                    _approved, true, true);
+        }
         var access = await TokenAsync(token);
         if (access is null)
             return new(false, "ขอ token จาก Microsoft Graph ไม่ได้ — API ยังไม่มี managed identity หรือยังต่อ Entra ไม่ได้",

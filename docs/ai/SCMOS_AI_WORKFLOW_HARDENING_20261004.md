@@ -62,7 +62,7 @@ distinct from a code-level database boundary and still needs review evidence.
   budget checks too. Preparing an approval records evidence with zero execution
   reservation; an actual approved dispatch reserves before execution.
 - `scmos-permission-4-candidate` records the human-confirmed shared USD ceilings
-  and retains the two fixed tool bindings as metadata, NOT grants. All fourteen
+  and retains fixed tool bindings as metadata, NOT grants. All fourteen
   candidate manifests retain their prior permissions, nominated primary/fallback
   email references and null per-agent budgets, empty network lists and unapproved
   policy/isolation readiness. Nominations do not certify live account eligibility.
@@ -136,15 +136,35 @@ the embedded candidate retains the user's USD 0.20 daily amount.
 Use the hardcoded isolated LocalDB instance only:
 
 ```powershell
-dotnet run --project tests/Scmos.Ai.Checks -- --permission-local-db --approval-local-db
+dotnet run --project tests/Scmos.Ai.Checks -- --permission-local-db --approval-local-db --summary-local-db
 ```
 
 Scratch databases are freshly named and removed in `finally` after exact LocalDB
 target checks. No appsettings, Production connection or live provider is used by
 this runner. This evidence does not certify physical isolation or live integrations.
 
-Latest verification (4 October 2026): 1,432 offline AI/API/SQL assertions and
+Pre-integration verification (4 October 2026): 1,432 offline AI/API/SQL assertions and
 796 frontend tests passed; frontend type checking and focused lint passed;
 API Release build passed with zero warnings/errors. Frontend production build
 passed. No schema change is introduced by this increment (the previously pending
 authorization-audit migration is not applied to Production).
+
+## Integrated release preflight — v2.8.18
+
+Integrated Production branch `ec9e6a0f` without dropping its mail privacy,
+supplier audit or Annual Evaluation changes. Booking mail keeps the mailbox's
+owner when staging a decision; finite repository reads preserve that projection.
+The newly integrated Annual Evaluation summary is a Management Agent entry:
+it now authorizes the exact campaign/carrier before reading evidence, calling
+the provider or writing a summary. Its tool binding is metadata only; the
+candidate grants no `summarize_evaluation` execution. Missing gateway or current
+candidate denial is tested without a SQL provider or model calls. Historical
+manual evaluation and saved-summary reads are not gated by AI execution readiness.
+
+Combined preflight passed 1,456 AI/API/offline/isolated-SQL assertions and 817
+frontend tests; TypeScript and lint passed (three existing frontend warnings).
+Local lint excluded unrelated `.worktrees` artifacts, which are absent from CI.
+API Release build passed with zero warnings/errors and Web Production build
+passed. The merged EF snapshot matches the runtime model. Production migration
+application and deployment are not claimed by this preflight: their final status
+must be verified from the existing GitHub release workflows after merge.

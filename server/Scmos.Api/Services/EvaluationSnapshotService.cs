@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -19,9 +20,11 @@ public record SnapshotView(int EvaluationCarrierId, int SupplierId, string Carri
 /// figures out with <see cref="EvaluationEvidence"/>, and writes them as a new version. A version is never edited:
 /// taking another moves <see cref="EvaluationSnapshot.Current"/> and the old one stays, so what an evaluator was shown
 /// can always be shown again. Before the campaign opens that is free; after, it needs a reason, and an approved
-/// campaign takes no new evidence at all.
+/// campaign takes no new evidence at all. All carriers' new versions land together or none do (Phase 13), and a failure
+/// is logged with the campaign, never with anything an evaluator holds.
 /// </summary>
-public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, JobRegisterCache register, CarrierDirectory carriers)
+public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, JobRegisterCache register, CarrierDirectory carriers,
+    ILogger<EvaluationSnapshotService>? log = null)
 {
     public async Task<AnnualEvaluationResult> GenerateAsync(AppUser user, int campaignId, IReadOnlyList<int>? only, string? reason,
         CancellationToken token)
@@ -39,17 +42,46 @@ public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, Jo
         if (only is { Count: > 0 }) rows = rows.Where(row => only.Contains(row.Id)).ToList();
         if (rows.Count == 0) return Refused("ไม่มีผู้ขนส่งที่จะสร้าง snapshot");
 
-        var evidence = await ReadEvidenceAsync(campaign, rows.Select(row => row.SupplierId).ToHashSet(), token);
+        var ids = rows.Select(row => row.Id).ToList();
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            var evidence = await ReadEvidenceAsync(campaign, rows.Select(row => row.SupplierId).ToHashSet(), token);
+            await EvaluationWrites.InOneAsync(db, () => WriteAsync(user, campaign, ids, evidence, why, locked, token), token);
+        }
+        catch (DbUpdateException problem) when (EvaluationWrites.Duplicate(problem))
+        {
+            log?.LogWarning("Annual evaluation {Campaign}: snapshot by {User} met another made at the same moment — nothing written",
+                campaign.Code, user.Signature);
+            return Refused("มีการสร้าง snapshot พร้อมกันอีกรายการ — ไม่ได้บันทึก ลองใหม่อีกครั้ง", StatusCodes.Status409Conflict);
+        }
+        catch (Exception problem) when (problem is not OperationCanceledException)
+        {
+            log?.LogError(problem, "Annual evaluation {Campaign}: snapshot of {Count} carrier(s) by {User} failed — nothing written",
+                campaign.Code, ids.Count, user.Signature);
+            return Refused("สร้าง snapshot ไม่สำเร็จ — ไม่มีการบันทึกใด ๆ ลองใหม่อีกครั้ง", StatusCodes.Status500InternalServerError);
+        }
+        log?.LogInformation("Annual evaluation {Campaign}: snapshot of {Count} carrier(s) by {User} in {Elapsed:0} ms",
+            campaign.Code, ids.Count, user.Signature, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        await audit.RecordAsync(user, AuditActions.Register, "annual-evaluation", campaignId.ToString(CultureInfo.InvariantCulture),
+            campaign.Code, "snapshot", "", $"{rows.Count} ราย", why, token);
+        return new AnnualEvaluationResult(true, $"สร้าง snapshot {rows.Count} ราย", Id: campaignId);
+    }
+
+    /// <summary>Each carrier's new version, inside the caller's transaction; it reads what it changes, so a retry starts clean.</summary>
+    private async Task WriteAsync(AppUser user, EvaluationCampaign campaign, IReadOnlyList<int> ids,
+        Func<int, EvaluationEvidence.Inputs> evidence, string why, bool locked, CancellationToken token)
+    {
         var now = DateTimeOffset.UtcNow;
-        var versions = await db.EvaluationSnapshots.Where(row => rows.Select(one => one.Id).Contains(row.EvaluationCarrierId))
-            .ToListAsync(token);
+        var rows = await db.EvaluationCarriers.Where(row => ids.Contains(row.Id)).ToListAsync(token);
+        var versions = await db.EvaluationSnapshots.Where(row => ids.Contains(row.EvaluationCarrierId)).ToListAsync(token);
         foreach (var row in rows)
         {
             var metrics = EvaluationEvidence.Build(evidence(row.SupplierId));
             foreach (var old in versions.Where(one => one.EvaluationCarrierId == row.Id && one.Current)) old.Current = false;
             var snapshot = new EvaluationSnapshot
             {
-                CampaignId = campaignId, EvaluationCarrierId = row.Id,
+                CampaignId = campaign.Id, EvaluationCarrierId = row.Id,
                 Version = versions.Where(one => one.EvaluationCarrierId == row.Id).Select(one => one.Version).DefaultIfEmpty(0).Max() + 1,
                 Current = true, Reason = why.Length > 500 ? why[..500] : why, GeneratedBy = user.Signature, GeneratedAt = now,
             };
@@ -71,9 +103,6 @@ public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, Jo
             }
             await db.SaveChangesAsync(token);
         }
-        await audit.RecordAsync(user, AuditActions.Register, "annual-evaluation", campaignId.ToString(CultureInfo.InvariantCulture),
-            campaign.Code, "snapshot", "", $"{rows.Count} ราย", why, token);
-        return new AnnualEvaluationResult(true, $"สร้าง snapshot {rows.Count} ราย", Id: campaignId);
     }
 
     public async Task<SnapshotView?> ReadAsync(AppUser user, int campaignId, int evaluationCarrierId, int? version, CancellationToken token)
@@ -169,6 +198,16 @@ public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, Jo
                 need.Expires && (held is null || SupplierCompliance.MonitorsExpiry(need, held.ExpiryDate))));
         }).ToList();
 
+        // Each carrier's latest record of each certificate up to the campaign's year (Phase 11).
+        var certificates = (await db.SupplierCertificates.AsNoTracking().Where(row => supplierIds.Contains(row.SupplierId) && row.Year <= campaign.Year)
+                .ToListAsync(token))
+            .GroupBy(row => (row.SupplierId, row.Type)).Select(group => group.OrderByDescending(row => row.Year).First())
+            .ToLookup(row => row.SupplierId);
+        IReadOnlyList<EvaluationEvidence.Certificate> CertificatesOf(int supplier) => certificates[supplier]
+            .OrderBy(row => SupplierCertificates.Types.Select(type => type.Code).ToList().IndexOf(row.Type))
+            .Select(row => new EvaluationEvidence.Certificate(row.Type, row.Year,
+                SupplierCertificates.StateOf(row.Held, row.Verification, row.ExpiresOn, today), row.ExpiresOn)).ToList();
+
         var bangkokToday = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime);
         return supplier =>
         {
@@ -177,7 +216,8 @@ public class EvaluationSnapshotService(ScmosDbContext db, AuditService audit, Jo
             return new EvaluationEvidence.Inputs(jobs,
                 jobKeys.SelectMany(key => delays[key]).Select(row => new EvaluationEvidence.Delay(row.JobKey, row.AgainstCarrier)).ToList(),
                 issuesOf[supplier].ToList(), caseStages, invoicesOf[supplier].ToList(), slaOf[supplier].ToList(),
-                withPod.Where(jobKeys.Contains).ToHashSet(StringComparer.Ordinal), ComplianceOf(supplier), campaign.MinimumJobs, bangkokToday);
+                withPod.Where(jobKeys.Contains).ToHashSet(StringComparer.Ordinal), ComplianceOf(supplier), campaign.MinimumJobs, bangkokToday,
+                CertificatesOf(supplier));
         };
     }
 

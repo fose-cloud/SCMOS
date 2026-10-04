@@ -100,8 +100,9 @@ test("a plan started elsewhere arrives in the form filled in, and keeps where it
   // An Action Plan alert opens the plan it names.
   assert.match(app, /target\.screen === "actionplan" && target\.jobKey[^\n]*requestActionPlan\(\{ open: Number\(target\.jobKey\) \}\)/);
   assert.match(read("app/scmos/screens/Suppliers.tsx"), /kind: "supplier"/);
-  // The annual evaluation's plan comes from a carrier's result (1 Oct 2026) — the old evaluation screen it replaced did the same.
-  assert.match(read("app/scmos/screens/EvaluationCarrierPanel.tsx"), /kind: "evaluation"/);
+  // The annual evaluation's plan comes from a carrier's result (1 Oct 2026); since Phase 10 the API drafts it, reference and all.
+  assert.match(read("server/Scmos.Api/Services/EvaluationPlanService.cs"), /public const string ReferenceKind = "evaluation";/);
+  assert.match(read("app/scmos/screens/AnnualEvaluation.tsx"), /\/plan-draft`/);
   assert.match(read("app/scmos/screens/AuditPlanning.tsx"), /kind: "audit"/);
 });
 

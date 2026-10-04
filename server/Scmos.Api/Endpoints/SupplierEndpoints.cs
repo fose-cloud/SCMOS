@@ -387,6 +387,13 @@ public static class SupplierEndpoints
             return Results.Json(await service.ListAsync(stage, kind, token));
         });
 
+        // Every case an issue may still be linked to — all stages, none already linked (2 Oct 2026).
+        incidents.MapGet("/linkable", async (HttpContext context, IUserAccessor users, IncidentService service, CancellationToken token) =>
+        {
+            if (users.Current(context) is null) return ApiResults.SignInRequired;
+            return Results.Json(await service.LinkableAsync(token));
+        });
+
         incidents.MapGet("/{id:long}", async (long id, HttpContext context, IUserAccessor users,
             IncidentService service, CancellationToken token) =>
         {
@@ -545,8 +552,21 @@ public static class SupplierEndpoints
         var result = await action(user);
         if (!result.Ok) return ApiResults.Error(result.Message, StatusCodes.Status400BadRequest);
 
-        await audit.RecordAsync(user, auditAction, entity, result.Id?.ToString() ?? entityId,
-            label.Length > 0 ? label : result.Message, "", oldValue, newValue, reason, token);
+        var on = result.Id?.ToString() ?? entityId;
+        var shown = label.Length > 0 ? label : result.Message;
+        // An action that says what it changed is written down field by field, each with the value it held before —
+        // the only place that value survives the save (4 Oct 2026: two ABS changes left a fixed label and empty
+        // values). One row each, in order, so the trail reads as the change was made.
+        if (result.Changes is { } changes)
+        {
+            if (changes.Count == 0)
+                await audit.RecordAsync(user, auditAction, entity, on, shown, "", "", "ไม่มีอะไรเปลี่ยน", reason, token);
+            foreach (var change in changes)
+                await audit.RecordAsync(user, auditAction, entity, change.SupplierId?.ToString() ?? on, shown,
+                    change.Field, change.OldValue, change.NewValue, reason, token);
+        }
+        else
+            await audit.RecordAsync(user, auditAction, entity, on, shown, "", oldValue, newValue, reason, token);
 
         return Results.Json(new { message = result.Message, id = result.Id });
     }

@@ -34,6 +34,9 @@ public sealed class AiOptions
     // Both are separately default-off; the global Enabled switch still wins.
     public bool DocumentAiEnabled { get; set; }
     public bool BillingAiEnabled { get; set; }
+    // Annual Evaluation Phase 12 (2 Oct 2026): a carrier's evidence summarised, every line checked against the
+    // snapshot's own figures. Off unless set; the global Enabled switch still wins.
+    public bool EvaluationAiEnabled { get; set; }
     public bool ComplianceAgentEnabled { get; set; }
     public bool ManagementAgentEnabled { get; set; }
     // Reserved, NOT an authorization to wire writes. Phase B always refuses them.

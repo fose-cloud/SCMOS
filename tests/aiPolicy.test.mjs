@@ -92,9 +92,11 @@ test("owner identifiers may be absent while unconfigured, but cannot be forged o
 test("new approval/communication bindings are metadata only, never candidate grants", () => {
   assert.equal(matrix.tools.update_shipment, "BookingUpdateCriticalField");
   assert.equal(matrix.tools.request_communication_draft, "CommunicationDraft");
+  assert.equal(matrix.tools.summarize_evaluation, "ManagementAnalyze");
   for (const agent of matrix.agents) {
     assert.ok(!agent.allowedTools.includes("update_shipment"));
     assert.ok(!agent.allowedTools.includes("request_communication_draft"));
+    assert.ok(!agent.allowedTools.includes("summarize_evaluation"));
   }
 });
 test("operations confirmation quotes the immutable payload hash displayed by the queue", () => {

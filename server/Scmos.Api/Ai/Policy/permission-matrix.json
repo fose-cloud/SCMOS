@@ -33,7 +33,8 @@
     "summarise_job": "ManagementAnalyze",
     "summarise_late_paperwork": "ManagementAnalyze",
     "update_shipment": "BookingUpdateCriticalField",
-    "request_communication_draft": "CommunicationDraft"
+    "request_communication_draft": "CommunicationDraft",
+    "summarize_evaluation": "ManagementAnalyze"
   },
   "agents": [
     {

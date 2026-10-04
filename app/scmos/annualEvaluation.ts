@@ -1,3 +1,5 @@
+import type { PlanPrefill } from "./actionPlanRequest";
+
 /**
  * Annual Carrier Evaluation (1 Oct 2026): the shapes the API answers in and the words the screens use for them.
  * Every rule — what may open, what a figure is, how a score is reached — is the API's (Rules/AnnualEvaluationRules.cs,
@@ -36,12 +38,88 @@ export type CampaignView = {
 /** A decision the Supplier Register has to carry out — the campaign never changes a carrier's status itself. */
 export type FollowUp = { evaluationCarrierId: number; supplierId: number; carrier: string; decision: string; label: string; note: string };
 
-/** The campaign at a glance (Phases 8–9). */
+/** The campaign at a glance (Phases 8–10). */
 export type CampaignSummary = {
   year: number; status: string; carriers: number; evaluators: number; invited: number; responses: number; pending: number; expired: number;
   completion: number | null; calculated: number; insufficient: number; notCalculated: number; stale: number; decided: number; published: number;
   approvalProblems: string[]; followUps: FollowUp[];
+  /** Action Plans opened from the campaign and not cancelled, and the carriers whose decision still waits for one. */
+  plans: number; planFollowUps: FollowUp[];
 };
+
+/** What the evaluation found short (Phase 10): a KPI below full marks, or a question averaging under "good". */
+export type Finding = { kind: "kpi" | "question"; code: string; name: string; value: number | null; target: number | null; score: number | null;
+  pointsLost: number; text: string };
+
+/** A development plan as the evaluation would open it — the API's draft, for the Action Plan wizard. */
+export type PlanDraft = {
+  developmentType: "subcontractor"; targetType: string; supplierId: number; category: string; title: string; developmentArea: string;
+  currentLevel: string; targetLevel: string; gap: string; objective: string; metric: string; baseline: number | null; targetValue: number | null;
+  priority: string; items: { action: string; expectedResult: string }[]; references: { kind: string; refId: string; label: string }[];
+  findings: Finding[];
+};
+
+/** An Action Plan opened from one of the campaign's carriers. */
+export type EvaluationPlan = {
+  evaluationCarrierId: number; planId: number; number: string; title: string; status: string; overdue: boolean; progress: number | null;
+  targetDate: string; ownerName: string;
+};
+
+/* ---- Phase 11: the evaluations before SCMOS, and the carriers' certificates ---- */
+
+export type LegacyPreviewRow = {
+  row: number; name: string; number: string; supplierId: number | null; supplier: string; matchedBy: string; finalPercent: number | null;
+  result: string; evaluators: number; held: Record<string, boolean | null> | null; problems: string[]; existing: string; skip: boolean;
+};
+export type LegacyPreview = { kind: "results" | "certificates"; year: number; fileName: string; rows: LegacyPreviewRow[]; certificates: DecisionOption[] };
+
+export type HistoryEvaluation = { period: string; source: string; finalPercent: number | null; totalScore: number | null; grade: string; result: string; note: string };
+export type HistoryCertificate = {
+  id: number; type: string; label: string; year: number; held: boolean; state: string; verification: string; source: string; number: string;
+  issuedOn: string; expiresOn: string; note: string;
+};
+export type HistoryRow = { supplierId: number; code: string; name: string; status: string; evaluations: HistoryEvaluation[]; certificates: HistoryCertificate[] };
+
+/** A certificate's state as the API names it, in words and colour. A declaration is never shown as a valid certificate. */
+export const CERTIFICATE_STATE: Record<string, { label: string; tone: string; background: string }> = {
+  valid: { label: "ใช้ได้", tone: "#16794C", background: "#EDF7F1" },
+  expiring: { label: "ใกล้หมดอายุ", tone: "#8A6D0B", background: "#FFFBEB" },
+  expired: { label: "หมดอายุ", tone: "#B42318", background: "#FEF3F2" },
+  "no-expiry": { label: "มี (ไม่ระบุวันหมดอายุ)", tone: "#1D5FA8", background: "#E7F0FA" },
+  declared: { label: "แจ้งว่ามี (ยังไม่ยืนยัน)", tone: "#6D28D9", background: "#F3EEFE" },
+  "not-held": { label: "ไม่มี", tone: "#94A3B8", background: "#F8FAFC" },
+};
+
+/** Where an evaluation in a carrier's history came from. */
+export const HISTORY_SOURCE: Record<string, string> = { "legacy-import": "นำเข้า", "annual-evaluation": "แคมเปญ", scmos: "หน้าจอเดิม" };
+
+/**
+ * Periods newest first, by the year in them — "AE-2026" (a campaign), "2026" (the old screen) and "2025" (imported) sort
+ * by 2026, 2026, 2025, not as text, where a letter would put every campaign ahead of every year.
+ */
+export function newestFirst(periods: string[]): string[] {
+  const yearOf = (period: string) => Number(/\d{4}/.exec(period)?.[0] ?? 0);
+  return [...periods].sort((a, b) => yearOf(b) - yearOf(a) || b.localeCompare(a));
+}
+
+/** Each certificate type's latest record — the history keeps every year, a carrier is shown by its newest. */
+export function latestCertificates(certificates: HistoryCertificate[]): HistoryCertificate[] {
+  const newest = new Map<string, HistoryCertificate>();
+  for (const one of certificates) {
+    const known = newest.get(one.type);
+    if (!known || one.year > known.year) newest.set(one.type, one);
+  }
+  return [...newest.values()];
+}
+
+/** The API's draft as the wizard takes it. Every field stays the person's to change before the plan is made. */
+export function prefillOf(draft: PlanDraft): PlanPrefill {
+  return {
+    developmentType: draft.developmentType, targetType: draft.targetType, supplierId: draft.supplierId, category: draft.category, title: draft.title,
+    developmentArea: draft.developmentArea, currentLevel: draft.currentLevel, targetLevel: draft.targetLevel, gap: draft.gap, objective: draft.objective,
+    metric: draft.metric, baseline: draft.baseline, targetValue: draft.targetValue, priority: draft.priority, items: draft.items, references: draft.references,
+  };
+}
 
 export type CarrierDepartmentLine = { departmentId: number; score: number | null; responses: number; invited: number };
 
@@ -183,4 +261,32 @@ export function isBackward(from: string, to: string): boolean {
 /** The API's date (YYYY-MM-DD) as a date input holds it, or empty. */
 export function dayInput(value: string | null | undefined): string {
   return value ? value.slice(0, 10) : "";
+}
+
+/* ---- the AI summary (Phase 12) ---- */
+
+export type SummaryFact = { id: string; kind: string; text: string };
+export type EvaluationAiSummary = {
+  id: number; summary: string; strengths: string; improvements: string; trends: string; facts: SummaryFact[];
+  dropped: number; model: string; mock: boolean; requestedBy: string; requestedAt: string;
+  snapshotVersion: number | null; resultVersion: number | null;
+};
+export type EvaluationSummaryState = {
+  availability: { enabled: boolean; configured: boolean; mock: boolean; canRun: boolean };
+  latest: EvaluationAiSummary | null;
+};
+
+/** The four parts of a summary, in the order they are read. */
+export const SUMMARY_PARTS = [
+  { key: "summary", label: "สรุป" }, { key: "strengths", label: "จุดแข็ง" },
+  { key: "improvements", label: "ควรปรับปรุง" }, { key: "trends", label: "แนวโน้ม" },
+] as const;
+
+/** A citation as the API checks it — [F3], [F3][F7] or [F3, F7]; the same pattern as Rules/EvaluationSummary.cs. */
+export const CITATION = /\[\s*F\d{1,3}(?:\s*,\s*F\d{1,3})*\s*\]/g;
+
+/** A kept line split into its words and the facts it cites, so each citation can show its fact. */
+export function citedLine(line: string): { text: string; cites: string[] } {
+  const cites = [...new Set((line.match(CITATION) ?? []).flatMap((group) => group.match(/F\d{1,3}/g) ?? []))];
+  return { text: line.replace(CITATION, "").replace(/\s+/g, " ").trim(), cites };
 }

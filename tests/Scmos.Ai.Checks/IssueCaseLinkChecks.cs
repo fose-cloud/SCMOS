@@ -56,24 +56,32 @@ static class IssueCaseLinkChecks
             var caseId = raised.Id!.Value;
             var linkedOnRaise = (await db.OperationalIssues.AsNoTracking().FirstAsync(row => row.Id == complaint.Id)).CaseId;
 
-            var linked = await issues.LinkCaseAsync(second.Id!.Value, caseId, "test", default);
+            // A case answers one issue (2 Oct 2026): the second issue is refused this case and takes a closed one instead.
+            var other = await incidents.RaiseAsync("", "PAR", "delay", "Repeated delay", "test", default);
+            var otherCase = await db.IncidentCases.FirstAsync(row => row.Id == other.Id);
+            otherCase.Stage = "closed";
+            await db.SaveChangesAsync();
+            var linkableBefore = await incidents.LinkableAsync(default);
+            var taken = await issues.LinkCaseAsync(second.Id!.Value, caseId, "test", default);
+            var linked = await issues.LinkCaseAsync(second.Id.Value, other.Id!.Value, "test", default);
             var missing = await issues.LinkCaseAsync(second.Id.Value, 999_999, "test", default);
             var view = await incidents.ReadAsync(caseId, default);
             var log = await issues.ListAsync("ALL", null, null, null, default);
-            check(raised.Ok && linkedOnRaise == caseId && linked.Ok && !missing.Ok
-                && view!.Issues!.Select(issue => issue.Code).Order().SequenceEqual(new[] { complaint.Code!, second.Code! }.Order())
-                && view.Issues!.All(issue => issue.Column == ScorecardColumn.Complaint)
-                && log.Where(row => row.CaseId == caseId).All(row => row.CaseReference == view.Reference) && log.Count(row => row.CaseId == caseId) == 2
-                && (await db.OperationalIssues.AsNoTracking().FirstAsync(row => row.Id == second.Id)).CaseId == caseId,
-                "issue ↔ CAR/PAR: a case opened from an issue is linked to it; more issues link later; each side lists the other; an unknown case is refused");
+            check(raised.Ok && linkedOnRaise == caseId && !taken.Ok && taken.Message.Contains(complaint.Code!) && linked.Ok && !missing.Ok
+                && linkableBefore.Select(one => one.Id).SequenceEqual([other.Id.Value])
+                && (await incidents.LinkableAsync(default)).Count == 0
+                && view!.Issues!.Single().Code == complaint.Code && view.Issues!.All(issue => issue.Column == ScorecardColumn.Complaint)
+                && log.Single(row => row.CaseId == caseId).CaseReference == view.Reference
+                && (await db.OperationalIssues.AsNoTracking().FirstAsync(row => row.Id == second.Id)).CaseId == other.Id,
+                "issue ↔ CAR/PAR: a case opened from an issue is linked to it; any case of any stage can be linked later — but one already linked to another issue is neither offered nor taken");
 
             var unlinked = await issues.LinkCaseAsync(second.Id.Value, null, "test", default);
-            var afterUnlink = await incidents.ReadAsync(caseId, default);
+            var offeredAgain = await incidents.LinkableAsync(default);
             var removed = await incidents.DeleteAsync(caseId, Roles.Supervisor, default);
             var orphan = await db.OperationalIssues.AsNoTracking().FirstAsync(row => row.Id == complaint.Id);
-            check(unlinked.Ok && afterUnlink!.Issues!.Count == 1 && removed.Ok && orphan.CaseId is null
+            check(unlinked.Ok && offeredAgain.Select(one => one.Id).SequenceEqual([other.Id.Value]) && removed.Ok && orphan.CaseId is null
                 && await db.OperationalIssues.CountAsync() == 2,
-                "issue ↔ CAR/PAR: an issue can be unlinked, and deleting the case unlinks its issues rather than deleting them");
+                "issue ↔ CAR/PAR: an unlinked case is offered again, and deleting the case unlinks its issues rather than deleting them");
         }
         finally
         {

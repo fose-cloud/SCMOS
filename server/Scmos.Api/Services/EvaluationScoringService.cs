@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -19,9 +20,10 @@ public record ResultDetail(ResultRow Row, JsonElement Detail, IReadOnlyList<int>
 /// Annual Evaluation scoring (1 Oct 2026, Phase 4): the campaign's rules, the current snapshot, the manual assessments and
 /// the departments' answers, through <see cref="EvaluationScoring"/>. Each calculation is a new version of the carrier's
 /// result, with the whole breakdown kept as it was worked out — a recalculation never overwrites the one before. Once the
-/// campaign has closed, recalculating a carrier that already has a result needs a reason.
+/// campaign has closed, recalculating a carrier that already has a result needs a reason. A calculation lands for every
+/// carrier or for none, and a failure is logged (Phase 13).
 /// </summary>
-public class EvaluationScoringService(ScmosDbContext db, AuditService audit)
+public class EvaluationScoringService(ScmosDbContext db, AuditService audit, ILogger<EvaluationScoringService>? log = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -69,49 +71,72 @@ public class EvaluationScoringService(ScmosDbContext db, AuditService audit)
             .ToLookup(row => row.ResponseId);
 
         var now = DateTimeOffset.UtcNow;
-        foreach (var row in rows)
+        var started = Stopwatch.GetTimestamp();
+        try
         {
-            var snapshot = snapshots.First(one => one.EvaluationCarrierId == row.Id);
-            var figures = metrics[snapshot.Id].ToDictionary(metric => metric.Code);
-            var inputs = kpis.Select(kpi =>
+            // Every carrier's new result or none (Phase 13); read again inside, as a retry starts from a clean change tracker.
+            await EvaluationWrites.InOneAsync(db, async () =>
             {
-                var code = EvaluationEvidence.KpiMetric.GetValueOrDefault(kpi.Code, "");
-                var figure = figures.GetValueOrDefault(code);
-                return new EvaluationScoring.KpiInput(kpi.Code, kpi.Name, kpi.Weight, kpi.Method, kpi.Direction, kpi.FallbackScore,
-                    bands[kpi.Id].Select(band => new EvaluationScoring.Band(band.Threshold, band.Score)).ToList(),
-                    code, figure?.Status ?? AnnualEvaluationRules.NotAvailable, figure?.Value,
-                    manual[row.Id].FirstOrDefault(one => one.KpiCode == kpi.Code)?.Score);
-            }).ToList();
-            var answered = responses.Where(one => one.EvaluationCarrierId == row.Id)
-                .Select(one => new EvaluationScoring.Answered(one.EvaluatorId, one.DepartmentId,
-                    answers[one.Id].Select(answer => new EvaluationScoring.Rating(answer.QuestionId, answer.Rating)).ToList())).ToList();
-            var outcome = EvaluationScoring.Score(inputs, campaign.SystemWeight, campaign.HumanWeight, campaign.MinimumSystemCoverage,
-                answered, questionWeights, departmentWeights, scoreBands);
-
-            foreach (var old in results.Where(one => one.EvaluationCarrierId == row.Id && one.Current)) old.Current = false;
-            var result = new EvaluationResult
-            {
-                EvaluationCarrierId = row.Id, Current = true, SnapshotId = snapshot.Id, CampaignVersion = campaign.Version,
-                Version = results.Where(one => one.EvaluationCarrierId == row.Id).Select(one => one.Version).DefaultIfEmpty(0).Max() + 1,
-                SystemScore = outcome.SystemScore, HumanScore = outcome.HumanScore, FinalScore = outcome.FinalScore,
-                SystemWeightAvailable = outcome.SystemWeightAvailable, Band = outcome.Band, Status = outcome.Status,
-                Detail = JsonSerializer.Serialize(new
+                var held = await db.EvaluationResults.Where(row => rowIds.Contains(row.EvaluationCarrierId)).ToListAsync(token);
+                foreach (var row in rows)
                 {
-                    weights = new { system = campaign.SystemWeight, human = campaign.HumanWeight, minimumCoverage = campaign.MinimumSystemCoverage },
-                    snapshotVersion = snapshot.Version, coverage = outcome.Coverage, kpis = outcome.Kpis, departments = outcome.Departments,
-                    why = outcome.Why,
-                }, Json),
-                Reason = why.Length > 500 ? why[..500] : why, CalculatedBy = user.Signature, CalculatedAt = now,
-            };
-            db.EvaluationResults.Add(result);
-            await db.SaveChangesAsync(token);
-            db.EvaluationDepartmentScores.AddRange(outcome.Departments.Select(line => new EvaluationDepartmentScore
-            {
-                ResultId = result.Id, DepartmentId = line.DepartmentId, Score = line.Score, Responses = line.Responses, Weight = line.Weight,
-            }));
-            await db.SaveChangesAsync(token);
-            results.Add(result);
+                    var snapshot = snapshots.First(one => one.EvaluationCarrierId == row.Id);
+                    var figures = metrics[snapshot.Id].ToDictionary(metric => metric.Code);
+                    var inputs = kpis.Select(kpi =>
+                    {
+                        var code = EvaluationEvidence.KpiMetric.GetValueOrDefault(kpi.Code, "");
+                        var figure = figures.GetValueOrDefault(code);
+                        return new EvaluationScoring.KpiInput(kpi.Code, kpi.Name, kpi.Weight, kpi.Method, kpi.Direction, kpi.FallbackScore,
+                            bands[kpi.Id].Select(band => new EvaluationScoring.Band(band.Threshold, band.Score)).ToList(),
+                            code, figure?.Status ?? AnnualEvaluationRules.NotAvailable, figure?.Value,
+                            manual[row.Id].FirstOrDefault(one => one.KpiCode == kpi.Code)?.Score);
+                    }).ToList();
+                    var answered = responses.Where(one => one.EvaluationCarrierId == row.Id)
+                        .Select(one => new EvaluationScoring.Answered(one.EvaluatorId, one.DepartmentId,
+                            answers[one.Id].Select(answer => new EvaluationScoring.Rating(answer.QuestionId, answer.Rating)).ToList())).ToList();
+                    var outcome = EvaluationScoring.Score(inputs, campaign.SystemWeight, campaign.HumanWeight, campaign.MinimumSystemCoverage,
+                        answered, questionWeights, departmentWeights, scoreBands);
+
+                    foreach (var old in held.Where(one => one.EvaluationCarrierId == row.Id && one.Current)) old.Current = false;
+                    var result = new EvaluationResult
+                    {
+                        EvaluationCarrierId = row.Id, Current = true, SnapshotId = snapshot.Id, CampaignVersion = campaign.Version,
+                        Version = held.Where(one => one.EvaluationCarrierId == row.Id).Select(one => one.Version).DefaultIfEmpty(0).Max() + 1,
+                        SystemScore = outcome.SystemScore, HumanScore = outcome.HumanScore, FinalScore = outcome.FinalScore,
+                        SystemWeightAvailable = outcome.SystemWeightAvailable, Band = outcome.Band, Status = outcome.Status,
+                        Detail = JsonSerializer.Serialize(new
+                        {
+                            weights = new { system = campaign.SystemWeight, human = campaign.HumanWeight, minimumCoverage = campaign.MinimumSystemCoverage },
+                            snapshotVersion = snapshot.Version, coverage = outcome.Coverage, kpis = outcome.Kpis, departments = outcome.Departments,
+                            why = outcome.Why,
+                        }, Json),
+                        Reason = why.Length > 500 ? why[..500] : why, CalculatedBy = user.Signature, CalculatedAt = now,
+                    };
+                    db.EvaluationResults.Add(result);
+                    await db.SaveChangesAsync(token);
+                    db.EvaluationDepartmentScores.AddRange(outcome.Departments.Select(line => new EvaluationDepartmentScore
+                    {
+                        ResultId = result.Id, DepartmentId = line.DepartmentId, Score = line.Score, Responses = line.Responses, Weight = line.Weight,
+                    }));
+                    await db.SaveChangesAsync(token);
+                    held.Add(result);
+                }
+            }, token);
         }
+        catch (DbUpdateException problem) when (EvaluationWrites.Duplicate(problem))
+        {
+            log?.LogWarning("Annual evaluation {Campaign}: calculation by {User} met another made at the same moment — nothing written",
+                campaign.Code, user.Signature);
+            return Refused("มีการคำนวณพร้อมกันอีกรายการ — ไม่ได้บันทึก ลองใหม่อีกครั้ง", StatusCodes.Status409Conflict);
+        }
+        catch (Exception problem) when (problem is not OperationCanceledException)
+        {
+            log?.LogError(problem, "Annual evaluation {Campaign}: calculation of {Count} carrier(s) by {User} failed — nothing written",
+                campaign.Code, rows.Count, user.Signature);
+            return Refused("คำนวณคะแนนไม่สำเร็จ — ไม่มีการบันทึกใด ๆ ลองใหม่อีกครั้ง", StatusCodes.Status500InternalServerError);
+        }
+        log?.LogInformation("Annual evaluation {Campaign}: {Count} carrier(s) calculated by {User} in {Elapsed:0} ms",
+            campaign.Code, rows.Count, user.Signature, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         await audit.RecordAsync(user, AuditActions.Update, "annual-evaluation", campaignId.ToString(CultureInfo.InvariantCulture), campaign.Code,
             "score", "", $"{rows.Count} ราย", why, token);
         return new AnnualEvaluationResult(true, $"คำนวณคะแนน {rows.Count} ราย", Id: campaignId);

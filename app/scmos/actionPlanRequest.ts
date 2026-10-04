@@ -15,6 +15,15 @@ export type PlanPrefill = {
   currentLevel?: string;
   targetLevel?: string;
   title?: string;
+  /* What an evaluation found (Annual Evaluation Phase 10, 2 Oct 2026): the gap, its measure and target, and first steps. */
+  gap?: string;
+  objective?: string;
+  metric?: string;
+  baseline?: number | null;
+  targetValue?: number | null;
+  priority?: string;
+  /** First steps, each owned by whoever opens the plan until they hand it on. */
+  items?: { action: string; expectedResult: string }[];
   /** The records the plan is opened from, kept on it as references. */
   references?: { kind: string; refId: string; label: string }[];
 };

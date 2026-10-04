@@ -242,9 +242,8 @@ public sealed class GraphSubscriptionService(
     private async Task<(GraphDiagnosis.Finding Finding, JsonElement Answer)> SendAsync(
         HttpMethod method, string url, string? body, CancellationToken token)
     {
-        var access = await graph.TokenAsync(token);
-        if (access is null) return (GraphDiagnosis.NoToken, default);
-        var consented = GraphToken.Grants(access, GraphAuth.MailRead);
+        var (_, consented, refusal) = await graph.AccessAsync(token);
+        if (refusal is not null) return (refusal, default);
 
         var client = await graph.ClientAsync(token);
         if (client is null) return (GraphDiagnosis.NoToken, default);
