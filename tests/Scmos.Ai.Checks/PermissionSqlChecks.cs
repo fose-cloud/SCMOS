@@ -61,17 +61,81 @@ static class PermissionSqlChecks
             await Sink().RecordAuthorizationAsync(sql, budget, default);
             check(await db.AiAuthorizationLogs.AnyAsync(x => x.Id == sql.Id && x.SecurityEvent && x.ReservedCost == 0 && x.Decision == "Deny"),
                 "permission SQL: denied SQL attempt is durable security evidence without reserving cost");
+            var pending = Event() with { Decision = decision with { Decision = AiAuthorizationVerdict.HumanApprovalRequired,
+                Permission = AiPermissionLevel.HumanApprovalRequired, ApprovalRequirement = true, ReasonCode = "human_approval_required" } };
+            check(await Sink().RecordAuthorizationAsync(pending, budget, default) is null
+                && await db.AiAuthorizationLogs.AnyAsync(x => x.Id == pending.Id && x.Decision == "HumanApprovalRequired" && x.ReservedCost == 0),
+                "permission SQL: preparing approval checks budget but does not claim execution cost");
             var attempts = Enumerable.Range(0, 8).Select(_ => Event()).ToArray();
             var answers = await Task.WhenAll(attempts.Select(entry => Sink().RecordAuthorizationAsync(entry, budget, default)));
             check(answers.Count(x => x is null) == 3 && answers.Count(x => x == "budget_exhausted") == 5
                 && await db.AiAuthorizationLogs.SumAsync(x => x.ReservedCost) == 0.04m,
                 "permission SQL: serializable concurrent reservation cannot exceed the daily budget");
-            check(await db.AiAuthorizationLogs.CountAsync() == 10, "permission SQL: every allow/deny survives fresh contexts");
+            check(await db.AiAuthorizationLogs.CountAsync() == 11, "permission SQL: every allow/deny/approval request survives fresh contexts");
+            check(await Sink().RecordAuthorizationAsync(pending with { Id = Guid.NewGuid().ToString("N") }, budget, default) == "budget_exhausted",
+                "permission SQL: exhausted budget also blocks preparing approval");
             await db.Database.ExecuteSqlRawAsync("INSERT INTO ai_tools ([Name], [Enabled]) VALUES ('query_shipments', 0);");
             var revoked = Event();
             check(await Sink().RecordAuthorizationAsync(revoked, budget, default) == "tool_disabled"
                 && await db.AiAuthorizationLogs.AnyAsync(x => x.Id == revoked.Id && x.Decision == "Deny" && x.ReservedCost == 0),
                 "permission SQL: stored tool revocation cannot be overridden by a manifest grant");
+            check(await Sink().RecordAuthorizationAsync(pending with { Id = Guid.NewGuid().ToString("N") }, budget, default) == "tool_disabled",
+                "permission SQL: stored tool revocation also blocks preparing approval");
+
+            // Writer-only fixtures: these events do not grant tools to any manifest or call a provider.
+            var now = DateTimeOffset.UtcNow;
+            var priorMonth = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero).AddMonths(-1);
+            var dayAt = priorMonth.AddDays(6).AddHours(12);
+            var sharedDayBudget = budget with { DailyCostLimit = 1m, MonthlyCostLimit = 10m, MaxReservationCost = 0.02m };
+            var agents = new AgentRegistry().All.Select(a => a.Id).ToArray();
+            AiPolicyAuditEvent FleetEvent(string agent, DateTimeOffset at, int index) => Event() with
+            {
+                At = at, Request = request with { AgentId = agent, ToolId = "query_kpi" },
+                Decision = decision with { MatchedPolicy = index % 2 == 0 ? "test-policy-1" : "test-policy-2" }
+            };
+            var sharedDayEvents = agents.Select((agent, index) => FleetEvent(agent, dayAt, index)).ToArray();
+            var sharedDayAnswers = new List<string?>();
+            foreach (var batch in sharedDayEvents.Chunk(4))
+                sharedDayAnswers.AddRange(await Task.WhenAll(batch.Select(entry => Sink().RecordAuthorizationAsync(entry, sharedDayBudget, default))));
+            check(agents.Length == 14 && sharedDayAnswers.Count(x => x is null) == 10
+                && sharedDayAnswers.Count(x => x == "shared_daily_budget_exhausted") == 4
+                && await db.AiAuthorizationLogs.Where(x => x.At == dayAt).SumAsync(x => x.ReservedCost) == 0.20m,
+                "shared budget SQL: fourteen agents and policy versions compete for ONE confirmed USD 0.20 daily pool");
+            var dayAllowed = sharedDayEvents[sharedDayAnswers.FindIndex(x => x is null)];
+            check(await Sink().RecordAuthorizationAsync(dayAllowed, sharedDayBudget, default) is null
+                && await db.AiAuthorizationLogs.CountAsync(x => x.Id == dayAllowed.Id) == 1,
+                "shared budget SQL: committed replay does not reserve from the shared pool twice");
+            var dayPending = FleetEvent(agents[0], dayAt, 0) with { Decision = pending.Decision };
+            check(await Sink().RecordAuthorizationAsync(dayPending, sharedDayBudget, default) == "shared_daily_budget_exhausted"
+                && await db.AiAuthorizationLogs.AnyAsync(x => x.Id == dayPending.Id && x.Decision == "Deny" && x.ReservedCost == 0),
+                "shared budget SQL: full pool denies even preparing approval and persists zero-cost evidence");
+            check(await Sink().RecordAuthorizationAsync(FleetEvent(agents[0], dayAt.AddDays(1), 0), sharedDayBudget, default) is null,
+                "shared budget SQL: new UTC day has fresh daily headroom without resetting monthly spend");
+
+            // Only this offline fixture lifts the daily ceiling to exercise the otherwise redundant monthly cap.
+            // The embedded Production candidate remains USD 0.20/day and USD 10/month.
+            var monthlyFixture = PermissionEnforcementChecks.ReviewedFixture();
+            monthlyFixture["sharedBudget"]!["dailyCostLimit"] = 10;
+            var monthlyCatalog = AiPolicyCatalog.Parse(monthlyFixture.ToJsonString());
+            var monthlyBudget = sharedDayBudget with { DailyCostLimit = 10m, MaxReservationCost = 2m };
+            var monthAt = priorMonth.AddMonths(-1);
+            var monthlyEvents = agents.Select((agent, index) => FleetEvent(agent, monthAt.AddDays(index), index)).ToArray();
+            var monthlyAnswers = new List<string?>();
+            foreach (var batch in monthlyEvents.Chunk(4))
+                monthlyAnswers.AddRange(await Task.WhenAll(batch.Select(entry => new SqlAiExecutionAudit(options, ai, monthlyCatalog)
+                    .RecordAuthorizationAsync(entry, monthlyBudget, default))));
+            check(monthlyAnswers.Count(x => x is null) == 5
+                && monthlyAnswers.Count(x => x == "shared_monthly_budget_exhausted") == 9
+                && await db.AiAuthorizationLogs.Where(x => x.At >= monthAt && x.At < priorMonth).SumAsync(x => x.ReservedCost) == 10m,
+                "shared budget SQL: cross-agent, cross-day concurrent reservations cannot exceed the monthly pool");
+
+            var missingDaily = PermissionEnforcementChecks.ReviewedFixture();
+            missingDaily["sharedBudget"]!["dailyCostLimit"] = null;
+            var absentDailyEvent = FleetEvent(agents[0], dayAt.AddDays(2), 0);
+            check(await new SqlAiExecutionAudit(options, ai, AiPolicyCatalog.Parse(missingDaily.ToJsonString()))
+                    .RecordAuthorizationAsync(absentDailyEvent, sharedDayBudget, default) == "shared_daily_budget_required"
+                && await db.AiAuthorizationLogs.AnyAsync(x => x.Id == absentDailyEvent.Id && x.ReservedCost == 0 && x.Decision == "Deny"),
+                "shared budget SQL: missing daily configuration fails closed in the durable writer itself");
         }
         finally
         {

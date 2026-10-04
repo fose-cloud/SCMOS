@@ -82,6 +82,9 @@ public static class AiServiceRegistration
         services.AddScoped<AiDecisionLog>();
         services.AddScoped<AiTasksService>();
         services.AddScoped<AgentScanner>();
+        services.AddScoped<Scmos.Api.Data.AiPassRepository>();
+        services.AddScoped<Scmos.Api.Data.AiOwnerDirectory>();
+        services.AddScoped<Scmos.Api.Data.IAiOwnerDirectory>(sp => sp.GetRequiredService<Scmos.Api.Data.AiOwnerDirectory>());
         services.AddScoped<AgentOrchestrator>();
         services.AddScoped<OperationsControlService>();
         services.AddHttpContextAccessor();

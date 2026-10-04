@@ -56,7 +56,7 @@ public record ApprovalView(
 /// </summary>
 public partial class AiGateway(ScmosDbContext db, AiPolicyCatalog? policies = null, IAiPolicyAudit? policyAudit = null,
     IAiGovernance? governance = null, Microsoft.Extensions.Options.IOptions<AiOptions>? aiOptions = null,
-    TimeProvider? clock = null) : IAiPolicyGateway
+    TimeProvider? clock = null, IAiOwnerDirectory? owners = null) : IAiPolicyGateway
 {
     // Additive chat entry; legacy tools/approval/extraction behavior is unchanged.
     public AiStatus Status(AppUser user, AgentOrchestrator orchestrator) => orchestrator.Status(user);

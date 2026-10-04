@@ -12,6 +12,25 @@ dotnet run --project tests/Scmos.Ai.Checks/Scmos.Ai.Checks.csproj -c Release -p:
 
 ## Real SQL persistence (explicit opt-in)
 
+For the 4 October governance hardening increment, run only the focused
+authorization and bound Operations approval SQL suites with:
+
+```powershell
+dotnet run --project tests/Scmos.Ai.Checks -- --permission-local-db --approval-local-db
+```
+
+Both targets are hardcoded to `(localdb)\ScmosAiAuditCheck_20260907` with fresh
+GUID-named scratch databases, exact-target cleanup and offline-only reviewed
+policy fixtures. This option does not run the unrelated older `--write-local-db`
+suites or connect to Production. It tests actual approval writes/replay/races,
+MFA/hash/stale-policy denial, audit and post-save verification rollback, staff
+Supervisor-or-above owner eligibility/revocation, authorization cost reservation,
+exact email-reference resolution, email/ID aliases, ambiguous normalized addresses,
+inactive and demoted owners,
+stored tool revocation, and shared USD daily/monthly caps across fourteen agents
+and policy versions. Production candidate limits are USD 0.20/day and USD 10/month;
+only explicit offline fixtures raise the daily cap to exercise the monthly boundary.
+
 On Windows with a working default SQL Server LocalDB:
 
 ```powershell

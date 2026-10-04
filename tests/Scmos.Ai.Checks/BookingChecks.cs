@@ -251,7 +251,7 @@ static class BookingChecks
                 await using var db = new ScmosDbContext(options);
                 var log = new AiDecisionLog(db, agents, new AuditService(db, new HttpContextAccessor(), NullLogger<AuditService>.Instance), clock);
                 using var limiter = new AiRunLimiter();
-                var pass = new BookingMailPass(db, reader, audit, limiter, log, Options.Create(with ?? ai), clock, NullLogger<BookingMailPass>.Instance,
+                var pass = new BookingMailPass(new AiPassRepository(db, OfflineReviewedPolicyGateway.Instance), reader, audit, limiter, log, Options.Create(with ?? ai), clock, NullLogger<BookingMailPass>.Instance,
                     Options.Create(new OpenAiOptions { Model = "gpt-4.1" }), policyGateway: OfflineReviewedPolicyGateway.Instance);
                 return await pass.PassAsync(agents.Find(BookingAgent.Id)!, true, AiAutonomy.Recommend, Customers, default);
             }

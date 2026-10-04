@@ -27,6 +27,16 @@ public static class AiApprovalEndpoints
     public static void MapAiApprovals(this IEndpointRouteBuilder routes)
     {
         var ai = routes.MapGroup("/api/ai").WithTags("AI");
+        ai.MapGet("/owner-options", async (HttpContext context, IUserAccessor users,
+            Scmos.Api.Data.AiOwnerDirectory directory, CancellationToken token) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var user = users.Current(context);
+            if (user is null || !AiPermissionPolicy.InternalUser(user) || !user.Can(Capability.ViewDirectory))
+                return ApiResults.Error("ไม่มีสิทธิ์อ่านรายชื่อผู้รับผิดชอบ Agent", 403);
+            return Results.Json(new { readOnly = true, options = await directory.OptionsAsync(token),
+                approvalRightsUnchanged = true });
+        });
 
         // The permission matrix, readable so the screen can show what the
         // assistant may and may not do rather than asserting it in prose.

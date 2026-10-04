@@ -16,6 +16,7 @@ public sealed class AiPolicyCatalog
     public string? PreviousVersion { get; private init; }
     public string? ApprovalReference { get; private init; }
     public bool Valid { get; private init; }
+    public SharedAiBudgetPolicy? SharedBudget { get; private init; }
     public IReadOnlyDictionary<string, AgentPolicyManifest> Manifests { get; private init; } = FrozenDictionary<string, AgentPolicyManifest>.Empty;
     public IReadOnlyDictionary<string, AiAction> Tools { get; private init; } = FrozenDictionary<string, AiAction>.Empty;
     public AgentPolicyManifest? Find(string id) => Manifests.GetValueOrDefault(id);
@@ -27,6 +28,8 @@ public sealed class AiPolicyCatalog
     {
         if (!Valid || Find(agentId) is not { } manifest) return "manifest_invalid";
         if (string.IsNullOrWhiteSpace(ApprovalReference)) return "policy_review_required";
+        if (!ValidSharedBudget(SharedBudget)) return "shared_budget_required";
+        if (SharedBudget!.DailyCostLimit is null) return "shared_daily_budget_required";
         if (string.IsNullOrWhiteSpace(manifest.HumanOwner) || string.IsNullOrWhiteSpace(manifest.FallbackOwner)) return "owner_required";
         if (!ValidBudget(manifest.Budget))
             return "budget_required";
@@ -39,6 +42,9 @@ public sealed class AiPolicyCatalog
         && Amount(budget.DailyCostLimit) && Amount(budget.MonthlyCostLimit) && Amount(budget.MaxReservationCost)
         && budget.MaxReservationCost <= budget.DailyCostLimit && budget.DailyCostLimit <= budget.MonthlyCostLimit;
     private static bool Amount(decimal value) => value is >= 0.000001m and <= 999999999999m && decimal.Round(value, 6) == value;
+    public static bool ValidSharedBudget(SharedAiBudgetPolicy? budget) => budget is
+        { Scope: "all-registered-agents", Currency: "USD" } && Amount(budget.MonthlyCostLimit)
+        && (budget.DailyCostLimit is null || Amount(budget.DailyCostLimit.Value) && budget.DailyCostLimit <= budget.MonthlyCostLimit);
 
     public static bool AbsoluteDeny(AiAction action) => !Enum.IsDefined(action) || action is
         AiAction.UserPermissionModify or AiAction.AiPolicyModify or AiAction.AuditModify or AiAction.AuditDelete or AiAction.DirectProductionSql;
@@ -86,7 +92,8 @@ public sealed class AiPolicyCatalog
             if (policy is null || !AiAuditRules.IsPromptVersion(policy.PolicyVersion)
                 || string.IsNullOrWhiteSpace(policy.ChangedBy) || string.IsNullOrWhiteSpace(policy.Reason)
                 || !DateTimeOffset.TryParse(policy.ChangedAt, out _)
-                || policy.Agents is null || policy.Tools is null) return new();
+                || policy.Agents is null || policy.Tools is null
+                || policy.SharedBudget is not null && !ValidSharedBudget(policy.SharedBudget)) return new();
             var ids = new AgentRegistry().All.Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
             if (policy.Agents.Length != ids.Count || policy.Agents.Any(a => a is null || !ids.Remove(a.AgentId)) || ids.Count != 0) return new();
             if (policy.Tools.Any(t => !AiPolicyEntry.ToolContracts.TryGetValue(t.Key, out var registered) || registered != t.Value)) return new();
@@ -110,6 +117,7 @@ public sealed class AiPolicyCatalog
             {
                 Valid = true, Version = policy.PolicyVersion, ChangedBy = policy.ChangedBy, ChangedAt = policy.ChangedAt,
                 Reason = policy.Reason, PreviousVersion = policy.PreviousVersion, ApprovalReference = policy.ApprovalReference,
+                SharedBudget = policy.SharedBudget,
                 Tools = policy.Tools.ToFrozenDictionary(StringComparer.Ordinal),
                 Manifests = policy.Agents.ToFrozenDictionary(a => a.AgentId, a => new AgentPolicyManifest(a.AgentId, a.AgentVersion,
                     a.Purpose, a.HumanOwner, a.FallbackOwner, a.Permissions.ToFrozenDictionary(), a.AllowedTools.ToFrozenSet(StringComparer.Ordinal),
@@ -129,7 +137,8 @@ public sealed class AiPolicyCatalog
         _ => true
     };
     private sealed record PolicyFile(string PolicyVersion, string ChangedBy, string ChangedAt, string Reason,
-        string? PreviousVersion, string? ApprovalReference, Dictionary<string, AiAction> Tools, ManifestFile[] Agents);
+        string? PreviousVersion, string? ApprovalReference, Dictionary<string, AiAction> Tools, ManifestFile[] Agents,
+        SharedAiBudgetPolicy? SharedBudget = null);
     private sealed record ManifestFile(string AgentId, string AgentVersion, string Purpose, string? HumanOwner,
         string? FallbackOwner, Dictionary<AiAction, AiPermissionLevel> Permissions, string[] AllowedTools,
         string[] AllowedApiScopes, string[] NetworkAllowList, AgentDataScope DataScope, AiRisk MaximumRiskLevel,

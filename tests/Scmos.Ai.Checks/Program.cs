@@ -252,7 +252,7 @@ try
 finally { await app.StopAsync(); }
 SharedContractChecks.Run(Check);
 BillingParityChecks.Run(Check);
-await OperationsChangeChecks.RunAsync(Check, args.Contains("--write-local-db"));
+await OperationsChangeChecks.RunAsync(Check, args.Contains("--write-local-db") || args.Contains("--approval-local-db"));
 await ApprovalChecks.RunAsync(Check, args.Contains("--write-local-db"));
 await DataChecks.RunAsync(Check);
 await CommunicationChecks.RunAsync(Check);

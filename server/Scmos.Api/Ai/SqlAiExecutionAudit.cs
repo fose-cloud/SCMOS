@@ -7,7 +7,8 @@ using Scmos.Api.Data;
 namespace Scmos.Api.Ai;
 
 /// <summary>Strict durable writer, separate from SCMOS's best-effort business audit.</summary>
-public sealed class SqlAiExecutionAudit(DbContextOptions<ScmosDbContext> options, IOptions<AiOptions>? ai = null) : IAiExecutionAudit, IAiPolicyAudit
+public sealed class SqlAiExecutionAudit(DbContextOptions<ScmosDbContext> options, IOptions<AiOptions>? ai = null,
+    AiPolicyCatalog? policies = null) : IAiExecutionAudit, IAiPolicyAudit
 {
     public bool Ready { get; private set; }
 
@@ -106,24 +107,36 @@ public sealed class SqlAiExecutionAudit(DbContextOptions<ScmosDbContext> options
             }
             var decision = entry.Decision;
             var cost = 0m;
-            if (decision.Allowed)
+            if (decision.Allowed || decision.Decision == AiAuthorizationVerdict.HumanApprovalRequired)
             {
                 if (await db.AiTools.AsNoTracking().AnyAsync(x => x.Name == entry.Request.ToolId && !x.Enabled, ct)) refused = "tool_disabled";
                 else if (!AiPolicyCatalog.ValidBudget(budget)) refused = "budget_required";
+                else if (!AiPolicyCatalog.ValidSharedBudget((policies ?? AiPolicyCatalog.Current).SharedBudget)) refused = "shared_budget_required";
+                else if ((policies ?? AiPolicyCatalog.Current).SharedBudget!.DailyCostLimit is null) refused = "shared_daily_budget_required";
                 else
                 {
                     var at = entry.At.ToUniversalTime();
                     var day = new DateTimeOffset(at.Year, at.Month, at.Day, 0, 0, 0, TimeSpan.Zero);
                     var month = new DateTimeOffset(at.Year, at.Month, 1, 0, 0, 0, TimeSpan.Zero);
                     var agent = SafeId(entry.Request.AgentId, 40);
-                    var rows = db.AiAuthorizationLogs.AsNoTracking().Where(x => x.AgentId == agent && x.At >= month && x.ReservedCost > 0);
+                    // Read the fleet pool first, in the SAME serializable transaction as the insert.
+                    // All agents, API instances and policy versions share it; policy changes do not reset spend.
+                    var shared = (policies ?? AiPolicyCatalog.Current).SharedBudget!;
+                    var fleet = db.AiAuthorizationLogs.AsNoTracking().Where(x => x.At >= month
+                        && x.At < month.AddMonths(1) && x.ReservedCost > 0);
+                    var fleetMonthly = await fleet.SumAsync(x => (decimal?)x.ReservedCost, ct) ?? 0;
+                    var fleetDaily = await fleet.Where(x => x.At >= day && x.At < day.AddDays(1))
+                        .SumAsync(x => (decimal?)x.ReservedCost, ct) ?? 0;
+                    var rows = fleet.Where(x => x.AgentId == agent);
                     var monthly = await rows.SumAsync(x => (decimal?)x.ReservedCost, ct) ?? 0;
-                    var daily = await rows.Where(x => x.At >= day).SumAsync(x => (decimal?)x.ReservedCost, ct) ?? 0;
-                    var requests = await rows.CountAsync(x => x.At >= day, ct);
+                    var daily = await rows.Where(x => x.At >= day && x.At < day.AddDays(1)).SumAsync(x => (decimal?)x.ReservedCost, ct) ?? 0;
+                    var requests = await rows.CountAsync(x => x.At >= day && x.At < day.AddDays(1), ct);
                     // Reserve before dispatch. Lost/failed calls are not refunded; conservative accounting avoids double spending.
-                    if (requests >= budget!.DailyRequests || daily + budget.MaxReservationCost > budget.DailyCostLimit
+                    if (fleetMonthly + budget!.MaxReservationCost > shared.MonthlyCostLimit) refused = "shared_monthly_budget_exhausted";
+                    else if (fleetDaily + budget.MaxReservationCost > shared.DailyCostLimit) refused = "shared_daily_budget_exhausted";
+                    else if (requests >= budget.DailyRequests || daily + budget.MaxReservationCost > budget.DailyCostLimit
                         || monthly + budget.MaxReservationCost > budget.MonthlyCostLimit) refused = "budget_exhausted";
-                    else cost = budget.MaxReservationCost;
+                    else if (decision.Allowed) cost = budget.MaxReservationCost;
                 }
                 if (refused is not null) decision = decision with { Decision = AiAuthorizationVerdict.Deny, ReasonCode = refused };
             }

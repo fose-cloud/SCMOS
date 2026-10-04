@@ -3,6 +3,13 @@
 Date: 2 October 2026. Branch: `codex/ai-governance-constitution`.
 Status: **local implementation in progress; NOT Production-ready or fully accepted**.
 
+4 October update: see [workflow hardening](SCMOS_AI_WORKFLOW_HARDENING_20261004.md)
+for the subsequent bound Operations approval adapter, typed Communication draft
+entry, finite pass/database boundary, real human-owner validation and new SQL/HTTP
+evidence. The phase table below records the 2 October checkpoint, not the latest
+working-tree status. Physical isolation, external sending, actual owner/budget
+selection and policy approval are still unfinished; no Production enablement is implied.
+
 This record follows the user's Permission Enforcement prompt and the original
 [Constitution](SCMOS_AI_GOVERNANCE_CONSTITUTION_V1.md). It does not approve policy,
 grant privileges, certify isolation or authorize deployment. The earlier

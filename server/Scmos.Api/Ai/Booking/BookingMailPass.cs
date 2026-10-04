@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Scmos.Api.Data;
 using Scmos.Api.Rules;
@@ -34,7 +33,7 @@ namespace Scmos.Api.Ai.Booking;
 /// <c>Category:{IMPORT|EXPORT|DELIVERY}</c>.
 /// </para>
 /// </summary>
-public sealed class BookingMailPass(ScmosDbContext db, IBookingTextReader reader, IAiExecutionAudit audit, AiRunLimiter limiter,
+public sealed class BookingMailPass(AiPassRepository data, IBookingTextReader reader, IAiExecutionAudit audit, AiRunLimiter limiter,
     AiDecisionLog decisions, IOptions<AiOptions> options, TimeProvider clock, ILogger<BookingMailPass> log,
     IOptions<OpenAiOptions>? providerOptions = null, IAiPolicyGateway? policyGateway = null)
 {
@@ -54,41 +53,8 @@ public sealed class BookingMailPass(ScmosDbContext db, IBookingTextReader reader
         var now = clock.GetUtcNow();
 
         // Drafts whose message now belongs to a job: a person made the job and linked the mail.
-        var resolved = 0;
-        var open = await db.AiDecisions.Where(one => one.AgentId == agent.Id && one.EntityType == "email" && one.Status == AiDecisionLog.Open)
-            .ToListAsync(token);
-        if (open.Count > 0)
-        {
-            var ids = open.Select(one => long.TryParse(one.EntityId, out var id) ? id : 0).Where(id => id > 0).ToList();
-            var linked = await db.EmailJobLinks.AsNoTracking().Where(link => ids.Contains(link.EmailId) && link.Status == MailLink.Confirmed)
-                .Select(link => new { link.EmailId, link.JobKey, link.ConfirmedBy, link.ConfirmedAt }).ToListAsync(token);
-            foreach (var row in open)
-                if (linked.FirstOrDefault(link => link.EmailId.ToString() == row.EntityId) is { } link)
-                {
-                    row.Status = AiDecisionLog.Resolved;
-                    row.DecidedAt = now;
-                    row.DecidedBy = "system";
-                    row.HumanChoice = link.JobKey.Length <= 400 ? link.JobKey : link.JobKey[..400];
-                    row.OverrideReason = "อีเมลนี้ถูกจับคู่กับงานแล้ว" + (link.ConfirmedBy.Length > 0 ? $" ({link.ConfirmedBy})" : "");
-                    resolved++;
-                }
-            if (resolved > 0) await db.SaveChangesAsync(token);
-        }
-
-        // What is left to read: recent, placed by nothing, never read before.
-        var since = now.AddHours(-ai.BookingMailHours);
-        var candidates = await db.Emails.AsNoTracking()
-            .Where(mail => mail.ReceivedAt >= since
-                && (mail.ProcessingStatus == MailProcessing.Processed || mail.ProcessingStatus == MailProcessing.NeedReview)
-                && !db.EmailJobLinks.Any(link => link.EmailId == mail.Id && (link.Status == MailLink.Confirmed || link.Status == MailLink.Suggested)))
-            .OrderBy(mail => mail.ReceivedAt).ThenBy(mail => mail.Id)
-            .Select(mail => new { mail.Id, mail.Subject, mail.FromAddress, mail.FromName, mail.BodyText, mail.ReceivedAt })
-            .Take(200).ToListAsync(token);
-        var candidateIds = candidates.Select(mail => mail.Id.ToString()).ToList();
-        var read = (await db.AiDecisions.AsNoTracking()
-                .Where(one => one.AgentId == agent.Id && one.EntityType == "email" && candidateIds.Contains(one.EntityId))
-                .Select(one => one.EntityId).ToListAsync(token)).ToHashSet(StringComparer.Ordinal);
-        var batch = candidates.Where(mail => !read.Contains(mail.Id.ToString())).Take(ai.BookingMailPerPass).ToList();
+        var resolved = await data.ResolveLinkedMailAsync(now, token);
+        var batch = await data.UnplacedMailAsync(now.AddHours(-ai.BookingMailHours), ai.BookingMailPerPass, token);
 
         int created = 0, closed = 0, refused = 0;
         var code = "ok";
@@ -121,7 +87,7 @@ public sealed class BookingMailPass(ScmosDbContext db, IBookingTextReader reader
                 closed++;
             }
             else created++;
-            await db.SaveChangesAsync(token);
+            if (!await data.SaveAsync(agent.Id, token)) return new(agent.Id, "answered_meanwhile", batch.Count, 0, 0, 0, 0, resolved, refused);
         }
         if (created + closed + resolved > 0)
             log.LogInformation("booking-agent: {Created} drafts, {Closed} not bookings, {Resolved} linked, over {Batch} messages",

@@ -83,7 +83,7 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
         {
             var payload = ReadPayload(row);
             if (payload is null || (!OperationsChangePolicy.CanApprove(user) && payload.RequesterId != user.UserId)) continue;
-            result.Add(new { row.Id, row.State, row.RequestedBy, row.RequestedAt, row.DecidedBy,
+            result.Add(new { row.Id, row.State, row.RequestedBy, row.RequestedAt, row.DecidedBy, row.PayloadHash,
                 row.DecidedAt, row.Result, payload, canApprove = OperationsChangePolicy.CanApprove(user) });
         }
         return result;
@@ -94,8 +94,8 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
             if (!OperationsChangePolicy.CanRequest(user) || !await CurrentStaff(user, Capability.EditOwnJobs, token)) return new("forbidden");
             var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
                 AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingUpdateCriticalField, "update_shipment", user,
-                    resourceType: "shipment", resourceId: request.Key), token);
-            if (!authorization.Allowed) return new(authorization.ReasonCode);
+                    resourceType: "shipment", resourceId: request.Key) with { RiskLevel = AiRisk.High }, token);
+            if (authorization.Decision != AiAuthorizationVerdict.HumanApprovalRequired) return new(authorization.ReasonCode);
             if (!await Enabled(token)) return new("write_disabled");
             if (request.Key is null || request.Key.Length is < 1 or > 80) return new("invalid_request");
             var job = await db.OperationJobs.SingleOrDefaultAsync(j => j.Key == request.Key, token);
@@ -105,15 +105,17 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
             if (code != "ok") return new(code);
             if (request.Changes.ContainsKey("status") && await db.WorkflowEvents.AnyAsync(e => e.JobKey == job.Key, token))
                 return new("workflow_required");
-            var payload = new OperationsChangePayload(1, job.Key, request.Version,
+            var payload = new OperationsChangePayload(2, job.Key, request.Version,
                 OperationsChangePolicy.Values(job), new(request.Changes), request.Reason,
-                user.UserId, user.OperatorId, clock.GetUtcNow().AddMinutes(30));
+                user.UserId, user.OperatorId, clock.GetUtcNow().AddMinutes(30), AgentIds.Operations,
+                AiPolicyCatalog.AgentVersion, authorization.MatchedPolicy, authorization.CorrelationId);
             var row = new Approval { Agent = OperationsChangePolicy.Agent, Tool = "update_shipment",
                 Summary = "Operations change: " + job.Key, Payload = JsonSerializer.Serialize(payload),
                 State = "pending", RequestedBy = user.Signature, RequestedAt = clock.GetUtcNow() };
             row.RequesterId = user.UserId;
             row.ExpiresAt = payload.ExpiresAt;
             row.PayloadHash = ApprovalPolicy.Hash(row.Payload);
+            row.CorrelationId = payload.CorrelationId;
             db.Approvals.Add(row);
             audit.Stage(user, "propose", "job", job.Key, row.Summary, "", "", "pending", request.Reason, "ai");
             await db.SaveChangesAsync(token);
@@ -121,7 +123,7 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
         }, token);
 
     public Task<OperationsChangeResult> ConfirmAsync(long id, string fingerprint, bool approve, string note,
-        AppUser user, CancellationToken token) => Atomic(async () =>
+        AppUser user, CancellationToken token, string reviewedHash = "") => Atomic(async () =>
     {
         if (!OperationsChangePolicy.CanApprove(user)
             || !await CurrentStaff(user, Capability.ApproveAi | Capability.EditAnyJob | Capability.AssignJobs, token)) return new("forbidden");
@@ -130,20 +132,17 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
         var payload = row is null ? null : ReadPayload(row);
         if (row is null || payload is null || payload.Fingerprint != fingerprint) return new("invalid_proposal");
         if (!OperationsChangePolicy.IndependentApprover(user, payload)) return new("self_approval_forbidden");
+        if (payload.Version != 2) return new("legacy_proposal_requires_review");
+        if (reviewedHash != row.PayloadHash) return new("reviewed_payload_required");
+        if (user.Strength != SignInStrength.MultiFactor) return new("approval_mfa_required");
         if (row.Tool != "update_shipment" || row.RequesterId != payload.RequesterId || row.ExpiresAt != payload.ExpiresAt
             || row.PayloadHash != ApprovalPolicy.Hash(row.Payload)) return new("invalid_proposal");
         // Same id has at most one effect, including a retry after a lost response.
         if (row.State == "applied") return new("already_applied", row.Id);
         if (row.State != "pending") return new("already_decided", row.Id);
         if (approve && !await Enabled(token)) return new("write_disabled");
-        if (approve)
-        {
-            var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
-                AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingUpdateCriticalField, "update_shipment", user,
-                    resourceType: "shipment", resourceId: payload.Key) with { ApprovalId = row.Id.ToString() }, token);
-            if (!authorization.Allowed) return new(authorization.ReasonCode);
-        }
         var state = approve ? "applied" : "rejected";
+        string? expectedState = null;
         if (approve && payload.ExpiresAt <= clock.GetUtcNow()) state = "expired";
         if (state == "applied")
         {
@@ -154,11 +153,15 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
             if (job is null || OperationsChangePolicy.Fingerprint(job) != payload.Fingerprint) state = "stale";
             else
             {
+                if (policyGateway is not AiGateway gateway) return new("reviewed_adapter_unavailable");
+                var authorization = await gateway.AuthorizeOperationsApprovalAsync(row.Id, reviewedHash, user, token);
+                if (!authorization.Allowed) return new(authorization.ReasonCode);
                 var assignee = await Assignee(payload.Changes, token);
                 var code = OperationsChangePolicy.Validate(new(payload.Key, payload.Fingerprint, payload.Changes, payload.Reason), job, assignee);
                 if (code != "ok") return new(code);
                 if (payload.Changes.ContainsKey("status") && await db.WorkflowEvents.AnyAsync(e => e.JobKey == job.Key, token)) return new("workflow_required");
                 OperationsChangePolicy.Stage(job, payload.Changes, assignee, user.Signature, clock.GetUtcNow());
+                expectedState = OperationsChangePolicy.Fingerprint(job);
                 foreach (var (field, value) in payload.Changes)
                     audit.Stage(user, "edit", "job", job.Key, job.JobCode, field, payload.Before[field], value,
                         $"Approval #{row.Id}: {note}", "ai");
@@ -169,15 +172,30 @@ public sealed class OperationsChangeService(ScmosDbContext db, AuditService audi
         row.DecidedAt = clock.GetUtcNow();
         row.DecisionNote = note;
         row.Result = state; // Computed here, never a client claim that a change ran.
+        if (state == "applied") { row.AppliedBy = user.Signature; row.AppliedAt = clock.GetUtcNow(); }
         audit.Stage(user, state == "applied" ? "apply" : state, "approval", row.Id.ToString(), row.Summary,
             "state", "pending", state, note, "ai");
         await db.SaveChangesAsync(token);
+        if (state == "applied")
+        {
+            var final = await db.OperationJobs.AsNoTracking().SingleAsync(j => j.Key == payload.Key, token);
+            var values = OperationsChangePolicy.Values(final);
+            if (OperationsChangePolicy.Fingerprint(final) != expectedState || final.UpdatedBy != user.Signature
+                || payload.Changes.Any(p => !values.TryGetValue(p.Key, out var value) || value != p.Value))
+                throw new InvalidOperationException("Approved operations final-state verification failed.");
+            var finalApproval = await db.Approvals.AsNoTracking().SingleAsync(a => a.Id == row.Id, token);
+            if (finalApproval.State != "applied" || finalApproval.PayloadHash != reviewedHash
+                || ApprovalPolicy.Hash(finalApproval.Payload) != reviewedHash
+                || finalApproval.Tool != row.Tool || finalApproval.Agent != row.Agent || finalApproval.RequesterId != payload.RequesterId
+                || finalApproval.AppliedBy != user.Signature || finalApproval.AppliedAt is null)
+                throw new InvalidOperationException("Approved operations consumption verification failed.");
+        }
         return new(state, row.Id);
     }, token);
 
     private static OperationsChangePayload? ReadPayload(Approval row)
     {
-        try { return JsonSerializer.Deserialize<OperationsChangePayload>(row.Payload) is { Version: 1 } p ? p : null; }
+        try { return JsonSerializer.Deserialize<OperationsChangePayload>(row.Payload) is { Version: 1 or 2 } p ? p : null; }
         catch (JsonException) { return null; }
     }
     private Task<StaffMember?> Assignee(Dictionary<string, string>? changes, CancellationToken token)

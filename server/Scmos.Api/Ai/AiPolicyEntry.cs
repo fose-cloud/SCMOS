@@ -18,7 +18,9 @@ public static class AiPolicyEntry
             ["draft_booking"] = AiAction.BookingCreateDraft, ["scan_otd"] = AiAction.OtdCalculate,
             ["scan_validation"] = AiAction.ValidationAnalyze, ["scan_carrier"] = AiAction.CarrierRecommend,
             ["scan_communication"] = AiAction.CommunicationDraft, ["scan_booking"] = AiAction.BookingCreateDraft,
-            ["summarise_job"] = AiAction.ManagementAnalyze, ["summarise_late_paperwork"] = AiAction.ManagementAnalyze
+            ["summarise_job"] = AiAction.ManagementAnalyze, ["summarise_late_paperwork"] = AiAction.ManagementAnalyze,
+            ["update_shipment"] = AiAction.BookingUpdateCriticalField,
+            ["request_communication_draft"] = AiAction.CommunicationDraft
         }, StringComparer.Ordinal);
 
     public static (AiAction Action, string Tool) RunContract(string agent) => agent switch
@@ -39,6 +41,15 @@ public static class AiPolicyEntry
         AgentIds.DocumentInvoice or AgentIds.Booking => "documents",
         AgentIds.Data or AgentIds.Management => "analysis",
         _ => "operations"
+    };
+    public static (AiAction Action, string Tool) PassContract(string agent) => agent switch
+    {
+        AgentIds.Otd => (AiAction.OtdCalculate, "scan_otd"),
+        AgentIds.Validation => (AiAction.ValidationAnalyze, "scan_validation"),
+        AgentIds.Carrier => (AiAction.CarrierRecommend, "scan_carrier"),
+        AgentIds.Communication => (AiAction.CommunicationDraft, "scan_communication"),
+        AgentIds.Booking => (AiAction.BookingCreateDraft, "scan_booking"),
+        _ => ((AiAction)(-1), "unregistered_pass")
     };
     public static async Task<AiAuthorizationDecision> AuthorizeAsync(IAiPolicyGateway? gateway,
         AiAuthorizationRequest request, CancellationToken token)

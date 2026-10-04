@@ -27,6 +27,8 @@ static class PermissionEnforcementChecks
     {
         var json = JsonNode.Parse(Json())!.AsObject();
         json["approvalReference"] = "offline-test-only";
+        // Explicit offline-only daily amount; this is not Production configuration.
+        json["sharedBudget"]!["dailyCostLimit"] = 1;
         foreach (var agent in json["agents"]!.AsArray())
         {
             agent!["humanOwner"] = "test-owner";
@@ -57,6 +59,8 @@ static class PermissionEnforcementChecks
         check(current.Valid && current.Manifests.Count == 14 && current.Manifests.ContainsKey(AgentIds.DocumentInvoice),
             "permission: fourteen manifests preserve existing immutable IDs");
         check(current.Manifests.Keys.All(id => current.Readiness(id) is not null), "permission: unapproved/missing operational configuration cannot start an agent");
+        check(current.SharedBudget is { Scope: "all-registered-agents", Currency: "USD", MonthlyCostLimit: 10m, DailyCostLimit: 0.20m },
+            "budget: user-confirmed fleet-wide USD 0.20/day and 10/month, not fourteen individual allocations");
         // An independent expectation table, not generated from the runtime grants.
         var expected = new Dictionary<string, Dictionary<AiAction, AiPermissionLevel>>
         {
@@ -92,6 +96,18 @@ static class PermissionEnforcementChecks
         var fixture = ReviewedFixture();
         var catalog = AiPolicyCatalog.Parse(fixture.ToJsonString());
         check(catalog.Valid && catalog.Readiness(AgentIds.Operations) is null, "permission: reviewed offline fixture is ready without changing Production candidate");
+        var missingShared = ReviewedFixture(); missingShared["sharedBudget"] = null;
+        check(AiPolicyCatalog.Parse(missingShared.ToJsonString()).Readiness(AgentIds.Operations) == "shared_budget_required",
+            "budget: missing shared pool cannot enable an agent");
+        var missingDaily = ReviewedFixture(); missingDaily["sharedBudget"]!["dailyCostLimit"] = null;
+        check(AiPolicyCatalog.Parse(missingDaily.ToJsonString()).Readiness(AgentIds.Operations) == "shared_daily_budget_required",
+            "budget: missing shared daily amount cannot enable an agent");
+        foreach (var broken in new[] { new SharedAiBudgetPolicy("per-agent", "USD", 10, 0.20m),
+            new SharedAiBudgetPolicy("all-registered-agents", "THB", 10, 0.20m),
+            new SharedAiBudgetPolicy("all-registered-agents", "USD", 10, 11),
+            new SharedAiBudgetPolicy("all-registered-agents", "USD", 10, 0),
+            new SharedAiBudgetPolicy("all-registered-agents", "USD", 10, 0.0000001m) })
+            check(!AiPolicyCatalog.ValidSharedBudget(broken), "budget: malformed pool scope/currency/amount rejected");
         var user = new AppUser("test-admin", "", "Test", Roles.Admin, "OP-TEST", "test", true);
         var request = AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingRead, "query_shipments", user, "test-permission");
         string Reason(AiAuthorizationRequest value, AiPolicyCatalog? policy = null) => AiGateway.Evaluate(value, policy ?? catalog).ReasonCode;
@@ -142,7 +158,7 @@ static class PermissionEnforcementChecks
         using var db = new ScmosDbContext(new DbContextOptionsBuilder<ScmosDbContext>().Options);
         var audit = new PolicyFixtureAudit();
         var options = Options.Create(new AiOptions { Enabled = true, OperationsAgentEnabled = true });
-        var gateway = new AiGateway(db, catalog, audit, new PolicyFixtureGovernance(), options);
+        var gateway = new AiGateway(db, catalog, audit, new PolicyFixtureGovernance(), options, owners: new PolicyFixtureOwners());
         var allowed = await gateway.AuthorizeAsync(request, default);
         check(allowed.Allowed && allowed.AuditId.Length == 32 && audit.Entries.Count == 1, "permission: allow requires committed authorization evidence before dispatch");
         var denied = await gateway.AuthorizeAsync(request with { Action = AiAction.DirectProductionSql }, default);
@@ -159,6 +175,62 @@ static class PermissionEnforcementChecks
         options.Value.Enabled = true; options.Value.DisabledAgentGroups = ["operations"];
         check((await gateway.AuthorizeAsync(request, default)).ReasonCode == "kill_switch", "permission: group kill beats a reviewed grant");
         options.Value.DisabledAgentGroups = [];
+        var approvalFixture = ReviewedFixture();
+        var operationManifest = approvalFixture["agents"]!.AsArray().First(a => a!["agentId"]!.GetValue<string>() == AgentIds.Operations)!;
+        operationManifest["permissions"]!["BookingUpdateCriticalField"] = "HumanApprovalRequired";
+        operationManifest["allowedTools"]!.AsArray().Add("update_shipment");
+        operationManifest["maximumRiskLevel"] = "High";
+        var approvalOptions = Options.Create(new AiOptions { Enabled = true, OperationsAgentEnabled = true, DisableWriteActions = false });
+        var ownerFixture = new PolicyFixtureOwners();
+        var approvalGateway = new AiGateway(db, AiPolicyCatalog.Parse(approvalFixture.ToJsonString()), audit,
+            new PolicyFixtureGovernance(), approvalOptions, owners: ownerFixture);
+        var proposal = request with { Action = AiAction.BookingUpdateCriticalField, ToolId = "update_shipment", RiskLevel = AiRisk.High };
+        check((await approvalGateway.AuthorizeAsync(proposal, default)).Decision == AiAuthorizationVerdict.HumanApprovalRequired,
+            "approval: reviewed write grant prepares approval only, never becomes direct execution");
+        approvalOptions.Value.DisableWriteActions = true;
+        check((await approvalGateway.AuthorizeAsync(proposal, default)).ReasonCode == "writes_stopped", "approval: write kill also blocks requesting approval");
+        approvalOptions.Value.DisableWriteActions = false; approvalOptions.Value.DisabledTools = ["update_shipment"];
+        check((await approvalGateway.AuthorizeAsync(proposal, default)).ReasonCode == "kill_switch", "approval: tool kill also blocks requesting approval");
+        approvalOptions.Value.DisabledTools = []; approvalOptions.Value.Enabled = false;
+        check((await approvalGateway.AuthorizeAsync(proposal, default)).ReasonCode == "ai_stopped", "approval: global kill beats pending human approval");
+        approvalOptions.Value.Enabled = true; ownerFixture.Problem = "owner_not_eligible";
+        check((await approvalGateway.AuthorizeAsync(proposal, default)).ReasonCode == "owner_not_eligible",
+            "approval: inactive or demoted human owner blocks requesting approval");
+        ownerFixture.Problem = null;
+        foreach (var role in Roles.All)
+            check(AiOwnerDirectory.Eligible(role.Name) == new[] { Roles.Supervisor, Roles.AssistantManager, Roles.Manager, Roles.Admin }.Contains(role.Name),
+                "owner: explicit operational eligibility, no new approval right: " + role.Name);
+        var unguardedData = new AiPassRepository(db, null!);
+        try { await unguardedData.CarrierAttemptsAsync(["job"], default); check(false, "pass: missing policy gateway must refuse before reading SQL"); }
+        catch (UnauthorizedAccessException) { check(true, "pass: missing policy gateway refuses before reading SQL"); }
+        using (var tracked = new ScmosDbContext(new DbContextOptionsBuilder<ScmosDbContext>()
+            .UseSqlServer("Server=(localdb)\\ScmosAiAuditCheck_20260907;Database=NeverCreated_ScmosBoundaryTest;Integrated Security=true").Options))
+        {
+            // Model/tracking only: the adapter must reject before any connection opens.
+            tracked.OperationJobs.Add(new OperationJob { Key = "unrelated" });
+            try { await new AiPassRepository(tracked, OfflineReviewedPolicyGateway.Instance).SaveAsync(AgentIds.Otd, default); check(false, "pass: cannot save business entities"); }
+            catch (InvalidOperationException e) { check(e.Message == "Pass cannot save other entities.", "pass: finite adapter rejects saving tracked business entities before SQL"); }
+        }
+        var draftRaw = JsonDocument.Parse("{\"key\":\"comm-job\",\"cat\":\"IMPORT\",\"status\":\"SUPPLIER_CONFIRMED\",\"trucker\":\"SHORE\",\"date\":\"29/09/2026\",\"planTime\":\"09:00\",\"opId\":\"OP-TEST\"}").RootElement.Clone();
+        var draftRow = new CachedJobRow("comm-job", "SHORE", draftRaw, JobRecord.From(draftRaw));
+        var draftContext = new CommunicationContext(new Dictionary<string, PendingRequest>(), new HashSet<string>(), new HashSet<string>(), 60, 14);
+        var draftAt = DateTimeOffset.Parse("2026-09-28T03:00:00Z");
+        var draftRequest = AiAuthorizationRequest.Pass(AgentIds.Communication, AiAction.CommunicationDraft, "scan_communication")
+            with { ResourceType = "shipment", ResourceId = draftRow.Key };
+        var draft = await AiGateway.DraftCommunicationAsync(OfflineReviewedPolicyGateway.Instance, draftRequest, draftRow, draftContext, draftAt, default);
+        check(draft?.AgentId == AgentIds.Communication && draft.RuleReferences.Contains(CommunicationDrafts.ManualChannel),
+            "communication gateway: authorized request reuses the existing template as a manual draft, sends nothing");
+        foreach (var invalidOrigin in new[] { draftRequest with { ResourceId = "different-job" },
+            draftRequest with { OriginAgentId = AgentIds.Operations }, draftRequest with { NetworkDestination = "attacker.invalid" },
+            draftRequest with { ApprovalId = "claimed-approval" },
+            draftRequest with { RequestedDataScope = new(false, "OTHER") },
+            AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingRead, "query_shipments", user,
+                "communication-origin", "shipment", draftRow.Key) })
+        {
+            try { await AiGateway.DraftCommunicationAsync(OfflineReviewedPolicyGateway.Instance, invalidOrigin, draftRow, draftContext, draftAt, default);
+                check(false, "communication gateway: forged origin/object/scope/network or ungranted delegation must be blocked"); }
+            catch (UnauthorizedAccessException) { check(true, "communication gateway: forged origin/object/scope/network or ungranted delegation blocked"); }
+        }
         check(!new AiOptions { DisabledTools = ["misspelled_tool"] }.Valid && !new AiOptions { DisabledAgentGroups = null! }.Valid,
             "permission: malformed revocation configuration fails closed");
 
@@ -238,6 +310,12 @@ static class PermissionEnforcementChecks
 sealed class PolicyFixtureGovernance : IAiGovernance
 {
     public Task<GovernanceSnapshot> SnapshotAsync(CancellationToken token) => Task.FromResult(GovernanceSnapshot.Defaults(new AgentRegistry()));
+}
+sealed class PolicyFixtureOwners : IAiOwnerDirectory
+{
+    public string? Problem { get; set; }
+    public Task<string?> ValidateAsync(string? ownerId, string? fallbackId, CancellationToken token)
+        => Task.FromResult(Problem);
 }
 sealed class PolicyFixtureAudit : IAiPolicyAudit
 {

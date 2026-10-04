@@ -33,6 +33,8 @@ public static class AgentIds
 public sealed record AgentBudgetPolicy(int MaxOutputTokens, int MaxToolCalls, int MaxApiCalls, int MaxRetry,
     int MaxRuntimeSeconds, int MaxConcurrentTasks, int DailyRequests, decimal DailyCostLimit, decimal MonthlyCostLimit,
     decimal MaxReservationCost);
+// One pool for the entire registered fleet; never an inferred per-agent allocation.
+public sealed record SharedAiBudgetPolicy(string Scope, string Currency, decimal MonthlyCostLimit, decimal? DailyCostLimit);
 public sealed record AgentDataScope(bool Team, bool Operator, bool SystemPass);
 public sealed record AgentPolicyManifest(string AgentId, string AgentVersion, string Purpose, string? HumanOwner,
     string? FallbackOwner, IReadOnlyDictionary<AiAction, AiPermissionLevel> Permissions,

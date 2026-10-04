@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Scmos.Api.Ai;
 using Scmos.Api.Auth;
 using Scmos.Api.Rules;
+using Scmos.Api.Data;
 
 namespace Scmos.Api.Services;
 
@@ -14,6 +15,19 @@ public partial class AiGateway
         var security = new Dictionary<string, DateTimeOffset>();
         var execution = new Dictionary<string, DateTimeOffset>();
         var reserved = new Dictionary<string, decimal>();
+        decimal? fleetReserved = null;
+        var readiness = new AgentRegistry().All.ToDictionary(a => a.Id, a => catalog.Readiness(a.Id));
+        foreach (var agent in readiness.Where(entry => entry.Value is null).Select(entry => entry.Key).ToArray())
+        {
+            try
+            {
+                var manifest = catalog.Find(agent)!;
+                readiness[agent] = await (owners ?? new AiOwnerDirectory(db))
+                    .ValidateAsync(manifest.HumanOwner, manifest.FallbackOwner, token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception) { readiness[agent] = "owner_directory_unavailable"; }
+        }
         try
         {
             security = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToDictionaryAsync(
@@ -25,8 +39,10 @@ public partial class AiGateway
             var at = (clock ?? TimeProvider.System).GetUtcNow();
             var month = new DateTimeOffset(at.Year, at.Month, 1, 0, 0, 0, TimeSpan.Zero);
             reserved = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToDictionaryAsync(
-                db.AiAuthorizationLogs.Where(x => x.At >= month).GroupBy(x => x.AgentId)
+                db.AiAuthorizationLogs.Where(x => x.At >= month && x.At < month.AddMonths(1)).GroupBy(x => x.AgentId)
                     .Select(x => new { Id = x.Key, Cost = x.Sum(e => e.ReservedCost) }), x => x.Id, x => x.Cost, token);
+            fleetReserved = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SumAsync(
+                db.AiAuthorizationLogs.Where(x => x.At >= month && x.At < month.AddMonths(1)), x => (decimal?)x.ReservedCost, token) ?? 0;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception) { auditAvailable = false; }
@@ -35,6 +51,14 @@ public partial class AiGateway
             policyVersion = catalog.Version, valid = catalog.Valid, auditAvailable,
             catalog.ChangedBy, catalog.ChangedAt, catalog.Reason, catalog.PreviousVersion, catalog.ApprovalReference,
             readOnly = true,
+            sharedBudget = catalog.SharedBudget is not { } shared ? null : new
+            {
+                shared.Scope, shared.Currency, shared.MonthlyCostLimit, shared.DailyCostLimit,
+                reservedCostMonth = auditAvailable ? fleetReserved : null,
+                remainingCostMonth = auditAvailable && fleetReserved is { } used
+                    ? (decimal?)Math.Max(0m, shared.MonthlyCostLimit - used) : null,
+                periodTimeZone = "UTC"
+            },
             agents = new AgentRegistry().All.Select(a =>
             {
                 var manifest = catalog.Find(a.Id);
@@ -42,12 +66,13 @@ public partial class AiGateway
                     .Select(action => action.ToString()).ToArray();
                 return new
                 {
-                    a.Id, a.Name, status = catalog.Readiness(a.Id) is null ? "POLICY_READY" : "CONFIGURATION_REQUIRED",
-                    reasonCode = catalog.Readiness(a.Id) ?? "ready", agentVersion = manifest?.AgentVersion,
+                    a.Id, a.Name, status = readiness[a.Id] is null ? "POLICY_READY" : "CONFIGURATION_REQUIRED",
+                    reasonCode = readiness[a.Id] ?? "ready", agentVersion = manifest?.AgentVersion,
                     policyVersion = catalog.Version, allowedTools = manifest?.AllowedTools.Order(StringComparer.Ordinal).ToArray() ?? [],
                     read = Actions(AiPermissionLevel.Read), analyze = Actions(AiPermissionLevel.Analyze), draft = Actions(AiPermissionLevel.Draft),
                     execute = Actions(AiPermissionLevel.Execute), humanApproval = Actions(AiPermissionLevel.HumanApprovalRequired),
                     forbidden = Actions(AiPermissionLevel.Forbidden), budget = manifest?.Budget,
+                    humanOwner = manifest?.HumanOwner, fallbackOwner = manifest?.FallbackOwner,
                     reservedCostMonth = auditAvailable ? reserved.GetValueOrDefault(a.Id) : (decimal?)null,
                     lastExecution = execution.TryGetValue(a.Id, out var ran) ? ran : (DateTimeOffset?)null,
                     lastSecurityEvent = security.TryGetValue(a.Id, out var denied) ? denied : (DateTimeOffset?)null
@@ -56,7 +81,12 @@ public partial class AiGateway
         };
     }
 
-    public async Task<AiAuthorizationDecision> AuthorizeAsync(AiAuthorizationRequest request, CancellationToken token)
+    public Task<AiAuthorizationDecision> AuthorizeAsync(AiAuthorizationRequest request, CancellationToken token)
+        => AuthorizeCoreAsync(request, token);
+
+    // Only the typed operations adapter below may supply a verified approval. Never expose a bypass flag to agents/routes.
+    private async Task<AiAuthorizationDecision> AuthorizeCoreAsync(AiAuthorizationRequest request, CancellationToken token,
+        bool reviewedOperations = false, string? rejection = null)
     {
         var watch = Stopwatch.StartNew();
         var catalog = policies ?? AiPolicyCatalog.Current;
@@ -66,9 +96,25 @@ public partial class AiGateway
         AiAuthorizationDecision decision;
         try
         {
-            decision = Evaluate(request, catalog);
+            decision = Evaluate(reviewedOperations ? request with { ApprovalId = null } : request, catalog);
             permission = decision.Permission;
-            if (decision.Allowed)
+            if (rejection is not null) decision = Deny(rejection);
+            if (decision.Allowed || decision.Decision == AiAuthorizationVerdict.HumanApprovalRequired)
+            {
+                try
+                {
+                    var manifest = catalog.Find(request.AgentId)!;
+                    var directory = owners ?? new AiOwnerDirectory(db);
+                    var problem = await directory.ValidateAsync(manifest.HumanOwner, manifest.FallbackOwner, token);
+                    var origin = request.OriginAgentId is { } source && source != request.AgentId ? catalog.Find(source) : null;
+                    if (problem is null && origin is not null)
+                        problem = await directory.ValidateAsync(origin.HumanOwner, origin.FallbackOwner, token);
+                    if (problem is not null) decision = Deny(problem);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception) { decision = Deny("owner_directory_unavailable"); }
+            }
+            if (decision.Allowed || decision.Decision == AiAuthorizationVerdict.HumanApprovalRequired)
             {
                 if (aiOptions is null || governance is null) decision = Deny("governance_unavailable");
                 else
@@ -79,6 +125,7 @@ public partial class AiGateway
                     {
                         AiPermissionLevel.Read => AgentNeed.Run,
                         AiPermissionLevel.Analyze or AiPermissionLevel.Draft => AgentNeed.Recommend,
+                        AiPermissionLevel.HumanApprovalRequired => AgentNeed.ExecuteWithApproval,
                         _ => AgentNeed.ExecuteAutonomously
                     };
                     var snapshot = await governance.SnapshotAsync(token);
@@ -100,6 +147,8 @@ public partial class AiGateway
                         || settings.TimeoutSeconds > budget.MaxRuntimeSeconds) decision = Deny("budget_configuration_invalid");
                 }
             }
+            if (reviewedOperations && decision.Decision == AiAuthorizationVerdict.HumanApprovalRequired)
+                decision = decision with { Decision = AiAuthorizationVerdict.Allow, ReasonCode = "reviewed_operations_action" };
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception) { decision = Deny("policy_unavailable"); }
@@ -110,6 +159,8 @@ public partial class AiGateway
             var security = decision.ReasonCode is "unknown_agent" or "unknown_action" or "unknown_tool" or "privilege_chaining"
                 or "absolute_forbidden" or "network_forbidden" or "agent_permission_forbidden" or "invalid_identity"
                 or "invalid_tool_input" or "tool_forbidden";
+            security |= decision.ReasonCode is "invalid_approval" or "approval_identity_revoked"
+                or "approval_transaction_required" or "self_approval_forbidden" or "approval_mfa_required";
             var entry = new AiPolicyAuditEvent(id, (clock ?? TimeProvider.System).GetUtcNow(), request, decision, security, watch.ElapsedMilliseconds);
             var refused = await policyAudit.RecordAuthorizationAsync(entry, catalog.Find(request.AgentId)?.Budget, token);
             return refused is null ? decision with { AuditId = id } : Deny(refused) with { AuditId = id };
