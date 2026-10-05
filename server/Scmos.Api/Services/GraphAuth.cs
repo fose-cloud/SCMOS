@@ -65,9 +65,12 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
 
     private static readonly string[] Scope = ["https://graph.microsoft.com/.default"];
 
-    /// <summary>Which identity reads the mail, from <c>Graph__MailTenantId</c> and <c>Graph__MailClientId</c>.</summary>
-    private readonly GraphMailIdentity.Setting _identity =
-        GraphMailIdentity.Read(config[GraphMailIdentity.TenantKey], config[GraphMailIdentity.ClientKey]);
+    /// <summary>
+    /// Which identity reads the mail, from <c>Graph__MailTenantId</c>, <c>Graph__MailClientId</c> and
+    /// <c>Graph__MailIdentityClientId</c>.
+    /// </summary>
+    private readonly GraphMailIdentity.Setting _identity = GraphMailIdentity.Read(config[GraphMailIdentity.TenantKey],
+        config[GraphMailIdentity.ClientKey], config[GraphMailIdentity.IdentityKey]);
 
     private TokenCredential? _built;
 
@@ -86,10 +89,13 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
         _ => null,
     };
 
-    /// <summary>The app's token for the company's tenant, vouched for by the managed identity — no secret anywhere.</summary>
+    /// <summary>
+    /// The app's token for the company's tenant, vouched for by the user-assigned managed identity its federated
+    /// credential trusts — no secret anywhere. Only a user-assigned identity can be that credential (5 Oct 2026).
+    /// </summary>
     private static ClientAssertionCredential CrossTenant(GraphMailIdentity.Setting identity)
     {
-        var managed = new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned);
+        var managed = new ManagedIdentityCredential(ManagedIdentityId.FromUserAssignedClientId(identity.Identity));
         return new ClientAssertionCredential(identity.Tenant, identity.Client, async token =>
             (await managed.GetTokenAsync(new TokenRequestContext([GraphMailIdentity.TokenExchange]), token)).Token);
     }

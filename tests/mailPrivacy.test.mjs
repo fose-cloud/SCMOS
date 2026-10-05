@@ -52,3 +52,12 @@ test("inviting colleagues uses SCMOS's own managed identity, never the mail sett
   assert.doesNotMatch(directory, /AccessAsync|Credential\b|_identity/);
   assert.match(auth, /private readonly TokenCredential _directory = new DefaultAzureCredential\(\);/);
 });
+
+test("across tenants the mail identity is the user-assigned one the app's federated credential trusts", () => {
+  // 5 Oct 2026: Microsoft lets a federated credential trust only a user-assigned managed identity.
+  const auth = read("server/Scmos.Api/Services/GraphAuth.cs");
+  const cross = auth.slice(auth.indexOf("private static ClientAssertionCredential CrossTenant"));
+  assert.match(cross, /ManagedIdentityId\.FromUserAssignedClientId\(identity\.Identity\)/);
+  assert.doesNotMatch(cross.slice(0, 600), /SystemAssigned/);
+  assert.match(auth, /config\[GraphMailIdentity\.IdentityKey\]/);
+});

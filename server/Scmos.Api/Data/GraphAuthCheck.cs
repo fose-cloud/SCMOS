@@ -227,18 +227,24 @@ public static class GraphAuthCheck
         Console.WriteLine("Which identity reads the mail: the managed identity, or the cross-tenant app (4 Oct 2026).");
         Console.WriteLine();
 
-        const string tenant = "b129e0ef-627a-4f14-a0c0-7aab3bf95405", client = "11111111-2222-3333-4444-555555555555";
+        const string tenant = "b129e0ef-627a-4f14-a0c0-7aab3bf95405", client = "11111111-2222-3333-4444-555555555555",
+            identity = "66666666-7777-8888-9999-000000000000";
         Check(GraphMailIdentity.Read(null, null).Mode == GraphMailIdentity.Mode.ManagedIdentity
             && GraphMailIdentity.Read("  ", "").Mode == GraphMailIdentity.Mode.ManagedIdentity,
             "no cross-tenant settings: the managed identity reads its own tenant, as before");
-        var cross = GraphMailIdentity.Read($" {tenant} ", client);
-        Check(cross.Mode == GraphMailIdentity.Mode.CrossTenant && cross.Tenant == tenant && cross.Client == client && cross.Problem == "",
-            "both ids set: the cross-tenant app, its ids trimmed");
-        Check(GraphMailIdentity.Read(tenant, "").Mode == GraphMailIdentity.Mode.Misconfigured
-            && GraphMailIdentity.Read("", client).Mode == GraphMailIdentity.Mode.Misconfigured
-            && GraphMailIdentity.Read("leschaco.com", client).Mode == GraphMailIdentity.Mode.Misconfigured
-            && GraphMailIdentity.Read(tenant, "SCMOS Mail Reader").Problem.Contains("Graph__MailClientId"),
+        var cross = GraphMailIdentity.Read($" {tenant} ", client, $" {identity} ");
+        Check(cross.Mode == GraphMailIdentity.Mode.CrossTenant && cross.Tenant == tenant && cross.Client == client
+                && cross.Identity == identity && cross.Problem == "",
+            "tenant, app and vouching identity set: the cross-tenant app, its ids trimmed");
+        Check(GraphMailIdentity.Read(tenant, "", identity).Mode == GraphMailIdentity.Mode.Misconfigured
+            && GraphMailIdentity.Read("", client, identity).Mode == GraphMailIdentity.Mode.Misconfigured
+            && GraphMailIdentity.Read("leschaco.com", client, identity).Mode == GraphMailIdentity.Mode.Misconfigured
+            && GraphMailIdentity.Read(tenant, "SCMOS Mail Reader", identity).Problem.Contains("Graph__MailClientId"),
             "one id without the other, or a name where an id belongs, is refused and says which setting — never guessed");
+        Check(GraphMailIdentity.Read(tenant, client).Mode == GraphMailIdentity.Mode.Misconfigured
+            && GraphMailIdentity.Read(tenant, client).Problem.Contains("Graph__MailIdentityClientId")
+            && GraphMailIdentity.Read(tenant, client, "scmos-mail-reader").Problem.Contains("user-assigned"),
+            "across tenants without the user-assigned identity's client id — the only kind a federated credential trusts — nothing is asked of Entra");
         Check(GraphMailIdentity.TooBroad(GraphMailIdentity.Mode.CrossTenant, tokenGrantsMailRead: true)
             && !GraphMailIdentity.TooBroad(GraphMailIdentity.Mode.CrossTenant, tokenGrantsMailRead: false)
             && !GraphMailIdentity.TooBroad(GraphMailIdentity.Mode.ManagedIdentity, tokenGrantsMailRead: true),

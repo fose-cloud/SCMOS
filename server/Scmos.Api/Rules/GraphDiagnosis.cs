@@ -64,8 +64,9 @@ public static class GraphDiagnosis
     /// fails, in the order they are set up: the federated credential, the app's service principal in that tenant, the ids.
     /// </summary>
     public static readonly Finding NoCrossTenantToken = new(Code.NoToken,
-        "ขอ token ข้าม tenant ไม่ได้ — ตรวจ federated credential ของแอป SCMOS Mail Reader (ต้องเชื่อถือ managed identity ของ API), "
-        + "ตรวจว่าสร้าง service principal ของแอปใน tenant อีเมลแล้ว และ Graph__MailTenantId / Graph__MailClientId ถูกต้อง", false);
+        "ขอ token ข้าม tenant ไม่ได้ — ตรวจว่า user-assigned managed identity ผูกกับ scmos-api-3936 แล้ว, federated credential "
+        + "ของแอป SCMOS Mail Reader เชื่อถือ identity ตัวนั้น, สร้าง service principal ของแอปใน tenant อีเมลแล้ว และ "
+        + "Graph__MailTenantId / Graph__MailClientId / Graph__MailIdentityClientId ถูกต้อง", false);
 
     /// <summary>The two cross-tenant settings disagree; nothing is asked of Entra until they are corrected.</summary>
     public static Finding Misconfigured(string problem) => new(Code.NoToken, problem, false);

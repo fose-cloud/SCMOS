@@ -73,10 +73,12 @@ on the first real day.
 mail is in leschaco.com's (`b129e0ef-627a-4f14-a0c0-7aab3bf95405`). The API's
 managed identity can only ever be given mailboxes of its own tenant, so it
 cannot read the company's mail. That needs a multi-tenant app registration,
-**SCMOS Mail Reader**, in SCMOS's tenant. The app trusts the managed identity
-through a **federated credential**. There is still **no client secret**: the
-managed identity vouches for the app, and Entra issues the app a token for
-leschaco.com.
+**SCMOS Mail Reader**, in SCMOS's tenant. The app trusts a **user-assigned**
+managed identity attached to the API through a **federated credential** —
+Microsoft lets a federated credential trust only a user-assigned identity, so
+the API's system-assigned one cannot be used here (5 Oct 2026). There is still
+**no client secret**: the identity vouches for the app, and Entra issues the
+app a token for leschaco.com.
 
 **Exchange RBAC is the only grant.** Microsoft's rule is that a `Mail.Read`
 consented in Entra and a `Mail.Read` assigned through Exchange RBAC for
@@ -94,6 +96,12 @@ is read until the consent is withdrawn.
 
 ### A. In SCMOS's tenant — its administrator
 
+0. Azure portal → **Managed Identities** → **Create**: resource group
+   `rg-scmos`, the API's region, name `scmos-mail-identity`. Note its
+   **Client ID**. Then App Services → `scmos-api-3936` → **Identity** →
+   **User assigned** → **Add** → `scmos-mail-identity`. Leave the
+   system-assigned identity on (the directory and storage use it), and do not
+   set `AZURE_CLIENT_ID`.
 1. Entra admin center → **App registrations** → **New registration**:
    - Name: `SCMOS Mail Reader`.
    - Supported account types: **Accounts in any organizational directory
@@ -103,8 +111,9 @@ is read until the consent is withdrawn.
    Note the **Application (client) ID**.
 2. **API permissions**: remove the default `User.Read` and add **nothing**.
 3. **Certificates & secrets → Federated credentials → Add credential**:
-   - Scenario: **Managed identity**.
-   - Identity: the API App Service's system-assigned identity (`scmos-api-3936`).
+   - Scenario: **Managed Identity**.
+   - Select managed identity: `scmos-mail-identity` (user-assigned — the only
+     kind offered).
    - Name: `scmos-api`.
    - Leave the audience as `api://AzureADTokenExchange`.
 
@@ -148,13 +157,15 @@ None of these is a secret.
 |---|---|
 | `Graph__MailTenantId` | `b129e0ef-627a-4f14-a0c0-7aab3bf95405` — the tenant the mail is in |
 | `Graph__MailClientId` | The client id from A1 |
+| `Graph__MailIdentityClientId` | The **Client ID** of `scmos-mail-identity` from A0 — the identity that vouches for the app |
 | `Graph__Mailboxes` | Comma-separated addresses SCMOS may read. **Empty approves nothing**, deliberately — the alternative reading is how every mailbox in the tenant becomes readable because somebody forgot a setting |
 | `Graph__WebhookBase` | The origin Graph will call, `https://scmos-api-3936.azurewebsites.net`. Origin only — the paths are fixed in code. Set it last (see *Checking it worked*) |
 
-How the two id settings combine:
-- **Both set:** SCMOS reads mail through the cross-tenant app.
-- **Neither set:** the managed identity reads its own tenant, as before.
-- **Only one set:** refused, and the status names the missing setting.
+How the id settings combine:
+- **Tenant and app set, with the identity's client id:** SCMOS reads mail through
+  the cross-tenant app.
+- **Neither tenant nor app set:** the managed identity reads its own tenant, as before.
+- **Anything in between:** refused, and the status names the missing setting.
 
 Graph change notifications are not documented for RBAC for Applications. If
 SCMOS cannot create subscriptions, the 15-minute catch-up still reads every
