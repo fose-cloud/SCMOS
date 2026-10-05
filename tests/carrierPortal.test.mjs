@@ -17,6 +17,16 @@ test("a Subcontractor's menu is its own: Dashboard, Workspace (NEW job, My job, 
   for (const screen of CARRIER_SCREENS.filter(one => one !== "carrier")) assert.ok(!department.has(screen), screen);
 });
 
+test("the department's menu no longer carries the carrier's page (งานของบริษัท, removed 5 Oct 2026)", () => {
+  assert.ok(!(SUB_NAV.partners ?? []).some(([key]) => key === "carrier"));
+  assert.ok(![...NAV, ...Object.values(SUB_NAV).flat()].some(([key]) => key === "carrier"));
+  const app = read("app/SCMOSApp.tsx");
+  assert.doesNotMatch(app, /!isCarrier && screen === "carrier" && <CarrierPortal/);
+  assert.match(app, /if \(!isCarrier && screen === "carrier"\) setScreen\("dashboard"\);/);
+  // The carrier's own Dashboard is untouched.
+  assert.equal(CARRIER_NAV[0][0], "carrier");
+});
+
 test("the app draws the carrier's menu and its screens only for a carrier account", () => {
   const app = read("app/SCMOSApp.tsx");
   assert.match(app, /carrier=\{isCarrier\}/);

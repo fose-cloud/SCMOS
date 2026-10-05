@@ -976,7 +976,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   /** What a carrier may change on its own jobs in My job — the rest of the row is read-only. */
   const carrierMay = (field: keyof Job) => (CARRIER_EDITABLE as readonly string[]).includes(String(field));
   const CARRIER_ONLY = "ผู้ขนส่งแก้ได้เฉพาะ ทะเบียนรถ คนขับ เบอร์โทร เลขตู้ ซีล วัน-เวลาถึง และสถานะ";
-  // "carrier" is the department's view of the portal ("งานของบริษัท") and a carrier's own Dashboard.
+  // "carrier" is a carrier's own Dashboard. The department's view of it ("งานของบริษัท") left the menu on 5 Oct 2026.
   const meta = isCarrier && screen === "carrier" ? "Dashboard" : metaOf;
 
   // The default landing screen is the dashboard, which a carrier may not open.
@@ -984,6 +984,12 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   // application appears to have loaded nothing at all.
   useEffect(() => {
     if (isCarrier && !CARRIER_SCREENS.includes(screen)) setScreen(CARRIER_SCREENS[0]);
+  }, [isCarrier, screen]);
+
+  // And the other way round: a department account kept on "carrier" — a stored landing, an old link — goes to its
+  // own dashboard rather than to a page that is no longer in its menu.
+  useEffect(() => {
+    if (!isCarrier && screen === "carrier") setScreen("dashboard");
   }, [isCarrier, screen]);
 
   // Keep the rail useful even while the carrier is working on another page.
@@ -3473,7 +3479,6 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
             )}
             {isCarrier && screen !== "carrier" && screen !== "carriermyjob" && screen !== "carrierpostpone" && CARRIER_SCREENS.includes(screen) && <CarrierPortal key={screen} view={CARRIER_VIEW[screen] ?? "dashboard"}
               onNavigate={go} onToast={setToast} onNewJobCount={setCarrierNewJobs} />}
-            {!isCarrier && screen === "carrier" && <CarrierPortal view="dashboard" onToast={setToast} />}
             {screen === "training" && (
               <Training onToast={setToast} canManageRegister={able("ManageTraining")}
                 registerCustomers={[...new Set((ops?.jobs ?? [])

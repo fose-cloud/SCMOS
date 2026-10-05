@@ -62,7 +62,8 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     ["evaluation", "Annual Evaluation", "ประเมินประจำปี", [[2, 2, 12, 12], [5, 6, 6, 1.5], [5, 9, 6, 1.5]]],
     // The year's EHS audit plan with the subcontractors, new and existing (1 Oct 2026).
     ["auditplan", "Audit Planning", "แผนการตรวจประเมิน", [[2, 3, 12, 11], [2, 3, 12, 2], [4, 8, 2, 2], [8, 8, 2, 2], [4, 11, 2, 2]]],
-    ["carrier", "งานของบริษัท", "Carrier Portal", [[2, 3, 10, 7], [12, 6, 2, 4], [4, 12, 8, 2]]],
+    // "งานของบริษัท" (the carrier's own Dashboard, seen from here) left this menu on 5 Oct 2026 at the user's word:
+    // the department does not use it, and from a department account it only ever said it was not a carrier's.
   ],
 
   // Somebody else's system, and what it would take to talk to it. All four
