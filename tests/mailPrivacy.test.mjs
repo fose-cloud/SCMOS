@@ -39,3 +39,16 @@ test("the settings offer a person's own mailbox as theirs, never as shared by de
   assert.match(mailboxKindLabel("Watsana"), /ส่วนตัว · Watsana · อ่านเฉพาะผู้ส่งที่กำหนด/);
   assert.match(read("app/SCMOSApp.tsx"), /<Outlook canDecide=\{able\("EditAnyJob"\)\} canMailboxes=\{able\("AdministerMailbox"\)\}/);
 });
+
+test("inviting colleagues uses SCMOS's own managed identity, never the mail settings' identity", () => {
+  // 4 Oct 2026: the mail credential became switchable across tenants and the invitations went through it too;
+  // "send invitation" then asked the company's tenant and answered "ต่อ Microsoft Graph ไม่ได้" (fixed 5 Oct).
+  const signIn = read("server/Scmos.Api/Services/SignInAccountService.cs");
+  assert.doesNotMatch(signIn, /graphAuth\.ClientAsync\(/);
+  assert.equal((signIn.match(/graphAuth\.DirectoryClientAsync\(/g) ?? []).length, 4);
+  const auth = read("server/Scmos.Api/Services/GraphAuth.cs");
+  const directory = auth.slice(auth.indexOf("public async Task<HttpClient?> DirectoryClientAsync"), auth.indexOf("/// <summary>The mail identity's token"));
+  assert.match(directory, /_directory\.GetTokenAsync\(/);
+  assert.doesNotMatch(directory, /AccessAsync|Credential\b|_identity/);
+  assert.match(auth, /private readonly TokenCredential _directory = new DefaultAzureCredential\(\);/);
+});

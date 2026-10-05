@@ -71,6 +71,13 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
 
     private TokenCredential? _built;
 
+    /// <summary>
+    /// SCMOS's own tenant, always (5 Oct 2026): inviting a colleague and reading the directory are the managed identity's
+    /// work and never follow the mail settings. On 4 Oct the mail credential became switchable and the invitations went
+    /// through it too — set the cross-tenant ids and "send invitation" asked the company's tenant, and failed.
+    /// </summary>
+    private readonly TokenCredential _directory = new DefaultAzureCredential();
+
     /// <summary>Built on first use: a misconfigured pair builds nothing and asks Entra for nothing.</summary>
     private TokenCredential? Credential => _built ??= _identity.Mode switch
     {
@@ -136,18 +143,15 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
     }
 
     /// <summary>
-    /// A client already carrying the token, or null when there is no token.
+    /// A client for reading mail, carrying the mail identity's token — only one <see cref="AccessAsync"/> allows, so no
+    /// reader can go around it. Null when there is none.
     ///
     /// <para>
-    /// Deliberately says nothing about whether the <i>mail</i> integration is
-    /// switched on. Sign-in account creation authenticates through here too and
-    /// has nothing to do with mail; a switch in this method would have stopped
-    /// administrators inviting colleagues the day somebody turned the mailbox
-    /// off. Whether a mailbox is read is <c>Mailbox.IsActive</c>'s answer, and
-    /// whether it may be read at all is <see cref="Approves"/>'s.
+    /// Mail only. Sign-in accounts have their own, <see cref="DirectoryClientAsync"/>: had they gone on sharing this,
+    /// the mail settings would decide whether an administrator can invite a colleague. Whether a mailbox is read is
+    /// <c>Mailbox.IsActive</c>'s answer, and whether it may be read at all is <see cref="Approves"/>'s.
     /// </para>
     /// </summary>
-    /// <summary>A client carrying the token — only one <see cref="AccessAsync"/> allows, so no reader can go around it.</summary>
     public async Task<HttpClient?> ClientAsync(CancellationToken token)
     {
         if ((await AccessAsync(token)).Token is not { } access) return null;
@@ -158,13 +162,31 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
     }
 
     /// <summary>
-    /// Whether mail can be read, and if not, which of the several reasons it is.
+    /// A client for SCMOS's own directory — inviting and finding colleagues — carrying the managed identity's token in
+    /// SCMOS's tenant, whatever the mail settings say. Null when Entra would not issue one.
     /// </summary>
-    /// <param name="Ok">Everything needed is in place.</param>
-    /// <param name="Message">For an administrator, in Thai.</param>
-    /// <param name="Mailboxes">The approved list, as configured.</param>
-    /// <param name="Token">Whether Entra issued a token at all.</param>
-    /// <param name="MailRead">Whether that token carries <c>Mail.Read</c>.</param>
+    public async Task<HttpClient?> DirectoryClientAsync(CancellationToken token)
+    {
+        string access;
+        try
+        {
+            access = (await _directory.GetTokenAsync(new TokenRequestContext(Scope), token)).Token;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception problem)
+        {
+            log.LogError(problem, "Could not get a Microsoft Graph token for the managed identity (directory).");
+            return null;
+        }
+        var client = factory.CreateClient(ClientName);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", access);
+        return client;
+    }
+
+    /// <summary>The mail identity's token and what it means.</summary>
     /// <param name="Token">The bearer token, or null when there is none or it may not be used.</param>
     /// <param name="Consented">
     /// Whether a 403 means Exchange scoping rather than missing consent: the token's Mail.Read claim for the managed
@@ -193,6 +215,14 @@ public sealed class GraphAuth(IHttpClientFactory factory, IConfiguration config,
         return new(access, crossTenant || granted, null);
     }
 
+    /// <summary>
+    /// Whether mail can be read, and if not, which of the several reasons it is.
+    /// </summary>
+    /// <param name="Ok">Everything needed is in place.</param>
+    /// <param name="Message">For an administrator, in Thai.</param>
+    /// <param name="Mailboxes">The approved list, as configured.</param>
+    /// <param name="Token">Whether Entra issued a token at all.</param>
+    /// <param name="MailRead">Whether that token carries <c>Mail.Read</c>.</param>
     public record Ready(bool Ok, string Message, IReadOnlyList<string> Mailboxes, bool Token, bool MailRead);
 
     /// <summary>

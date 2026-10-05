@@ -47,7 +47,7 @@ public class SignInAccountService(
     /// </summary>
     public async Task<(bool Ready, string Why)> ReadyAsync(CancellationToken token)
     {
-        var client = await graphAuth.ClientAsync(token);
+        var client = await graphAuth.DirectoryClientAsync(token);
         if (client is null)
             return (false, "API ยังไม่มี managed identity หรือขอ token จาก Microsoft Graph ไม่ได้");
 
@@ -74,7 +74,7 @@ public class SignInAccountService(
     /// </summary>
     public async Task<Outcome> InviteAsync(string email, string displayName, CancellationToken token)
     {
-        var client = await graphAuth.ClientAsync(token);
+        var client = await graphAuth.DirectoryClientAsync(token);
         if (client is null) return new Outcome(false, "ต่อ Microsoft Graph ไม่ได้");
 
         var redirect = configuration["SignIn:InviteRedirectUrl"];
@@ -122,7 +122,7 @@ public class SignInAccountService(
     public async Task<Outcome> CreateTenantAccountAsync(string displayName, string account,
         CancellationToken token)
     {
-        var client = await graphAuth.ClientAsync(token);
+        var client = await graphAuth.DirectoryClientAsync(token);
         if (client is null) return new Outcome(false, "ต่อ Microsoft Graph ไม่ได้");
 
         var domain = configuration["SignIn:TenantDomain"];
@@ -178,7 +178,7 @@ public class SignInAccountService(
                 "บัญชีนี้เป็นผู้ใช้ภายนอกที่ได้รับเชิญ รหัสผ่านเป็นของบัญชี Microsoft ส่วนตัวของเขา " +
                 "องค์กรตั้งรหัสให้ไม่ได้ — ให้เจ้าตัวเปลี่ยนเองที่ account.live.com");
 
-        var client = await graphAuth.ClientAsync(token);
+        var client = await graphAuth.DirectoryClientAsync(token);
         if (client is null) return new Outcome(false, "ต่อ Microsoft Graph ไม่ได้");
 
         var temporary = TemporaryPassword();
