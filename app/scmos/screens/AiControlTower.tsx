@@ -16,6 +16,7 @@ import { Assistant } from "./Assistant";
 import { AiGovernancePanel } from "./AiGovernancePanel";
 import { AiFindingsPanel } from "./AiFindingsPanel";
 import { AiHistoryPanel } from "./AiHistoryPanel";
+import { parseTasks, TASK_CARDS } from "../aiTasks";
 import {
   AUDIT_AGENTS, AUDIT_TOOLS, auditUrl, EMPTY_AUDIT_QUERY, queryProblem, RUN_RESULTS, type AuditQuery,
 } from "../aiHistory";
@@ -48,6 +49,21 @@ function useRemote<T>(path: string | null, parse: (value: unknown) => T) {
   // A new cursor/permission must not paint the preceding request's data, even for one frame.
   return { ...(state.key === key ? state : { data: null, error: "", loading: !!path }), refresh };
 }
+
+/**
+ * The tower's parts as tabs (5 Oct 2026): one subject at a time, in the order a person works — what is happening, what
+ * the AI found, asking it, what waits for a person, what it did, and how it is governed. Every panel stays mounted (only
+ * hidden), so a question typed or a search set is still there after a look at another tab.
+ */
+type TowerTab = "overview" | "findings" | "ask" | "approvals" | "history" | "governance";
+const TABS: { id: TowerTab; label: string }[] = [
+  { id: "overview", label: "ภาพรวม" },
+  { id: "findings", label: "งานที่ AI ตรวจพบ" },
+  { id: "ask", label: "ถาม AI" },
+  { id: "approvals", label: "คิวอนุมัติ" },
+  { id: "history", label: "ประวัติ" },
+  { id: "governance", label: "การกำกับ" },
+];
 
 const URGENCY: Record<Finding["urgency"], [string, string]> = {
   Now: ["ต้องติดตาม", "red"], Soon: ["เตรียมดำเนินการ", "amber"],
@@ -372,6 +388,19 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   const [switchMessage, setSwitchMessage] = useState("");
   const switchRequest = useRef<AbortController | null>(null);
   const control = status.data?.operationsControl;
+  const [tab, setTab] = useState<TowerTab>(initialQuestion ? "ask" : "overview");
+  const tasks = useRemote(canViewDashboard ? "/api/ai/tasks" : null, parseTasks);
+  const shown = TABS.filter(one => one.id === "findings" ? canViewDashboard
+    : one.id === "history" ? canViewDashboard || canViewAudit
+    : one.id === "governance" ? canViewAudit || !!control?.canManage : true);
+  /** Opens a tab, then brings a part of it into view once it is drawn. */
+  function open(next: TowerTab, target?: { current: HTMLElement | null }, focus = false) {
+    setTab(next);
+    requestAnimationFrame(() => {
+      target?.current?.scrollIntoView({ block: "start" });
+      if (focus) input.current?.focus({ preventScroll: true });
+    });
+  }
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; request.current?.abort(); request.current = null; switchRequest.current?.abort(); };
@@ -383,20 +412,19 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
   if (initialQuestion && initialQuestion !== seeded) {
     setSeeded(initialQuestion);
     setMessage(initialQuestion.slice(0, 4000));
+    setTab("ask");
   }
   useEffect(() => {
     if (!initialQuestion) return;
     onQuestionTaken?.();
-    askPanel.current?.scrollIntoView({ block: "start" });
-    input.current?.focus({ preventScroll: true });
+    requestAnimationFrame(() => {
+      askPanel.current?.scrollIntoView({ block: "start" });
+      input.current?.focus({ preventScroll: true });
+    });
   }, [initialQuestion, onQuestionTaken]);
 
-  function focusAsk() {
-    askPanel.current?.scrollIntoView({ block: "start" });
-    input.current?.focus({ preventScroll: true });
-  }
   function refresh() {
-    status.refresh(); board.refresh(); brief.refresh(); activity.refresh(); detail.refresh();
+    status.refresh(); board.refresh(); brief.refresh(); tasks.refresh(); activity.refresh(); detail.refresh();
   }
   async function saveSwitch() {
     if (confirmSwitch === null || switchRequest.current || !control?.canManage || !control.available
@@ -473,74 +501,61 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
     ["delay", "งานสถานะล่าช้า", "นับตามสถานะงานในวันแผน"],
     ["openCarPar", "CAR/PAR ที่เปิดอยู่", "เคสเปิดทั้งหมด ไม่จำกัดวันแผน"],
   ];
+  const pane = (id: TowerTab) => ({ role: "tabpanel", id: "ai-panel-" + id, "aria-labelledby": "ai-tab-" + id,
+    hidden: tab !== id, className: s.pane });
   return <div className={s.tower} data-testid="ai-control-tower">
-    <section className={s.hero} aria-label="AI Control Tower">
-      <div><div className={s.eyebrow}>SCMOS / Operations intelligence</div>
-        <h2>มองภาพรวม แล้วลงมือจากข้อมูลจริง</h2>
-        <p>สรุปงานจากระบบ · ถาม Operations AI · ตรวจสอบงานต้นทางและร่องรอยการทำงาน</p>
+    <div className={s.head}>
+      <div className={s.state} role="status">
+        <Badge tone={status.data?.mock ? "amber" : ready.tone}>{status.loading ? "กำลังตรวจสถานะ AI…" : ready.title}</Badge>
+        <Badge tone="blue">{status.data?.mock ? "MOCK · ไม่ใช่ข้อมูลจริง" : "อ่านอย่างเดียว · มี Audit"}</Badge>
+        {!status.loading && (status.error || !ready.ready) && <span className={s.hint}>{status.error || ready.detail}</span>}
       </div>
-      <div className={s.actions}>
-        <button className={s.button} onClick={focusAsk}>Ask SCMOS AI ↓</button>
-        <button className={s.button + " " + s.ghost} onClick={() => activityPanel.current?.scrollIntoView({ block: "start" })}>AI Activity ↓</button>
-        <button className={s.button + " " + s.ghost} onClick={refresh}>รีเฟรชข้อมูล</button>
-      </div>
-    </section>
-    <div className={s.status} role="status">
-      <div><strong>{status.loading ? "กำลังตรวจสถานะ AI…" : ready.title}</strong>
-        <p>{status.error || ready.detail}</p></div>
-      <Badge tone={ready.tone}>{status.data?.mock ? "MOCK · ไม่ใช่ข้อมูลจริง" : "READ ONLY"}</Badge>
+      <button className={s.button} onClick={refresh}>รีเฟรชข้อมูล</button>
+    </div>
+    <div className={s.tabs} role="tablist" aria-label="AI Control Tower">
+      {shown.map(one => <button key={one.id} type="button" role="tab" id={"ai-tab-" + one.id}
+        aria-selected={tab === one.id} aria-controls={"ai-panel-" + one.id}
+        className={tab === one.id ? s.tab + " " + s.tabActive : s.tab} onClick={() => setTab(one.id)}>
+        {one.label}
+        {one.id === "findings" && !!tasks.data?.needsMyDecision && <span className={s.count}>{number(tasks.data.needsMyDecision)}</span>}
+      </button>)}
     </div>
 
-    {control?.canManage && <section className={s.status} aria-label="ควบคุม Operations AI">
-      <div><strong>Operations AI · {control.available ? control.enabled ? "สวิตช์เปิด" : "สวิตช์ปิด" : "ยังไม่ทราบสถานะสวิตช์"}</strong>
-        <p>Administrator เท่านั้น · ใช้กับทุกบัญชีตามสิทธิ์เดิม · ไม่เปิดสิทธิ์เขียนข้อมูลงาน</p>
-        <p>การปิดหยุดรับคำถามใหม่ รอบที่เริ่มแล้วอาจทำงานต่อจนจบ · ประวัติการเปลี่ยนอยู่ในเมนู Audit</p>
-        {!!control.blockReason && <p>{errorText(new ControlError(control.blockReason))}</p>}
-        {!!switchMessage && <p role="status">{switchMessage}</p>}
-        {confirmSwitch !== null && <div role="group" aria-label="ยืนยันเปลี่ยนสถานะ Operations AI">
-          <p>{confirmSwitch ? "ยืนยันเปิดให้ผู้มีสิทธิ์ส่งคำถามไปยังผู้ให้บริการ AI? อาจมีค่าใช้จ่ายตามการใช้งาน" : "ยืนยันปิดรับคำถาม Operations AI ใหม่สำหรับทุกบัญชี?"}</p>
-          <div className={s.actions}>
-            <button className={s.button} disabled={switchBusy || (confirmSwitch && !control.canEnable)} onClick={() => void saveSwitch()}>{switchBusy ? "กำลังบันทึก…" : "ยืนยัน"}</button>
-            <button className={s.button} disabled={switchBusy} onClick={() => setConfirmSwitch(null)}>ยกเลิก</button>
+    <div {...pane("overview")}>
+      <section className={s.panel} aria-labelledby="ai-morning">
+        <div className={s.sectionTitle}><h2 id="ai-morning">Morning Brief</h2>
+          <span className={s.hint}>คำนวณเมื่อ {stamp(board.data?.computedAt)}</span></div>
+        {!canViewDashboard ? <Empty>บัญชีนี้ไม่มีสิทธิ์ ViewDashboard</Empty> : <>
+          {board.error && <Failure message={board.error} />}
+          <div className={s.metrics} aria-busy={board.loading}>
+            {metrics.map(([id, label, source]) => {
+              const f = figures.find(f => f.id === id);
+              return <article className={s.metric} key={id}>
+                <h3>{label}</h3><strong>{board.loading ? "…" : number(f?.value)}</strong>
+                <p>{source}{f?.unit ? " · " + f.unit : ""}</p>
+                {f?.note && <p>{f.note}</p>}
+              </article>;
+            })}
           </div>
+        </>}
+      </section>
+
+      {canViewDashboard && <section className={s.panel} aria-labelledby="ai-summary">
+        <div className={s.sectionTitle}><h2 id="ai-summary">งานที่ AI ตรวจพบ</h2>
+          <button className={s.link} onClick={() => open("findings")}>เปิดรายการ →</button></div>
+        {tasks.error ? <Failure message={tasks.error} /> : <div className={s.metrics} aria-busy={tasks.loading}>
+          {TASK_CARDS.slice(0, 4).map(card => <article className={s.metric} key={card.key}>
+            <h3>{card.label}</h3>
+            <strong className={card.tone === "red" ? s.metricRed : card.tone === "amber" ? s.metricAmber : undefined}>
+              {tasks.loading ? "…" : number(tasks.data?.[card.key])}</strong>
+          </article>)}
         </div>}
-      </div>
-      {confirmSwitch === null && <button className={s.button} disabled={switchBusy || !control.available || (!control.enabled && !control.canEnable)}
-        onClick={() => { setSwitchMessage(""); setConfirmSwitch(!control.enabled); }}>
-        {control.enabled ? "ปิด Operations AI" : "เปิด Operations AI"}
-      </button>}
-    </section>}
+      </section>}
 
-    {/* What the OTD and Validation agents found and nobody has answered (Agent Platform, 28 Sep 2026). */}
-    {canViewDashboard && <AiFindingsPanel onOpenJob={onOpenJob} onDraftJob={onDraftJob} />}
-
-    <section aria-labelledby="ai-morning">
-      <div className={s.sectionTitle}><div><h2 id="ai-morning">Morning Brief</h2>
-        <p>แหล่งข้อมูล: Dashboard · ขอบเขตตามสิทธิ์ ViewDashboard (ภาพรวมระบบ) · ไม่ได้สร้างโดยโมเดล</p></div>
-        <span className={s.hint}>คำนวณเมื่อ {stamp(board.data?.computedAt)}</span>
-      </div>
-      {!canViewDashboard ? <Empty>บัญชีนี้ไม่มีสิทธิ์ ViewDashboard จึงไม่โหลดสรุปงานหรือคิวติดตาม</Empty> : <>
-        {board.error && <Failure message={board.error} />}
-        <div className={s.metrics} aria-busy={board.loading}>
-          {metrics.map(([id, label, source]) => {
-            const f = figures.find(f => f.id === id);
-            return <article className={s.metric} key={id}>
-              <h3>{label}</h3><strong>{board.loading ? "…" : number(f?.value)}</strong>
-              <p>{source}{f?.unit ? " · " + f.unit : ""}</p>
-              <p>{f?.note || (board.loading ? "กำลังอ่านข้อมูล" : "ยังไม่มีข้อมูลที่ยืนยันได้")}</p>
-            </article>;
-          })}
-        </div>
-      </>}
-    </section>
-
-    <div ref={draftPanel}><OperationsChanges key={draftRevision} initialDraft={changeDraft}
-      onBusyChange={setChangeBusy} onOpenJob={onOpenJob} /></div>
-    <div className={s.grid}>
-      <div className={s.column}>
+      <div className={s.grid}>
         <section className={s.panel} aria-labelledby="ai-priority">
-          <div className={s.sectionTitle}><div><h2 id="ai-priority">Priority Queue</h2>
-            <p>รายการที่ต้องติดตามจากกฎ Dashboard / Shipment Monitor · ณ {brief.data?.today || "N/A"}</p></div></div>
+          <div className={s.sectionTitle}><h2 id="ai-priority">Priority Queue</h2>
+            <span className={s.hint}>ณ {brief.data?.today || "N/A"}</span></div>
           {!canViewDashboard ? <Empty>ต้องมีสิทธิ์ ViewDashboard</Empty>
             : brief.loading ? <Empty>กำลังตรวจคิวงาน…</Empty> : brief.error ? <Failure message={brief.error} />
               : brief.data && !brief.data.findings.length ? <Empty>{brief.data.quiet || "ไม่พบหัวข้อที่ต้องติดตามจากกฎนี้"}</Empty>
@@ -555,28 +570,33 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
                       {target !== requestedTarget ? "เปิด My Job เพื่อตรวจงาน" : "เปิดข้อมูลต้นทาง"} →</button>}
                   </li>;
                 })}</ul>}
-          <p className={s.hint}>รายการอาจทับซ้อนกัน ห้ามนำยอดแต่ละหัวข้อมาบวกเป็นจำนวนงานทั้งหมด</p>
+          <p className={s.hint}>หัวข้ออาจทับซ้อนกัน — ห้ามบวกเป็นจำนวนงานรวม</p>
         </section>
         <section className={s.panel} aria-labelledby="ai-risk">
-          <div className={s.sectionTitle}><div><h2 id="ai-risk">Risk Summary</h2><p>จำนวนหัวข้อในคิวติดตาม ไม่ใช่จำนวนงานหรือคะแนนความเสี่ยง AI</p></div></div>
+          <div className={s.sectionTitle}><h2 id="ai-risk">Risk Summary</h2></div>
           <div className={s.risk}>{(["Now", "Soon", "Watch"] as const).map(level => <div key={level}>
             <strong>{number(canViewDashboard && brief.data ? brief.data.findings.filter(f => f.urgency === level).length : null)}</strong>
             {URGENCY[level][0]} · หัวข้อ
           </div>)}</div>
-          <p className={s.hint}>ใช้กฎเดิมของระบบ ไม่ได้คาดการณ์ความเสี่ยงใหม่ ขอบเขตวันที่ของ Monitor อาจต่างจากคำถาม “งานเสี่ยงวันนี้” ของ Operations AI</p>
+          <p className={s.hint}>จำนวนหัวข้อในคิวติดตามตามกฎเดิม ไม่ใช่จำนวนงานหรือคะแนนความเสี่ยง</p>
         </section>
       </div>
+    </div>
 
+    <div {...pane("findings")}>
+      {canViewDashboard && <AiFindingsPanel onOpenJob={onOpenJob} onDraftJob={onDraftJob} />}
+    </div>
+
+    <div {...pane("ask")}>
       <section ref={askPanel} className={s.panel} aria-labelledby="ai-ask">
         <div className={s.sectionTitle}><div><h2 id="ai-ask">Ask SCMOS AI</h2>
-          <p>{agent === "data-agent" ? "Data Agent · จำนวนงานและ KPI ตรงเวลาตามช่วงเวลา คำนวณโดย SCMOS"
-            : agent === "communication-agent" ? "Communication Agent · ข้อความจากผู้ขนส่งตามที่ระบบอ่านไว้ · ไม่ส่ง ไม่แก้"
-            : agent === "document-agent" ? "Document & Invoice Agent · เอกสารตาม checklist ใบแจ้งหนี้เทียบกำหนดวางบิล และเอกสารใกล้หมดอายุ · ไม่เปิดไฟล์ ไม่อนุมัติ"
-            : agent === "engineering-agent" ? "Engineering Agent · รายการ GitHub ของ SCMOS และอ่านซอร์สแบบจำกัด อ่านอย่างเดียว · ไม่รันคำสั่ง ไม่แก้ไฟล์ ไม่ deploy · Administrator เท่านั้น"
-            : agent === "sre-agent" ? "SRE Agent · สุขภาพระบบ การ deploy และข้อผิดพลาด วัดโดยเซิร์ฟเวอร์เอง · ไม่รีสตาร์ต ไม่แก้ไข · Administrator เท่านั้น"
-            : agent === "management-agent" ? "Management Agent · แผนสรุปงาน/เอกสาร/ข้อความที่กำหนดไว้ · ตรวจสิทธิ์และ Audit ทุกขั้น · ไม่แก้ไขข้อมูล"
-            : "Operations Agent · ใช้ขอบเขตงานที่เซิร์ฟเวอร์อนุญาตให้บัญชีนี้อ่าน"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
-        <p className={s.hint}>AI ช่วยเลือกเครื่องมืออ่านข้อมูล ผลลัพธ์อาจไม่ครบหรือคลาดเคลื่อน ตรวจงานอ้างอิงก่อนตัดสินใจ ไม่ส่งข้อมูลลับหรือคีย์เข้ามาในคำถาม</p>
+          <p>{agent === "data-agent" ? "Data Agent · จำนวนงานและ KPI ตรงเวลา คำนวณโดย SCMOS"
+            : agent === "communication-agent" ? "Communication Agent · ข้อความจากผู้ขนส่ง · ไม่ส่ง ไม่แก้"
+            : agent === "document-agent" ? "Document & Invoice Agent · เอกสาร ใบแจ้งหนี้ และเอกสารใกล้หมดอายุ · ไม่อนุมัติ"
+            : agent === "engineering-agent" ? "Engineering Agent · GitHub และซอร์สของ SCMOS · อ่านอย่างเดียว · Administrator"
+            : agent === "sre-agent" ? "SRE Agent · สุขภาพระบบ การ deploy และข้อผิดพลาด · ไม่แก้ไข · Administrator"
+            : agent === "management-agent" ? "Management Agent · สรุปงาน เอกสาร และข้อความตามแผนที่กำหนด · ไม่แก้ไข"
+            : "Operations Agent · งานในขอบเขตที่บัญชีนี้อ่านได้"}</p></div><Badge tone="blue">ไม่มีสิทธิ์เขียน</Badge></div>
         <form className={s.form} onSubmit={submit}>
           {doors.length > 1 && <div className={s.actions} role="group" aria-label="เลือก Agent">
             {doors.map(choice => <button key={choice} type="button" disabled={busy}
@@ -588,7 +608,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           <div className={s.actions}>{(agent === "data-agent" ? DATA_PROMPTS : agent === "communication-agent" ? MESSAGE_PROMPTS
             : agent === "document-agent" ? DOCUMENT_PROMPTS : agent === "engineering-agent" ? ENGINEERING_PROMPTS : agent === "sre-agent" ? SRE_PROMPTS : agent === "management-agent" ? MANAGEMENT_PROMPTS : PROMPTS).map(prompt => <button key={prompt} type="button" className={s.button} disabled={busy}
             onClick={() => { setMessage(prompt); input.current?.focus(); }}>{prompt.trim()}</button>)}</div>
-          <label htmlFor="ai-question">ต้องการตรวจสอบเรื่องอะไร?</label>
+          <label htmlFor="ai-question">คำถาม</label>
           <textarea id="ai-question" ref={input} className={s.textarea} maxLength={4000} value={message} disabled={busy}
             placeholder="เช่น วันนี้มีงานใดต้องติดตาม และควรตรวจข้อมูลอะไรต่อ?"
             aria-describedby="ai-question-help" onChange={event => setMessage(event.target.value)}
@@ -604,6 +624,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
           {agent === "operations-agent" && <p className={s.hint}>คำสั่งเติมร่าง (ยังไม่บันทึก): {CHANGE_EXAMPLE} · ผู้รับผิดชอบใช้รหัส เช่น OP-02</p>}
           </div>
           {!asking.ready && <p className={s.hint}>{asking.title}{asking.detail ? " · " + asking.detail : ""}</p>}
+          <p className={s.hint}>คำตอบของ AI อาจไม่ครบหรือคลาดเคลื่อน — ตรวจงานอ้างอิงก่อนตัดสินใจ</p>
         </form>
         <div aria-live="polite" aria-busy={busy}>
           {askError && <Failure message={askError} />}
@@ -615,7 +636,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
               {reply.correlationId && <span>Correlation: <span className={s.runId}>{reply.correlationId}</span></span>}
               {reply.contextUsed && <span>อ่านต่อจากคำถามก่อนหน้า</span>}
               {canViewAudit && !reply.mock && <button className={s.link} onClick={() => {
-                setSelectedRun(reply.runId); activityPanel.current?.scrollIntoView({ block: "start" });
+                setSelectedRun(reply.runId); open("history", activityPanel);
               }}>ดู Audit ของคำตอบนี้</button>}</div>
             {reply.kpi && <KpiCard kpi={reply.kpi} />}
             {reply.messages && <MessagesCard answer={reply.messages} onOpenJob={onOpenJob} />}
@@ -649,16 +670,17 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
             </>}
           </div>}
         </div>
-        <details className={s.agents}><summary>Agent ที่บัญชีนี้มองเห็น · ตามการตั้งค่าเซิร์ฟเวอร์</summary>
+        <details className={s.agents}><summary>Agent ที่บัญชีนี้ใช้ได้</summary>
           <ul>{status.data?.agents.map(agent => {
             const readiness = agentReadiness(status.data, agent.id);
             return <li key={agent.id}><span>{agent.name}<small className={s.hint}> · {readiness.detail}</small></span>
               <Badge tone={readiness.ready ? "green" : "muted"}>{readiness.label}</Badge></li>;
           })}</ul>
-          <p className={s.hint}>การตั้งค่า provider ไม่ใช่ผลตรวจการเชื่อมต่อจริง Phase นี้เปิดให้ถามเฉพาะ Operations Agent</p>
-          <button className={s.link} onClick={() => permissionsPanel.current?.scrollIntoView({ block: "start" })}>ดูสิทธิ์และคิวอนุมัติด้านล่าง →</button>
+          <button className={s.link} onClick={() => open("approvals")}>สิทธิ์และคิวอนุมัติ →</button>
         </details>
       </section>
+      <div ref={draftPanel}><OperationsChanges key={draftRevision} initialDraft={changeDraft}
+        onBusyChange={setChangeBusy} onOpenJob={onOpenJob} /></div>
     </div>
 
     {/* What the assistant may do and what is waiting for a person — its own
@@ -666,65 +688,88 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
         และลบ AI Assistant ออก"). One place to look at the AI, not two: the
         permission matrix is read from the API, where it is enforced, and the
         approval queue is decided here rather than on a second menu entry. */}
-    <section ref={permissionsPanel} className={s.panel} aria-labelledby="ai-permissions">
-      <div className={s.sectionTitle}><div><h2 id="ai-permissions">สิทธิ์และคิวอนุมัติ</h2>
-        <p>สิ่งที่ผู้ช่วยทำได้เลย สิ่งที่ต้องให้คนอนุมัติ และสิ่งที่ห้ามเด็ดขาด · อ่านจาก API ที่บังคับใช้จริง</p></div></div>
-      <Assistant canApprove={canApprove} onToast={onToast} onOpenJob={onOpenJob} />
-    </section>
+    <div {...pane("approvals")}>
+      <section ref={permissionsPanel} className={s.panel} aria-labelledby="ai-permissions">
+        <div className={s.sectionTitle}><h2 id="ai-permissions">สิทธิ์และคิวอนุมัติ</h2></div>
+        <Assistant canApprove={canApprove} onToast={onToast} onOpenJob={onOpenJob} />
+      </section>
+    </div>
 
-    {/* Autonomy, shadow mode, status, health and cost per agent, and the execution switch
-        (Agent Platform foundation, 27 Sep 2026) — for whoever may read the AI audit; changed only by an Administrator. */}
-    {canViewAudit && <AiGovernancePanel operations={control} onOperationsChanged={status.refresh} />}
+    <div {...pane("history")}>
+      {canViewDashboard && <AiHistoryPanel onOpenJob={onOpenJob}
+        onShowRun={canViewAudit ? (runId) => { setSelectedRun(runId); open("history", activityPanel); } : undefined} />}
 
-    {canViewDashboard && <AiHistoryPanel onOpenJob={onOpenJob}
-      onShowRun={canViewAudit ? (runId) => { setSelectedRun(runId); activityPanel.current?.scrollIntoView({ block: "start" }); } : undefined} />}
+      <section ref={activityPanel} className={s.panel} aria-labelledby="ai-activity">
+        <div className={s.sectionTitle}><h2 id="ai-activity">AI Activity</h2>
+          {canViewAudit && <button className={s.button} onClick={() => { activity.refresh(); detail.refresh(); }}>รีเฟรช Activity</button>}</div>
+        {canViewAudit && <form className={s.actions + " " + s.governance} data-testid="ai-activity-search" onSubmit={e => {
+          e.preventDefault();
+          const problem = queryProblem(auditForm);
+          setAuditProblem(problem);
+          if (!problem) { setBeforeId(null); setAuditQuery({ ...auditForm }); }
+        }}>
+          <input type="date" aria-label="ตั้งแต่วันที่" value={auditForm.from} onChange={e => setAuditForm(prev => ({ ...prev, from: e.target.value }))} />
+          <input type="date" aria-label="ถึงวันที่" value={auditForm.to} onChange={e => setAuditForm(prev => ({ ...prev, to: e.target.value }))} />
+          <select aria-label="Agent" value={auditForm.agent} onChange={e => setAuditForm(prev => ({ ...prev, agent: e.target.value }))}>
+            <option value="">ทุก Agent</option>{AUDIT_AGENTS.map(one => <option key={one} value={one}>{one}</option>)}
+          </select>
+          <select aria-label="เครื่องมือ" value={auditForm.tool} onChange={e => setAuditForm(prev => ({ ...prev, tool: e.target.value }))}>
+            <option value="">ทุกเครื่องมือ</option>{AUDIT_TOOLS.map(one => <option key={one} value={one}>{one}</option>)}
+          </select>
+          <select aria-label="ผล" value={auditForm.result} onChange={e => setAuditForm(prev => ({ ...prev, result: e.target.value }))}>
+            <option value="">ทุกผล</option>{RUN_RESULTS.map(one => <option key={one} value={one}>{stateName(one)}</option>)}
+          </select>
+          <input aria-label="ผู้เรียก" placeholder="ผู้เรียก" maxLength={160} value={auditForm.user} onChange={e => setAuditForm(prev => ({ ...prev, user: e.target.value }))} />
+          <input aria-label="หลักฐาน" placeholder="งาน / mail:id" maxLength={80} value={auditForm.key} onChange={e => setAuditForm(prev => ({ ...prev, key: e.target.value }))} />
+          <button type="submit" className={s.button + " " + s.primary}>ค้นหา</button>
+          <button type="button" className={s.button} onClick={() => { setAuditForm(EMPTY_AUDIT_QUERY); setAuditProblem(""); setBeforeId(null); setAuditQuery(EMPTY_AUDIT_QUERY); }}>ล้าง</button>
+        </form>}
+        {!!auditProblem && <p role="alert" className={s.error}>{auditProblem}</p>}
+        {!canViewAudit ? <Empty>บัญชีนี้ไม่มีสิทธิ์ ViewAudit</Empty> :
+          <div className={s.activityLayout}>
+            <div>{activity.loading ? <Empty>กำลังอ่านประวัติ…</Empty> : activity.error ? <Failure message={activity.error} />
+              : activity.data?.runs.length === 0 ? <Empty>ยังไม่มีรอบการทำงานที่บันทึกไว้ในหน้านี้</Empty>
+                : <ul className={s.list}>{activity.data?.runs.map(run => <li key={run.runId}>
+                  <button className={s.run} aria-pressed={selectedRun === run.runId} onClick={() => setSelectedRun(run.runId)}>
+                    <div className={s.findingTop}><strong>{run.agentId || "AI run"}</strong>
+                      <Badge tone={run.status === "succeeded" ? "green" : run.status === "running" ? "blue" : "amber"}>{stateName(run.status)}</Badge></div>
+                    <p>{stamp(run.startedAt)} · {run.userId}</p><p className={s.runId}>{run.runId}</p>
+                  </button></li>)}</ul>}
+              <div className={s.pagination}><button className={s.button} disabled={beforeId === null || activity.loading}
+                onClick={() => setBeforeId(null)}>กลับรายการล่าสุด</button>
+                <button className={s.button} disabled={!activity.data?.nextBeforeId || activity.loading}
+                  onClick={() => { if (activity.data?.nextBeforeId) setBeforeId(activity.data.nextBeforeId); }}>รายการเก่ากว่า →</button></div>
+            </div>
+            <div className={s.detail}>{!selectedRun ? <Empty>เลือกรอบการทำงานเพื่อดูรายละเอียด</Empty>
+              : detail.loading ? <Empty>กำลังอ่านรายละเอียด…</Empty> : detail.error ? <Failure message={detail.error} />
+                : detail.data && <RunDetail run={detail.data} onOpenJob={onOpenJob} />}</div>
+          </div>}
+      </section>
+    </div>
 
-    <section ref={activityPanel} className={s.panel} aria-labelledby="ai-activity">
-      <div className={s.sectionTitle}><div><h2 id="ai-activity">AI Activity</h2>
-        <p>ประวัติถาวรจาก ai_audit_logs · ตามสิทธิ์ ViewAudit · ไม่มีการเก็บข้อความคำถามหรือคำตอบฉบับเต็ม</p></div>
-        {canViewAudit && <button className={s.button} onClick={() => { activity.refresh(); detail.refresh(); }}>รีเฟรช Activity</button>}</div>
-      {canViewAudit && <form className={s.actions + " " + s.governance} data-testid="ai-activity-search" onSubmit={e => {
-        e.preventDefault();
-        const problem = queryProblem(auditForm);
-        setAuditProblem(problem);
-        if (!problem) { setBeforeId(null); setAuditQuery({ ...auditForm }); }
-      }}>
-        <input type="date" aria-label="ตั้งแต่วันที่" value={auditForm.from} onChange={e => setAuditForm(prev => ({ ...prev, from: e.target.value }))} />
-        <input type="date" aria-label="ถึงวันที่" value={auditForm.to} onChange={e => setAuditForm(prev => ({ ...prev, to: e.target.value }))} />
-        <select aria-label="Agent" value={auditForm.agent} onChange={e => setAuditForm(prev => ({ ...prev, agent: e.target.value }))}>
-          <option value="">ทุก Agent</option>{AUDIT_AGENTS.map(one => <option key={one} value={one}>{one}</option>)}
-        </select>
-        <select aria-label="เครื่องมือ" value={auditForm.tool} onChange={e => setAuditForm(prev => ({ ...prev, tool: e.target.value }))}>
-          <option value="">ทุกเครื่องมือ</option>{AUDIT_TOOLS.map(one => <option key={one} value={one}>{one}</option>)}
-        </select>
-        <select aria-label="ผล" value={auditForm.result} onChange={e => setAuditForm(prev => ({ ...prev, result: e.target.value }))}>
-          <option value="">ทุกผล</option>{RUN_RESULTS.map(one => <option key={one} value={one}>{stateName(one)}</option>)}
-        </select>
-        <input aria-label="ผู้เรียก" placeholder="ผู้เรียก" maxLength={160} value={auditForm.user} onChange={e => setAuditForm(prev => ({ ...prev, user: e.target.value }))} />
-        <input aria-label="หลักฐาน" placeholder="งาน / mail:id" maxLength={80} value={auditForm.key} onChange={e => setAuditForm(prev => ({ ...prev, key: e.target.value }))} />
-        <button type="submit" className={s.button + " " + s.primary}>ค้นหา</button>
-        <button type="button" className={s.button} onClick={() => { setAuditForm(EMPTY_AUDIT_QUERY); setAuditProblem(""); setBeforeId(null); setAuditQuery(EMPTY_AUDIT_QUERY); }}>ล้าง</button>
-      </form>}
-      {!!auditProblem && <p role="alert" className={s.error}>{auditProblem}</p>}
-      {!canViewAudit ? <Empty>บัญชีนี้ไม่มีสิทธิ์ ViewAudit จึงไม่โหลดประวัติการทำงาน</Empty> :
-        <div className={s.activityLayout}>
-          <div>{activity.loading ? <Empty>กำลังอ่านประวัติ…</Empty> : activity.error ? <Failure message={activity.error} />
-            : activity.data?.runs.length === 0 ? <Empty>ยังไม่มีรอบการทำงานที่บันทึกไว้ในหน้านี้</Empty>
-              : <ul className={s.list}>{activity.data?.runs.map(run => <li key={run.runId}>
-                <button className={s.run} aria-pressed={selectedRun === run.runId} onClick={() => setSelectedRun(run.runId)}>
-                  <div className={s.findingTop}><strong>{run.agentId || "AI run"}</strong>
-                    <Badge tone={run.status === "succeeded" ? "green" : run.status === "running" ? "blue" : "amber"}>{stateName(run.status)}</Badge></div>
-                  <p>{stamp(run.startedAt)} · {run.userId}</p><p className={s.runId}>{run.runId}</p>
-                </button></li>)}</ul>}
-            <div className={s.pagination}><button className={s.button} disabled={beforeId === null || activity.loading}
-              onClick={() => setBeforeId(null)}>กลับรายการล่าสุด</button>
-              <button className={s.button} disabled={!activity.data?.nextBeforeId || activity.loading}
-                onClick={() => { if (activity.data?.nextBeforeId) setBeforeId(activity.data.nextBeforeId); }}>รายการเก่ากว่า →</button></div>
-          </div>
-          <div className={s.detail}>{!selectedRun ? <Empty>เลือกรอบการทำงานเพื่อดูผู้เรียก ขอบเขตอ่าน และลำดับเหตุการณ์</Empty>
-            : detail.loading ? <Empty>กำลังอ่านรายละเอียด…</Empty> : detail.error ? <Failure message={detail.error} />
-              : detail.data && <RunDetail run={detail.data} onOpenJob={onOpenJob} />}</div>
-        </div>}
-    </section>
+    <div {...pane("governance")}>
+      {control?.canManage && <section className={s.status} aria-label="ควบคุม Operations AI">
+        <div><strong>Operations AI · {control.available ? control.enabled ? "สวิตช์เปิด" : "สวิตช์ปิด" : "ยังไม่ทราบสถานะสวิตช์"}</strong>
+          <p>Administrator เท่านั้น · การปิดหยุดรับคำถามใหม่ · ประวัติอยู่ในเมนู Audit</p>
+          {!!control.blockReason && <p>{errorText(new ControlError(control.blockReason))}</p>}
+          {!!switchMessage && <p role="status">{switchMessage}</p>}
+          {confirmSwitch !== null && <div role="group" aria-label="ยืนยันเปลี่ยนสถานะ Operations AI">
+            <p>{confirmSwitch ? "ยืนยันเปิดให้ผู้มีสิทธิ์ส่งคำถามไปยังผู้ให้บริการ AI? อาจมีค่าใช้จ่ายตามการใช้งาน" : "ยืนยันปิดรับคำถาม Operations AI ใหม่สำหรับทุกบัญชี?"}</p>
+            <div className={s.actions}>
+              <button className={s.button} disabled={switchBusy || (confirmSwitch && !control.canEnable)} onClick={() => void saveSwitch()}>{switchBusy ? "กำลังบันทึก…" : "ยืนยัน"}</button>
+              <button className={s.button} disabled={switchBusy} onClick={() => setConfirmSwitch(null)}>ยกเลิก</button>
+            </div>
+          </div>}
+        </div>
+        {confirmSwitch === null && <button className={s.button} disabled={switchBusy || !control.available || (!control.enabled && !control.canEnable)}
+          onClick={() => { setSwitchMessage(""); setConfirmSwitch(!control.enabled); }}>
+          {control.enabled ? "ปิด Operations AI" : "เปิด Operations AI"}
+        </button>}
+      </section>}
+
+      {/* Autonomy, shadow mode, status, health and cost per agent, and the execution switch
+          (Agent Platform foundation, 27 Sep 2026) — for whoever may read the AI audit; changed only by an Administrator. */}
+      {canViewAudit && <AiGovernancePanel operations={control} onOperationsChanged={status.refresh} />}
+    </div>
   </div>;
 }

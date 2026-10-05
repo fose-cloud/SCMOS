@@ -298,3 +298,17 @@ test("UI keeps read-only boundaries and transient state; no auto AI prompt or ra
   assert.match(source, /setChangeDraft\(parseChangeDraft\(result\)\)/);
   assert.match(source, /request.current === controller/);
 });
+test("the tower is six tabs, one subject at a time, without paragraphs describing itself (5 Oct 2026)", () => {
+  const source = readFileSync(new URL("../app/scmos/screens/AiControlTower.tsx", import.meta.url), "utf8");
+  const tabs = [...source.slice(source.indexOf("const TABS"), source.indexOf("];", source.indexOf("const TABS")))
+    .matchAll(/label: "([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(tabs, ["ภาพรวม", "งานที่ AI ตรวจพบ", "ถาม AI", "คิวอนุมัติ", "ประวัติ", "การกำกับ"]);
+  // Every pane stays mounted and is only hidden, so a typed question or a search survives a look elsewhere.
+  assert.match(source, /hidden: tab !== id/);
+  for (const id of ["overview", "findings", "ask", "approvals", "history", "governance"]) assert.ok(source.includes(`{...pane("${id}")}`), id);
+  // A question handed over from elsewhere opens on the ask tab.
+  assert.match(source, /useState<TowerTab>\(initialQuestion \? "ask" : "overview"\)/);
+  // The hero's slogan and the screen-describing captions are gone (no-explanatory-prose rule).
+  for (const prose of ["มองภาพรวม แล้วลงมือจากข้อมูลจริง", "สรุปงานจากระบบ · ถาม Operations AI", "Phase นี้เปิดให้ถามเฉพาะ Operations Agent",
+    "ประวัติถาวรจาก ai_audit_logs", "สิ่งที่ผู้ช่วยทำได้เลย สิ่งที่ต้องให้คนอนุมัติ"]) assert.ok(!source.includes(prose), prose);
+});

@@ -85,6 +85,17 @@
 .timeline small { display: block; color: #63758a; }
 .pagination { display: flex; gap: 8px; margin-top: 12px; }
 .runId { font-family: monospace; overflow-wrap: anywhere; font-size: 11px; }
+.head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.state .hint { margin: 0; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; margin-top: -8px; }
+.tab { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; min-height: 42px; border: 0; border-bottom: 2px solid transparent;
+  background: none; color: #52657a; font-size: 13px; font-weight: 600; white-space: nowrap; margin-bottom: -1px; }
+.tab:hover { color: var(--ink); background: #f3f6fa; }
+.tabActive { color: #1d5fa8; border-bottom-color: #1d5fa8; }
+.count { min-width: 20px; padding: 1px 6px; border-radius: 10px; background: #fff3dd; color: #935500; font-size: 11px; font-weight: 700; text-align: center; }
+.pane { display: grid; gap: 20px; min-width: 0; }
+.pane[hidden] { display: none; }
 @media (max-width: 1180px) { .grid { grid-template-columns: minmax(0, 1fr); } .hero { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 720px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .activityLayout { grid-template-columns: minmax(0, 1fr); } .panel, .hero { padding: 16px; } .status { align-items: flex-start; flex-direction: column; } .sectionTitle { align-items: flex-start; flex-wrap: wrap; } }
 @media (prefers-reduced-motion: reduce) { .tower { scroll-behavior: auto; } }
