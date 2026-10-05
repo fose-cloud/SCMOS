@@ -1,9 +1,9 @@
 {
-  "policyVersion": "scmos-permission-4-candidate",
-  "changedBy": "user-request:2026-10-04",
-  "changedAt": "2026-10-04T00:00:00Z",
-  "reason": "Human nominated primary/fallback email references for all 14 agents; live directory eligibility remains unverified. Shared limits USD 0.20/day and USD 10/month; policy/isolation/agent bounds still require review. No new tool/action grants.",
-  "previousVersion": "scmos-permission-1-candidate",
+  "policyVersion": "scmos-permission-5-candidate",
+  "changedBy": "user-request:2026-10-05",
+  "changedAt": "2026-10-05T00:00:00Z",
+  "reason": "Fallback owner only: email:fosfaaylove1@gmail.com matched no staff row in the live directory (read 5 Oct 2026), so the human chose Staff AM-01 (Assistant Manager, active) for all 14 agents. Primary email:K.nattikorn-fos@hotmail.com matched AD-01 (Administrator, active). Shared limits USD 0.20/day and USD 10/month unchanged; policy/isolation/agent bounds still require review. No new tool/action grants.",
+  "previousVersion": "scmos-permission-4-candidate",
   "approvalReference": null,
   "sharedBudget": {
     "scope": "all-registered-agents",
@@ -42,7 +42,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing operations-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "BookingRead": "Read",
         "DelayDetect": "Analyze"
@@ -72,7 +72,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing vendor-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "CarrierRecommend": "Draft"
       },
@@ -98,7 +98,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing rate-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {},
       "allowedTools": [],
       "allowedApiScopes": [
@@ -120,7 +120,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing data-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "KpiGenerate": "Analyze"
       },
@@ -146,7 +146,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing incident-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {},
       "allowedTools": [],
       "allowedApiScopes": [
@@ -168,7 +168,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing document-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "DocumentRead": "Read",
         "DocumentExtract": "Analyze",
@@ -198,7 +198,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing compliance-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {},
       "allowedTools": [],
       "allowedApiScopes": [
@@ -220,7 +220,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing management-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "ManagementAnalyze": "Analyze"
       },
@@ -247,7 +247,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing communication-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "CommunicationRead": "Read",
         "CommunicationDraft": "Draft"
@@ -275,7 +275,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing engineering-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "CodeRead": "Read"
       },
@@ -302,7 +302,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing otd-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "OtdCalculate": "Analyze"
       },
@@ -328,7 +328,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing validation-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "ValidationAnalyze": "Analyze"
       },
@@ -354,7 +354,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing booking-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "BookingCreateDraft": "Draft"
       },
@@ -381,7 +381,7 @@
       "agentVersion": "governance-1",
       "purpose": "Govern existing sre-agent contracts without granting new execution privileges.",
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
-      "fallbackOwner": "email:fosfaaylove1@gmail.com",
+      "fallbackOwner": "AM-01",
       "permissions": {
         "SystemHealthRead": "Read"
       },

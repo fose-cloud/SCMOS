@@ -66,9 +66,12 @@ test("policy parser rejects partial, duplicate and mutable reports", () => {
 });
 test("candidate nominates only the human-provided owner pair, without grants or invented per-agent budgets", () => {
   assert.equal(matrix.approvalReference, null);
+  // 5 Oct 2026: the nominated backup address matched no staff row; the human chose the verified Staff ID AM-01.
+  assert.equal(matrix.policyVersion, "scmos-permission-5-candidate");
+  assert.equal(matrix.previousVersion, "scmos-permission-4-candidate");
   for (const agent of matrix.agents) {
     assert.equal(agent.humanOwner, "email:K.nattikorn-fos@hotmail.com");
-    assert.equal(agent.fallbackOwner, "email:fosfaaylove1@gmail.com");
+    assert.equal(agent.fallbackOwner, "AM-01");
     assert.equal(agent.budget, null);
     assert.equal(agent.failClosed, true);
     assert.equal(agent.auditRequired, true);

@@ -168,3 +168,36 @@ API Release build passed with zero warnings/errors and Web Production build
 passed. The merged EF snapshot matches the runtime model. Production migration
 application and deployment are not claimed by this preflight: their final status
 must be verified from the existing GitHub release workflows after merge.
+
+## Owner verification — 5 October 2026 (`scmos-permission-5-candidate`)
+
+Item 4 above, done read-only in Production as AD-01 through the existing
+`/api/staff` directory and `/api/ai/owner-options`, by the same exact-address rule
+`AiOwnerDirectory` applies:
+
+- Primary `email:K.nattikorn-fos@hotmail.com` matched exactly one row: AD-01,
+  Administrator, active, nonempty sign-in address. Eligible.
+- Fallback `email:fosfaaylove1@gmail.com` matched no row. It would fail as
+  `owner_not_eligible`. The near address `fosfaaylove@hotmail.com` (SC-02) is a
+  different address and a Subcontractor; it was not substituted.
+- Eligible accounts at the time: AD-01, AM-01 (Assistant Manager), SV-01
+  (Operation Supervisor).
+
+The user chose AM-01 as the fallback for all fourteen agents. The candidate now
+names the verified Staff ID `AM-01`: staff addresses were being moved to
+leschaco.com on 4–5 Oct, and an ID does not change with the address.
+AD-01 and AM-01 are two accounts of the SAME person: the code-level independence
+check (distinct Staff IDs and addresses) passes, but no second human can act for
+the owner. The user chose this knowingly; record it at the policy review.
+
+Only `fallbackOwner`, the version fields and the reason changed. No permission,
+tool, budget or isolation value changed, `approvalReference` is still null, and
+all fourteen agents still refuse with `policy_review_required` until the review,
+per-agent bounds and isolation evidence exist. Every execution rechecks both rows
+live, so a later deactivation or demotion of either account blocks again.
+
+Verification: offline 1,383 checks; focused SQL suites 1,456 on the isolated instance
+(the first run on a freshly started instance failed once at "write SQL: concurrent
+confirmation has one effect"; two consecutive reruns passed in full, so this is a race in
+that check to watch); 818 frontend tests, TypeScript, lint (three existing warnings),
+API Debug/Release builds with warnings as errors, 35 rule flags.
