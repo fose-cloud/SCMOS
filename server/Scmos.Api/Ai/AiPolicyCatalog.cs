@@ -24,7 +24,8 @@ public sealed class AiPolicyCatalog
         ? Find(id)?.Permissions.GetValueOrDefault(action, AiPermissionLevel.Forbidden) ?? AiPermissionLevel.Forbidden
         : AiPermissionLevel.Forbidden;
 
-    public string? Readiness(string agentId)
+    /// <param name="now">The moment to judge an isolation acceptance's end against; now, unless a check supplies one.</param>
+    public string? Readiness(string agentId, DateTimeOffset? now = null)
     {
         if (!Valid || Find(agentId) is not { } manifest) return "manifest_invalid";
         if (string.IsNullOrWhiteSpace(ApprovalReference)) return "policy_review_required";
@@ -34,7 +35,10 @@ public sealed class AiPolicyCatalog
         if (!ValidBudget(manifest.Budget))
             return "budget_required";
         // No deployment may silently enable a process without reviewed isolation evidence.
-        return string.IsNullOrWhiteSpace(manifest.RuntimeIsolationApproval) ? "runtime_isolation_review_required" : null;
+        if (string.IsNullOrWhiteSpace(manifest.RuntimeIsolationApproval)) return "runtime_isolation_review_required";
+        // A time-boxed acceptance stops on its date by itself; nobody has to remember to switch it off (5 Oct 2026).
+        return manifest.RuntimeIsolationExpiresAt is { } until && (now ?? DateTimeOffset.UtcNow) >= until
+            ? "runtime_isolation_review_expired" : null;
     }
     public static bool ValidBudget(AgentBudgetPolicy? budget) => budget is
         { MaxOutputTokens: >= 64 and <= 2000, MaxToolCalls: >= 1 and <= 8, MaxApiCalls: >= 1 and <= 8,
@@ -111,7 +115,8 @@ public sealed class AiPolicyCatalog
                     || agent.Permissions.Any(p => AbsoluteDeny(p.Key) && p.Value != AiPermissionLevel.Forbidden)
                     || agent.Permissions.Any(p => HumanOnly(p.Key) && p.Value is not (AiPermissionLevel.Forbidden or AiPermissionLevel.HumanApprovalRequired))
                     || (agent.AgentId != AgentIds.Communication && agent.Permissions.Any(p => ExternalCommunication(p.Key) && p.Value != AiPermissionLevel.Forbidden))
-                    || (agent.AgentId == AgentIds.Engineering && agent.Permissions.GetValueOrDefault(AiAction.ProductionDeploy) != AiPermissionLevel.Forbidden)) return new();
+                    || (agent.AgentId == AgentIds.Engineering && agent.Permissions.GetValueOrDefault(AiAction.ProductionDeploy) != AiPermissionLevel.Forbidden)
+                    || (agent.RuntimeIsolationExpiresAt is not null && Expiry(agent.RuntimeIsolationExpiresAt) is null)) return new();
             }
             return new()
             {
@@ -122,12 +127,19 @@ public sealed class AiPolicyCatalog
                 Manifests = policy.Agents.ToFrozenDictionary(a => a.AgentId, a => new AgentPolicyManifest(a.AgentId, a.AgentVersion,
                     a.Purpose, a.HumanOwner, a.FallbackOwner, a.Permissions.ToFrozenDictionary(), a.AllowedTools.ToFrozenSet(StringComparer.Ordinal),
                     a.AllowedApiScopes.ToFrozenSet(StringComparer.Ordinal), a.NetworkAllowList.ToFrozenSet(StringComparer.Ordinal),
-                    a.DataScope, a.MaximumRiskLevel, a.Budget, a.AuditRequired, a.FailClosed, a.RuntimeIsolationApproval), StringComparer.Ordinal)
+                    a.DataScope, a.MaximumRiskLevel, a.Budget, a.AuditRequired, a.FailClosed, a.RuntimeIsolationApproval,
+                    Expiry(a.RuntimeIsolationExpiresAt)), StringComparer.Ordinal)
             };
         }
         catch (Exception error) when (error is JsonException or ArgumentException or InvalidOperationException or NullReferenceException)
         { return new(); }
     }
+
+    /// <summary>An acceptance's end: an ISO 8601 moment that names its offset, or nothing — never a bare local date.</summary>
+    private static DateTimeOffset? Expiry(string? value) =>
+        value is { Length: > 10 } text && (text.EndsWith('Z') || text[^6] is '+' or '-')
+        && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var at) ? at : null;
 
     private static bool Unique(JsonElement value) => value.ValueKind switch
     {
@@ -142,5 +154,6 @@ public sealed class AiPolicyCatalog
     private sealed record ManifestFile(string AgentId, string AgentVersion, string Purpose, string? HumanOwner,
         string? FallbackOwner, Dictionary<AiAction, AiPermissionLevel> Permissions, string[] AllowedTools,
         string[] AllowedApiScopes, string[] NetworkAllowList, AgentDataScope DataScope, AiRisk MaximumRiskLevel,
-        AgentBudgetPolicy? Budget, bool AuditRequired, bool FailClosed, string? RuntimeIsolationApproval);
+        AgentBudgetPolicy? Budget, bool AuditRequired, bool FailClosed, string? RuntimeIsolationApproval,
+        string? RuntimeIsolationExpiresAt = null);
 }

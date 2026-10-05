@@ -1,10 +1,10 @@
 {
-  "policyVersion": "scmos-permission-6-candidate",
+  "policyVersion": "scmos-permission-7",
   "changedBy": "user-request:2026-10-05",
   "changedAt": "2026-10-05T00:00:00Z",
-  "reason": "Per-agent bounds approved by the human on 5 Oct 2026 for nine agents, from 30 days of real use: the drafted values for operations, data, sre, otd, validation and vendor; engineering, management and document adjusted to reservation per model call (engineering 0.03 per call and 30 requests/day, management 0.015 and USD 0.10/day for evaluation summaries, document 0.03 and USD 0.09/day for PDF reading). Rate, incident, compliance, communication and booking keep no bounds. Shared limits unchanged; policy approval and runtime isolation still require review. No new tool/action grants.",
-  "previousVersion": "scmos-permission-5-candidate",
-  "approvalReference": null,
+  "reason": "Readiness review SCMOS-AI-RR-2026-10-05 (5 Oct 2026): the human approved the policy and accepted, until 2026-12-31 23:59 Bangkok, the shared API runtime (one process, one SQL login, one OpenAI key, open egress) for the nine bounded agents, which hold no write or send permission. The acceptance ends by itself on that date. Rate, incident, compliance, communication and booking stay without bounds and refused. No grant, tool, scope, owner or budget changed.",
+  "previousVersion": "scmos-permission-6-candidate",
+  "approvalReference": "SCMOS-AI-RR-2026-10-05 — approved by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; docs/ai/SCMOS_AI_READINESS_REVIEW_20261005.md",
   "sharedBudget": {
     "scope": "all-registered-agents",
     "currency": "USD",
@@ -76,7 +76,9 @@
         "maxReservationCost": 0.0015
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "vendor-agent",
@@ -113,7 +115,9 @@
         "maxReservationCost": 0.000001
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "rate-agent",
@@ -172,7 +176,9 @@
         "maxReservationCost": 0.0015
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "incident-agent",
@@ -235,7 +241,9 @@
         "maxReservationCost": 0.03
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "compliance-agent",
@@ -295,7 +303,9 @@
         "maxReservationCost": 0.015
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "communication-agent",
@@ -361,7 +371,9 @@
         "maxReservationCost": 0.03
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "otd-agent",
@@ -398,7 +410,9 @@
         "maxReservationCost": 0.000001
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "validation-agent",
@@ -435,7 +449,9 @@
         "maxReservationCost": 0.000001
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     },
     {
       "agentId": "booking-agent",
@@ -499,7 +515,9 @@
         "maxReservationCost": 0.0015
       },
       "auditRequired": true,
-      "failClosed": true
+      "failClosed": true,
+      "runtimeIsolationApproval": "SCMOS-AI-RR-2026-10-05: shared API runtime accepted with compensating controls by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; no write or send permission",
+      "runtimeIsolationExpiresAt": "2026-12-31T23:59:59+07:00"
     }
   ]
 }

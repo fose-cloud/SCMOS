@@ -40,7 +40,9 @@ public sealed record AgentPolicyManifest(string AgentId, string AgentVersion, st
     string? FallbackOwner, IReadOnlyDictionary<AiAction, AiPermissionLevel> Permissions,
     IReadOnlySet<string> AllowedTools, IReadOnlySet<string> AllowedApiScopes, IReadOnlySet<string> NetworkAllowList,
     AgentDataScope DataScope, AiRisk MaximumRiskLevel, AgentBudgetPolicy? Budget, bool AuditRequired, bool FailClosed,
-    string? RuntimeIsolationApproval = null);
+    string? RuntimeIsolationApproval = null,
+    // When a time-boxed isolation acceptance ends (5 Oct 2026); from then the agent is refused until it is reviewed again.
+    DateTimeOffset? RuntimeIsolationExpiresAt = null);
 
 // ModelCall (5 Oct 2026): this authorization is asked immediately before one call to the model, and only such an
 // authorization sets money aside. Reads, rule-only passes and approved writes reserve nothing.

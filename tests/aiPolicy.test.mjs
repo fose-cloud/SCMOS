@@ -78,18 +78,24 @@ const APPROVED_BOUNDS = {
 };
 const BOUND_NAMES = ["maxOutputTokens", "maxToolCalls", "maxApiCalls", "maxRetry", "maxRuntimeSeconds", "maxConcurrentTasks",
   "dailyRequests", "dailyCostLimit", "monthlyCostLimit", "maxReservationCost"];
-test("candidate carries the human's owner pair and approved bounds, without grants", () => {
-  assert.equal(matrix.approvalReference, null);
-  // 5 Oct 2026: the nominated backup address matched no staff row; the human chose the verified Staff ID AM-01.
-  assert.equal(matrix.policyVersion, "scmos-permission-6-candidate");
-  assert.equal(matrix.previousVersion, "scmos-permission-5-candidate");
+test("the reviewed policy carries the human's approval, owner pair, bounds and a dated isolation acceptance, without grants", () => {
+  // 5 Oct 2026: readiness review SCMOS-AI-RR-2026-10-05, decided by the human, recorded in docs/ai.
+  assert.match(matrix.approvalReference, /^SCMOS-AI-RR-2026-10-05 — approved by K\.nattikorn-fos@hotmail\.com \(AD-01, Administrator\)/);
+  assert.equal(matrix.policyVersion, "scmos-permission-7");
+  assert.equal(matrix.previousVersion, "scmos-permission-6-candidate");
   for (const agent of matrix.agents) {
     assert.equal(agent.humanOwner, "email:K.nattikorn-fos@hotmail.com");
     assert.equal(agent.fallbackOwner, "AM-01");
     const approved = APPROVED_BOUNDS[agent.agentId];
     if (approved) assert.deepEqual(BOUND_NAMES.map((name) => agent.budget[name]), approved, agent.agentId);
     else assert.equal(agent.budget, null, agent.agentId);
-    assert.equal(agent.runtimeIsolationApproval ?? null, null);
+    // The shared runtime is accepted for exactly the bounded agents, and only until the end of 2026.
+    if (approved) {
+      assert.match(agent.runtimeIsolationApproval, /^SCMOS-AI-RR-2026-10-05: /, agent.agentId);
+      assert.equal(agent.runtimeIsolationExpiresAt, "2026-12-31T23:59:59+07:00", agent.agentId);
+    } else {
+      assert.equal(agent.runtimeIsolationApproval ?? null, null, agent.agentId);
+    }
     assert.equal(agent.failClosed, true);
     assert.equal(agent.auditRequired, true);
     assert.ok(!Object.values(agent.permissions).includes("Execute"));

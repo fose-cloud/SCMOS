@@ -58,7 +58,25 @@ static class PermissionEnforcementChecks
         var current = AiPolicyCatalog.Current;
         check(current.Valid && current.Manifests.Count == 14 && current.Manifests.ContainsKey(AgentIds.DocumentInvoice),
             "permission: fourteen manifests preserve existing immutable IDs");
-        check(current.Manifests.Keys.All(id => current.Readiness(id) is not null), "permission: unapproved/missing operational configuration cannot start an agent");
+        // 5 Oct 2026 (readiness review SCMOS-AI-RR-2026-10-05): the nine bounded agents are approved until the end of
+        // 2026; the other five stay refused for want of bounds.
+        string[] approved = [AgentIds.Operations, AgentIds.Carrier, AgentIds.Data, AgentIds.DocumentInvoice, AgentIds.Management,
+            AgentIds.Engineering, AgentIds.Otd, AgentIds.Validation, AgentIds.Sre];
+        var during = DateTimeOffset.Parse("2026-10-06T09:00:00+07:00");
+        check(current.Manifests.Keys.Where(id => current.Readiness(id, during) is null).Order().SequenceEqual(approved.Order())
+            && current.Manifests.Keys.Except(approved).All(id => current.Readiness(id, during) == "budget_required"),
+            "permission: only the reviewed, bounded agents can start; missing operational configuration still cannot");
+        check(approved.All(id => current.Readiness(id, DateTimeOffset.Parse("2026-12-31T23:59:58+07:00")) is null
+                && current.Readiness(id, DateTimeOffset.Parse("2026-12-31T23:59:59+07:00")) == "runtime_isolation_review_expired"
+                && current.Readiness(id, DateTimeOffset.Parse("2027-01-15T09:00:00+07:00")) == "runtime_isolation_review_expired"),
+            "permission: the time-boxed isolation acceptance ends by itself at 31 Dec 2026 23:59:59 Bangkok — nobody has to remember");
+        check(current.Manifests.Values.All(manifest => manifest.RuntimeIsolationApproval is null || manifest.RuntimeIsolationExpiresAt is not null)
+            && current.Manifests.Values.All(manifest => manifest.Permissions.Values.All(level => level is AiPermissionLevel.Read
+                or AiPermissionLevel.Analyze or AiPermissionLevel.Draft or AiPermissionLevel.Forbidden)),
+            "permission: every Production isolation acceptance carries an end, and no approved agent holds a write, send or approval permission");
+        check(!AiPolicyCatalog.Parse(Json().Replace("\"failClosed\": true", "\"failClosed\": true, \"runtimeIsolationExpiresAt\": \"2026-12-31\"")).Valid
+            && !AiPolicyCatalog.Parse(Json().Replace("\"failClosed\": true", "\"failClosed\": true, \"runtimeIsolationExpiresAt\": \"soon\"")).Valid,
+            "permission: an acceptance's end must name its offset — a bare date or a word is refused, not guessed");
         check(current.SharedBudget is { Scope: "all-registered-agents", Currency: "USD", MonthlyCostLimit: 10m, DailyCostLimit: 0.20m },
             "budget: user-confirmed fleet-wide USD 0.20/day and 10/month, not fourteen individual allocations");
         // An independent expectation table, not generated from the runtime grants.
@@ -142,17 +160,17 @@ static class PermissionEnforcementChecks
         check(delegated.Decision == AiAuthorizationVerdict.HumanApprovalRequired && delegated.Permission == AiPermissionLevel.HumanApprovalRequired,
             "permission: delegated target cannot remove the initiating agent's human-approval restriction");
         check(Reason(request with { SystemPass = true }) == "invalid_identity", "permission: caller cannot mix human and system identities");
-        check(Reason(request, current) == "policy_review_required", "permission: Production candidate remains fail-closed");
-        // 5 Oct 2026: nine approved per-agent bounds. Each is valid, none sits below the settings the gateway compares it
-        // with (AI__MaxOutputTokens 800, AI__TimeoutSeconds 20), and the candidate still refuses every agent for review.
+        check(Reason(request, current) == "allowed" && Reason(request with { AgentId = AgentIds.Rate }, current) == "agent_permission_forbidden",
+            "permission: the reviewed policy lets an approved agent read, and an agent without the grant is still refused");
+        // 5 Oct 2026: nine approved per-agent bounds. Each is valid and none sits below the settings the gateway compares
+        // it with (AI__MaxOutputTokens 800, AI__TimeoutSeconds 20).
         var bounded = current.Manifests.Values.Where(manifest => manifest.Budget is not null).ToArray();
         var defaults = new AiOptions();
         check(bounded.Length == 9 && bounded.All(manifest => AiPolicyCatalog.ValidBudget(manifest.Budget)
                 && manifest.Budget!.MaxOutputTokens >= defaults.MaxOutputTokens && manifest.Budget.MaxRuntimeSeconds >= defaults.TimeoutSeconds)
             && new[] { AgentIds.Rate, AgentIds.Incident, AgentIds.Compliance, AgentIds.Communication, AgentIds.Booking }
-                .All(id => current.Find(id)?.Budget is null)
-            && new AgentRegistry().All.All(agent => current.Readiness(agent.Id) == "policy_review_required"),
-            "bounds: nine approved per-agent bounds are valid, fit the gateway's settings, and change no agent's readiness");
+                .All(id => current.Find(id)?.Budget is null),
+            "bounds: nine approved per-agent bounds are valid and fit the gateway's settings");
 
         foreach (var corrupt in new[] { "{bad", Json().Replace("\"failClosed\": true", "\"failClosed\": false"),
             Json().Replace("\"Low\"", "\"UnknownRisk\""), Json().Replace("\"Read\"", "999"),
