@@ -228,8 +228,8 @@ are reused; no new policy path, tool, grant or scope is added.
   document kind), Billing analysis, and the Annual Evaluation summary.
 - Not changed: the Orchestrator's run gate, tool-call and tool-read authorizations, the
   scheduled passes' data reads and the Communication pass's per-row authorizations reserve
-  nothing now; the Communication pass still authorizes twice per register row and must be
-  reduced before that pass is enabled. LINE photo/message reading and the monthly report
+  nothing now; the Communication pass then still authorized twice per register row (reduced
+  to once per round the same day — below). LINE photo/message reading and the monthly report
   commentary still call the model outside the gateway (found 5 Oct; not in this change).
 
 Verification: offline 1,384 checks; focused SQL suites 1,461 on the isolated instance, twice,
@@ -237,3 +237,30 @@ including four new reservation checks (a read reserves nothing; a model call res
 per-call amount; zero-cost authorizations still count toward daily requests; a read is still
 refused when no call fits); tests/aiModelReservation.test.mjs pins every governed
 `provider.CompleteAsync` call site to a reviewed list and its reservation.
+
+## Communication pass authorized once per round — 5 October 2026
+
+The scheduled Communication pass asked the gateway twice for every row of the register (origin,
+then the Communication Agent as target, bound to that job): about 9,700 serializable
+authorization writes a round, roughly 930,000 a day at the 15-minute cadence. The user asked
+for one authorization per round.
+
+- `AiGateway.CommunicationPassAsync` asks the same two checks once, bound to the round
+  (`Pass(communication-agent, CommunicationDraft, scan_communication)`, system identity, team
+  scope), before the round's context is read; only then does it return the judge, which is
+  the existing deterministic templates (`CommunicationDrafts.Assess`) and nothing else. A
+  refused round reads nothing and judges nothing. `AgentScanner` uses it.
+- Kept: the scanner's own pass gate and every finite data read still authorize as before, and
+  `AiPassRepository.SaveAsync` rechecks policy, owners and kill switches immediately before
+  the round writes its decisions. `DraftCommunicationAsync`, the per-object entry with its
+  shipment binding checks, is unchanged for any other caller; both entries share one
+  origin-then-target helper. No resource type is a policy dimension, so the decision is the
+  one each row used to get; only its evidence is per round instead of per job.
+
+Verification: offline 1,387 checks, including three new ones (two gateway requests however many
+rows are judged; the same result as the templates for every row; a refused round reads no
+context); focused SQL suites 1,464, twice; tests/communicationPass.test.mjs.
+The older `--write-local-db` suite stops before its scan section at "write SQL: concurrent
+confirmation has one effect" (the second confirmation gets `audit_unavailable`, not
+`already_applied`). The code before both of today's changes (70d0dfae) fails the same way, so it
+is not caused by them; the end-to-end scan run of this pass is therefore not evidenced here.

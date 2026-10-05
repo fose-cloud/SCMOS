@@ -231,6 +231,32 @@ static class PermissionEnforcementChecks
                 check(false, "communication gateway: forged origin/object/scope/network or ungranted delegation must be blocked"); }
             catch (UnauthorizedAccessException) { check(true, "communication gateway: forged origin/object/scope/network or ungranted delegation blocked"); }
         }
+        // 5 Oct 2026: the scheduled pass asks its two checks once per round, however many rows it then judges.
+        var counted = new CountingPolicyGateway(OfflineReviewedPolicyGateway.Instance);
+        var contextReads = 0;
+        var judge = await AiGateway.CommunicationPassAsync(counted, () => { contextReads++; return Task.FromResult(draftContext); }, draftAt, default);
+        var judged = Enumerable.Range(0, 50).Select(_ => judge(draftRow)).ToArray();
+        var templated = CommunicationDrafts.Assess(draftRow, draftAt, draftContext);
+        check(counted.Requests.Count == 2 && contextReads == 1
+            && counted.Requests[0] is { AgentId: AgentIds.Communication, SystemPass: true, OriginAgentId: null, ToolId: "scan_communication" }
+            && counted.Requests[1] is { AgentId: AgentIds.Communication, OriginAgentId: AgentIds.Communication, ToolId: "scan_communication" }
+            && counted.Requests[1].DelegationChain!.SequenceEqual(new[] { AgentIds.Communication }),
+            "communication pass: one origin and one target check per round, not two per register row");
+        check(templated is not null && judged.All(one => one is not null && one.EntityId == templated.EntityId
+                && one.RuleReferences.SequenceEqual(templated.RuleReferences))
+            && judge(new CachedJobRow("", "SHORE", draftRaw, null)) is null,
+            "communication pass: each row is judged by the existing templates, exactly as before");
+        var refused = new CountingPolicyGateway(OfflineReviewedPolicyGateway.Instance) { Deny = true };
+        var refusedReads = 0;
+        try
+        {
+            await AiGateway.CommunicationPassAsync(refused, () => { refusedReads++; return Task.FromResult(draftContext); }, draftAt, default);
+            check(false, "communication pass: a refused round reads nothing and judges nothing");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            check(refusedReads == 0 && refused.Requests.Count == 1, "communication pass: a refused round reads nothing and judges nothing");
+        }
         check(!new AiOptions { DisabledTools = ["misspelled_tool"] }.Valid && !new AiOptions { DisabledAgentGroups = null! }.Valid,
             "permission: malformed revocation configuration fails closed");
 
@@ -331,6 +357,21 @@ sealed class PolicyFixtureAudit : IAiPolicyAudit
         if (Fail) throw new InvalidOperationException("offline audit failure");
         Entries.Add(entry);
         return Task.FromResult(Refusal);
+    }
+}
+
+// Counts what a caller asks the gateway; Deny refuses everything as an unready policy would.
+sealed class CountingPolicyGateway(IAiPolicyGateway inner) : IAiPolicyGateway
+{
+    public List<AiAuthorizationRequest> Requests { get; } = [];
+    public bool Deny { get; init; }
+    public Task<AiAuthorizationDecision> AuthorizeAsync(AiAuthorizationRequest request, CancellationToken token)
+    {
+        Requests.Add(request);
+        return Deny
+            ? Task.FromResult(new AiAuthorizationDecision(AiAuthorizationVerdict.Deny, "policy_review_required", "fixture",
+                request.RiskLevel, AiPermissionLevel.Forbidden, request.CorrelationId, false))
+            : inner.AuthorizeAsync(request, token);
     }
 }
 

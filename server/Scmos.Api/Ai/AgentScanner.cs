@@ -114,10 +114,10 @@ public sealed class AgentScanner(AiPassRepository data, JobRegisterCache registe
                 var context = await CarrierContextAsync(jobs, now, token);
                 return row => Task.FromResult(CarrierAgent.Assess(row, now, context));
             case CommunicationAgent.Id:
-                var communication = await CommunicationContextAsync(jobs, now, token);
-                return row => AiGateway.DraftCommunicationAsync(policyGateway,
-                    AiAuthorizationRequest.Pass(AgentIds.Communication, AiAction.CommunicationDraft, "scan_communication")
-                        with { ResourceType = "shipment", ResourceId = row.Key }, row, communication, now, token);
+                // Authorized once for the round, then every row judged by the existing templates (5 Oct 2026).
+                var draft = await AiGateway.CommunicationPassAsync(policyGateway,
+                    () => CommunicationContextAsync(jobs, now, token), now, token);
+                return row => Task.FromResult(draft(row));
             default: return _ => Task.FromResult<AgentResult?>(null);
         }
     }

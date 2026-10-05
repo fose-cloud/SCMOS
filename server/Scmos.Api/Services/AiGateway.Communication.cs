@@ -25,6 +25,29 @@ public partial class AiGateway
             await AiPolicyEntry.AuthorizeAsync(gateway, initiating with { InputValid = false }, token);
             throw new UnauthorizedAccessException("Invalid communication origin/object binding.");
         }
+        await AuthorizeDraftAsync(gateway, initiating, token);
+        // Same deterministic rules/templates already used by the scheduled pass.
+        return CommunicationDrafts.Assess(row, now, context);
+    }
+
+    /// <summary>
+    /// The scheduled Communication pass, authorized once per round (5 Oct 2026): the same origin-then-target checks as
+    /// <see cref="DraftCommunicationAsync"/>, bound to the round instead of to each register row. Asked per row they were
+    /// two serializable audit writes for every job in the register — about 9,700 a round. Both checks pass before the
+    /// round's context is read, and the judge returned is the existing deterministic templates and nothing else.
+    /// </summary>
+    public static async Task<Func<CachedJobRow, AgentResult?>> CommunicationPassAsync(IAiPolicyGateway? gateway,
+        Func<Task<CommunicationContext>> readContext, DateTimeOffset now, CancellationToken token)
+    {
+        await AuthorizeDraftAsync(gateway,
+            AiAuthorizationRequest.Pass(AgentIds.Communication, AiAction.CommunicationDraft, "scan_communication"), token);
+        var context = await readContext();
+        return row => row.Record is null || string.IsNullOrWhiteSpace(row.Key) ? null : CommunicationDrafts.Assess(row, now, context);
+    }
+
+    /// <summary>The origin, then the Communication Agent as target — same identity, scope, object and correlation.</summary>
+    private static async Task AuthorizeDraftAsync(IAiPolicyGateway? gateway, AiAuthorizationRequest initiating, CancellationToken token)
+    {
         var origin = await AiPolicyEntry.AuthorizeAsync(gateway, initiating, token);
         if (!origin.Allowed) throw new UnauthorizedAccessException("Communication origin denied: " + origin.ReasonCode);
         var request = initiating with
@@ -38,7 +61,5 @@ public partial class AiGateway
         };
         var target = await AiPolicyEntry.AuthorizeAsync(gateway, request, token);
         if (!target.Allowed) throw new UnauthorizedAccessException("Communication draft denied: " + target.ReasonCode);
-        // Same deterministic rules/templates already used by the scheduled pass.
-        return CommunicationDrafts.Assess(row, now, context);
     }
 }
