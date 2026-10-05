@@ -149,6 +149,23 @@ export function ownerChoice(box: { owner: string; staffOwner: string }): string 
   return box.owner || box.staffOwner || "";
 }
 
+/** A message the add-job form was opened from (5 Oct 2026): shown beside the form, attached to the job once it is saved. */
+export type MailSource = { id: number; subject: string; from: string; body: string };
+
+/** The longest body the form shows beside it — a booking, not a thread with its history. */
+export const SOURCE_BODY_MAX = 4000;
+
+export function mailSource(mail: { id: number; subject: string; fromName: string; fromAddress: string; bodyText: string }): MailSource {
+  const from = mail.fromName && mail.fromAddress ? `${mail.fromName} <${mail.fromAddress}>` : mail.fromName || mail.fromAddress || "";
+  const body = (mail.bodyText ?? "").trim();
+  return { id: mail.id, subject: mail.subject ?? "", from, body: body.length > SOURCE_BODY_MAX ? body.slice(0, SOURCE_BODY_MAX) + " …" : body };
+}
+
+/** Whether a message can still become a job: not once a person has confirmed which job it is. */
+export function canOpenJobFrom(links: { status: string }[]): boolean {
+  return !links.some((link) => link.status === "CONFIRMED");
+}
+
 /** A mailbox's kind in the settings' words: shared reads everything; personal reads the listed senders only. */
 export function mailboxKindLabel(ownerName: string): string {
   return ownerName ? `ส่วนตัว · ${ownerName} · อ่านเฉพาะผู้ส่งที่กำหนด` : "กล่องกลาง · อ่านทุกฉบับ";

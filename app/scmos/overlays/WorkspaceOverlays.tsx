@@ -528,6 +528,8 @@ export function AddJobModal(p: {
     text: string; busy: boolean; message: string; readings: BookingReading[]; missing: string[];
     onText: (text: string) => void; onRead: () => void;
   };
+  /** The message this job is being opened from: shown above the form, attached to the job once it is saved. */
+  source?: { subject: string; from: string; body: string };
 }) {
   const choosing = p.cat === "CHOOSE";
   const required = p.cat === "DELIVERY" ? ["date", "customer", "wh"] : ["date", "customer", "trucker"];
@@ -548,6 +550,21 @@ export function AddJobModal(p: {
           </div>
           <button onClick={p.onClose} aria-label="Close" style={css("width:28px;height:28px;border:1px solid #24476E;background:#0E2B4F;color:#B9CFE5;border-radius:4px;cursor:pointer")}>✕</button>
         </div>
+
+        {p.source && (
+          <div style={css("padding:14px 22px 0")} data-testid="add-job-source">
+            <div style={css("border:1px solid #D8E0E8;border-radius:5px;background:#F8FAFC;padding:10px 12px;display:flex;flex-direction:column;gap:3px")}>
+              <span style={css("font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600")}>จากอีเมล</span>
+              <span style={css("font-size:12.5px;font-weight:600;color:#0A2240")}>{p.source.subject || "(ไม่มีหัวเรื่อง)"}</span>
+              <span style={css("font-size:11.5px;color:#64748B")}>{p.source.from}</span>
+              {!!p.source.body && (
+                <pre style={css("margin:6px 0 0;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:11.5px;line-height:1.5;color:#334155")}>
+                  {p.source.body}
+                </pre>
+              )}
+            </div>
+          </div>
+        )}
 
         {choosing ? (
           <div style={css("padding:20px 22px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px")}>

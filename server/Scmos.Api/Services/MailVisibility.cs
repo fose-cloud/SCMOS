@@ -34,6 +34,19 @@ public static class MailVisibility
         return rows.Where(mail => shared.Contains(mail.MailboxId) || mine.Contains(mail.MailboxId) || aboutMyJobs.Contains(mail.Id));
     }
 
+    /// <summary>
+    /// Whether this person may attach a message to a job as its owner (5 Oct 2026, the user's decision): they edit their
+    /// own jobs and read mail, the job is theirs, and the message is one they may see. Those who edit any job need none of
+    /// this; rejecting a link, or linking somebody else's job, stays theirs.
+    /// </summary>
+    public static async Task<bool> MayAttachAsync(ScmosDbContext db, AppUser user, long emailId, string jobKey, CancellationToken token)
+    {
+        var me = user.OperatorId;
+        if (string.IsNullOrWhiteSpace(me) || !user.Can(Capability.EditOwnJobs) || !user.Can(Capability.ViewMailbox)) return false;
+        return await db.OperationJobs.AsNoTracking().AnyAsync(job => job.Key == jobKey && job.OwnerId == me, token)
+            && await CanSeeAsync(db, user, emailId, token);
+    }
+
     /// <summary>Whether this person may see one message.</summary>
     public static Task<bool> CanSeeAsync(ScmosDbContext db, AppUser user, long emailId, CancellationToken token) =>
         db.Emails.AsNoTracking().Where(mail => mail.Id == emailId).VisibleTo(db, user).AnyAsync(token);

@@ -182,6 +182,22 @@ static class MailPrivacyChecks
                     && boxes.Status == 200 && boxes.Body.GetProperty("mailboxes").GetArrayLength() == 3
                     && await db.AuditEvents.AnyAsync(one => one.Entity == "mailbox" && one.NewValue.Contains("ส่วนตัว OP-1")),
                     "mailboxes: the Administrator, with the second factor, declares an approved mailbox — a person's own address can never be shared");
+
+                // 5 Oct 2026: a job's owner attaches a message they can see to their own job; nothing else is theirs.
+                var attachOwn = await Call(op1, HttpMethod.Post, $"/api/mail/{p1.Id}/decide", new { jobKey = "J-OP1", status = "CONFIRMED" });
+                var attachOthers = await Call(op1, HttpMethod.Post, $"/api/mail/{p1.Id}/decide", new { jobKey = "J-OP2", status = "CONFIRMED" });
+                var rejectOwn = await Call(op1, HttpMethod.Post, $"/api/mail/{p1.Id}/decide", new { jobKey = "J-OP1", status = "REJECTED" });
+                var attachUnseen = await Call(op1, HttpMethod.Post, $"/api/mail/{p2.Id}/decide", new { jobKey = "J-OP1", status = "CONFIRMED" });
+                var attachNoOperator = await Call(nobody, HttpMethod.Post, $"/api/mail/{s.Id}/decide", new { jobKey = "J-OP1", status = "CONFIRMED" });
+                var bySupervisorAny = await Call(sv1, HttpMethod.Post, $"/api/mail/{p2.Id}/decide", new { jobKey = "J-OP1", status = "CONFIRMED" });
+                var made = await db.EmailJobLinks.AsNoTracking().SingleAsync(one => one.EmailId == p1.Id && one.JobKey == "J-OP1");
+                var untouched = await db.EmailJobLinks.AsNoTracking().SingleAsync(one => one.EmailId == p1.Id && one.JobKey == "J-OP2");
+                check(attachOwn.Status == 200 && made is { Status: MailLink.Confirmed, MatchedOn: "PERSON" } && made.ConfirmedBy == op1.Signature
+                    && attachOthers.Status == 403 && untouched.Status == MailLink.Suggested
+                    && rejectOwn.Status == 403 && attachUnseen.Status == 403 && attachNoOperator.Status == 403
+                    && bySupervisorAny.Status == 200
+                    && await db.AuditEvents.AnyAsync(one => one.Entity == "email" && one.EntityId == p1.Id.ToString() && one.Who == op1.Signature),
+                    "links: a job's owner attaches mail they can see to their own job — not another's, not unseen mail, never a rejection; Supervisor+ any");
             }
             finally { await app.StopAsync(); }
         }

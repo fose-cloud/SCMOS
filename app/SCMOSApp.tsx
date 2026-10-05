@@ -118,6 +118,7 @@ import { CarrierDashboard } from "./scmos/screens/CarrierDashboard";
 import type { CarrierJobRequest } from "./scmos/carrierJobRequests";
 import { Training } from "./scmos/screens/Training";
 import { Outlook } from "./scmos/screens/Outlook";
+import type { MailSource } from "./scmos/mailInbox";
 import { Login } from "./scmos/overlays/Login";
 import { APP_VERSION } from "./scmos/version";
 import { DelayModal, DocsDrawer, Notifications, ProfileMenu, SettingsModal, Toast, type Field, type StoredDoc } from "./scmos/overlays/Overlays";
@@ -381,6 +382,10 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
   const [draftDecisionId, setDraftDecisionId] = useState<number | null>(null);
   // A job a carrier keyed in, open as the add-job form: settled with the job once that job is saved.
   const [carrierRequest, setCarrierRequest] = useState<{ id: number; revision: number } | null>(null);
+  /** The message the add-job form was opened from; attached to the job once it is saved (5 Oct 2026). */
+  const [fromEmail, setFromEmail] = useState<MailSource | null>(null);
+  /** Bumped after a message was attached to a job, so the Communication Center reads again. */
+  const [mailLinked, setMailLinked] = useState(0);
   const [carrierRequestsKey, setCarrierRequestsKey] = useState(0);
 
   // ---- Excel + saved views ----------------------------------------------
@@ -1803,6 +1808,15 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
     setCarrierRequest({ id: request.id, revision: request.revision });
   };
 
+  /**
+   * A message from the Communication Center, opened as the add-job form with the message beside it. The category is
+   * the person's to choose — the chooser calls startAddJob, which leaves the message where it is.
+   */
+  const openFromEmail = (mail: MailSource) => {
+    startAddJob("CHOOSE");
+    setFromEmail(mail);
+  };
+
   const openImport = () => {
     setImportPreview(null);
     setImportError("");
@@ -2961,6 +2975,24 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
         setCarrierRequestsKey((n) => n + 1);
       }).catch(() => setToast("สร้างงานแล้ว แต่ยืนยันคำขอของผู้ขนส่งไม่สำเร็จ"));
     }
+    // Made from an email: the message is attached to the job it became — once that job is in the register, so a
+    // message never names a job whose save failed. Its files go to the job's paperwork with it (MailFiling).
+    if (fromEmail !== null) {
+      const mail = fromEmail;
+      setFromEmail(null);
+      void flushNow().then(async (saved) => {
+        if (!saved.ok) { setToast("บันทึกงานไม่สำเร็จ — อีเมลยังไม่ได้ผูกกับงาน"); return; }
+        const response = await apiFetch(`/api/mail/${mail.id}/decide`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jobKey: key, status: "CONFIRMED" }),
+        });
+        const reply = await response.json().catch(() => ({})) as { error?: string; filed?: number };
+        setToast(response.ok
+          ? "สร้างงานและผูกอีเมลแล้ว" + (reply.filed ? ` · ไฟล์แนบ ${reply.filed} ไฟล์เข้าเอกสารของงาน` : "")
+          : "สร้างงานแล้ว แต่ผูกอีเมลไม่สำเร็จ — " + (reply.error ?? `(${response.status})`));
+        setMailLinked((n) => n + 1);
+      }).catch(() => setToast("สร้างงานแล้ว แต่ผูกอีเมลไม่สำเร็จ"));
+    }
   }
 
   function saveDelay() {
@@ -3464,7 +3496,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
               <CarrierApiClients canManage={able("ManageSuppliers")} onToast={setToast} />
             )}
             {screen === "outlook" && (
-              <Outlook canDecide={able("EditAnyJob")} canMailboxes={able("AdministerMailbox")} onToast={setToast} />
+              <Outlook canDecide={able("EditAnyJob")} canMailboxes={able("AdministerMailbox")} onToast={setToast}
+                onCreateJob={able("EditOwnJobs") ? openFromEmail : undefined} linked={mailLinked} />
             )}
             {/* A carrier's Dashboard is the department's, over its own jobs; its other screens are the portal's. */}
             {isCarrier && screen === "carrier" && (
@@ -3820,12 +3853,13 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
           onAiDrop={(e) => { e.preventDefault(); setDragOver(false); aiRead(e.dataTransfer.files); }}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
-          onClose={() => { setAddCat(null); setAiFields([]); setAiMsg(""); setDraftDecisionId(null); setCarrierRequest(null); }}
+          onClose={() => { setAddCat(null); setAiFields([]); setAiMsg(""); setDraftDecisionId(null); setCarrierRequest(null); setFromEmail(null); }}
           onSave={saveAddJob}
           booking={{
             text: bookingText, busy: bookingBusy, message: bookingMsg, readings: bookingReadings, missing: bookingMissing,
             onText: setBookingText, onRead: () => void bookingRead(),
           }}
+          source={fromEmail ?? undefined}
         />
       )}
 

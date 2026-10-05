@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { css } from "../theme";
 import {
-  VIEWS, confidenceLabel, linkLabel, linkSummary, linkTone, matchedOnLabel,
-  sizeLabel, statusLabel, statusTone, whenLabel,
+  VIEWS, canOpenJobFrom, confidenceLabel, linkLabel, linkSummary, linkTone, mailSource, matchedOnLabel,
+  sizeLabel, statusLabel, statusTone, whenLabel, type MailSource,
 } from "../mailInbox";
 import { MailSettings } from "./MailSettings";
 
@@ -70,12 +70,16 @@ type Detail = {
   }[];
 };
 
-export function Outlook({ canDecide, canMailboxes, onToast }: {
+export function Outlook({ canDecide, canMailboxes, onToast, onCreateJob, linked = 0 }: {
   /** Whether this account may say which job a message belongs to. */
   canDecide: boolean;
   /** Whether this account administers the mailboxes SCMOS reads. */
   canMailboxes: boolean;
   onToast: (message: string) => void;
+  /** Opens the add-job form from a message; the message is attached to the job once it is saved (5 Oct 2026). */
+  onCreateJob?: (mail: MailSource) => void;
+  /** Bumped by the app after it attached a message to a job, so the list and the open message read again. */
+  linked?: number;
 }) {
   const [view, setView] = useState(VIEWS[0].key);
   const [settings, setSettings] = useState(false);
@@ -121,7 +125,7 @@ export function Outlook({ canDecide, canMailboxes, onToast }: {
       }
     })();
     return () => { alive = false; };
-  }, [view, refresh]);
+  }, [view, refresh, linked]);
 
   // Only ever fetches. Clearing the panel belongs to `open`, which is what
   // closing a row actually is — doing it here would be a render that exists to
@@ -136,7 +140,7 @@ export function Outlook({ canDecide, canMailboxes, onToast }: {
       } catch { /* the list still shows what it had */ }
     })();
     return () => { alive = false; };
-  }, [openId]);
+  }, [openId, linked]);
 
   /** Open a message, or close the one that is open. */
   function open(id: number) {
@@ -263,6 +267,12 @@ export function Outlook({ canDecide, canMailboxes, onToast }: {
             <div style={css("margin:6px 0 14px")}>
               {detail.links.length === 0 && (
                 <div style={css("font-size:12px;color:#64748B")}>ยังไม่มีการจับคู่กับงานใด</div>
+              )}
+              {onCreateJob && canOpenJobFrom(detail.links) && (
+                <button type="button" disabled={busy} onClick={() => onCreateJob(mailSource(detail))}
+                  style={css(`${BUTTON};background:#0A2240;color:#fff;border-color:#0A2240;margin:6px 0`)}>
+                  เปิดงานจากอีเมลนี้
+                </button>
               )}
               {detail.links.map((link) => (
                 <div key={link.jobKey} style={css("display:flex;gap:8px;align-items:center;flex-wrap:wrap;"

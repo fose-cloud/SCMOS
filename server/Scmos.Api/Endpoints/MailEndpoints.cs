@@ -16,7 +16,10 @@ namespace Scmos.Api.Endpoints;
 /// <b>Deciding is <see cref="Capability.EditAnyJob"/></b>, because confirming
 /// that a message belongs to a job changes what the register says about that
 /// job rather than what somebody can see — the plan drew that line and this
-/// keeps it.
+/// keeps it. One exception since 5 Oct 2026: the owner of a job may attach to
+/// it a message they can read (<see cref="MailVisibility.MayAttachAsync"/>) —
+/// customers send one email per job, and the person who opens the job from it
+/// should not wait for a supervisor.
 /// </para>
 ///
 /// <para>
@@ -362,11 +365,6 @@ public static class MailEndpoints
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
-            // Reading the mail is one permission; saying which job it belongs to
-            // is another, because that is a change to the register.
-            if (!user.Can(Capability.EditAnyJob))
-                return ApiResults.Error("ยืนยันหรือปฏิเสธการจับคู่ได้เฉพาะผู้ที่แก้ไขงานของทีมได้",
-                    StatusCodes.Status403Forbidden);
 
             var jobKey = (body?.JobKey ?? "").Trim();
             var status = (body?.Status ?? "").Trim().ToUpperInvariant();
@@ -374,6 +372,15 @@ public static class MailEndpoints
                 return ApiResults.Error("ต้องระบุงาน", StatusCodes.Status400BadRequest);
             if (!MailReview.IsADecision(status))
                 return ApiResults.Error("ตัดสินได้เฉพาะ ยืนยัน หรือ ปฏิเสธ", StatusCodes.Status400BadRequest);
+
+            // Reading the mail is one permission; saying which job it belongs to
+            // is another, because that is a change to the register. Those who edit
+            // the team's jobs decide any link; a job's owner may only attach a
+            // message they can see to their own job.
+            if (!user.Can(Capability.EditAnyJob)
+                && !(status == MailLink.Confirmed && await MailVisibility.MayAttachAsync(db, user, id, jobKey, token)))
+                return ApiResults.Error("ผูกอีเมลได้เฉพาะกับงานของตัวเอง — การปฏิเสธหรือผูกกับงานของคนอื่นทำได้เฉพาะผู้ที่แก้ไขงานของทีมได้",
+                    StatusCodes.Status403Forbidden);
 
             var message = await db.Emails.FirstOrDefaultAsync(one => one.Id == id, token);
             if (message is null) return ApiResults.Error("ไม่พบข้อความนี้", StatusCodes.Status404NotFound);
