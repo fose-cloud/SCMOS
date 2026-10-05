@@ -63,6 +63,11 @@ public sealed class BookingMailPass(AiPassRepository data, IBookingTextReader re
             var text = $"{mail.Subject}\n\n{mail.BodyText}";
             using var lease = limiter.TryEnter();
             if (lease is null) { code = "busy"; break; }
+            // Each mail is one model call and reserves its own cost first (5 Oct 2026); the pass's authorization above
+            // and its data reads reserve nothing.
+            var reserved = await AiPolicyEntry.AuthorizeAsync(policyGateway,
+                AiAuthorizationRequest.Pass(agent.Id, AiAction.BookingCreateDraft, "scan_booking") with { ModelCall = true }, token);
+            if (!reserved.Allowed) { code = reserved.ReasonCode; break; }
             var (runId, reading, failure) = await ReadAsync(mail.Id, text, token);
             if (reading is null) { code = failure; break; }
             var received = DateOnly.FromDateTime(mail.ReceivedAt.ToOffset(Formats.Zone).DateTime);

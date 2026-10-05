@@ -41,7 +41,8 @@ static class PermissionSqlChecks
             await db.Database.ExecuteSqlRawAsync("CREATE TABLE ai_tools ([Name] nvarchar(60) NOT NULL PRIMARY KEY, [Enabled] bit NOT NULL);");
             var budget = new AgentBudgetPolicy(800, 8, 8, 0, 20, 4, 100, 0.04m, 0.05m, 0.01m);
             var user = new AppUser("test-admin", "", "test", Roles.Admin, "OP-TEST", "test", true);
-            var request = AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingRead, "query_shipments", user, "policy-local-sql");
+            var request = AiAuthorizationRequest.For(AgentIds.Operations, AiAction.BookingRead, "query_shipments", user, "policy-local-sql")
+                with { ModelCall = true };
             var decision = new AiAuthorizationDecision(AiAuthorizationVerdict.Allow, "allowed", "test-policy-1", AiRisk.Low, AiPermissionLevel.Read, request.CorrelationId, false);
             var ai = Options.Create(new AiOptions { TimeoutSeconds = 60 });
             SqlAiExecutionAudit Sink() => new(options, ai);
@@ -136,6 +137,34 @@ static class PermissionSqlChecks
                     .RecordAuthorizationAsync(absentDailyEvent, sharedDayBudget, default) == "shared_daily_budget_required"
                 && await db.AiAuthorizationLogs.AnyAsync(x => x.Id == absentDailyEvent.Id && x.ReservedCost == 0 && x.Decision == "Deny"),
                 "shared budget SQL: missing daily configuration fails closed in the durable writer itself");
+
+            // 5 Oct 2026: money is set aside only before a model call. A read, a rule-only pass or an approved write
+            // reserves nothing, yet it still counts as an attempted call and is still refused once no call fits.
+            var readAt = priorMonth.AddDays(20).AddHours(12);
+            var readBudget = budget with { DailyRequests = 3, DailyCostLimit = 0.02m, MonthlyCostLimit = 1m, MaxReservationCost = 0.01m };
+            AiPolicyAuditEvent Pass(bool model, DateTimeOffset at) => Event() with
+            {
+                At = at, Request = request with { AgentId = AgentIds.Validation, ToolId = "scan_validation", ModelCall = model }
+            };
+            var read = Pass(false, readAt);
+            check(await Sink().RecordAuthorizationAsync(read, readBudget, default) is null
+                && await db.AiAuthorizationLogs.AnyAsync(x => x.Id == read.Id && x.Decision == "Allow" && x.ReservedCost == 0
+                    && x.Metadata.Contains("\"modelCall\":false")),
+                "reservation SQL: an authorization with no model call behind it reserves nothing");
+            var modelCall = Pass(true, readAt);
+            check(await Sink().RecordAuthorizationAsync(modelCall, readBudget, default) is null
+                && await db.AiAuthorizationLogs.AnyAsync(x => x.Id == modelCall.Id && x.ReservedCost == 0.01m
+                    && x.Metadata.Contains("\"modelCall\":true")),
+                "reservation SQL: an authorization before a model call reserves the agent's per-call amount");
+            check(await Sink().RecordAuthorizationAsync(Pass(false, readAt), readBudget, default) is null
+                && await Sink().RecordAuthorizationAsync(Pass(false, readAt), readBudget, default) == "budget_exhausted",
+                "reservation SQL: authorizations that reserve nothing still count toward the agent's daily requests");
+            var fullAt = readAt.AddDays(1);
+            var roomy = readBudget with { DailyRequests = 100 };
+            check(await Sink().RecordAuthorizationAsync(Pass(true, fullAt), roomy, default) is null
+                && await Sink().RecordAuthorizationAsync(Pass(true, fullAt), roomy, default) is null
+                && await Sink().RecordAuthorizationAsync(Pass(false, fullAt), roomy, default) == "budget_exhausted",
+                "reservation SQL: with no room left for one more model call, a read is refused as before");
         }
         finally
         {

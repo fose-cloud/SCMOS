@@ -42,11 +42,14 @@ public sealed record AgentPolicyManifest(string AgentId, string AgentVersion, st
     AgentDataScope DataScope, AiRisk MaximumRiskLevel, AgentBudgetPolicy? Budget, bool AuditRequired, bool FailClosed,
     string? RuntimeIsolationApproval = null);
 
+// ModelCall (5 Oct 2026): this authorization is asked immediately before one call to the model, and only such an
+// authorization sets money aside. Reads, rule-only passes and approved writes reserve nothing.
 public sealed record AiAuthorizationRequest(string AgentId, string AgentVersion, AppUser? User, AiAction Action,
     string ToolId, string ApiScope, string ResourceType, string ResourceId, AiReadScope? RequestedDataScope,
     AiRisk RiskLevel, string CorrelationId, string? CustomerId = null, string? CarrierId = null, string? ShipmentId = null,
     string? OriginAgentId = null, AiAction? OriginalAction = null, IReadOnlyList<string>? DelegationChain = null,
-    string? NetworkDestination = null, string? ApprovalId = null, bool SystemPass = false, bool InputValid = true)
+    string? NetworkDestination = null, string? ApprovalId = null, bool SystemPass = false, bool InputValid = true,
+    bool ModelCall = false)
 {
     public string UserId => User?.UserId ?? (SystemPass ? AiAuditRules.SystemUser : "");
     public static AiAuthorizationRequest For(string agent, AiAction action, string tool, AppUser? user,
@@ -72,7 +75,8 @@ public sealed record AiPolicyAuditEvent(string Id, DateTimeOffset At, AiAuthoriz
     AiAuthorizationDecision Decision, bool SecurityEvent, long LatencyMs);
 public interface IAiPolicyAudit
 {
-    // A committed authorization is a conservative cost reservation. No best-effort fallback.
+    // A committed authorization before a model call is a conservative cost reservation; every committed one counts as an
+    // attempted call. No best-effort fallback.
     Task<string?> RecordAuthorizationAsync(AiPolicyAuditEvent entry, AgentBudgetPolicy? budget, CancellationToken token);
 }
 

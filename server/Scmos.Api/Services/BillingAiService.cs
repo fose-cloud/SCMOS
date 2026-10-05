@@ -73,7 +73,9 @@ public sealed class BillingAiService(ScmosDbContext db, DocumentService document
             return Fail("DISABLED", "ฟังก์ชัน AI นี้ยังไม่เปิดใช้งาน");
         var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
             AiAuthorizationRequest.For(AgentIds.DocumentInvoice, BillingAiKinds.IsDocument(kind) ? AiAction.DocumentExtract : AiAction.BillingAnalyze,
-                BillingAiKinds.IsDocument(kind) ? "extract_document" : "analyze_billing", user, correlationId, "billing_invoice", invoiceId.ToString(System.Globalization.CultureInfo.InvariantCulture)), token);
+                BillingAiKinds.IsDocument(kind) ? "extract_document" : "analyze_billing", user, correlationId, "billing_invoice", invoiceId.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                // A billing analysis calls the model once, after this; a document reading reserves in ExtractionRun instead.
+                with { ModelCall = !BillingAiKinds.IsDocument(kind) }, token);
         if (!authorization.Allowed) return Fail(authorization.ReasonCode, "AI policy denied this analysis; manual billing remains available.");
 
         var invoice = await db.BillingInvoices.AsNoTracking().FirstOrDefaultAsync(x => x.Id == invoiceId, token);

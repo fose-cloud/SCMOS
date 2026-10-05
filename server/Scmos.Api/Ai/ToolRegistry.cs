@@ -186,13 +186,21 @@ public sealed class ToolRegistry
 
     public AiToolDefinition? Find(string name) => All.FirstOrDefault(t => t.Name == name);
 
+    /// <summary>
+    /// The run's authorization, and the reservation for its first model call (5 Oct 2026): every agent that asks it
+    /// calls the model next. A further call in the same run asks <see cref="ReserveModelCallAsync"/> first.
+    /// </summary>
     public Task<AiAuthorizationDecision> AuthorizeRunAsync(string agentId, Scmos.Api.Auth.AppUser user,
         string correlation, CancellationToken token)
     {
         var contract = AiPolicyEntry.RunContract(agentId);
         return AiPolicyEntry.AuthorizeAsync(_policyGateway,
-            AiAuthorizationRequest.For(agentId, contract.Action, contract.Tool, user, correlation), token);
+            AiAuthorizationRequest.For(agentId, contract.Action, contract.Tool, user, correlation) with { ModelCall = true }, token);
     }
+
+    /// <summary>One more model call in a run already authorized: the run's own contract, rechecked, and its own reservation.</summary>
+    public Task<AiAuthorizationDecision> ReserveModelCallAsync(string agentId, Scmos.Api.Auth.AppUser user,
+        string correlation, CancellationToken token) => AuthorizeRunAsync(agentId, user, correlation, token);
 
     public Task<AiAuthorizationDecision> AuthorizeCallAsync(string agentId, AiToolCall call,
         Scmos.Api.Auth.AppUser user, string correlation, CancellationToken token, bool offered = true)

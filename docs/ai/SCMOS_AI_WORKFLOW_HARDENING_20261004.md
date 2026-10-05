@@ -201,3 +201,39 @@ Verification: offline 1,383 checks; focused SQL suites 1,456 on the isolated ins
 confirmation has one effect"; two consecutive reruns passed in full, so this is a race in
 that check to watch); 818 frontend tests, TypeScript, lint (three existing warnings),
 API Debug/Release builds with warnings as errors, 35 rule flags.
+
+## Reservation per model call — 5 October 2026
+
+The user's decision after the per-agent bounds draft: set money aside per call to the model,
+not per authorization. Until now every allowed authorization reserved the agent's
+`MaxReservationCost`, so a one-tool chat run reserved four times for one model call, a
+rule-only pass reserved every 15 minutes for no model call at all, and the Booking mail pass
+reserved about five times per round for up to ten model calls it never authorized one by one.
+
+Constitution sections 24 and 41 were applied: the existing gateway, writer and tool registry
+are reused; no new policy path, tool, grant or scope is added.
+
+- `AiAuthorizationRequest.ModelCall` marks the authorization asked immediately before one
+  model call. Only such an authorization reserves; `SqlAiExecutionAudit` records
+  `modelCall` in the evidence row's metadata.
+- Unchanged: every allowed authorization still counts toward the agent's `DailyRequests`
+  (attempted calls, now counted from `Decision = Allow` rather than from reserved rows), and
+  every one is still refused once the agent's or the fleet's remaining money cannot cover
+  one more call. Preparing an approval still reserves nothing; an approved Operations write
+  now reserves nothing either (it calls no model) but keeps both checks.
+- Where the reservation now sits: `ToolRegistry.AuthorizeRunAsync` (the first call of every
+  chat run; all seven chat agents call the model next), `ReserveModelCallAsync` before each
+  further Engineering round, the paste path of the Booking Agent, each mail of the Booking
+  mail pass (newly authorized per mail), `ExtractionRun` (document reading, incl. Billing's
+  document kind), Billing analysis, and the Annual Evaluation summary.
+- Not changed: the Orchestrator's run gate, tool-call and tool-read authorizations, the
+  scheduled passes' data reads and the Communication pass's per-row authorizations reserve
+  nothing now; the Communication pass still authorizes twice per register row and must be
+  reduced before that pass is enabled. LINE photo/message reading and the monthly report
+  commentary still call the model outside the gateway (found 5 Oct; not in this change).
+
+Verification: offline 1,384 checks; focused SQL suites 1,461 on the isolated instance, twice,
+including four new reservation checks (a read reserves nothing; a model call reserves the
+per-call amount; zero-cost authorizations still count toward daily requests; a read is still
+refused when no call fits); tests/aiModelReservation.test.mjs pins every governed
+`provider.CompleteAsync` call site to a reviewed list and its reservation.

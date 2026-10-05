@@ -130,13 +130,20 @@ public sealed class SqlAiExecutionAudit(DbContextOptions<ScmosDbContext> options
                     var rows = fleet.Where(x => x.AgentId == agent);
                     var monthly = await rows.SumAsync(x => (decimal?)x.ReservedCost, ct) ?? 0;
                     var daily = await rows.Where(x => x.At >= day && x.At < day.AddDays(1)).SumAsync(x => (decimal?)x.ReservedCost, ct) ?? 0;
-                    var requests = await rows.CountAsync(x => x.At >= day && x.At < day.AddDays(1), ct);
-                    // Reserve before dispatch. Lost/failed calls are not refunded; conservative accounting avoids double spending.
+                    // Every allowed authorization is an attempted call and counts toward the agent's daily requests,
+                    // whether or not it set money aside.
+                    var allow = nameof(AiAuthorizationVerdict.Allow);
+                    var requests = await db.AiAuthorizationLogs.AsNoTracking().CountAsync(x => x.AgentId == agent
+                        && x.At >= day && x.At < day.AddDays(1) && x.Decision == allow, ct);
+                    // Reserve before dispatch, and only before a model call (5 Oct 2026): a data read, a rule-only pass
+                    // or an approved write costs no model money and reserves nothing — yet, as before, it is refused
+                    // once there is no room left for one more call. Lost/failed calls are not refunded; conservative
+                    // accounting avoids double spending.
                     if (fleetMonthly + budget!.MaxReservationCost > shared.MonthlyCostLimit) refused = "shared_monthly_budget_exhausted";
                     else if (fleetDaily + budget.MaxReservationCost > shared.DailyCostLimit) refused = "shared_daily_budget_exhausted";
                     else if (requests >= budget.DailyRequests || daily + budget.MaxReservationCost > budget.DailyCostLimit
                         || monthly + budget.MaxReservationCost > budget.MonthlyCostLimit) refused = "budget_exhausted";
-                    else if (decision.Allowed) cost = budget.MaxReservationCost;
+                    else if (decision.Allowed && entry.Request.ModelCall) cost = budget.MaxReservationCost;
                 }
                 if (refused is not null) decision = decision with { Decision = AiAuthorizationVerdict.Deny, ReasonCode = refused };
             }
@@ -168,7 +175,7 @@ public sealed class SqlAiExecutionAudit(DbContextOptions<ScmosDbContext> options
             approvalId = SafeId(request.ApprovalId, 160),
             delegationChain = (request.DelegationChain ?? []).Take(8).Select(AgentId).ToArray(),
             executionStatus = "not_executed", latencyMs = entry.LatencyMs,
-            tokenUsage = (int?)null, toolUsage = 0, estimatedCost = reservation
+            tokenUsage = (int?)null, toolUsage = 0, estimatedCost = reservation, modelCall = request.ModelCall
         });
         var row = new AiAuthorizationLog
         {

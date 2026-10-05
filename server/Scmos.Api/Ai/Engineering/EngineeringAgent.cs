@@ -95,6 +95,16 @@ public sealed class EngineeringAgent(ToolRegistry tools, IAiExecutionAudit audit
             for (var round = 0; round <= MaxSourceSteps; round++)
             {
                 var last = round == MaxSourceSteps || (!canReadSource && round == 1);
+                if (round > 0)
+                {
+                    // The run's authorization reserved the first call; every further call reserves its own (5 Oct 2026).
+                    var reserved = await tools.ReserveModelCallAsync(agent.Id, user, correlationId, token);
+                    if (!reserved.Allowed)
+                    {
+                        await Audit("run_completed", "failed");
+                        return new(reserved.ReasonCode, "AI policy refused execution.");
+                    }
+                }
                 var selection = await provider.CompleteAsync(new(Instructions(canReadSource, steps.Count, last), request.Message,
                     last ? [] : offered, Context(steps)), token);
                 Add(selection.Usage);

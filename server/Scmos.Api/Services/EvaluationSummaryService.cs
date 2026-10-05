@@ -88,7 +88,7 @@ public sealed class EvaluationSummaryService(ScmosDbContext db, IAiProvider prov
         // Authorize before reading evaluation evidence, calling the model or writing a summary.
         var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
             AiAuthorizationRequest.For(AgentId, AiAction.ManagementAnalyze, Tool, user, correlationId,
-                "evaluation-carrier", $"{campaignId}:{carrierId}"), token);
+                "evaluation-carrier", $"{campaignId}:{carrierId}") with { ModelCall = true }, token);
         if (!authorization.Allowed)
             return Fail("POLICY_DENIED", "AI policy ปฏิเสธการสรุป — ระบบประเมินแบบ Manual ยังใช้งานได้", StatusCodes.Status503ServiceUnavailable);
 

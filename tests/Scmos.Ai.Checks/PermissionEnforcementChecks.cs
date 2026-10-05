@@ -260,6 +260,10 @@ static class PermissionEnforcementChecks
         var row = SqlAiExecutionAudit.AuthorizationRow(audit.Entries[1]);
         check(row.Metadata.Contains("DirectProductionSql") && row.PolicyVersion == catalog.Version && row.SecurityEvent
             && !row.Metadata.Contains("Test\"") && row.Fingerprint.Length == 64, "permission: audit preserves version/action/chain without prompt or human profile");
+        var reservedCall = SqlAiExecutionAudit.AuthorizationRow(audit.Entries[1] with { Request = audit.Entries[1].Request with { ModelCall = true } }, 0.01m);
+        check(row.Metadata.Contains("\"modelCall\":false") && reservedCall.Metadata.Contains("\"modelCall\":true")
+            && reservedCall.Metadata.Contains("\"estimatedCost\":0.01") && reservedCall.Fingerprint != row.Fingerprint,
+            "reservation: the evidence row says whether its reservation stood before a model call");
         var payload = new OperationsChangePayload(1, "shipment-1", "fingerprint", [], [], "test", user.UserId, user.OperatorId, DateTimeOffset.UtcNow.AddMinutes(30));
         check(!OperationsChangePolicy.IndependentApprover(user, payload)
             && !OperationsChangePolicy.IndependentApprover(user with { UserId = "alias" }, payload)

@@ -37,7 +37,8 @@ public sealed class ExtractionRun(IAiExecutionAudit audit, AiRunLimiter limiter,
         if (parts.Count is < 1 or > 4)
             return new ExtractionResult(null, "Attach one to four files.", StatusCodes.Status400BadRequest);
         var authorization = await AiPolicyEntry.AuthorizeAsync(policyGateway,
-            AiAuthorizationRequest.For(AgentIds.DocumentInvoice, AiAction.DocumentExtract, Tool, user, correlationId), token);
+            AiAuthorizationRequest.For(AgentIds.DocumentInvoice, AiAction.DocumentExtract, Tool, user, correlationId)
+                with { ModelCall = true }, token);
         if (!authorization.Allowed) return new(null, authorization.ReasonCode, StatusCodes.Status503ServiceUnavailable);
         // It is the Document & Invoice Agent reading: paused, at L0 or resting on its breaker, it reads nothing.
         if (governance is not null
