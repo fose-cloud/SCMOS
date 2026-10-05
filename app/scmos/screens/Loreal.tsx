@@ -116,6 +116,22 @@ function joinDateTime(date: string, time: string): string {
   return t ? `${d} ${t}` : d;
 }
 
+/** The recorded movement times, by job key and then by stage. */
+type Times = Record<string, Record<string, string>>;
+
+/**
+ * What a cell holds: the register for most of it, the recorded movement times for five.
+ *
+ * The screen and the downloaded workbook both read it here. Until 5 Oct 2026 the
+ * workbook read `column.read`, which is empty for the movement columns, so a month
+ * of typed loading times showed on the screen and went to the customer blank.
+ */
+function valueOf(job: Job, column: Column, times: Times): string {
+  return column.source === "movement"
+    ? times[job.key]?.[MOVEMENT_STAGE[column.head]] ?? ""
+    : column.read(job);
+}
+
 export const CUSTOMER = "L'OREAL";
 
 /**
@@ -156,7 +172,7 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
   const [full, setFull] = useState(false);
 
   /** Recorded times, keyed job then stage. Read once for the whole customer. */
-  const [times, setTimes] = useState<Record<string, Record<string, string>>>({});
+  const [times, setTimes] = useState<Times>({});
   /** Which cell is open for typing: the job key and the column head. */
   const [editing, setEditing] = useState<{ key: string; head: string } | null>(null);
   const [draft, setDraft] = useState("");
@@ -222,11 +238,9 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
     }));
   }
 
-  /** What a cell shows: the register for most of it, the recorded movement times for five. */
+  /** What a cell shows — the same as the workbook carries. */
   function show(job: Job, column: Column): string {
-    return column.source === "movement"
-      ? times[job.key]?.[MOVEMENT_STAGE[column.head]] ?? ""
-      : column.read(job);
+    return valueOf(job, column, times);
   }
 
   /** Whether this cell can be typed in at all, and why not when it cannot. */
@@ -490,7 +504,7 @@ export function Loreal({ jobs, onToast, canEdit, onSetField }: {
       label: "ดาวน์โหลด Excel",
       style: "height:28px;padding:0 13px;border:1px solid #3FA372;background:#16794C;color:#fff;"
         + "border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit",
-      go: () => downloadWorkbook(rows, periodLabel(period), onToast),
+      go: () => downloadWorkbook(rows, times, periodLabel(period), onToast),
       },
     ],
     controls: (
@@ -565,15 +579,15 @@ function Picker({ label, value, all, options, onPick }: {
 /**
  * The workbook, in the customer's own column order.
  *
- * Written with the same `COLUMNS` the table renders from, so the file and the
- * screen cannot drift apart — the failure this project has hit more than once
- * is the same rule written twice and quietly disagreeing.
+ * Written with the same `COLUMNS` and the same `valueOf` the table renders from, so
+ * the file and the screen cannot drift apart — the failure this project has hit more
+ * than once is the same rule written twice and quietly disagreeing.
  */
-function downloadWorkbook(rows: Job[], scope: string, onToast: (message: string) => void) {
+function downloadWorkbook(rows: Job[], times: Times, scope: string, onToast: (message: string) => void) {
   try {
     const sheet = XLSX.utils.aoa_to_sheet([
       COLUMNS.map((column) => column.head),
-      ...rows.map((job) => COLUMNS.map((column) => column.read(job))),
+      ...rows.map((job) => COLUMNS.map((column) => valueOf(job, column, times))),
     ]);
     sheet["!cols"] = COLUMNS.map((column) => ({ wch: Math.min(Math.max(column.head.length + 3, 12), 22) }));
     sheet["!freeze"] = { xSplit: "0", ySplit: "1" };
