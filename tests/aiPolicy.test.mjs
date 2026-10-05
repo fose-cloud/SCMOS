@@ -64,15 +64,32 @@ test("policy parser rejects partial, duplicate and mutable reports", () => {
     assert.throws(() => parsePolicyReport(value), /invalid_response/);
   }
 });
-test("candidate nominates only the human-provided owner pair, without grants or invented per-agent budgets", () => {
+// The per-agent bounds the human approved on 5 Oct 2026 — nine agents; the other five keep none.
+const APPROVED_BOUNDS = {
+  "operations-agent": [800, 2, 3, 0, 30, 2, 40, 0.03, 1, 0.0015],
+  "data-agent": [800, 2, 3, 0, 30, 1, 40, 0.03, 1, 0.0015],
+  "sre-agent": [800, 2, 3, 0, 30, 1, 20, 0.02, 0.5, 0.0015],
+  "management-agent": [800, 4, 5, 0, 30, 1, 60, 0.1, 1.5, 0.015],
+  "document-agent": [800, 2, 3, 0, 30, 1, 40, 0.09, 1, 0.03],
+  "engineering-agent": [800, 4, 5, 0, 30, 1, 30, 0.12, 1.5, 0.03],
+  "otd-agent": [800, 1, 1, 0, 30, 1, 500, 0.001, 0.03, 0.000001],
+  "validation-agent": [800, 1, 1, 0, 30, 1, 500, 0.001, 0.03, 0.000001],
+  "vendor-agent": [800, 1, 1, 0, 30, 1, 700, 0.001, 0.03, 0.000001],
+};
+const BOUND_NAMES = ["maxOutputTokens", "maxToolCalls", "maxApiCalls", "maxRetry", "maxRuntimeSeconds", "maxConcurrentTasks",
+  "dailyRequests", "dailyCostLimit", "monthlyCostLimit", "maxReservationCost"];
+test("candidate carries the human's owner pair and approved bounds, without grants", () => {
   assert.equal(matrix.approvalReference, null);
   // 5 Oct 2026: the nominated backup address matched no staff row; the human chose the verified Staff ID AM-01.
-  assert.equal(matrix.policyVersion, "scmos-permission-5-candidate");
-  assert.equal(matrix.previousVersion, "scmos-permission-4-candidate");
+  assert.equal(matrix.policyVersion, "scmos-permission-6-candidate");
+  assert.equal(matrix.previousVersion, "scmos-permission-5-candidate");
   for (const agent of matrix.agents) {
     assert.equal(agent.humanOwner, "email:K.nattikorn-fos@hotmail.com");
     assert.equal(agent.fallbackOwner, "AM-01");
-    assert.equal(agent.budget, null);
+    const approved = APPROVED_BOUNDS[agent.agentId];
+    if (approved) assert.deepEqual(BOUND_NAMES.map((name) => agent.budget[name]), approved, agent.agentId);
+    else assert.equal(agent.budget, null, agent.agentId);
+    assert.equal(agent.runtimeIsolationApproval ?? null, null);
     assert.equal(agent.failClosed, true);
     assert.equal(agent.auditRequired, true);
     assert.ok(!Object.values(agent.permissions).includes("Execute"));

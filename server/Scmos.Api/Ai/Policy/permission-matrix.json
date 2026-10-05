@@ -1,9 +1,9 @@
 {
-  "policyVersion": "scmos-permission-5-candidate",
+  "policyVersion": "scmos-permission-6-candidate",
   "changedBy": "user-request:2026-10-05",
   "changedAt": "2026-10-05T00:00:00Z",
-  "reason": "Fallback owner only: email:fosfaaylove1@gmail.com matched no staff row in the live directory (read 5 Oct 2026), so the human chose Staff AM-01 (Assistant Manager, active) for all 14 agents. Primary email:K.nattikorn-fos@hotmail.com matched AD-01 (Administrator, active). Shared limits USD 0.20/day and USD 10/month unchanged; policy/isolation/agent bounds still require review. No new tool/action grants.",
-  "previousVersion": "scmos-permission-4-candidate",
+  "reason": "Per-agent bounds approved by the human on 5 Oct 2026 for nine agents, from 30 days of real use: the drafted values for operations, data, sre, otd, validation and vendor; engineering, management and document adjusted to reservation per model call (engineering 0.03 per call and 30 requests/day, management 0.015 and USD 0.10/day for evaluation summaries, document 0.03 and USD 0.09/day for PDF reading). Rate, incident, compliance, communication and booking keep no bounds. Shared limits unchanged; policy approval and runtime isolation still require review. No new tool/action grants.",
+  "previousVersion": "scmos-permission-5-candidate",
   "approvalReference": null,
   "sharedBudget": {
     "scope": "all-registered-agents",
@@ -63,7 +63,18 @@
         "systemPass": false
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 2,
+        "maxApiCalls": 3,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 2,
+        "dailyRequests": 40,
+        "dailyCostLimit": 0.03,
+        "monthlyCostLimit": 1.00,
+        "maxReservationCost": 0.0015
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -89,7 +100,18 @@
         "systemPass": true
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 1,
+        "maxApiCalls": 1,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 700,
+        "dailyCostLimit": 0.001,
+        "monthlyCostLimit": 0.03,
+        "maxReservationCost": 0.000001
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -137,7 +159,18 @@
         "systemPass": false
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 2,
+        "maxApiCalls": 3,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 40,
+        "dailyCostLimit": 0.03,
+        "monthlyCostLimit": 1.00,
+        "maxReservationCost": 0.0015
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -189,7 +222,18 @@
         "systemPass": false
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 2,
+        "maxApiCalls": 3,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 40,
+        "dailyCostLimit": 0.09,
+        "monthlyCostLimit": 1.00,
+        "maxReservationCost": 0.03
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -238,7 +282,18 @@
         "systemPass": false
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 4,
+        "maxApiCalls": 5,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 60,
+        "dailyCostLimit": 0.10,
+        "monthlyCostLimit": 1.50,
+        "maxReservationCost": 0.015
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -293,7 +348,18 @@
         "systemPass": false
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 4,
+        "maxApiCalls": 5,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 30,
+        "dailyCostLimit": 0.12,
+        "monthlyCostLimit": 1.50,
+        "maxReservationCost": 0.03
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -319,7 +385,18 @@
         "systemPass": true
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 1,
+        "maxApiCalls": 1,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 500,
+        "dailyCostLimit": 0.001,
+        "monthlyCostLimit": 0.03,
+        "maxReservationCost": 0.000001
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -345,7 +422,18 @@
         "systemPass": true
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 1,
+        "maxApiCalls": 1,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 500,
+        "dailyCostLimit": 0.001,
+        "monthlyCostLimit": 0.03,
+        "maxReservationCost": 0.000001
+      },
       "auditRequired": true,
       "failClosed": true
     },
@@ -398,7 +486,18 @@
         "systemPass": false
       },
       "maximumRiskLevel": "Low",
-      "budget": null,
+      "budget": {
+        "maxOutputTokens": 800,
+        "maxToolCalls": 2,
+        "maxApiCalls": 3,
+        "maxRetry": 0,
+        "maxRuntimeSeconds": 30,
+        "maxConcurrentTasks": 1,
+        "dailyRequests": 20,
+        "dailyCostLimit": 0.02,
+        "monthlyCostLimit": 0.50,
+        "maxReservationCost": 0.0015
+      },
       "auditRequired": true,
       "failClosed": true
     }

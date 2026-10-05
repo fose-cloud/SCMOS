@@ -264,3 +264,45 @@ The older `--write-local-db` suite stops before its scan section at "write SQL: 
 confirmation has one effect" (the second confirmation gets `audit_unavailable`, not
 `already_applied`). The code before both of today's changes (70d0dfae) fails the same way, so it
 is not caused by them; the end-to-end scan run of this pass is therefore not evidenced here.
+
+## Per-agent bounds — 5 October 2026 (`scmos-permission-6-candidate`)
+
+Item 5 above. The human approved bounds for nine agents, drafted from 30 days of real use
+(8 Sep–5 Oct: 35 chat runs, about USD 0.18 at gpt-4.1 prices; the passes call no model). The
+draft predated reservation per model call, so three agents were adjusted before approval: a
+reservation now covers one call, not a share of several authorizations.
+
+| Agent | Per call | Requests/day | USD/day | USD/month | Tools / model calls | Concurrent |
+|---|---|---|---|---|---|---|
+| operations-agent | 0.0015 | 40 | 0.03 | 1.00 | 2 / 3 | 2 |
+| data-agent | 0.0015 | 40 | 0.03 | 1.00 | 2 / 3 | 1 |
+| sre-agent | 0.0015 | 20 | 0.02 | 0.50 | 2 / 3 | 1 |
+| management-agent | 0.015 | 60 | 0.10 | 1.50 | 4 / 5 | 1 |
+| document-agent | 0.03 | 40 | 0.09 | 1.00 | 2 / 3 | 1 |
+| engineering-agent | 0.03 | 30 | 0.12 | 1.50 | 4 / 5 | 1 |
+| otd-agent, validation-agent | 0.000001 | 500 | 0.001 | 0.03 | 1 / 1 | 1 |
+| vendor-agent | 0.000001 | 700 | 0.001 | 0.03 | 1 / 1 | 1 |
+
+All nine: 800 output tokens, 30 s runtime, 0 retries. These sit at or above the settings the
+gateway compares them with (`AI__MaxOutputTokens` 800, `AI__TimeoutSeconds` 20, set 5 Oct);
+raising either setting above them refuses the agent with `budget_configuration_invalid`.
+
+- Basis: per-call amounts are at least the largest observed call (engineering 0.028; the chat
+  agents ≤ 0.0015); management's covers one Annual Evaluation summary (~0.012 at 800 output
+  tokens); document's has no observed PDF/invoice reading yet and `DocumentExtractor` sets no
+  output cap, so 0.03 is an estimate to revisit with the first real readings. Requests/day
+  count every allowed authorization: a one-tool chat run asks 4 times, a full Engineering run
+  up to 14, an OTD/Validation pass about 4 and a Carrier pass about 6, at 96 passes a day.
+- Rate, incident and compliance (not connected), communication and booking keep no bounds and
+  stay refused with `budget_required` behind the review.
+- The per-agent daily amounts add up to more than the shared USD 0.20; the shared ceiling is
+  the one that binds. Monthly amounts add up to USD 6.59 of the shared USD 10.
+- `MaxToolCalls`, `MaxApiCalls`, `MaxConcurrentTasks` and `MaxRetry` are range-checked
+  manifest values; the runtime does not yet enforce them per agent.
+- No grant, tool, scope, owner or isolation value changed and `approvalReference` is still
+  null: every agent still refuses with `policy_review_required`.
+
+Verification: offline 1,388 checks (a new one: nine valid bounds that fit the gateway's settings
+and leave every agent's readiness unchanged); focused SQL suites 1,465, twice;
+tests/aiPolicy.test.mjs pins the approved values.
+

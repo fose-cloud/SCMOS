@@ -143,6 +143,16 @@ static class PermissionEnforcementChecks
             "permission: delegated target cannot remove the initiating agent's human-approval restriction");
         check(Reason(request with { SystemPass = true }) == "invalid_identity", "permission: caller cannot mix human and system identities");
         check(Reason(request, current) == "policy_review_required", "permission: Production candidate remains fail-closed");
+        // 5 Oct 2026: nine approved per-agent bounds. Each is valid, none sits below the settings the gateway compares it
+        // with (AI__MaxOutputTokens 800, AI__TimeoutSeconds 20), and the candidate still refuses every agent for review.
+        var bounded = current.Manifests.Values.Where(manifest => manifest.Budget is not null).ToArray();
+        var defaults = new AiOptions();
+        check(bounded.Length == 9 && bounded.All(manifest => AiPolicyCatalog.ValidBudget(manifest.Budget)
+                && manifest.Budget!.MaxOutputTokens >= defaults.MaxOutputTokens && manifest.Budget.MaxRuntimeSeconds >= defaults.TimeoutSeconds)
+            && new[] { AgentIds.Rate, AgentIds.Incident, AgentIds.Compliance, AgentIds.Communication, AgentIds.Booking }
+                .All(id => current.Find(id)?.Budget is null)
+            && new AgentRegistry().All.All(agent => current.Readiness(agent.Id) == "policy_review_required"),
+            "bounds: nine approved per-agent bounds are valid, fit the gateway's settings, and change no agent's readiness");
 
         foreach (var corrupt in new[] { "{bad", Json().Replace("\"failClosed\": true", "\"failClosed\": false"),
             Json().Replace("\"Low\"", "\"UnknownRisk\""), Json().Replace("\"Read\"", "999"),
