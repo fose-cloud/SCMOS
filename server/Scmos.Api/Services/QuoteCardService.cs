@@ -92,7 +92,7 @@ public class QuoteCardService(ScmosDbContext db)
 
         await OfferEveryVehicleAsync(token);
 
-        var setting = await db.QuoteSettings.FirstOrDefaultAsync(one => one.Id == 1, token);
+        var setting = await MarginRowAsync(token);
         var vehicles = await db.QuoteVehicleRates.AsNoTracking()
             .OrderBy(one => one.Position).ThenBy(one => one.Id).ToListAsync(token);
         var extras = await db.QuoteExtras.AsNoTracking()
@@ -229,15 +229,36 @@ public class QuoteCardService(ScmosDbContext db)
         return new QuoteCardResult(true, id > 0 ? "บันทึกรายการแล้ว" : "เพิ่มรายการแล้ว");
     }
 
+    /// <summary>
+    /// The margin row, whatever id it was given.
+    ///
+    /// One place, because it is read when the card is opened and again when the
+    /// margin is set, and those two have to reach the same row. Asking for
+    /// <c>id == 1</c> in both was the same rule written twice, and it only ever
+    /// held while something else guaranteed the 1.
+    ///
+    /// Nothing guarantees it. The id is an identity column, so the number is the
+    /// database's to give, and an empty table has given none. Ordering by id and
+    /// taking the first is what "the single row" has to mean when its number
+    /// cannot be named in advance; it also settles on the older row rather than
+    /// alternating, should a race ever leave two.
+    /// </summary>
+    private Task<QuoteSetting?> MarginRowAsync(CancellationToken token) =>
+        db.QuoteSettings.OrderBy(one => one.Id).FirstOrDefaultAsync(token);
+
     public async Task<QuoteCardResult> SetMarginAsync(decimal percent, string by, CancellationToken token)
     {
         if (percent < 0m || percent > 100m)
             return new QuoteCardResult(false, "กำไรต้องอยู่ระหว่าง 0 ถึง 100 เปอร์เซ็นต์");
 
-        var setting = await db.QuoteSettings.FirstOrDefaultAsync(one => one.Id == 1, token);
+        var setting = await MarginRowAsync(token);
         if (setting is null)
         {
-            setting = new QuoteSetting { Id = 1 };
+            // No id named here. The column is an identity column, so the number
+            // is the database's to give; naming it ourselves is what SQL Server
+            // refused, and it refused it on exactly the environments that had
+            // never set a margin before.
+            setting = new QuoteSetting();
             db.QuoteSettings.Add(setting);
         }
         setting.MarginPercent = percent;
