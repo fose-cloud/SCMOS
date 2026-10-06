@@ -74,3 +74,12 @@ test("somebody covering a leave can give a row only to the person who granted th
   // And the grid is re-read only after the write has landed.
   assert.match(app, /setToast\(`มอบหมาย \$\{chosen\.length\} งานให้ \$\{owner\} แล้ว`\);[\s\S]{0,400}?void flushNow\(\)\.then\(\(\) => touch\(\)\);/);
 });
+
+test("a new job's owner name is the staff directory's, not the sign-in's first word (6 Oct 2026)", () => {
+  const me = readFileSync(new URL("../server/Scmos.Api/Endpoints/MeEndpoints.cs", import.meta.url), "utf8");
+  // Since 5 Oct four staff sign in as "Kakkaew, Watsana": the first word keyed 105 jobs to "Kakkaew,".
+  assert.match(me, /db\.Staff\.AsNoTracking\(\)\.Where\(person => person\.Id == user\.OperatorId\)/);
+  assert.match(me, /name = staffName\.Length > 0 \? staffName : parts\.FirstOrDefault\(\) \?\? user\.DisplayName,/);
+  assert.match(me, /var parts = GivenFirst\(user\.DisplayName\)\.Split/);
+  assert.doesNotMatch(me, /name = parts\.FirstOrDefault\(\) \?\? user\.DisplayName,/);
+});

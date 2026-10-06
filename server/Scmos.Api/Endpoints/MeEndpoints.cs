@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Scmos.Api.Auth;
 using Scmos.Api.Rules;
 
@@ -13,7 +14,7 @@ public static class MeEndpoints
     public static void MapMe(this IEndpointRouteBuilder routes)
     {
         routes.MapGet("/api/me", async (HttpContext context, IUserAccessor users,
-            Services.DelegationService delegations, CancellationToken token) =>
+            Services.DelegationService delegations, Data.ScmosDbContext db, CancellationToken token) =>
         {
             // The one endpoint that asks who signed in rather than who is
             // allowed in. Somebody refused at the door has already passed
@@ -25,7 +26,16 @@ public static class MeEndpoints
 
             var authorised = users.Current(context) is not null;
 
-            var parts = user.DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var parts = GivenFirst(user.DisplayName).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // `name` is what job.op holds and what the plan workbooks call this
+            // person: the staff directory's name for their owner id. The first
+            // word of the sign-in's display name stood in for it until 5 Oct
+            // 2026, when four staff began signing in as "Kakkaew, Watsana" and
+            // 105 jobs were keyed to "Kakkaew," beside the 1,238 held by Watsana.
+            var staffName = user.OperatorId.Length > 0
+                ? (await db.Staff.AsNoTracking().Where(person => person.Id == user.OperatorId)
+                    .Select(person => person.Name).FirstOrDefaultAsync(token) ?? "").Trim()
+                : "";
             var initials = (parts.Length > 1
                 ? $"{parts[0][0]}{parts[1][0]}"
                 : user.DisplayName[..Math.Min(2, user.DisplayName.Length)]).ToUpperInvariant();
@@ -35,10 +45,9 @@ public static class MeEndpoints
                 account = new
                 {
                     user = user.Signature,
-                    // `name` stays the first word, because that is what the plan
-                    // workbooks call this person. Ownership no longer depends on it —
-                    // opId does — but the screen still greets them by it.
-                    name = parts.FirstOrDefault() ?? user.DisplayName,
+                    // Ownership depends on opId, not this — but new jobs carry it
+                    // as their owner's name, and the ASSIGNED filter lists it.
+                    name = staffName.Length > 0 ? staffName : parts.FirstOrDefault() ?? user.DisplayName,
                     full = user.DisplayName,
                     role = user.Role,
                     id = user.OperatorId.Length > 0 ? user.OperatorId : user.UserId,
@@ -106,5 +115,18 @@ public static class MeEndpoints
                 },
             });
         }).WithTags("Identity");
+    }
+
+    /// <summary>
+    /// A directory's "Surname, Given" turned round to "Given Surname", so the
+    /// first word and the initials are the person's own; any other name as it is.
+    /// </summary>
+    public static string GivenFirst(string displayName)
+    {
+        var text = (displayName ?? "").Trim();
+        var comma = text.IndexOf(',');
+        if (comma <= 0) return text;
+        var given = text[(comma + 1)..].Trim();
+        return given.Length == 0 ? text.TrimEnd(',').Trim() : given + " " + text[..comma].Trim();
     }
 }
