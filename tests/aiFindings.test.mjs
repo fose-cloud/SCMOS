@@ -98,3 +98,30 @@ test("the panel shows a draft to copy and asks whether it was sent — SCMOS sen
   assert.match(panel, /\{item\.riskLevel && <span/);                                // no empty risk badge on a draft
   assert.doesNotMatch(panel, /\/api\/line|push|sendMessage/i);                       // nothing here sends
 });
+
+test("several plain findings can be answered at once; messages and booking drafts still one by one (6 Oct 2026)", async () => {
+  const { canBatch, answerMany } = await import("../app/scmos/aiFindings.ts");
+  assert.equal(canBatch({ canAnswer: true, decisionType: "otd_risk" }), true);
+  assert.equal(canBatch({ canAnswer: false, decisionType: "otd_risk" }), false);
+  assert.equal(canBatch({ canAnswer: true, decisionType: "communication_draft" }), false);
+  assert.equal(canBatch({ canAnswer: true, decisionType: "booking_draft" }), false);
+  const seen = [];
+  let inFlight = 0, widest = 0;
+  const result = await answerMany([1, 2, 3, 4, 5, 6, 7], async id => {
+    inFlight++; widest = Math.max(widest, inFlight);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    inFlight--; seen.push(id);
+    return id === 3 ? "already_answered" : id === 6 ? null : null;
+  }, undefined, 3);
+  assert.deepEqual(seen.sort(), [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(widest, 3);
+  assert.deepEqual(result, { saved: 6, refused: ["already_answered"] });
+  const thrown = await answerMany([9], async () => { throw new Error("network"); });
+  assert.deepEqual(thrown, { saved: 0, refused: ["unavailable"] });
+  const panel = read("app/scmos/screens/AiFindingsPanel.tsx");
+  // Each answer goes through its own route, after a confirmation, and only plain findings carry a box.
+  assert.match(panel, /answerMany\(ids, async id => \{\s*const response = await apiFetch\(`\/api\/ai\/decisions\/\$\{id\}\/outcome`/);
+  assert.match(panel, /onClick=\{\(\) => setConfirming\("ACCEPTED"\)\}/);
+  assert.match(panel, /onClick=\{\(\) => void answerPicked\(confirming\)\}/);
+  assert.match(panel, /\{canBatch\(item\) && <input type="checkbox"/);
+});

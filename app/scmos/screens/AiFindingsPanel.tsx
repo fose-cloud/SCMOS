@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { stamp } from "../aiControl";
 import {
-  AGENT_LABEL, answerBody, answerError, draftText, inReadingOrder, parseDecisions, RISK_LABEL, RISK_TONE, SENT_CHANNELS,
-  type Decision, type Finding,
+  AGENT_LABEL, answerBody, answerError, answerMany, canBatch, draftText, inReadingOrder, parseDecisions, RISK_LABEL, RISK_TONE,
+  SENT_CHANNELS, type Decision, type Finding,
 } from "../aiFindings";
 import { myTasks, parseTasks, TASK_CARDS, type AiTaskCounts } from "../aiTasks";
 import { draftFromDecision, labelOf } from "../bookingDraft";
@@ -49,6 +49,10 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
   const [busy, setBusy] = useState<number | null>(null);
   const [channel, setChannel] = useState<string>(SENT_CHANNELS[0]);
   const [message, setMessage] = useState("");
+  // Several answered at once (6 Oct 2026): which are ticked, the answer waiting for its confirmation, and how far it got.
+  const [picked, setPicked] = useState<ReadonlySet<number>>(new Set());
+  const [confirming, setConfirming] = useState<"ACCEPTED" | "DISMISSED" | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
   const alive = useRef(true);
 
   const load = useCallback(async () => {
@@ -63,7 +67,12 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(response.status === 403 ? "บัญชีนี้ไม่มีสิทธิ์ดูรายการนี้" : "อ่านข้อมูลไม่สำเร็จ");
       const page = parseDecisions(body);
-      if (alive.current) { setItems(inReadingOrder(page.items)); setTotal(page.total); }
+      if (alive.current) {
+        setItems(inReadingOrder(page.items)); setTotal(page.total);
+        // What was ticked and is no longer open (answered here or elsewhere) drops out of the selection.
+        const open = new Set(page.items.filter(canBatch).map(item => item.id));
+        setPicked(prev => new Set([...prev].filter(id => open.has(id))));
+      }
     } catch (problem) {
       if (alive.current) setError(problem instanceof Error && problem.message !== "invalid_response" ? problem.message : "ข้อมูลตอบกลับไม่ตรงรูปแบบ");
     }
@@ -109,6 +118,46 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
     } finally { if (alive.current) setBusy(null); }
   }
 
+  function toggle(id: number) {
+    setConfirming(null);
+    setPicked(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+  /** Ticks every batchable item of a list, or clears them when all already are. */
+  function toggleAll(list: readonly Decision[]) {
+    const ids = list.filter(canBatch).map(item => item.id);
+    setConfirming(null);
+    setPicked(prev => {
+      const next = new Set(prev);
+      if (ids.every(id => next.has(id))) ids.forEach(id => next.delete(id)); else ids.forEach(id => next.add(id));
+      return next;
+    });
+  }
+  async function answerPicked(outcome: "ACCEPTED" | "DISMISSED") {
+    if (busy !== null || picked.size === 0) return;
+    const ids = [...picked];
+    setBusy(-1); setConfirming(null); setMessage(""); setProgress(0);
+    try {
+      const result = await answerMany(ids, async id => {
+        const response = await apiFetch(`/api/ai/decisions/${id}/outcome`, {
+          method: "POST", headers: { "content-type": "application/json", "X-SCMOS-AI-Control": "1" },
+          body: JSON.stringify(answerBody(outcome)),
+        });
+        if (response.ok) return null;
+        const body: unknown = await response.json().catch(() => null);
+        const code = typeof body === "object" && body !== null && "code" in body ? (body as { code: unknown }).code : null;
+        return typeof code === "string" ? code : "unavailable";
+      }, done => { if (alive.current) setProgress(done); });
+      if (alive.current) {
+        const label = outcome === "ACCEPTED" ? "ถูกต้อง" : "ไม่เกี่ยว";
+        const refused = result.refused.length === 0 ? ""
+          : ` · ไม่สำเร็จ ${result.refused.length} รายการ (${answerError(result.refused[0])})`;
+        setMessage(`บันทึก "${label}" แล้ว ${result.saved} รายการ${refused}`);
+        setPicked(new Set());
+      }
+      await load();
+    } finally { if (alive.current) { setBusy(null); setProgress(null); } }
+  }
+
   const all = items ?? [];
   const sections = myTasks(all);
   const mineCount = sections.reduce((sum, section) => sum + section.items.length, 0);
@@ -120,11 +169,15 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
   function renderItem(item: Decision) {
     const draft = draftText(item);
     const booking = draftFromDecision(item);
-    return <li key={item.id} className={s.finding}>
+    return <li key={item.id} className={s.finding + (picked.has(item.id) ? " " + s.findingPicked : "")}>
       <div className={s.findingTop}>
-        {item.entityType === "job"
-          ? <button className={s.link} onClick={() => onOpenJob(item.entityId)}>{item.summary}</button>
-          : <strong>{item.summary}</strong>}
+        <span className={s.pickRow}>
+          {canBatch(item) && <input type="checkbox" className={s.pick} aria-label={"เลือก " + item.summary}
+            checked={picked.has(item.id)} disabled={busy !== null} onChange={() => toggle(item.id)} />}
+          {item.entityType === "job"
+            ? <button className={s.link} onClick={() => onOpenJob(item.entityId)}>{item.summary}</button>
+            : <strong>{item.summary}</strong>}
+        </span>
         <span className={s.actions}>
           {item.riskLevel && <span className={s.badge + " " + (s[RISK_TONE[item.riskLevel] ?? "muted"] ?? "")}>{RISK_LABEL[item.riskLevel] ?? item.riskLevel}</span>}
           <span className={s.badge}>{AGENT_LABEL[item.agentId] ?? item.agentId}</span>
@@ -181,6 +234,19 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
     </li>;
   }
 
+  /** A list's heading line: its name and count, and a box that ticks every item of it that may be answered together. */
+  function heading(label: string, list: readonly Decision[]) {
+    const batchable = list.filter(canBatch);
+    const ticked = batchable.length > 0 && batchable.every(item => picked.has(item.id));
+    return <div className={s.listHead}>
+      {batchable.length > 0 && <label className={s.pickRow}>
+        <input type="checkbox" className={s.pick} checked={ticked} disabled={busy !== null}
+          aria-label={"เลือกทั้งหมด " + label} onChange={() => toggleAll(list)} />
+        เลือกทั้งหมด</label>}
+      {label && <h3>{label} {list.length}</h3>}
+    </div>;
+  }
+
   return <section className={s.panel} aria-labelledby="ai-findings" data-testid="ai-findings">
     <div className={s.sectionTitle}><div><h2 id="ai-findings">งานที่ AI ตรวจพบ</h2>
       {items && <p>{total} รายการรอคำตอบ</p>}</div>
@@ -198,16 +264,29 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
         <strong className={tasks[card.key] > 0 && card.tone ? (card.tone === "red" ? s.metricRed : s.metricAmber) : undefined}>{tasks[card.key]}</strong>
       </article>)}
     </div>}
+    {picked.size > 0 && <div className={s.bulkBar} role="group" aria-label="ตอบหลายรายการ">
+      <strong>เลือกแล้ว {picked.size} รายการ</strong>
+      {progress !== null ? <span className={s.hint}>กำลังบันทึก {progress} / {picked.size}…</span>
+        : confirming ? <>
+          <span>ยืนยันตอบ “{confirming === "ACCEPTED" ? "ถูกต้อง" : "ไม่เกี่ยว"}” ทั้ง {picked.size} รายการ?</span>
+          <button className={s.button + " " + s.primary} disabled={busy !== null} onClick={() => void answerPicked(confirming)}>ยืนยัน</button>
+          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming(null)}>ยกเลิก</button>
+        </> : <>
+          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming("ACCEPTED")}>ถูกต้อง</button>
+          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming("DISMISSED")}>ไม่เกี่ยว</button>
+          <button className={s.link} disabled={busy !== null} onClick={() => setPicked(new Set())}>ล้างที่เลือก</button>
+        </>}
+    </div>}
     {!!message && <p role="status">{message}</p>}
     {error ? <p role="alert" className={s.error}>{error}</p>
       : items === null ? <div className={s.empty}>กำลังอ่าน…</div>
         : filter === "mine"
           ? sections.length === 0 ? <div className={s.empty}>ไม่มีรายการรอคำตอบ</div>
             : sections.map(section => <div key={section.id} className={s.findingGroup}>
-              <h3>{section.label} {section.items.length}</h3>
+              {heading(section.label, section.items)}
               <ul className={s.list}>{section.items.map(renderItem)}</ul>
             </div>)
           : shown.length === 0 ? <div className={s.empty}>ไม่มีรายการรอคำตอบ</div>
-            : <ul className={s.list}>{shown.map(renderItem)}</ul>}
+            : <>{heading("", shown)}<ul className={s.list}>{shown.map(renderItem)}</ul></>}
   </section>;
 }

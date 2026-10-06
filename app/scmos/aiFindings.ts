@@ -93,6 +93,35 @@ export function answerBody(outcome: "ACCEPTED" | "OVERRIDDEN" | "DISMISSED", cho
   return { outcome, choice: choice.trim(), reason: reason.trim() };
 }
 
+/**
+ * Whether a finding may be answered together with others (6 Oct 2026): one this person may answer that is a plain
+ * finding — never a message to send or a booking draft, which each need their own reading and their own answer.
+ */
+export function canBatch(decision: Pick<Decision, "canAnswer" | "decisionType">): boolean {
+  return decision.canAnswer && decision.decisionType !== DRAFT_TYPE && decision.decisionType !== "booking_draft";
+}
+
+/**
+ * Answers several decisions the same way, a few at a time, each through its own route — the server judges every one
+ * as it judges a single answer. `send` returns null when saved, or the refusal's code.
+ */
+export async function answerMany(ids: readonly number[], send: (id: number) => Promise<string | null>,
+  onProgress?: (done: number) => void, width = 4): Promise<{ saved: number; refused: string[] }> {
+  let next = 0, done = 0, saved = 0;
+  const refused: string[] = [];
+  async function worker() {
+    while (next < ids.length) {
+      const id = ids[next++];
+      let code: string | null;
+      try { code = await send(id); } catch { code = "unavailable"; }
+      if (code === null) saved++; else refused.push(code);
+      onProgress?.(++done);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(Math.max(width, 1), ids.length) }, worker));
+  return { saved, refused };
+}
+
 export function answerError(code: unknown): string {
   return typeof code === "string" && Object.hasOwn(ANSWER_ERRORS, code) ? ANSWER_ERRORS[code] : "บันทึกไม่สำเร็จ ลองใหม่";
 }

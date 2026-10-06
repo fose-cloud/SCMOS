@@ -15,6 +15,23 @@ const calls = [];
 let mode = "ready";
 let controlEnabled = false;
 let controlRevision = 0;
+// AI findings for the multi-select answer (6 Oct 2026): plain findings, one a person may not answer, one message draft.
+const finding = (id, agentId, decisionType, riskLevel, resultStatus, summary, canAnswer = true, extra = {}) => ({
+  id, agentId, decisionType, entityType: "job", entityId: "FIXTURE-" + id, summary, resultStatus, status: "OPEN", riskLevel,
+  shadow: true, autonomy: 2, findings: { facts: [{ text: "FIXTURE ONLY — ข้อมูลทดสอบ", source: "job:FIXTURE-" + id }],
+    ruleResults: [], observations: [], inferences: [], recommendations: [], blockingIssues: [], ...extra },
+  ruleReferences: [], createdAt: "2026-10-06T01:00:00Z", humanChoice: "", overrideReason: "", decidedBy: "", canAnswer,
+  runId: "", decidedAt: null, evidenceReferences: [] });
+const freshFindings = () => [
+  finding(101, "otd-agent", "otd_risk", "WATCH", "RISK", "FIXTURE งาน A · ใกล้เวลาแผน ยังไม่มีรถ"),
+  finding(102, "otd-agent", "otd_risk", "WATCH", "RISK", "FIXTURE งาน B · ใกล้เวลาแผน ยังไม่มีรถ"),
+  finding(103, "validation-agent", "validation_issue", "LOW", "INSUFFICIENT_INFORMATION", "FIXTURE งาน C · ข้อมูลยังไม่ครบ"),
+  finding(104, "validation-agent", "validation_issue", "LOW", "INSUFFICIENT_INFORMATION", "FIXTURE งาน D · ข้อมูลยังไม่ครบ"),
+  finding(105, "otd-agent", "otd_risk", "WATCH", "RISK", "FIXTURE งาน E · ของคนอื่น ตอบไม่ได้", false),
+  finding(106, "communication-agent", "communication_draft", "LOW", "DRAFT", "FIXTURE งาน F · ร่างข้อความถึงผู้ขนส่ง", true,
+    { recommendations: [{ text: "FIXTURE ร่างข้อความ", source: "template:CARRIER_CONFIRMATION_REMINDER" }] }),
+];
+let openFindings = freshFindings();
 const send = (res, body, code = 200) => {
   res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
@@ -28,6 +45,7 @@ const api = createServer(async (req, res) => {
         return send(res, { error: "unknown fixture" }, 400);
       mode = requested; calls.length = 0;
       controlEnabled = false; controlRevision = 0;
+      openFindings = freshFindings();
     }
     return send(res, { fixture: "scmos-ai-local-qa", mode, calls });
   }
@@ -41,6 +59,23 @@ const api = createServer(async (req, res) => {
     if (mode === "control-unready") return send(res, { code: "control_not_ready" }, 503);
     controlEnabled = value.enabled; controlRevision++;
     return send(res, { saved: true });
+  }
+  const answered = /^\/api\/ai\/decisions\/(\d+)\/outcome$/.exec(url.pathname);
+  if (answered && req.method === "POST") {
+    if (req.headers["x-scmos-ai-control"] !== "1") return send(res, {}, 400);
+    const id = Number(answered[1]);
+    const one = openFindings.find(item => item.id === id);
+    if (!one) return send(res, { code: "already_answered" }, 409);
+    if (!one.canAnswer) return send(res, { code: "forbidden" }, 403);
+    openFindings = openFindings.filter(item => item.id !== id);
+    return send(res, { saved: true });
+  }
+  if (url.pathname === "/api/ai/decisions") return send(res, { items: openFindings, total: openFindings.length });
+  if (url.pathname === "/api/ai/tasks") {
+    const mine = openFindings.filter(item => item.canAnswer).length;
+    return send(res, { jobsMonitored: 12, aiHandling: openFindings.length, needsMyDecision: mine, highRisk: 0, blocked: 0,
+      informationRequired: openFindings.filter(item => item.resultStatus === "INSUFFICIENT_INFORMATION").length,
+      carrierEscalation: 0, pendingApproval: 0, agentFailure: 0 });
   }
   if (req.method !== "GET" && !(url.pathname === "/api/ai/chat" && req.method === "POST"))
     return send(res, { error: "fixture refuses writes" }, 405);
