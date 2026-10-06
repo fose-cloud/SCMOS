@@ -15,7 +15,7 @@ const calls = [];
 let mode = "ready";
 let controlEnabled = false;
 let controlRevision = 0;
-// AI findings for the multi-select answer (6 Oct 2026): plain findings, one a person may not answer, one message draft.
+// AI findings for the multi-select answer (6 Oct 2026): plain findings, one a person may not answer, two message drafts.
 const finding = (id, agentId, decisionType, riskLevel, resultStatus, summary, canAnswer = true, extra = {}) => ({
   id, agentId, decisionType, entityType: "job", entityId: "FIXTURE-" + id, summary, resultStatus, status: "OPEN", riskLevel,
   shadow: true, autonomy: 2, findings: { facts: [{ text: "FIXTURE ONLY — ข้อมูลทดสอบ", source: "job:FIXTURE-" + id }],
@@ -29,6 +29,8 @@ const freshFindings = () => [
   finding(104, "validation-agent", "validation_issue", "LOW", "INSUFFICIENT_INFORMATION", "FIXTURE งาน D · ข้อมูลยังไม่ครบ"),
   finding(105, "otd-agent", "otd_risk", "WATCH", "RISK", "FIXTURE งาน E · ของคนอื่น ตอบไม่ได้", false),
   finding(106, "communication-agent", "communication_draft", "LOW", "DRAFT", "FIXTURE งาน F · ร่างข้อความถึงผู้ขนส่ง", true,
+    { recommendations: [{ text: "FIXTURE ร่างข้อความ", source: "template:CARRIER_CONFIRMATION_REMINDER" }] }),
+  finding(107, "communication-agent", "communication_draft", "LOW", "DRAFT", "FIXTURE งาน G · ร่างข้อความถึงผู้ขนส่ง", true,
     { recommendations: [{ text: "FIXTURE ร่างข้อความ", source: "template:CARRIER_CONFIRMATION_REMINDER" }] }),
 ];
 let openFindings = freshFindings();
@@ -63,6 +65,9 @@ const api = createServer(async (req, res) => {
   const answered = /^\/api\/ai\/decisions\/(\d+)\/outcome$/.exec(url.pathname);
   if (answered && req.method === "POST") {
     if (req.headers["x-scmos-ai-control"] !== "1") return send(res, {}, 400);
+    let body = "";
+    for await (const chunk of req) { body += chunk; if (body.length > 1024) return send(res, {}, 413); }
+    calls[calls.length - 1].body = JSON.parse(body);
     const id = Number(answered[1]);
     const one = openFindings.find(item => item.id === id);
     if (!one) return send(res, { code: "already_answered" }, 409);

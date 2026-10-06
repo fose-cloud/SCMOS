@@ -70,7 +70,7 @@ test("the panel shows the four kinds apart, answers through the control header, 
   assert.match(panel, /"X-SCMOS-AI-Control": "1"/);
   assert.match(panel, /\/api\/ai\/decisions\?status=OPEN/);
   assert.match(panel, /disabled=\{busy !== null \|\| !choice\.trim\(\) \|\| !reason\.trim\(\)\}/);
-  assert.match(tower, /\{canViewDashboard && <AiFindingsPanel onOpenJob=\{onOpenJob\} onDraftJob=\{onDraftJob\} \/>\}/);
+  assert.match(tower, /\{canViewDashboard && <AiFindingsPanel onOpenJob=\{onOpenJob\} onDraftJob=\{onDraftJob\} onAnswered=\{tasks\.refresh\} \/>\}/);
 });
 
 test("a Communication draft is its template's message; any other decision has none", () => {
@@ -99,12 +99,17 @@ test("the panel shows a draft to copy and asks whether it was sent — SCMOS sen
   assert.doesNotMatch(panel, /\/api\/line|push|sendMessage/i);                       // nothing here sends
 });
 
-test("several plain findings can be answered at once; messages and booking drafts still one by one (6 Oct 2026)", async () => {
-  const { canBatch, answerMany } = await import("../app/scmos/aiFindings.ts");
+test("several findings and carrier messages can be answered at once; booking drafts still one by one (6 Oct 2026)", async () => {
+  const { canBatch, answerMany, batchAnswers } = await import("../app/scmos/aiFindings.ts");
   assert.equal(canBatch({ canAnswer: true, decisionType: "otd_risk" }), true);
   assert.equal(canBatch({ canAnswer: false, decisionType: "otd_risk" }), false);
-  assert.equal(canBatch({ canAnswer: true, decisionType: "communication_draft" }), false);
+  assert.equal(canBatch({ canAnswer: true, decisionType: "communication_draft" }), true);
+  assert.equal(canBatch({ canAnswer: false, decisionType: "communication_draft" }), false);
   assert.equal(canBatch({ canAnswer: true, decisionType: "booking_draft" }), false);
+  const message = { decisionType: "communication_draft" }, finding = { decisionType: "otd_risk" };
+  assert.equal(batchAnswers([message, message]), "messages");
+  assert.equal(batchAnswers([finding]), "findings");
+  assert.equal(batchAnswers([message, finding]), "mixed");
   const seen = [];
   let inFlight = 0, widest = 0;
   const result = await answerMany([1, 2, 3, 4, 5, 6, 7], async id => {
@@ -122,6 +127,15 @@ test("several plain findings can be answered at once; messages and booking draft
   // Each answer goes through its own route, after a confirmation, and only plain findings carry a box.
   assert.match(panel, /answerMany\(ids, async id => \{\s*const response = await apiFetch\(`\/api\/ai\/decisions\/\$\{id\}\/outcome`/);
   assert.match(panel, /onClick=\{\(\) => setConfirming\("ACCEPTED"\)\}/);
-  assert.match(panel, /onClick=\{\(\) => void answerPicked\(confirming\)\}/);
+  assert.match(panel, /void answerPicked\(confirming, confirmLabel, confirming === "ACCEPTED" && kind === "messages" \? channel : ""\)/);
   assert.match(panel, /\{canBatch\(item\) && <input type="checkbox"/);
+  // The bar is the panel's last child and held to the bottom: a top-sticky bar went under the sticky page header.
+  assert.match(panel, /\{shown\.map\(renderItem\)\}<\/ul><\/>\}\s*\{\/\*[^*]*\*\/\}\s*\{picked\.size > 0 && <div className=\{s\.bulkBar\}/);
+  assert.match(read("app/scmos/screens/AiControlTower.module.css"), /\.bulkBar \{ position: sticky; bottom: 12px;/);
+  // The tab's badge is read again after an answer, one at a time or several.
+  assert.match(panel, /if \(result\.saved > 0\) onAnswered\?\.\(\);/);
+  assert.match(read("app/scmos/screens/AiControlTower.tsx"), /<AiFindingsPanel [^>]*onAnswered=\{tasks\.refresh\}/);
+  // Messages are saved as sent by the chosen channel; "right" is offered only when no message is picked.
+  assert.match(panel, /const sentLabel = `ส่งแล้วทาง \$\{channel\}`/);
+  assert.match(panel, /\{kind === "findings" && <button[^>]*onClick=\{\(\) => setConfirming\("ACCEPTED"\)\}>ถูกต้อง<\/button>\}/);
 });

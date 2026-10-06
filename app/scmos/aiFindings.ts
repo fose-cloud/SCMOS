@@ -94,11 +94,20 @@ export function answerBody(outcome: "ACCEPTED" | "OVERRIDDEN" | "DISMISSED", cho
 }
 
 /**
- * Whether a finding may be answered together with others (6 Oct 2026): one this person may answer that is a plain
- * finding — never a message to send or a booking draft, which each need their own reading and their own answer.
+ * Whether a finding may be answered together with others (6 Oct 2026): one this person may answer — a plain finding
+ * or a message to a carrier — never a booking draft, which opens its own form.
  */
 export function canBatch(decision: Pick<Decision, "canAnswer" | "decisionType">): boolean {
-  return decision.canAnswer && decision.decisionType !== DRAFT_TYPE && decision.decisionType !== "booking_draft";
+  return decision.canAnswer && decision.decisionType !== "booking_draft";
+}
+
+/**
+ * The answers a set of picked items can share. Messages are sent (by a channel) or not sent; findings are right or
+ * not relevant; a mix shares only "not relevant / not sent", the one answer both mean the same by.
+ */
+export function batchAnswers(picked: readonly Pick<Decision, "decisionType">[]): "messages" | "findings" | "mixed" {
+  const drafts = picked.filter(item => item.decisionType === DRAFT_TYPE).length;
+  return drafts === picked.length ? "messages" : drafts === 0 ? "findings" : "mixed";
 }
 
 /**

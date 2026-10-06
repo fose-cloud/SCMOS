@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { stamp } from "../aiControl";
 import {
-  AGENT_LABEL, answerBody, answerError, answerMany, canBatch, draftText, inReadingOrder, parseDecisions, RISK_LABEL, RISK_TONE,
+  AGENT_LABEL, answerBody, answerError, answerMany, batchAnswers, canBatch, draftText, inReadingOrder, parseDecisions, RISK_LABEL, RISK_TONE,
   SENT_CHANNELS, type Decision, type Finding,
 } from "../aiFindings";
 import { myTasks, parseTasks, TASK_CARDS, type AiTaskCounts } from "../aiTasks";
@@ -34,9 +34,11 @@ function List({ title, items }: { title: string; items: Finding[] }) {
  * "ของฉัน" is My AI Tasks (§44) — only what this person may answer, by section,
  * the most urgent first. A decision this person may not answer has no buttons.
  */
-export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
+export function AiFindingsPanel({ onOpenJob, onDraftJob, onAnswered }: {
   onOpenJob: (key: string) => void;
   onDraftJob?: (decisionId: number, cat: string, fields: Record<string, string>) => void;
+  /** After an answer is saved, so counts shown outside this panel (the tab's badge) are read again. */
+  onAnswered?: () => void;
 }) {
   const [items, setItems] = useState<Decision[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -112,6 +114,7 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
       const code = typeof body === "object" && body !== null && "code" in body ? (body as { code: unknown }).code : null;
       if (!response.ok) { if (alive.current) setMessage(answerError(code)); if (code === "already_answered") await load(); return; }
       if (alive.current) { setOverriding(null); setChoice(""); setReason(""); setMessage("บันทึกแล้ว"); }
+      onAnswered?.();
       await load();
     } catch {
       if (alive.current) setMessage(answerError(null));
@@ -132,7 +135,7 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
       return next;
     });
   }
-  async function answerPicked(outcome: "ACCEPTED" | "DISMISSED") {
+  async function answerPicked(outcome: "ACCEPTED" | "DISMISSED", label: string, sentBy: string) {
     if (busy !== null || picked.size === 0) return;
     const ids = [...picked];
     setBusy(-1); setConfirming(null); setMessage(""); setProgress(0);
@@ -140,7 +143,7 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
       const result = await answerMany(ids, async id => {
         const response = await apiFetch(`/api/ai/decisions/${id}/outcome`, {
           method: "POST", headers: { "content-type": "application/json", "X-SCMOS-AI-Control": "1" },
-          body: JSON.stringify(answerBody(outcome)),
+          body: JSON.stringify(answerBody(outcome, sentBy)),
         });
         if (response.ok) return null;
         const body: unknown = await response.json().catch(() => null);
@@ -148,17 +151,22 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
         return typeof code === "string" ? code : "unavailable";
       }, done => { if (alive.current) setProgress(done); });
       if (alive.current) {
-        const label = outcome === "ACCEPTED" ? "ถูกต้อง" : "ไม่เกี่ยว";
         const refused = result.refused.length === 0 ? ""
           : ` · ไม่สำเร็จ ${result.refused.length} รายการ (${answerError(result.refused[0])})`;
         setMessage(`บันทึก "${label}" แล้ว ${result.saved} รายการ${refused}`);
         setPicked(new Set());
       }
+      if (result.saved > 0) onAnswered?.();
       await load();
     } finally { if (alive.current) { setBusy(null); setProgress(null); } }
   }
 
   const all = items ?? [];
+  // What the picked items can be answered with, and the words each answer is saved and confirmed under.
+  const kind = batchAnswers(all.filter(item => picked.has(item.id)));
+  const sentLabel = `ส่งแล้วทาง ${channel}`;
+  const dismissLabel = kind === "messages" ? "ไม่ส่ง" : kind === "findings" ? "ไม่เกี่ยว" : "ไม่เกี่ยว / ไม่ส่ง";
+  const confirmLabel = confirming === "DISMISSED" ? dismissLabel : kind === "messages" ? sentLabel : "ถูกต้อง";
   const sections = myTasks(all);
   const mineCount = sections.reduce((sum, section) => sum + section.items.length, 0);
   const shown = filter === "mine" ? [] : all.filter(item => filter === "all" || item.agentId === filter);
@@ -264,19 +272,6 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
         <strong className={tasks[card.key] > 0 && card.tone ? (card.tone === "red" ? s.metricRed : s.metricAmber) : undefined}>{tasks[card.key]}</strong>
       </article>)}
     </div>}
-    {picked.size > 0 && <div className={s.bulkBar} role="group" aria-label="ตอบหลายรายการ">
-      <strong>เลือกแล้ว {picked.size} รายการ</strong>
-      {progress !== null ? <span className={s.hint}>กำลังบันทึก {progress} / {picked.size}…</span>
-        : confirming ? <>
-          <span>ยืนยันตอบ “{confirming === "ACCEPTED" ? "ถูกต้อง" : "ไม่เกี่ยว"}” ทั้ง {picked.size} รายการ?</span>
-          <button className={s.button + " " + s.primary} disabled={busy !== null} onClick={() => void answerPicked(confirming)}>ยืนยัน</button>
-          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming(null)}>ยกเลิก</button>
-        </> : <>
-          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming("ACCEPTED")}>ถูกต้อง</button>
-          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming("DISMISSED")}>ไม่เกี่ยว</button>
-          <button className={s.link} disabled={busy !== null} onClick={() => setPicked(new Set())}>ล้างที่เลือก</button>
-        </>}
-    </div>}
     {!!message && <p role="status">{message}</p>}
     {error ? <p role="alert" className={s.error}>{error}</p>
       : items === null ? <div className={s.empty}>กำลังอ่าน…</div>
@@ -288,5 +283,26 @@ export function AiFindingsPanel({ onOpenJob, onDraftJob }: {
             </div>)
           : shown.length === 0 ? <div className={s.empty}>ไม่มีรายการรอคำตอบ</div>
             : <>{heading("", shown)}<ul className={s.list}>{shown.map(renderItem)}</ul></>}
+    {/* Last in the panel and held to the bottom of the screen: the page header is sticky at the top. */}
+    {picked.size > 0 && <div className={s.bulkBar} role="group" aria-label="ตอบหลายรายการ">
+      <strong>เลือกแล้ว {picked.size} รายการ</strong>
+      {progress !== null ? <span className={s.hint}>กำลังบันทึก {progress} / {picked.size}…</span>
+        : confirming ? <>
+          <span>ยืนยันตอบ “{confirmLabel}” ทั้ง {picked.size} รายการ?</span>
+          <button className={s.button + " " + s.primary} disabled={busy !== null}
+            onClick={() => void answerPicked(confirming, confirmLabel, confirming === "ACCEPTED" && kind === "messages" ? channel : "")}>ยืนยัน</button>
+          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming(null)}>ยกเลิก</button>
+        </> : <>
+          {kind === "messages" && <>
+            <select aria-label="ส่งทาง (ที่เลือก)" value={channel} onChange={e => setChannel(e.target.value)}>
+              {SENT_CHANNELS.map(one => <option key={one} value={one}>{one}</option>)}
+            </select>
+            <button className={s.button} disabled={busy !== null} onClick={() => setConfirming("ACCEPTED")}>ส่งแล้ว</button>
+          </>}
+          {kind === "findings" && <button className={s.button} disabled={busy !== null} onClick={() => setConfirming("ACCEPTED")}>ถูกต้อง</button>}
+          <button className={s.button} disabled={busy !== null} onClick={() => setConfirming("DISMISSED")}>{dismissLabel}</button>
+          <button className={s.link} disabled={busy !== null} onClick={() => setPicked(new Set())}>ล้างที่เลือก</button>
+        </>}
+    </div>}
   </section>;
 }

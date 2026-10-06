@@ -584,7 +584,7 @@ export function AiControlTower({ canViewDashboard, canViewAudit, canViewMonitor,
     </div>
 
     <div {...pane("findings")}>
-      {canViewDashboard && <AiFindingsPanel onOpenJob={onOpenJob} onDraftJob={onDraftJob} />}
+      {canViewDashboard && <AiFindingsPanel onOpenJob={onOpenJob} onDraftJob={onDraftJob} onAnswered={tasks.refresh} />}
     </div>
 
     <div {...pane("ask")}>
