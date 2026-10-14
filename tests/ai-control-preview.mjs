@@ -34,6 +34,21 @@ const freshFindings = () => [
     { recommendations: [{ text: "FIXTURE ร่างข้อความ", source: "template:CARRIER_CONFIRMATION_REMINDER" }] }),
 ];
 let openFindings = freshFindings();
+// Administration in tabs (14 Oct 2026): a directory, roles, a calendar and an SLA rule — fixture rows only.
+const staffRole = (name, scopeTh, grants) => ({ name, scopeEn: name, scopeTh, grants });
+const staffPerson = (id, name, role, jobs, active = true) => ({ id, email: active ? `fixture.${id.toLowerCase()}@example.test` : "",
+  name, account: "", role, supplierId: null, supplierName: "", active, note: "", jobs, can: role === "Administrator" ? ["AdministerData"] : [],
+  updatedBy: "fixture", updatedAt: "2026-10-14T01:00:00Z" });
+const staff = {
+  people: [staffPerson("AD-01", "FIXTURE Admin", "Administrator", 0), staffPerson("OP-01", "FIXTURE Operator", "Operation User", 12),
+    staffPerson("OP-09", "FIXTURE Closed", "Operation User", 0, false)],
+  roles: [staffRole("Administrator", "ดูแลระบบทั้งหมด", ["ViewDashboard", "AdministerData"]),
+    staffRole("Operation User", "แก้งานของตัวเอง", ["ViewDashboard", "EditOwnJobs"])],
+  carriers: [], canManage: true, you: "AD-01", signIn: { ready: true, why: "" },
+};
+const calendarDays = [{ date: "2026-10-23", kind: "public-holiday", name: "FIXTURE วันหยุด", updatedBy: "fixture", updatedAt: "2026-10-14T01:00:00Z" }];
+const slaRules = [{ id: 1, code: "STANDARD", startDay: "day1", targetWorkingDays: 4, effectiveFrom: "2026-09-30", effectiveTo: null,
+  active: true, updatedBy: "fixture", updatedAt: "2026-10-14T01:00:00Z" }];
 const send = (res, body, code = 200) => {
   res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
@@ -43,7 +58,7 @@ const api = createServer(async (req, res) => {
   if (url.pathname === "/__fixture") {
     if (req.method === "POST") {
       const requested = url.searchParams.get("mode");
-      if (!["ready", "disabled", "audit-missing", "no-access", "empty", "slow", "error", "mock", "operator", "carrier", "control", "control-unready", "control-conflict"].includes(requested))
+      if (!["ready", "disabled", "audit-missing", "no-access", "empty", "slow", "error", "mock", "operator", "carrier", "control", "control-unready", "control-conflict", "admin"].includes(requested))
         return send(res, { error: "unknown fixture" }, 400);
       mode = requested; calls.length = 0;
       controlEnabled = false; controlRevision = 0;
@@ -85,8 +100,9 @@ const api = createServer(async (req, res) => {
   if (req.method !== "GET" && !(url.pathname === "/api/ai/chat" && req.method === "POST"))
     return send(res, { error: "fixture refuses writes" }, 405);
   if (url.pathname === "/api/me") return send(res, {
-    account: { role: mode === "carrier" ? "Subcontractor" : mode === "operator" ? "Operation User" : "Operation Supervisor", opId: "fixture-op", name: "FIXTURE ONLY", init: "QA", full: "LOCAL QA · NO PRODUCTION DATA" },
-    can: mode === "no-access" || mode === "carrier" ? [] : ["ViewDashboard", "ViewTeam", "ViewAudit", ...(mode === "operator" ? [] : ["ApproveAi"])],
+    account: { role: mode === "carrier" ? "Subcontractor" : mode === "operator" ? "Operation User" : mode === "admin" ? "Administrator" : "Operation Supervisor", opId: "fixture-op", name: "FIXTURE ONLY", init: "QA", full: "LOCAL QA · NO PRODUCTION DATA" },
+    can: mode === "no-access" || mode === "carrier" ? [] : ["ViewDashboard", "ViewTeam", "ViewAudit", ...(mode === "operator" ? [] : ["ApproveAi"]),
+      ...(mode === "admin" ? ["ViewDirectory", "AdministerData"] : [])],
     known: true, authorised: true, actingFor: [],
   });
   if (url.pathname === "/api/ai/status") return send(res, {
@@ -123,6 +139,9 @@ const api = createServer(async (req, res) => {
   }
   // Other app-chrome calls receive no records, and cannot escape this fixture server.
   if (url.pathname === "/api/alerts") return send(res, { alerts: [], total: 0 });
+  if (url.pathname === "/api/staff") return mode === "admin" ? send(res, staff) : send(res, { error: "fixture: admin mode only" }, 403);
+  if (url.pathname === "/api/carrier-billing/foundation/calendar") return send(res, mode === "admin" ? calendarDays : []);
+  if (url.pathname === "/api/carrier-billing/foundation/sla") return send(res, mode === "admin" ? slaRules : []);
   return send(res, { error: "endpoint not supplied by local fixture" }, 404);
 });
 await new Promise(resolve => api.listen(4108, "127.0.0.1", resolve));

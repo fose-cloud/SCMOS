@@ -120,12 +120,6 @@ export function CarrierBillingFoundation({ canManage, onToast }: {
   return (
     <section style={css("display:flex;flex-direction:column;gap:12px")}
       aria-label="Carrier billing foundation configuration">
-      <div style={css("border:1px solid #BBD5EE;background:#F3F8FC;border-radius:5px;padding:11px 14px;font-size:12px;color:#315A7D;line-height:1.65") }>
-        <strong style={css("color:#0A2240")}>Carrier Billing · Foundation</strong><br />
-        กำหนดวันทำการและกฎ SLA ที่จะใช้เมื่อเริ่ม Billing ใน Phase ถัดไป ระบบไม่สร้างค่า Day 0/Day 1 ให้เอง
-        {!canManage && " — บัญชีนี้ดูได้อย่างเดียว"}
-      </div>
-
       {failure && <div style={css("border:1px solid #F3C9C4;background:#FFF5F4;color:#B42318;border-radius:5px;padding:10px 13px;font-size:12px") }>
         {failure} <button onClick={() => void load()} style={css("margin-left:8px;border:0;background:transparent;color:#1E5B8F;text-decoration:underline;cursor:pointer")}>ลองใหม่</button>
       </div>}
@@ -170,7 +164,6 @@ export function CarrierBillingFoundation({ canManage, onToast }: {
       <div style={css(CARD)}>
         <div style={css("padding:10px 12px;border-bottom:1px solid #E6EBF0") }>
           <strong style={css("font-size:13px;color:#0A2240")}>Billing SLA Rules</strong>
-          <span style={css("font-size:11.5px;color:#7B8CA0;margin-left:9px")}>ต้องระบุ Day 0 หรือ Day 1 และ 3 หรือ 4 วันทำการอย่างชัดเจน</span>
         </div>
         <ZoomBox capped={false} zoomable={false}>
           <table style={css("width:100%;border-collapse:collapse;min-width:820px") }>

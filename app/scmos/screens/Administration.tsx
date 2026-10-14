@@ -59,6 +59,13 @@ const SIGN_IN_WAYS = [
   },
 ] as const;
 
+/**
+ * The screen as tabs (14 Oct 2026): who may sign in, what each role may do, the working calendar with the billing
+ * SLA, and — for an administrator — clearing a person's work. One subject at a time instead of five panels stacked
+ * down one page. Every pane stays mounted and is only hidden, so a half-filled form survives a look at another tab.
+ */
+type AdminTab = "people" | "roles" | "calendar" | "clear";
+
 const CAPABILITY_TH: Record<string, string> = {
   ViewDashboard: "ดูแดชบอร์ด",
   ViewTeam: "เห็นงานทั้งทีม",
@@ -112,6 +119,7 @@ export function Administration({ jobs, me, onToast }: {
    */
   const [issued, setIssued] = useState<{ name: string; signIn: string; password: string } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [tab, setTab] = useState<AdminTab>("people");
   const [draft, setDraft] = useState<{ role: string; supplierId: string; email: string; note: string }>(
     { role: "", supplierId: "", email: "", note: "" });
 
@@ -257,26 +265,46 @@ export function Administration({ jobs, me, onToast }: {
   const carriers = dir.carriers ?? [];
   const carrierMissing = form.role === "Subcontractor" && !form.supplierId;
   const admins = dir.people.filter((p) => p.active && p.can.includes("AdministerData")).length;
+  const tabs: { id: AdminTab; label: string; count?: number }[] = [
+    { id: "people", label: "ผู้ใช้", count: dir.people.length },
+    { id: "roles", label: "สิทธิ์ตามบทบาท", count: dir.roles.length },
+    { id: "calendar", label: "ปฏิทินและ SLA" },
+    ...(dir.canManage ? [{ id: "clear" as const, label: "ล้างข้อมูลงาน" }] : []),
+  ];
+  // A tab that is no longer offered (the account lost the right to clear) falls back to the people.
+  const shown: AdminTab = tabs.some((one) => one.id === tab) ? tab : "people";
+  const pane = (id: AdminTab) => ({
+    role: "tabpanel", id: "admin-pane-" + id, "aria-labelledby": "admin-tab-" + id, hidden: shown !== id,
+  });
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
-      <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;padding:12px 15px;font-size:12px;color:#5A6B7D;line-height:1.65")}>
-        ทะเบียนนี้และตารางสิทธิ์ด้านล่างอ่านจาก <code style={css("font-family:ui-monospace,monospace")}>Rules/Roles.cs</code> และตาราง{" "}
-        <code style={css("font-family:ui-monospace,monospace")}>staff</code> ซึ่งเป็นตัวเดียวกับที่ API ใช้บังคับจริง
-        {dir.canManage
-          ? " — คุณมีสิทธิ์แก้ไขทะเบียนนี้"
-          : " — คุณดูได้อย่างเดียว เพิ่มหรือแก้ผู้ใช้ได้เฉพาะผู้ดูแลระบบ"}
+      <div style={css("display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:1px solid #D8E0E8")}>
+        <div role="tablist" aria-label="Administration" style={css("display:flex;gap:2px;overflow-x:auto;overflow-y:hidden;max-width:100%")}>
+          {tabs.map((one) => (
+            <button key={one.id} type="button" role="tab" id={"admin-tab-" + one.id} aria-controls={"admin-pane-" + one.id}
+              aria-selected={shown === one.id} onClick={() => setTab(one.id)}
+              style={css(TAB + (shown === one.id ? TAB_ON : ""))}>
+              {one.label}
+              {one.count !== undefined && <span style={COUNT}>{one.count}</span>}
+            </button>
+          ))}
+        </div>
+        {!dir.canManage && <span style={css("margin-bottom:8px;font-size:11px;font-weight:600;color:#7B8CA0;border:1px solid #D8E0E8;border-radius:10px;padding:2px 9px;background:#fff")}>ดูได้อย่างเดียว</span>}
       </div>
 
-      <CarrierBillingFoundation canManage={dir.canManage} onToast={onToast} />
+      <div {...pane("calendar")}>
+        <CarrierBillingFoundation canManage={dir.canManage} onToast={onToast} />
+      </div>
 
       {/* ------------------------------------------------------------ people */}
+      <div {...pane("people")}>
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap")}>
           <div>
             <div style={css("font-size:13px;font-weight:650;color:#0A2240")}>ผู้ใช้ในระบบ · {dir.people.length} คน</div>
             <div style={css("font-size:11.5px;color:#94A3B8;margin-top:1px")}>
-              ผู้ดูแลระบบที่ยังใช้งานอยู่ {admins} คน — ระบบไม่ยอมให้เหลือศูนย์
+              ผู้ดูแลระบบที่ใช้งานอยู่ {admins} คน
             </div>
           </div>
           {dir.canManage && (
@@ -407,8 +435,9 @@ export function Administration({ jobs, me, onToast }: {
           </div>
         )}
 
-        <ZoomBox>
-          <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
+        <ZoomBox capped={false} zoomable={false}>
+          {/* Scrolled sideways on a narrow window rather than squeezed: squeezed, the email broke one letter a line. */}
+          <table style={css("width:100%;min-width:1080px;border-collapse:collapse;font-size:12.5px")}>
             <thead><tr>{["รหัส", "ชื่อ", "อีเมล", "บทบาท", "บริษัทขนส่ง", "งาน", "สถานะ", ""].map((h, i) => (
               <th key={h} style={css("background:#F8FAFC;padding:8px 12px;text-align:" + (i === 5 ? "right" : "left") +
                 ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
@@ -460,7 +489,7 @@ export function Administration({ jobs, me, onToast }: {
                     <td style={css(CELL + ";text-align:right;font-family:ui-monospace,monospace;color:#7B8CA0")}>
                       {person.jobs.toLocaleString()}
                     </td>
-                    <td style={CELL_S}>
+                    <td style={css(CELL + ";white-space:nowrap")}>
                       <span style={css("font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:3px;color:#fff;background:" +
                         (person.active ? "#16794C" : "#7B8CA0"))}>{person.active ? "ใช้งาน" : "ปิด"}</span>
                     </td>
@@ -529,20 +558,16 @@ ${person.email}?`)) return;
             </tbody>
           </table>
         </ZoomBox>
-
-        <div style={css("padding:11px 16px;border-top:1px solid #E9EFF5;font-size:11.5px;color:#94A3B8;line-height:1.6")}>
-          ไม่มีปุ่มลบ — คนที่ลาออกยังเป็นเจ้าของงานที่เคยทำ ลบแถวทิ้งจะทำให้งานเหล่านั้นไม่มีเจ้าของ
-          <b> ปิดบัญชี</b> คือหยุดการเข้าใช้โดยเก็บประวัติไว้ครบ ·
-          ระบบไม่ยอมให้ปิดหรือลดบทบาทผู้ดูแลคนสุดท้าย และไม่ยอมให้ใครเปลี่ยนบทบาทของตัวเอง
-        </div>
+      </div>
       </div>
 
       {/* ------------------------------------------------------------ matrix */}
+      <div {...pane("roles")}>
       <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
         <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;font-size:12.5px;font-weight:650;color:#0A2240")}>
           สิทธิ์ตามบทบาท · {dir.roles.length} บทบาท
         </div>
-        <ZoomBox>
+        <ZoomBox capped={false} zoomable={false}>
           <table style={css("border-collapse:collapse;font-size:12px;min-width:100%")}>
             <thead>
               <tr>
@@ -582,13 +607,13 @@ ${person.email}?`)) return;
             </tbody>
           </table>
         </ZoomBox>
-        <div style={css("padding:11px 16px;border-top:1px solid #E9EFF5;font-size:11.5px;color:#94A3B8;line-height:1.6")}>
-          บทบาทที่ระบบไม่รู้จักจะได้สิทธิ์เท่า Viewer ไม่ใช่ค่าเริ่มต้น — พิมพ์บทบาทผิดควรทำให้เสียสิทธิ์ตัวเอง ไม่ใช่ได้สิทธิ์คนอื่น
-        </div>
+      </div>
       </div>
 
-      {dir?.canManage && (
-        <ClearJobs people={dir.people} jobs={jobs} me={me} onToast={onToast} onDone={load} />
+      {dir.canManage && (
+        <div {...pane("clear")}>
+          <ClearJobs people={dir.people} jobs={jobs} me={me} onToast={onToast} onDone={load} />
+        </div>
       )}
     </div>
   );
@@ -730,6 +755,13 @@ function ClearJobs({ people, jobs, me, onToast, onDone }: {
 
 const CELL = "padding:8px 12px;vertical-align:middle";
 const CELL_S = css(CELL);
+// The same tab bar as the AI Control Tower, in this screen's inline styles.
+// Whole border values only: a shorthand beside a longhand that changes on select makes React warn of styling bugs.
+const TAB = "display:inline-flex;align-items:center;gap:8px;padding:10px 16px;min-height:42px;border-top:0;border-left:0;border-right:0;"
+  + "border-bottom:2px solid transparent;background:none;color:#52657A;font-size:13px;font-weight:600;white-space:nowrap;margin-bottom:-1px;"
+  + "cursor:pointer;font-family:inherit";
+const TAB_ON = ";color:#1D5FA8;border-bottom:2px solid #1D5FA8";
+const COUNT = css("min-width:20px;padding:1px 6px;border-radius:10px;background:#EEF3F8;color:#465A6E;font-size:11px;font-weight:700;text-align:center");
 const INPUT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;width:100%");
 const SELECT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff;width:100%");
 
