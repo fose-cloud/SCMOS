@@ -19,7 +19,7 @@ const eslintConfig = defineConfig([
     "server/**",
     "migration/**",
     // PDF.js copied from its pinned npm package by scripts/prepare-pdf-viewer.mjs on install/build — not our source.
-    "public/vendor/**",
+    "public/vendor/pdfjs/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

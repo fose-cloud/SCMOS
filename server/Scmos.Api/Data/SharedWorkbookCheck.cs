@@ -42,6 +42,21 @@ internal static class SharedWorkbookCheck
                 .All(part => Refuses(Fixture(extraPart: part), new SharedWorkbook.CellEdit("Rates", "A1", "text", "bad")))
             && Refuses(Fixture(validation: true), new SharedWorkbook.CellEdit("Rates", "A1", "text", "bad")));
         Check("DTD/external-entity XML is rejected", Refuses(Fixture(dtd: true), new SharedWorkbook.CellEdit("Rates", "A1", "text", "bad")));
+        const string typesNs = "http://schemas.openxmlformats.org/package/2006/content-types";
+        const string workbookMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
+        Check("OPC extension-default workbook content types remain editable",
+            SharedWorkbook.Read(Fixture(contentTypes: $"<Types xmlns=\"{typesNs}\"><Default Extension=\"xml\" ContentType=\"{workbookMime}\"/></Types>"))
+                .Sheets[0].Cells.Single(c => c.Address == "A1").Editable);
+        Check("macro, ActiveX and signature content types cannot bypass filename checks",
+            new[] { "application/vnd.ms-excel.sheet.macroEnabled.main+xml", "application/vnd.ms-office.activeX+xml", "application/vnd.openxmlformats-package.digital-signature-xmlsignature+xml" }
+                .All(type => Refuses(Fixture(contentTypes: $"<Types xmlns=\"{typesNs}\"><Override PartName=\"/xl/workbook.xml\" ContentType=\"{workbookMime}\"/><Override PartName=\"/xl/innocent.xml\" ContentType=\"{type}\"/></Types>"),
+                    new SharedWorkbook.CellEdit("Rates", "A1", "text", "bad"))));
+        Check("invalid content-type roots and non-XLSX workbook types are read-only",
+            Refuses(Fixture(contentTypes: "<NotTypes/>"), new SharedWorkbook.CellEdit("Rates", "A1", "text", "bad"))
+            && Refuses(Fixture(contentTypes: $"<Types xmlns=\"{typesNs}\"><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/xml\"/></Types>"),
+                new SharedWorkbook.CellEdit("Rates", "A1", "text", "bad")));
+        Check("cells with value or cell metadata are read-only",
+            new[] { "cm=\"1\"", "vm=\"1\"" }.All(metadata => Refuses(Fixture(cellMetadata: metadata), new SharedWorkbook.CellEdit("Rates", "A1", "text", "bad"))));
         var real = ValidFixture();
         var edited = SharedWorkbook.Edit(real, [new("Rates", "A1", "number", "456.78")]);
         using var reopened = new ClosedXML.Excel.XLWorkbook(new MemoryStream(edited));
@@ -67,16 +82,18 @@ internal static class SharedWorkbookCheck
         using var stream = new MemoryStream(); book.SaveAs(stream); return stream.ToArray();
     }
 
-    internal static byte[] Fixture(bool bookProtection = false, string? extraPart = null, bool validation = false, bool dtd = false)
+    internal static byte[] Fixture(bool bookProtection = false, string? extraPart = null, bool validation = false, bool dtd = false,
+        string? contentTypes = null, string cellMetadata = "")
     {
         const string ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         var parts = new Dictionary<string, byte[]>
         {
+            ["[Content_Types].xml"] = Encoding.UTF8.GetBytes(contentTypes ?? "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/></Types>"),
             ["xl/workbook.xml"] = Encoding.UTF8.GetBytes((dtd ? "<!DOCTYPE workbook [<!ENTITY x SYSTEM 'file:///never-read'>]>" : "")
                 + $"<workbook xmlns=\"{ns}\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Rates\" sheetId=\"1\" r:id=\"rId1\"/></sheets>"
                 + (bookProtection ? "<workbookProtection lockStructure=\"1\"/>" : "") + "</workbook>"),
             ["xl/_rels/workbook.xml.rels"] = Encoding.UTF8.GetBytes("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Target=\"worksheets/sheet1.xml\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\"/></Relationships>"),
-            ["xl/worksheets/sheet1.xml"] = Encoding.UTF8.GetBytes($"<worksheet xmlns=\"{ns}\"><sheetData><row r=\"1\"><c r=\"A1\" s=\"1\"><v>10</v></c><c r=\"B1\"><f>A1*2</f><v>20</v></c><c r=\"C1\" t=\"inlineStr\"><is><t>merged</t></is></c></row></sheetData><mergeCells><mergeCell ref=\"C1:D1\"/></mergeCells><pageSetup paperSize=\"9\"/>"
+            ["xl/worksheets/sheet1.xml"] = Encoding.UTF8.GetBytes($"<worksheet xmlns=\"{ns}\"><sheetData><row r=\"1\"><c r=\"A1\" s=\"1\" {cellMetadata}><v>10</v></c><c r=\"B1\"><f>A1*2</f><v>20</v></c><c r=\"C1\" t=\"inlineStr\"><is><t>merged</t></is></c></row></sheetData><mergeCells><mergeCell ref=\"C1:D1\"/></mergeCells><pageSetup paperSize=\"9\"/>"
                 + (validation ? "<dataValidations><dataValidation type=\"list\" sqref=\"A1\"/></dataValidations>" : "") + "</worksheet>"),
             ["xl/styles.xml"] = Encoding.UTF8.GetBytes("<styleSheet>original styles untouched</styleSheet>"),
             ["xl/media/image1.png"] = [137, 80, 78, 71, 1, 2, 3],

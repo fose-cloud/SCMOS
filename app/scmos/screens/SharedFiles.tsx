@@ -15,7 +15,7 @@ import { SharedFileEditor } from "./SharedFileEditor";
  */
 
 type FolderRow = { id: number; name: string; createdBy: string; createdAt: string; items: number; canChange: boolean };
-type FileRow = { id: number; name: string; sizeBytes: number; uploadedBy: string; uploadedAt: string; canChange: boolean; viewable: boolean; online: boolean; revision: number };
+type FileRow = { id: number; name: string; sizeBytes: number; uploadedBy: string; uploadedAt: string; canChange: boolean; viewable: boolean; online: boolean; revision: number; editedBy?: string; editedAt?: string | null };
 type Listing = {
   folder: { id: number; name: string } | null;
   path: { id: number; name: string }[];
@@ -263,11 +263,12 @@ export function SharedFiles({ onToast }: { onToast: (message: string) => void })
                           {naming?.kind === "file" && naming.id === file.id ? nameField
                             : file.online ? <button disabled={busy} onClick={() => setEditorId(file.id)} style={css(NAME)}>{file.name}</button>
                               : <a href={`${BASE}/${file.id}/content`} style={css(NAME + ";text-decoration:none")}>{file.name}</a>}
+                          {file.revision > 1 && <small style={css("color:#7B8CA0")}>ฉบับ {file.revision}</small>}
                         </span>
                       </td>
                       <td style={css(CELL + ";text-align:right;color:#5A6B7D;white-space:nowrap;font-family:ui-monospace,monospace")}>{size(file.sizeBytes)}</td>
-                      <td style={css(CELL + ";color:#5A6B7D")}>{file.uploadedBy}</td>
-                      <td style={css(CELL + ";color:#7B8CA0;white-space:nowrap")}>{stamp(file.uploadedAt)}</td>
+                      <td style={css(CELL + ";color:#5A6B7D")} title={file.editedAt ? "แก้ไขล่าสุดโดย" : "อัปโหลดโดย"}>{file.editedBy || file.uploadedBy}</td>
+                      <td style={css(CELL + ";color:#7B8CA0;white-space:nowrap")}>{stamp(file.editedAt || file.uploadedAt)}</td>
                       <td style={css(CELL + ";text-align:right;white-space:nowrap")}>
                         <span style={css("display:inline-flex;gap:5px")}>
                           {file.online ? <button disabled={busy} style={css(BUTTON)} onClick={() => setEditorId(file.id)}>เปิดออนไลน์</button>
