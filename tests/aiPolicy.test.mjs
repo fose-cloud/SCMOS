@@ -79,10 +79,12 @@ const APPROVED_BOUNDS = {
 const BOUND_NAMES = ["maxOutputTokens", "maxToolCalls", "maxApiCalls", "maxRetry", "maxRuntimeSeconds", "maxConcurrentTasks",
   "dailyRequests", "dailyCostLimit", "monthlyCostLimit", "maxReservationCost"];
 test("the reviewed policy carries the human's approval, owner pair, bounds and a dated isolation acceptance, without grants", () => {
-  // 5 Oct 2026: readiness review SCMOS-AI-RR-2026-10-05, decided by the human, recorded in docs/ai.
-  assert.match(matrix.approvalReference, /^SCMOS-AI-RR-2026-10-05 — approved by K\.nattikorn-fos@hotmail\.com \(AD-01, Administrator\)/);
-  assert.equal(matrix.policyVersion, "scmos-permission-7");
-  assert.equal(matrix.previousVersion, "scmos-permission-6-candidate");
+  // 5 Oct 2026: readiness review SCMOS-AI-RR-2026-10-05; 14 Oct 2026: policy change SCMOS-AI-PC-2026-10-14 (option A),
+  // which only narrows it. Both decided by the human, recorded in docs/ai.
+  assert.match(matrix.approvalReference, /^SCMOS-AI-PC-2026-10-14 — approved by K\.nattikorn-fos@hotmail\.com \(AD-01, Administrator\)/);
+  assert.match(matrix.approvalReference, /narrows scmos-permission-7 \(SCMOS-AI-RR-2026-10-05\)/);
+  assert.equal(matrix.policyVersion, "scmos-permission-8");
+  assert.equal(matrix.previousVersion, "scmos-permission-7");
   for (const agent of matrix.agents) {
     assert.equal(agent.humanOwner, "email:K.nattikorn-fos@hotmail.com");
     assert.equal(agent.fallbackOwner, "AM-01");
@@ -114,6 +116,24 @@ test("owner identifiers may be absent while unconfigured, but cannot be forged o
   assert.equal(parsePolicyReport(value).agents[0].humanOwner, "OP-OWNER");
   value.agents[0].humanOwner = { role: "Administrator" };
   assert.throws(() => parsePolicyReport(value), /invalid_response/);
+});
+test("option A (14 Oct 2026): the five stay unbounded and the two scheduled passes hold no grant", () => {
+  const find = (id) => matrix.agents.find((agent) => agent.agentId === id);
+  for (const id of ["rate-agent", "incident-agent", "compliance-agent", "communication-agent", "booking-agent"]) {
+    assert.equal(find(id).budget, null, id);
+    assert.equal(find(id).runtimeIsolationApproval ?? null, null, id);
+  }
+  for (const id of ["rate-agent", "incident-agent", "compliance-agent"]) assert.deepEqual(find(id).allowedTools, [], id);
+  assert.deepEqual(find("communication-agent").allowedTools, ["query_messages"]);
+  assert.deepEqual(find("communication-agent").permissions, { CommunicationRead: "Read" });
+  assert.deepEqual(find("booking-agent").allowedTools, ["draft_booking"]);
+  assert.deepEqual(find("booking-agent").permissions, { BookingCreateDraft: "Draft" });
+  for (const id of ["communication-agent", "booking-agent"]) assert.equal(find(id).dataScope.systemPass, false, id);
+  // The tools stay registered (the code still names them), granted to nobody.
+  for (const tool of ["scan_communication", "scan_booking"]) {
+    assert.ok(tool in matrix.tools, tool);
+    assert.ok(matrix.agents.every((agent) => !agent.allowedTools.includes(tool)), tool);
+  }
 });
 test("new approval/communication bindings are metadata only, never candidate grants", () => {
   assert.equal(matrix.tools.update_shipment, "BookingUpdateCriticalField");

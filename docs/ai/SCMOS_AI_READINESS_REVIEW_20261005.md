@@ -17,6 +17,8 @@ Approved: the nine agents with per-agent bounds — `operations-agent`, `vendor-
 
 Not approved, still refused: `rate-agent`, `incident-agent`, `compliance-agent` (not connected) and
 `communication-agent`, `booking-agent` (no bounds). Each needs its own bounds and review.
+*Later:* on 14 October 2026 the owner chose to bound none of them and to remove the Communication and
+Booking scheduled passes — [SCMOS-AI-PC-2026-10-14](SCMOS_AI_POLICY_CHANGE_20261014.md), `scmos-permission-8`.
 
 No approved agent holds a write, send or approval permission: every grant is Read, Analyze or
 Draft. The Operations write adapter exists in code but its tool (`update_shipment`) is not granted.

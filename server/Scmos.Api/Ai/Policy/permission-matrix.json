@@ -1,10 +1,10 @@
 {
-  "policyVersion": "scmos-permission-7",
-  "changedBy": "user-request:2026-10-05",
-  "changedAt": "2026-10-05T00:00:00Z",
-  "reason": "Readiness review SCMOS-AI-RR-2026-10-05 (5 Oct 2026): the human approved the policy and accepted, until 2026-12-31 23:59 Bangkok, the shared API runtime (one process, one SQL login, one OpenAI key, open egress) for the nine bounded agents, which hold no write or send permission. The acceptance ends by itself on that date. Rate, incident, compliance, communication and booking stay without bounds and refused. No grant, tool, scope, owner or budget changed.",
-  "previousVersion": "scmos-permission-6-candidate",
-  "approvalReference": "SCMOS-AI-RR-2026-10-05 — approved by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-05; docs/ai/SCMOS_AI_READINESS_REVIEW_20261005.md",
+  "policyVersion": "scmos-permission-8",
+  "changedBy": "user-request:2026-10-14",
+  "changedAt": "2026-10-14T00:00:00Z",
+  "reason": "Policy change SCMOS-AI-PC-2026-10-14 (14 Oct 2026), option A of the bounds proposal for the five unbounded agents: none of them is bounded or enabled, and the two scheduled passes lose their grants. Measured on Production: the Communication pass drafted 995 carrier messages between 29 Sep and 3 Oct and every one was answered not-sent; its chat ran twice (21 Sep tests); the Booking agent never ran and its mail source (Outlook) was dropped; rate, incident and compliance have no tool. Removed: scan_communication and the CommunicationDraft grant from communication-agent, scan_booking from booking-agent, and the system-pass data scope from both. Nothing granted, no budget, owner or isolation acceptance changed; the nine bounded agents and SCMOS-AI-RR-2026-10-05 are untouched.",
+  "previousVersion": "scmos-permission-7",
+  "approvalReference": "SCMOS-AI-PC-2026-10-14 — approved by K.nattikorn-fos@hotmail.com (AD-01, Administrator) on 2026-10-14; narrows scmos-permission-7 (SCMOS-AI-RR-2026-10-05); docs/ai/SCMOS_AI_POLICY_CHANGE_20261014.md",
   "sharedBudget": {
     "scope": "all-registered-agents",
     "currency": "USD",
@@ -314,12 +314,10 @@
       "humanOwner": "email:K.nattikorn-fos@hotmail.com",
       "fallbackOwner": "AM-01",
       "permissions": {
-        "CommunicationRead": "Read",
-        "CommunicationDraft": "Draft"
+        "CommunicationRead": "Read"
       },
       "allowedTools": [
-        "query_messages",
-        "scan_communication"
+        "query_messages"
       ],
       "allowedApiScopes": [
         "scmos.ai"
@@ -328,7 +326,7 @@
       "dataScope": {
         "team": true,
         "operator": true,
-        "systemPass": true
+        "systemPass": false
       },
       "maximumRiskLevel": "Low",
       "budget": null,
@@ -463,8 +461,7 @@
         "BookingCreateDraft": "Draft"
       },
       "allowedTools": [
-        "draft_booking",
-        "scan_booking"
+        "draft_booking"
       ],
       "allowedApiScopes": [
         "scmos.ai"
@@ -473,7 +470,7 @@
       "dataScope": {
         "team": true,
         "operator": true,
-        "systemPass": true
+        "systemPass": false
       },
       "maximumRiskLevel": "Low",
       "budget": null,

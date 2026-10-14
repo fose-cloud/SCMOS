@@ -47,6 +47,19 @@ static class PermissionEnforcementChecks
             }
             if (agent["agentId"]!.GetValue<string>() is AgentIds.Engineering or AgentIds.Sre)
                 agent["networkAllowList"]!.AsArray().Add("api.github.com");
+            // Test-only: Production removed both scheduled passes (scmos-permission-8, 14 Oct 2026); the component
+            // checks of the passes' mechanics keep them in this offline fixture.
+            if (agent["agentId"]!.GetValue<string>() == AgentIds.Communication)
+            {
+                agent["permissions"]!.AsObject()["CommunicationDraft"] = "Draft";
+                agent["allowedTools"]!.AsArray().Add("scan_communication");
+                agent["dataScope"]!["systemPass"] = true;
+            }
+            if (agent["agentId"]!.GetValue<string>() == AgentIds.Booking)
+            {
+                agent["allowedTools"]!.AsArray().Add("scan_booking");
+                agent["dataScope"]!["systemPass"] = true;
+            }
             agent["budget"] = JsonSerializer.SerializeToNode(new AgentBudgetPolicy(800, 8, 8, 0, 20, 4, 20, 1, 10, 0.01m),
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
         }
@@ -87,7 +100,8 @@ static class PermissionEnforcementChecks
             [AgentIds.Data] = new() { [AiAction.KpiGenerate] = AiPermissionLevel.Analyze },
             [AgentIds.DocumentInvoice] = new() { [AiAction.DocumentRead] = AiPermissionLevel.Read, [AiAction.DocumentExtract] = AiPermissionLevel.Analyze, [AiAction.BillingAnalyze] = AiPermissionLevel.Analyze },
             [AgentIds.Management] = new() { [AiAction.ManagementAnalyze] = AiPermissionLevel.Analyze },
-            [AgentIds.Communication] = new() { [AiAction.CommunicationRead] = AiPermissionLevel.Read, [AiAction.CommunicationDraft] = AiPermissionLevel.Draft },
+            // CommunicationDraft left with the scheduled pass (scmos-permission-8, 14 Oct 2026).
+            [AgentIds.Communication] = new() { [AiAction.CommunicationRead] = AiPermissionLevel.Read },
             [AgentIds.Engineering] = new() { [AiAction.CodeRead] = AiPermissionLevel.Read },
             [AgentIds.Otd] = new() { [AiAction.OtdCalculate] = AiPermissionLevel.Analyze },
             [AgentIds.Validation] = new() { [AiAction.ValidationAnalyze] = AiPermissionLevel.Analyze },
@@ -171,6 +185,14 @@ static class PermissionEnforcementChecks
             && new[] { AgentIds.Rate, AgentIds.Incident, AgentIds.Compliance, AgentIds.Communication, AgentIds.Booking }
                 .All(id => current.Find(id)?.Budget is null),
             "bounds: nine approved per-agent bounds are valid and fit the gateway's settings");
+        // 14 Oct 2026 (scmos-permission-8, option A): the two scheduled passes hold no grant in Production.
+        check(Reason(AiAuthorizationRequest.Pass(AgentIds.Communication, AiAction.CommunicationDraft, "scan_communication"), current) != "allowed"
+                && Reason(AiAuthorizationRequest.Pass(AgentIds.Booking, AiAction.BookingCreateDraft, "scan_booking"), current) != "allowed"
+                && current.Find(AgentIds.Communication) is { } communication
+                && !communication.AllowedTools.Contains("scan_communication") && !communication.Permissions.ContainsKey(AiAction.CommunicationDraft)
+                && current.Find(AgentIds.Booking) is { } booking && !booking.AllowedTools.Contains("scan_booking")
+                && !communication.DataScope.SystemPass && !booking.DataScope.SystemPass,
+            "policy change: Communication and Booking scheduled passes are refused and hold no grant in Production");
 
         foreach (var corrupt in new[] { "{bad", Json().Replace("\"failClosed\": true", "\"failClosed\": false"),
             Json().Replace("\"Low\"", "\"UnknownRisk\""), Json().Replace("\"Read\"", "999"),
