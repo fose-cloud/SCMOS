@@ -13,7 +13,6 @@ public enum AlertKind
 {
     SupplierNotConfirmed,
     BookingMissingData,
-    PreRunNotConfirmed,
     TruckDelay,
     ECardMismatch,
     DocumentUnclear,
@@ -113,11 +112,9 @@ public static class Notifications
         new(AlertKind.BookingMissingData, "Booking missing data", "ข้อมูลจองรถไม่ครบ",
             AlertLevel.Warning, "เติมทะเบียนรถ คนขับ และเบอร์ติดต่อให้ครบก่อนวันงาน", "myjob"),
 
-        // Points at the Pre-Run screen again, which is back in the menu. It was
-        // sent to the monitor while that screen was hidden, and removed
-        // altogether while it was deleted; both are undone.
-        new(AlertKind.PreRunNotConfirmed, "Pre-run not confirmed", "ยังไม่ยืนยันก่อนออกงาน",
-            AlertLevel.Critical, "โทรตามผู้ขนส่งให้ยืนยันรถและคนขับ", "prerun"),
+        // PreRunNotConfirmed went with the Pre-Run screen's menu entry on 14 Oct 2026: that screen is the only
+        // place a check is answered, so with no way into it a pending check could only sit in the bell for ever
+        // (one from 25 Sep was doing exactly that). It returns with the menu entry.
 
         new(AlertKind.TruckDelay, "Truck delay", "รถล่าช้า",
             AlertLevel.Critical, "บันทึกสาเหตุ แจ้งลูกค้า และประเมินเวลาที่จะถึงใหม่", "monitoring"),

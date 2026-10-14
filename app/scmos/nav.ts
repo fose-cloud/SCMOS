@@ -135,10 +135,9 @@ export const SUB_NAV: Partial<Record<Screen, [Screen, string, string, number[][]
     // says whose a job is, this says whose it ought to be.
     ["rotation", "Job Rotation", "ความรับผิดชอบลูกค้า", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
     ["monitoring", "Shipment Monitor", "ติดตามการขนส่ง", [[2, 7, 3, 3], [6, 7, 3, 3], [10, 7, 4, 3], [3, 12, 10, 1.5]]],
-    // Back in the menu on 2026-09-01, having been out of it since the 31st and
-    // deleted for a few hours in between. A screen with no way in is not
-    // restored, and the alert below it has to point somewhere a person can go.
-    ["prerun", "Pre-Run Check", "ตรวจก่อนออกงาน", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 7]]],
+    // Pre-Run Check left the menu again on 14 Oct 2026, at the user's word: in 61 days one check was sent and
+    // none answered. Its screen, tables and service stay, so it comes back by restoring this line —
+    // ["prerun", "Pre-Run Check", "ตรวจก่อนออกงาน", …] — and its alert (PreRunNotConfirmed) with it.
     ["loreal", "L'OREAL", "รายงานตู้ลูกค้า", [[2, 2, 12, 3], [2, 7, 12, 1.5], [2, 11, 8, 1.5]]],
     ["chemours", "The Chemours", "รายงานงานกระจายสินค้า", [[2, 2, 12, 3], [2, 7, 5, 7], [9, 7, 5, 3], [9, 12, 5, 2]]],
   ],

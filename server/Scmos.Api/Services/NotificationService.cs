@@ -153,13 +153,7 @@ public class NotificationService(ScmosDbContext db, KpiEngine kpi, JobRegisterCa
             $"{incomplete.Count} งานมีผู้ขนส่งแล้วแต่ยังไม่มีทะเบียนรถหรือคนขับ",
             "รถจะมาแต่ไม่มีใครรู้ว่าคันไหน", First(incomplete), "job");
 
-        /* ---- 3. pre-run not confirmed ---- */
-        var preRun = await db.PreRunChecks.AsNoTracking()
-            .Where(check => check.Outcome == "pending").ToListAsync(token);
-        Add(alerts, AlertKind.PreRunNotConfirmed, preRun.Count,
-            $"{preRun.Count} รายการตรวจก่อนออกงานยังไม่ได้รับคำตอบ",
-            preRun.Count > 0 ? $"เก่าสุดส่งไปเมื่อ {preRun.Min(c => c.SentAt):dd/MM HH:mm}" : "",
-            preRun.FirstOrDefault()?.JobKey ?? "", "job");
+        /* ---- 3. pre-run not confirmed: off with the Pre-Run menu entry (14 Oct 2026) ---- */
 
         /* ---- 4. truck delay ---- */
         var delays = await db.DelayRecords.AsNoTracking()
