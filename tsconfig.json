@@ -40,6 +40,7 @@
   "exclude": [
     "node_modules",
     "tests/ai-preview-app/.next",
+    "tests/ai-preview-app/next-env.d.ts",
     "server",
     "migration"
   ]

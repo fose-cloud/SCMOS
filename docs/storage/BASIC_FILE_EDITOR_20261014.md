@@ -72,9 +72,11 @@ Additive migration: `20261014083600_SharedFileEditing`.
 
 The user directed the release on the evening of 14 Oct 2026, ahead of the dependency review below; the migration is applied
 by the API deploy workflow, not by the local checks.
-`npm audit` reports 11 existing issues (10 High, 1 Critical), including the existing Next.js 16.3.1 dependency, already in
-Production before this feature. The new PDF packages are not listed as affected in that advisory result. A separate reviewed
-framework/dependency patch and regression pass is still open; do not run an unreviewed blanket `npm audit fix --force`.
+The initial audit reported 11 issues (10 High, 1 Critical), including Next.js 16.3.1, already in Production before this feature.
+The authorized follow-up patches Next.js and its ESLint plugin to 16.3.8 (v2.8.27), preserving the latest v2.8.26 editor/RBAC
+and .NET Pkcs patch from the remote branch. The post-patch audit reports 0 Critical and no `next` advisory; 9 other High
+entries remain and are not represented as fixed. See `docs/security/NEXTJS_20261014.md` for scope and release evidence.
+Do not run an unreviewed blanket `npm audit fix --force`.
 
 Font source: https://github.com/google/fonts/tree/main/ofl/notosansthai
 Font SHA256: `5A1C559BB539583C8A1FD99D1C5B9491E5E14478C9CD2BD0970D5C3096CC9EF8`.

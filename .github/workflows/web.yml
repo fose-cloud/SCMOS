@@ -34,6 +34,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Block known Critical dependency vulnerabilities
+        run: npm audit --audit-level=critical
+
       - run: npm run lint
       - run: npm run typecheck
       # Before the build, so a broken rule fails in seconds rather than after a

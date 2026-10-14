@@ -99,6 +99,7 @@ public partial class SharedFilesService(ScmosDbContext db, IFileStore files, Aud
                 id = row.Id, name = row.Name, sizeBytes = row.SizeBytes, uploadedBy = row.UploadedBy, uploadedAt = row.UploadedAt,
                 canChange = CanChange(user, row.UploadedById), viewable = InlineViewing.TypeFor(row.Name) is not null,
                 online = EditorKind(row.Name) is not null, revision = row.Revision,
+                editedBy = row.EditedBy, editedAt = row.EditedAt,
             }),
             canUpload = CanWrite(user),
             canCreateFolder = CanWrite(user) && path.Count < SharedFiles.MaxDepth,

@@ -70,6 +70,18 @@ public static partial class SharedWorkbook
     private static string Problem(Dictionary<string, byte[]> parts, XDocument book)
     {
         if (book.Root?.Name != S + "workbook") return "รองรับเฉพาะ XLSX มาตรฐาน (ไม่รองรับ Strict OOXML)";
+        var types = Xml(parts, "[Content_Types].xml");
+        if (types.Root?.Name != XName.Get("Types", "http://schemas.openxmlformats.org/package/2006/content-types"))
+            return "โครงสร้างชนิดไฟล์ XLSX ไม่ถูกต้อง — อ่านอย่างเดียว";
+        var declared = types.Root.Elements().Select(e => (string?)e.Attribute("ContentType") ?? "").ToArray();
+        if (declared.Any(t => t.Contains("macro", StringComparison.OrdinalIgnoreCase) || t.Contains("vba", StringComparison.OrdinalIgnoreCase)
+            || t.Contains("digital-signature", StringComparison.OrdinalIgnoreCase) || t.Contains("activeX", StringComparison.OrdinalIgnoreCase)))
+            return "ไฟล์มี macro, ActiveX หรือลายเซ็น — อ่านอย่างเดียว";
+        // OPC permits either a part override or a default by extension; OpenXML SDK uses the latter for some workbooks.
+        var workbookType = (string?)types.Root.Elements().FirstOrDefault(e => (string?)e.Attribute("PartName") == "/xl/workbook.xml")?.Attribute("ContentType")
+            ?? (string?)types.Root.Elements().FirstOrDefault(e => (string?)e.Attribute("Extension") == "xml")?.Attribute("ContentType");
+        if (workbookType != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml")
+            return "ชนิด workbook ไม่ใช่ XLSX มาตรฐาน — อ่านอย่างเดียว";
         if (book.Descendants(S + "workbookProtection").Any()) return "ไฟล์มีการป้องกัน workbook — อ่านอย่างเดียว";
         if (parts.Keys.Any(k => k.StartsWith("_xmlsignatures/", StringComparison.OrdinalIgnoreCase)
             || k.Contains("vbaProject", StringComparison.OrdinalIgnoreCase) || k.StartsWith("xl/externalLinks/")
@@ -127,7 +139,7 @@ public static partial class SharedWorkbook
         return false;
     }
 
-    private static bool Scalar(XElement cell) => !cell.Elements(S + "f").Any()
+    private static bool Scalar(XElement cell) => cell.Attribute("cm") is null && cell.Attribute("vm") is null && !cell.Elements(S + "f").Any()
         && ((string?)cell.Attribute("t") is null or "n" or "b" or "s" or "inlineStr" or "str")
         && cell.Elements().All(e => e.Name == S + "v" || e.Name == S + "is");
 
