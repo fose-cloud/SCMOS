@@ -275,21 +275,6 @@ const COL_DEFS: Record<string, [string][]> = {
   ALL: [["+"], ["Priority"], ["Own"], ["Category"], ["Date"], ["Customer"], ["Truck"], ["Job Code"], ["ABS No."], ["Booking"], ["Product"], ["Destination"], ["Plan Loading Time"], ["Plant Loading"], ["Type"], ["CY Yard"], ["Return"], ["Closing Date"], ["Closing Time"], ["Closing Risk"], ["Total Weight"], ["No Container"], ["No Seal"], ["Tare"], ["Licence"], ["Driver Name"], ["Driver Contact"], ["Arrival Date"], ["Arrival Time"], ["Reason / Delay"], ["Remark"], ["Pickup Plan Date"], ["Pickup Plan Time"], ["CS"], ["Status"], ["Assigned To"]],
 };
 
-const KPI_DEFS: [string, string, string, string][] = [
-  ["MY JOBS", "งานของฉัน", "Mine", "#2E7DD1"],
-  ["TEAM JOBS", "งานทีม", "Team", "#0A2240"],
-  ["IMPORT", "นำเข้า", "Imp", "#0A2240"],
-  ["EXPORT", "ส่งออก", "Exp", "#6FA8DC"],
-  ["DELIVERY", "งานกระจายสินค้า", "Del", "#0A6E8A"],
-  ["WAITING TRUCK", "รอรถ", "Wait", "#475569"],
-  ["TRUCK CONFIRMED", "ยืนยันรถ", "Conf", "#1D5FA8"],
-  ["IN OPERATION", "กำลังปฏิบัติงาน", "Run", "#0A6E8A"],
-  ["DELAYED", "ล่าช้า", "Delay", "#B42318"],
-  ["COMPLETED", "เสร็จสิ้น", "Done", "#16794C"],
-  ["ACTION REQUIRED", "ต้องดำเนินการ", "Act", "#B45309"],
-  ["DATA ERROR", "ข้อมูลผิดหรือไม่ครบ", "Fmt", "#B42318"],
-];
-
 /** Jobs carrying at least one blocking format issue — excluded from the KPIs. */
 const hasFormatError = (j: Job) => j.issues.some((i) => i.severity === "error");
 
@@ -468,24 +453,6 @@ const RE = {
   open: { test: (s: string) => STATUS_RE.waiting.test(s) },
   active: { test: (s: string) => STATUS_RE.confirmed.test(s) || STATUS_RE.running.test(s) },
 };
-
-function kpiCount(scope: Job[], code: string, mine: (j: Job) => boolean) {
-  switch (code) {
-    case "Mine": return scope.filter(mine).length;
-    case "Team": return scope.length;
-    case "Imp": return scope.filter((j) => j.cat === "IMPORT").length;
-    case "Exp": return scope.filter((j) => j.cat === "EXPORT").length;
-    case "Del": return scope.filter((j) => j.cat === "DELIVERY").length;
-    case "Wait": return scope.filter((j) => RE.waiting.test(j.status)).length;
-    case "Conf": return scope.filter((j) => RE.confirmed.test(j.status)).length;
-    case "Run": return scope.filter((j) => RE.running.test(j.status)).length;
-    case "Delay": return scope.filter((j) => RE.delayed.test(j.status)).length;
-    case "Done": return scope.filter((j) => RE.done.test(j.status)).length;
-    case "Act": return scope.filter((j) => j.action).length;
-    case "Fmt": return scope.filter(hasFormatError).length;
-    default: return 0;
-  }
-}
 
 /** Today and tomorrow as the plan writes dates, so they compare as text. */
 function planDate(offsetDays: number): string {
@@ -1465,7 +1432,8 @@ export function Workspace(p: Props) {
    * The same component draws both, and only My Job was asked to lose the KPI
    * tiles, the process board and the team workload — it is worked in all day,
    * and every panel on it is a band the job rows do not get. Domestic keeps
-   * them; that menu was explicitly out of scope.
+   * the process board and the team workload; its KPI tiles went on 14 Oct 2026
+   * at the user's word ("ไม่จำเป็นต้องใช้งาน"), so neither screen draws them now.
    */
   const isMyJob = !p.lockedCat;
 
@@ -2030,8 +1998,7 @@ export function Workspace(p: Props) {
                 <span style={css("display:flex;gap:5px;flex-wrap:wrap")}>
                   {(isMyJob
                     ? ([] as [keyof PanelPrefs, string][])
-                    : ([["kpi", "KPI"], ["process", "ขั้นตอนงาน"],
-                        ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
+                    : ([["process", "ขั้นตอนงาน"], ["team", "ภาระทีม"]] as [keyof PanelPrefs, string][])
                   ).map(([key, label]) => (
                     <button key={key} onClick={panel(key)}
                       style={css("height:26px;padding:0 10px;border:1px solid "
@@ -2388,30 +2355,6 @@ export function Workspace(p: Props) {
       )}
 
 
-
-      {complete && !isMyJob && p.panels.kpi && (
-      <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px")}>
-        {KPI_DEFS.map((k) => (
-          <button
-            key={k[2]}
-            type="button"
-            onClick={() => p.set({ kpi: ws.kpi === k[2] ? "All" : k[2], page: 1 })}
-            style={css(
-              "font-family:inherit;text-align:left;width:100%;" +
-              "background:" + (ws.kpi === k[2] ? "#F4F8FC" : "#fff") + ";border:1px solid " +
-              (ws.kpi === k[2] ? "#2E7DD1" : "#D8E0E8") + ";border-top:3px solid " + k[3] +
-              ";border-radius:5px;padding:11px 13px;cursor:pointer",
-            )}
-          >
-            <div style={css("font-size:10px;font-weight:700;color:#475569;letter-spacing:.06em")}>{k[0]}</div>
-            <div style={css("font-size:10px;color:#94A3B8")}>{k[1]}</div>
-            <div style={css("font-size:25px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:" + k[3] + ";letter-spacing:-.02em;margin-top:6px")}>
-              {kpiCount(scope, k[2], mineJ)}
-            </div>
-          </button>
-        ))}
-      </div>
-      )}
 
       {complete && (
         <div style={css("display:flex;flex-direction:column;gap:13px")}>
