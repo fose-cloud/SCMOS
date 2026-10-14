@@ -49,6 +49,22 @@ const staff = {
 const calendarDays = [{ date: "2026-10-23", kind: "public-holiday", name: "FIXTURE วันหยุด", updatedBy: "fixture", updatedAt: "2026-10-14T01:00:00Z" }];
 const slaRules = [{ id: 1, code: "STANDARD", startDay: "day1", targetWorkingDays: 4, effectiveFrom: "2026-09-30", effectiveTo: null,
   active: true, updatedBy: "fixture", updatedAt: "2026-10-14T01:00:00Z" }];
+// KPI in tabs (14 Oct 2026): the operational report and the measures engine, fixture figures only.
+const kpiReport = { total: 120, byCategory: [{ label: "IMPORT", value: 60 }, { label: "EXPORT", value: 40 }, { label: "DELIVERY", value: 20 }],
+  byStatus: [{ label: "COMPLETED", value: 80 }, { label: "WAITING_SUPPLIER", value: 40 }], onTime: { base: 90, met: 80, percent: 89 },
+  actionRequired: 5, formatErrors: 2, gateInRisk: 1, undated: 0,
+  team: [{ owner: "FIXTURE Owner", ownerId: "OP-01", total: 60, open: 10, action: 2, late: 1 }],
+  carriers: [{ carrier: "FIXTURE Carrier 1", total: 70, measured: 60, onTime: 55, percent: 92 },
+    { carrier: "FIXTURE Carrier 2", total: 50, measured: 30, onTime: 25, percent: 83 }, { carrier: "FIXTURE Unmeasured", total: 5, measured: 0, onTime: 0, percent: 0 }],
+  byDay: [{ label: "01/10/2026", value: 10 }], computedAt: "2026-10-14T01:00:00Z" };
+const kpiMeasure = (id, thai, available, value, target) => ({ id, english: id, thai, kind: "Rate", available, value, base: available ? 90 : 0,
+  unit: "%", note: "FIXTURE ONLY", breakdown: [], target, meetsTarget: available && target !== null ? value >= target : null,
+  trend: [{ period: "2026-09", value: 85, base: 80 }, { period: "2026-10", value, base: 90 }] });
+const kpiEngine = { jobs: 120, suppliers: [], unattributedIssues: 0, issuesInPeriod: 1,
+  measures: [kpiMeasure("OnTimeDelivery", "ส่งมอบตรงเวลา", true, 89, 95), kpiMeasure("Billing", "การวางบิล", false, null, null)],
+  scorecard: [{ carrier: "FIXTURE Carrier 1", shipments: 70, weighted: 97.5, weightAvailable: 100, ungradedAccidents: 0,
+    lines: [{ id: "on-time", english: "On time", thai: "ตรงเวลา", weight: 10, percent: 96, count: 3, base: 70, target: 95, note: "" }],
+    tally: { transportAccidentMajor: 0, transportAccidentMinor: 1, loadingAccident: 0, complaints: 0, breakdownNoComplaint: 0 } }] };
 const send = (res, body, code = 200) => {
   res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
@@ -139,6 +155,8 @@ const api = createServer(async (req, res) => {
   }
   // Other app-chrome calls receive no records, and cannot escape this fixture server.
   if (url.pathname === "/api/alerts") return send(res, { alerts: [], total: 0 });
+  if (url.pathname === "/api/kpi") return send(res, kpiReport);
+  if (url.pathname === "/api/kpi/measures") return send(res, kpiEngine);
   if (url.pathname === "/api/staff") return mode === "admin" ? send(res, staff) : send(res, { error: "fixture: admin mode only" }, 403);
   if (url.pathname === "/api/carrier-billing/foundation/calendar") return send(res, mode === "admin" ? calendarDays : []);
   if (url.pathname === "/api/carrier-billing/foundation/sla") return send(res, mode === "admin" ? slaRules : []);

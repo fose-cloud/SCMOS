@@ -6,6 +6,7 @@ import { useRemembered } from "../pageCache";
 import { css, STATUS_RE } from "../theme";
 import { StatCard } from "../StatCard";
 import { ZoomBox } from "../TableFrame";
+import { paneOf, shownTab, TabBar, type TabSpec } from "../TabBar";
 import type { Period } from "../period";
 import type { Job } from "../ops";
 import { PeriodBar } from "../PeriodBar";
@@ -133,6 +134,13 @@ const DRILL: Record<string, { kpi?: string; status?: string }> = {
  * last month's numbers sitting under this month's heading while the new ones
  * are on their way.
  */
+/**
+ * The screen below its headline figures, as tabs (14 Oct 2026): the eight measures, the carriers' contract
+ * scorecard, on time by carrier, and the team's workload with the status and category counts. One subject at a time
+ * instead of six panels down one page; the period and the six figures stay above every tab.
+ */
+type KpiTab = "measures" | "scorecard" | "carriers" | "work";
+
 function kpiKey(period: Period): string {
   return `kpi.${period.year ?? ""}.${period.month ?? ""}.${period.day ?? ""}`;
 }
@@ -171,6 +179,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
   const [drill, setDrill] = useState<{ carrier: string; column: string; label: string } | null>(null);
   /** Moves when an issue is re-tagged, so the scorecard is read again. */
   const [version, setVersion] = useState(0);
+  const [tab, setTab] = useState<KpiTab>("measures");
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +254,16 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
 
   const done = report.byStatus.filter((s) => STATUS_RE.done.test(s.label))
     .reduce((sum, s) => sum + s.value, 0);
+  const measuredCarriers = report.carriers.filter((c) => c.measured > 0);
+  // The measures and the scorecard come from /api/kpi/measures; when it did not answer, their tabs are not offered.
+  const tabs: TabSpec<KpiTab>[] = [
+    ...(engine ? [{ id: "measures" as const, label: "ตัวชี้วัดหลัก", count: engine.measures.length }] : []),
+    ...(engine?.scorecard?.length ? [{ id: "scorecard" as const, label: "คะแนนผู้ขนส่ง", count: engine.scorecard.length }] : []),
+    { id: "carriers", label: "ตรงเวลาแยกผู้ขนส่ง", count: measuredCarriers.length },
+    { id: "work", label: "ภาระงานและสถานะ" },
+  ];
+  const shown = shownTab(tabs, tab);
+  const pane = (id: KpiTab) => paneOf("kpi", id, shown);
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
@@ -268,21 +287,17 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
         <Tile label="เสี่ยงตกเรือ (Export)" value={report.gateInRisk.toLocaleString()} note="เวลาปิดตู้มาก่อนรถถึง" colour="#B42318" />
       </div>
 
+      <TabBar name="KPI" prefix="kpi" tabs={tabs} shown={shown} onSelect={setTab}>
+        <button
+          onClick={() => void download(period, setExporting)}
+          disabled={exporting}
+          style={css("height:31px;padding:0 14px;border:1px solid #0A2240;background:" + (exporting ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
+        >{exporting ? "กำลังสร้าง…" : "ดาวน์โหลด Excel"}</button>
+      </TabBar>
+
       {engine && (
+        <div {...pane("measures")}>
         <div style={css("background:#fff;border:1px solid #D8E0E8;border-radius:5px;overflow:hidden")}>
-          <div style={css("padding:11px 16px;border-bottom:1px solid #E9EFF5;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap")}>
-            <div>
-              <div style={css("font-size:13px;font-weight:650;color:#0A2240")}>ตัวชี้วัดหลัก 8 ตัว</div>
-              <div style={css("font-size:11.5px;color:#94A3B8;margin-top:1px")}>
-                ตัวไหนยังไม่มีข้อมูลจะบอกว่า “ยังวัดไม่ได้” — ไม่แสดงเป็น 0% หรือ 100%
-              </div>
-            </div>
-            <button
-              onClick={() => void download(period, setExporting)}
-              disabled={exporting}
-              style={css("height:31px;padding:0 14px;border:1px solid #0A2240;background:" + (exporting ? "#C3CFDB" : "#0A2240") + ";color:#fff;border-radius:4px;font-size:12.5px;font-weight:600;cursor:pointer")}
-            >{exporting ? "กำลังสร้าง…" : "ดาวน์โหลด Excel"}</button>
-          </div>
           <ZoomBox zoomable={false} capped={false}>
             <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
               <thead>
@@ -350,8 +365,12 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
             </table>
           </ZoomBox>
         </div>
+        </div>
       )}
 
+      {/* The layout on an inner box: a display set on the pane itself would win over `hidden` and show it on every tab. */}
+      <div {...pane("scorecard")}>
+      <div style={css("display:flex;flex-direction:column;gap:14px")}>
       {drill && (
         <ScorecardIssues period={period} carrier={drill.carrier} column={drill.column} label={drill.label} canEdit={canEdit}
           onClose={() => setDrill(null)} onChanged={() => setVersion((n) => n + 1)}
@@ -377,7 +396,6 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                 + (engine.scorecard.some((row) => row.ungradedAccidents > 0)
                   ? " · มีอุบัติเหตุที่ยังไม่ระบุชนิด คะแนนของเจ้านั้นจึงยังไม่สรุป"
                   : ""))
-              + ` · ${SCORECARD_FORMULA}`
           }
         >
           <ZoomBox zoomable={false} capped={false}>
@@ -508,8 +526,10 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
           </ZoomBox>
 
           {/* What each column counts, said once under the table rather than in
-              six tooltips nobody hovers over. */}
-          <div style={css("padding:10px 14px;font-size:11px;color:#7B8CA0;line-height:1.8;border-top:1px solid #F1F5F9")}>
+              six tooltips nobody hovers over — folded under one line (14 Oct 2026), open when wanted. */}
+          <details style={css("padding:10px 14px;font-size:11px;color:#7B8CA0;line-height:1.8;border-top:1px solid #F1F5F9")}>
+            <summary style={css("cursor:pointer;font-weight:600;color:#465A6E")}>วิธีนับและวิธีคิดคะแนน</summary>
+            <div style={css("margin-top:5px")}>{SCORECARD_FORMULA}</div>
             ตัวเลขในตารางคือ<b>จำนวนครั้ง</b>ที่บันทึกไว้ใน Operational Issues ของงานที่ผู้ขนส่งรายนั้นวิ่ง ·
             อุบัติเหตุสามช่องแยกตามชนิดที่ระบุไว้ในรายการปัญหา (Transport Major / Transport Minor / Loading) ·
             ข้อร้องเรียนนับทั้งจากลูกค้า และจากภายใน (CS · Shipping · Billing · คลัง) ·
@@ -538,9 +558,11 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
               คะแนนรวมคิดตามน้ำหนักในสัญญา โดยเกณฑ์ที่ยังวัดไม่ได้จะไม่ถูกให้ 0
               แต่ถูกตัดออกจากน้ำหนักแล้วปรับฐานคะแนนตามน้ำหนักที่เหลือ ซึ่งแสดงกำกับไว้ใต้คะแนน
             </div>
-          </div>
+          </details>
         </Panel>
       ) : null}
+      </div>
+      </div>
 
       {/*
         The per-carrier table that stood here is gone.
@@ -553,6 +575,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
         first, so the number and the names behind it come from one reckoning.
       */}
 
+      <div {...pane("work")}>
       <div style={css("display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start")}>
         <Panel title="ภาระงานแต่ละคน" note="เปิดค้าง · ต้องดำเนินการ · ล่าช้า">
           <Table
@@ -578,6 +601,20 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
           />
         </Panel>
 
+        <Panel title="ปริมาณงานตามหมวด" note={report.undated ? `${report.undated} งานไม่มีวันที่ใช้ได้` : "ทุกงานมีวันที่"}>
+          <Table
+            head={["หมวด", "งาน", "สัดส่วน"]}
+            rows={report.byCategory.map((c) => [
+              c.label,
+              c.value.toLocaleString(),
+              report.total ? Math.round((c.value / report.total) * 100) + "%" : "—",
+            ])}
+          />
+        </Panel>
+      </div>
+      </div>
+
+      <div {...pane("carriers")}>
         <Panel title="ตรงเวลาแยกตามผู้ขนส่ง" note="แสดงเฉพาะเจ้าที่มีงานวัดผลได้ · คลิกชื่อเพื่อดูงาน">
           <table style={css("width:100%;border-collapse:collapse;font-size:12.5px")}>
             <thead><tr>{["ผู้ขนส่ง", "งาน", "วัดได้", "ตรงเวลา", "%"].map((h, i) => (
@@ -585,7 +622,7 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                 ";font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7B8CA0;font-weight:600;background:#F8FAFC;border-bottom:1px solid #E9EFF5;white-space:nowrap")}>{h}</th>
             ))}</tr></thead>
             <tbody>
-              {report.carriers.filter((c) => c.measured > 0).slice(0, 14).map((c) => (
+              {measuredCarriers.map((c) => (
                 <tr key={c.carrier} style={css("border-bottom:1px solid #F1F5F9")}>
                   <td style={css("padding:8px 14px")}>
                     <button onClick={() => onOpenJobs({ trucker: c.carrier })}
@@ -600,22 +637,11 @@ export function Kpi({ period, onPeriod, allJobs, onDrill, onFixAccident, onOpenJ
                     (c.percent >= 95 ? "#16794C" : c.percent >= 80 ? "#B45309" : "#B42318"))}>{c.percent}%</td>
                 </tr>
               ))}
-              {!report.carriers.some((c) => c.measured > 0) && (
+              {!measuredCarriers.length && (
                 <tr><td colSpan={5} style={css("padding:22px;text-align:center;color:#94A3B8")}>ไม่มีข้อมูลในช่วงนี้</td></tr>
               )}
             </tbody>
           </table>
-        </Panel>
-
-        <Panel title="ปริมาณงานตามหมวด" note={report.undated ? `${report.undated} งานไม่มีวันที่ใช้ได้` : "ทุกงานมีวันที่"}>
-          <Table
-            head={["หมวด", "งาน", "สัดส่วน"]}
-            rows={report.byCategory.map((c) => [
-              c.label,
-              c.value.toLocaleString(),
-              report.total ? Math.round((c.value / report.total) * 100) + "%" : "—",
-            ])}
-          />
         </Panel>
       </div>
       </div>

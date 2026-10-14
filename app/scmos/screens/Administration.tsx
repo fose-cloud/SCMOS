@@ -7,6 +7,7 @@ import type { Job } from "../ops";
 import { clearOwnerJobs } from "../store";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
+import { paneOf, shownTab, TabBar, type TabSpec } from "../TabBar";
 import { CarrierBillingFoundation } from "./CarrierBillingFoundation";
 
 /**
@@ -265,33 +266,21 @@ export function Administration({ jobs, me, onToast }: {
   const carriers = dir.carriers ?? [];
   const carrierMissing = form.role === "Subcontractor" && !form.supplierId;
   const admins = dir.people.filter((p) => p.active && p.can.includes("AdministerData")).length;
-  const tabs: { id: AdminTab; label: string; count?: number }[] = [
+  const tabs: TabSpec<AdminTab>[] = [
     { id: "people", label: "ผู้ใช้", count: dir.people.length },
     { id: "roles", label: "สิทธิ์ตามบทบาท", count: dir.roles.length },
     { id: "calendar", label: "ปฏิทินและ SLA" },
     ...(dir.canManage ? [{ id: "clear" as const, label: "ล้างข้อมูลงาน" }] : []),
   ];
   // A tab that is no longer offered (the account lost the right to clear) falls back to the people.
-  const shown: AdminTab = tabs.some((one) => one.id === tab) ? tab : "people";
-  const pane = (id: AdminTab) => ({
-    role: "tabpanel", id: "admin-pane-" + id, "aria-labelledby": "admin-tab-" + id, hidden: shown !== id,
-  });
+  const shown = shownTab(tabs, tab);
+  const pane = (id: AdminTab) => paneOf("admin", id, shown);
 
   return (
     <div style={css("display:flex;flex-direction:column;gap:14px")}>
-      <div style={css("display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:1px solid #D8E0E8")}>
-        <div role="tablist" aria-label="Administration" style={css("display:flex;gap:2px;overflow-x:auto;overflow-y:hidden;max-width:100%")}>
-          {tabs.map((one) => (
-            <button key={one.id} type="button" role="tab" id={"admin-tab-" + one.id} aria-controls={"admin-pane-" + one.id}
-              aria-selected={shown === one.id} onClick={() => setTab(one.id)}
-              style={css(TAB + (shown === one.id ? TAB_ON : ""))}>
-              {one.label}
-              {one.count !== undefined && <span style={COUNT}>{one.count}</span>}
-            </button>
-          ))}
-        </div>
-        {!dir.canManage && <span style={css("margin-bottom:8px;font-size:11px;font-weight:600;color:#7B8CA0;border:1px solid #D8E0E8;border-radius:10px;padding:2px 9px;background:#fff")}>ดูได้อย่างเดียว</span>}
-      </div>
+      <TabBar name="Administration" prefix="admin" tabs={tabs} shown={shown} onSelect={setTab}>
+        {!dir.canManage && <span style={css("font-size:11px;font-weight:600;color:#7B8CA0;border:1px solid #D8E0E8;border-radius:10px;padding:2px 9px;background:#fff")}>ดูได้อย่างเดียว</span>}
+      </TabBar>
 
       <div {...pane("calendar")}>
         <CarrierBillingFoundation canManage={dir.canManage} onToast={onToast} />
@@ -756,12 +745,6 @@ function ClearJobs({ people, jobs, me, onToast, onDone }: {
 const CELL = "padding:8px 12px;vertical-align:middle";
 const CELL_S = css(CELL);
 // The same tab bar as the AI Control Tower, in this screen's inline styles.
-// Whole border values only: a shorthand beside a longhand that changes on select makes React warn of styling bugs.
-const TAB = "display:inline-flex;align-items:center;gap:8px;padding:10px 16px;min-height:42px;border-top:0;border-left:0;border-right:0;"
-  + "border-bottom:2px solid transparent;background:none;color:#52657A;font-size:13px;font-weight:600;white-space:nowrap;margin-bottom:-1px;"
-  + "cursor:pointer;font-family:inherit";
-const TAB_ON = ";color:#1D5FA8;border-bottom:2px solid #1D5FA8";
-const COUNT = css("min-width:20px;padding:1px 6px;border-radius:10px;background:#EEF3F8;color:#465A6E;font-size:11px;font-weight:700;text-align:center");
 const INPUT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 10px;font-size:12.5px;width:100%");
 const SELECT = css("height:30px;border:1px solid #C9D6E2;border-radius:4px;padding:0 8px;font-size:12.5px;background:#fff;width:100%");
 
