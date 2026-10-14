@@ -1,7 +1,7 @@
 export type Screen =
   | "dashboard" | "workspace" | "booking" | "monitoring" | "prerun" | "docverify"
   | "subcontractors" | "capacity" | "rates" | "billing" | "kpi" | "incident" | "carpar"
-  | "audit" | "documents" | "reports" | "ai"
+  | "audit" | "documents" | "files" | "reports" | "ai"
   | "vendor" | "evaluation" | "quotation" | "abs" | "admin"
   | "loreal" | "chemours" | "carrier" | "myjob" | "training" | "postpone" | "issues" | "rotation"
   | "partners" | "commercial" | "quality" | "integrations" | "ccs" | "line" | "outlook"
@@ -31,6 +31,9 @@ export const NAV: [Screen, string, string, number[][]][] = [
   ["actionplan", "Action Plan", "แผนพัฒนา", [[3, 2, 10, 12], [5, 5, 2, 2], [8, 5, 4, 2], [5, 9, 2, 2], [8, 9, 4, 2]]],
   ["audit", "Audit", "ประวัติการใช้งาน", [[2, 2, 12, 2], [2, 6, 12, 2], [2, 10, 8, 2]]],
   ["documents", "Document Center", "ศูนย์เอกสาร", [[3, 2, 10, 12], [5, 5, 6, 1], [5, 8, 6, 1], [5, 11, 4, 1]]],
+  // Its own entry (14 Oct 2026, the user's request): a shared space of folders and files, beside the register of
+  // paperwork that belongs to a job, a supplier or a case. Named "Transport cost subcon" at the user's word the same day.
+  ["files", "Transport cost subcon", "พื้นที่เก็บไฟล์", [[2, 3, 12, 10], [2, 3, 5, 2], [4, 7, 8, 1], [4, 10, 6, 1]]],
   ["reports", "Reports", "รายงาน", [[2, 2, 12, 2], [2, 6, 12, 1.5], [2, 9.5, 9, 1.5], [2, 13, 6, 1.5]]],
   ["ai", "AI Control Tower", "ศูนย์ควบคุมงานและ AI", [[2, 2, 5, 5], [9, 2, 5, 5], [2, 9, 5, 5], [9, 9, 5, 5]]],
   // A heading, not a destination. ABS used to sit here on its own; three more
@@ -165,7 +168,7 @@ export const NAV_GROUPS: { label: string; keys: Screen[] }[] = [
   { label: "OPERATIONS", keys: ["workspace"] },
   { label: "SUPPLY NETWORK", keys: ["partners"] },
   { label: "COMMERCIAL", keys: ["commercial"] },
-  { label: "QUALITY & COMPLIANCE", keys: ["quality", "kpi", "actionplan", "audit", "documents"] },
+  { label: "QUALITY & COMPLIANCE", keys: ["quality", "kpi", "actionplan", "audit", "documents", "files"] },
   { label: "INTELLIGENCE", keys: ["reports", "ai"] },
   { label: "SYSTEM", keys: ["integrations", "admin"] },
 ];
@@ -274,6 +277,7 @@ export const META: Record<string, string> = {
   evaluation: "Annual Evaluation",
   quotation: "Rate Quotation",
   documents: "Document Register",
+  files: "Transport cost subcon",
   reports: "Management Reports",
   partners: "Subcontractor",
   commercial: "Rate & Billing",

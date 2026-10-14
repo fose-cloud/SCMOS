@@ -8672,6 +8672,146 @@ namespace Scmos.Api.Data.Migrations
                     b.ToTable("rotation_assignments", (string)null);
                 });
 
+            modelBuilder.Entity("Scmos.Api.Data.SharedFile", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("application/octet-stream")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("DeletedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<long?>("FolderId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("folder_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("object_key");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("uploaded_at");
+
+                    b.Property<string>("UploadedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("uploaded_by");
+
+                    b.Property<string>("UploadedById")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FolderId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("shared_files_folder_name_idx")
+                        .HasFilter("[deleted_at] IS NULL");
+
+                    b.ToTable("shared_files", (string)null);
+                });
+
+            modelBuilder.Entity("Scmos.Api.Data.SharedFolder", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("DeletedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("name");
+
+                    b.Property<long?>("ParentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("parent_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("shared_folders_parent_name_idx")
+                        .HasFilter("[deleted_at] IS NULL");
+
+                    b.ToTable("shared_folders", (string)null);
+                });
+
             modelBuilder.Entity("Scmos.Api.Data.ShipmentMilestone", b =>
                 {
                     b.Property<long>("Id")

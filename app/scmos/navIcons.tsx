@@ -59,6 +59,7 @@ export const NAV_ICONS: Partial<Record<Screen, ReactNode>> = {
   kpi: P("M2 13h12M3 10.4 6 6.8l2.6 2.2L13 3.4M10.5 3.4H13v2.5"),
   audit: P("M10.4 10.4 14 14M5.2 7l1.4 1.4L9 6", <circle cx="7" cy="7" r="4.6" />),
   documents: P("M3 2.2h6l4 4v7.6H3zM9 2.2v4h4M5.5 9h5M5.5 11.5h3.5"),
+  files: P("M1.8 4.2a1 1 0 0 1 1-1h3.4l1.5 1.6h5.5a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1zM1.8 7h12.4"),
   reports: P("M2.6 1.8h10.8a1 1 0 0 1 1 1v10.4a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1zM4.5 10.5l2.3-2.6 1.8 1.5 2.9-3.4M4.5 12.5h7"),
   ai: P("M8 4.6V7M8 9v2.4M5.9 6.8 3.9 5.6M10.1 6.8l2-1.2M5.9 9.2l-2 1.2M10.1 9.2l2 1.2", <><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none" /><circle cx="8" cy="3" r="1.3" /><circle cx="8" cy="13" r="1.3" /><circle cx="3" cy="5" r="1.3" /><circle cx="13" cy="5" r="1.3" /><circle cx="3" cy="11" r="1.3" /><circle cx="13" cy="11" r="1.3" /></>),
   integrations: P("M5 2v3M11 2v3M3.5 5h9v2.5a4.5 4.5 0 0 1-9 0zM8 12v2.5"),

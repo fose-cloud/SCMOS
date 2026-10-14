@@ -41,12 +41,13 @@ const ACTION_TH: Record<string, string> = {
   rate: "เปลี่ยนราคา", approve: "อนุมัติ", reject: "ปฏิเสธ", apply: "นำไปใช้",
   close: "ปิดเคส", upload: "อัปโหลด", register: "ลงทะเบียน", evaluate: "ประเมิน",
   "retention-review": "ทบทวนการเก็บรักษา", "bulk-replace": "แทนที่ทั้งชุด",
-  create: "สร้าง", delete: "ลบ",
+  create: "สร้าง", delete: "ลบ", trash: "ย้ายลงถังขยะ", restore: "กู้คืน",
 };
 
 const ENTITY_TH: Record<string, string> = {
   job: "งาน", supplier: "ผู้ขนส่ง", rate: "ราคา", incident: "เคส",
   document: "เอกสาร", approval: "คำขออนุมัติ", register: "ทะเบียน",
+  "shared-folder": "โฟลเดอร์ (Transport cost subcon)", "shared-file": "ไฟล์ (Transport cost subcon)",
 };
 
 /** Changes a person has to justify. Kept in step with Rules/AuditActions.cs. */
