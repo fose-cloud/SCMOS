@@ -61,6 +61,7 @@ import { Today } from "./scmos/screens/Today";
 import { BriefingBand } from "./scmos/screens/BriefingBand";
 import { CapacityBoard } from "./scmos/screens/CapacityBoard";
 import { PreRun } from "./scmos/screens/PreRun";
+import { SharedFiles } from "./scmos/screens/SharedFiles";
 import { Documents } from "./scmos/screens/Documents";
 import { Administration } from "./scmos/screens/Administration";
 import { Verification } from "./scmos/screens/Verification";
@@ -1896,6 +1897,8 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
       // so the heading does not carry a second copy of it.
       return [];
     }
+    // The shared file space carries its own buttons (new folder, upload, trash); the register's export means nothing there.
+    if (screen === "files") return [];
     if (screen === "documents") {
       // The browser-local drawer holds files this session attached but never
       // sent anywhere. It stays reachable while that path exists, next to the
@@ -3444,6 +3447,7 @@ export function SCMOSApp({ initialUser, signOutHref, demo, initialScreen }: Prop
                   กำลังโหลดแผนงาน…
                 </div>)}
             {screen === "documents" && <Documents canReview={able("ApproveRetention")} />}
+            {screen === "files" && <SharedFiles onToast={setToast} />}
             {screen === "admin" && <Administration jobs={ops?.jobs ?? []} me={me.name} onToast={setToast} />}
             {screen === "prerun" && <PreRun canEdit={(job) => canEditJob(job)} jobs={ops?.jobs ?? []} onToast={setToast} />}
             {screen === "capacity" && (

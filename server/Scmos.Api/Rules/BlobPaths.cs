@@ -187,6 +187,20 @@ public static class BlobPaths
         string.Join('/', Root, "Mail", Segment(year, "0000"),
             Segment(period, "unspecified"), FileName(fileName));
 
+    /// <summary>The root of the shared file space — beside <see cref="Root"/>, not under it.</summary>
+    public const string SharedRoot = "Shared";
+
+    /// <summary>
+    /// A file in the shared file space (14 Oct 2026): <c>Shared/{folderId|top}/{file}</c>.
+    ///
+    /// Outside <c>SCMOS/</c> on purpose. The storage account's lifecycle rule moves everything under that prefix to
+    /// Archive after three years, which is right for a job's paperwork kept for a dispute and wrong for a working
+    /// folder: an archived blob cannot be opened until it is rehydrated, hours later. The folder's id rather than its
+    /// name, because a folder can be renamed and a key that changes no longer answers anything on its own.
+    /// </summary>
+    public static string ForShared(long? folderId, string fileName) =>
+        string.Join('/', SharedRoot, folderId is long id ? id.ToString() : "top", FileName(fileName));
+
     /* -------------------------------------------------------- sanitising */
 
     /// <summary>

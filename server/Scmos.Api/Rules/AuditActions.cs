@@ -29,6 +29,12 @@ public static class AuditActions
     public const string Revoke = "revoke";
     /// <summary>An effective-dated business rule or calendar exception changed.</summary>
     public const string Configure = "configure";
+    /// <summary>A folder made (the shared file space, 14 Oct 2026).</summary>
+    public const string Create = "create";
+    /// <summary>Moved to the trash — out of sight, still stored, restorable.</summary>
+    public const string Trash = "trash";
+    /// <summary>Brought back out of the trash.</summary>
+    public const string Restore = "restore";
 
     /// <summary>
     /// Changes a person must justify.

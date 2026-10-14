@@ -41,6 +41,8 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
 
     /// <summary>Every file the system holds — a job's, a supplier's, a case's.</summary>
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
+    public DbSet<SharedFolder> SharedFolders => Set<SharedFolder>();
+    public DbSet<SharedFile> SharedFiles => Set<SharedFile>();
 
     /// <summary>Who may sign in, and as what.</summary>
     public DbSet<StaffMember> Staff => Set<StaffMember>();
@@ -1008,6 +1010,44 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.HasIndex(e => e.DriverLicenseNo).HasDatabaseName("customer_training_license_idx");
             entry.Property(e => e.SupplierId).HasColumnName("supplier_id");
             entry.HasIndex(e => e.SupplierId).HasDatabaseName("customer_training_supplier_idx");
+        });
+
+        // The shared file space (14 Oct 2026). A name is unique among the live items of one folder — the filter
+        // leaves the trash out, so a deleted "Contracts" does not stop a new one. The top level is parent NULL, which
+        // a SQL Server unique index treats as one value, so two top-level folders cannot share a name either.
+        model.Entity<SharedFolder>(entry =>
+        {
+            entry.ToTable("shared_folders");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.ParentId).HasColumnName("parent_id");
+            entry.Property(e => e.Name).HasColumnName("name").HasMaxLength(Rules.SharedFiles.MaxFolderName);
+            entry.Property(e => e.CreatedById).HasColumnName("created_by_id").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.CreatedBy).HasColumnName("created_by").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entry.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entry.Property(e => e.DeletedBy).HasColumnName("deleted_by").HasMaxLength(200).HasDefaultValue("");
+            entry.HasIndex(e => new { e.ParentId, e.Name }).IsUnique().HasFilter("[deleted_at] IS NULL")
+                .HasDatabaseName("shared_folders_parent_name_idx");
+        });
+
+        model.Entity<SharedFile>(entry =>
+        {
+            entry.ToTable("shared_files");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.FolderId).HasColumnName("folder_id");
+            entry.Property(e => e.Name).HasColumnName("name").HasMaxLength(Rules.SharedFiles.MaxFileName);
+            entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(200).HasDefaultValue("application/octet-stream");
+            entry.Property(e => e.SizeBytes).HasColumnName("size_bytes");
+            entry.Property(e => e.ObjectKey).HasColumnName("object_key").HasMaxLength(500);
+            entry.Property(e => e.UploadedById).HasColumnName("uploaded_by_id").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.UploadedBy).HasColumnName("uploaded_by").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.UploadedAt).HasColumnName("uploaded_at");
+            entry.Property(e => e.DeletedAt).HasColumnName("deleted_at");
+            entry.Property(e => e.DeletedBy).HasColumnName("deleted_by").HasMaxLength(200).HasDefaultValue("");
+            entry.HasIndex(e => new { e.FolderId, e.Name }).IsUnique().HasFilter("[deleted_at] IS NULL")
+                .HasDatabaseName("shared_files_folder_name_idx");
         });
 
         model.Entity<StoredDocument>(entry =>
