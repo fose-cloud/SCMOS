@@ -71,5 +71,8 @@ tsconfig.tsbuildinfo
 # Deployment packages — built locally, never committed.
 /publish/
 
+# Self-hosted PDF.js assets generated from the pinned npm package during install/build.
+/public/vendor/pdfjs/
+
 # Zips built by infra/pack.py — rebuilt on demand, never committed.
 *.zip

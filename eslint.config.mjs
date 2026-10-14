@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     // The API is C# and the migration scripts are one-shot Node.
     "server/**",
     "migration/**",
+    // PDF.js copied from its pinned npm package by scripts/prepare-pdf-viewer.mjs on install/build — not our source.
+    "public/vendor/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

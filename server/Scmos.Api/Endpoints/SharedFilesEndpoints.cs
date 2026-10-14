@@ -15,6 +15,7 @@ public static class SharedFilesEndpoints
     public sealed record FolderBody(string? Name, long? ParentId);
     public sealed record NameBody(string? Name);
     public sealed record RestoreBody(string? Kind, long Id);
+    public sealed record CellsBody(string? Version, List<SharedWorkbook.CellEdit>? Edits);
 
     public static void MapSharedFiles(this IEndpointRouteBuilder routes)
     {
@@ -25,6 +26,24 @@ public static class SharedFilesEndpoints
 
         group.MapGet("/trash", async (HttpContext context, IUserAccessor users, SharedFilesService service,
             CancellationToken token) => await Run(context, users, user => service.TrashAsync(user, token)));
+
+        group.MapGet("/{id:long}/editor", async (long id, HttpContext context, IUserAccessor users, SharedFilesService service,
+            CancellationToken token) => await Run(context, users, user => service.EditorAsync(user, id, token)));
+
+        group.MapPost("/{id:long}/cells", async (long id, CellsBody body, HttpContext context, IUserAccessor users,
+            SharedFilesService service, CancellationToken token) =>
+            await Run(context, users, user => service.EditCellsAsync(user, id, body.Version, body.Edits, token)));
+
+        group.MapPost("/{id:long}/edit", async (long id, HttpContext context, IUserAccessor users, SharedFilesService service,
+            CancellationToken token) => await Run(context, users, async user =>
+        {
+            if (!SharedFilesService.CanWrite(user)) return new(false, 403, "บัญชีนี้ไม่มีสิทธิ์แก้ไขไฟล์");
+            if (!context.Request.HasFormContentType) return new(false, 415, "ต้องส่งเป็น multipart form");
+            if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = SharedFiles.MaxBytes + 1024 * 1024;
+            var form = await context.Request.ReadFormAsync(token);
+            return await service.EditContentAsync(user, id, form["version"].ToString(), form.Files["file"], token);
+        }));
 
         group.MapPost("/folders", async (FolderBody body, HttpContext context, IUserAccessor users, SharedFilesService service,
             CancellationToken token) => await Run(context, users, user => service.CreateFolderAsync(user, body.ParentId, body.Name, token)));
@@ -66,13 +85,13 @@ public static class SharedFilesEndpoints
             SharedFilesService service, CancellationToken token) =>
             await Run(context, users, user => service.RestoreAsync(user, body.Kind, body.Id, token)));
 
-        group.MapGet("/{id:long}/content", async (long id, string? inline, HttpContext context, IUserAccessor users,
+        group.MapGet("/{id:long}/content", async (long id, string? inline, int? revision, HttpContext context, IUserAccessor users,
             SharedFilesService service, CancellationToken token) =>
         {
             var user = users.Current(context);
             if (user is null) return ApiResults.SignInRequired;
             if (!SharedFilesService.CanSee(user)) return ApiResults.Error("เมนูนี้สำหรับบัญชีของพนักงาน", StatusCodes.Status403Forbidden);
-            var (file, content, refusal) = await service.OpenAsync(user, id, token);
+            var (file, content, refusal) = await service.OpenAsync(user, id, token, revision);
             if (refusal is not null) return ApiResults.Error(refusal.Message, refusal.Status);
 
             // As the document register serves files: never sniffed, and shown inline only as a type chosen from the

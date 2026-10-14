@@ -43,6 +43,7 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
     public DbSet<SharedFolder> SharedFolders => Set<SharedFolder>();
     public DbSet<SharedFile> SharedFiles => Set<SharedFile>();
+    public DbSet<SharedFileRevision> SharedFileRevisions => Set<SharedFileRevision>();
 
     /// <summary>Who may sign in, and as what.</summary>
     public DbSet<StaffMember> Staff => Set<StaffMember>();
@@ -1041,6 +1042,10 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(200).HasDefaultValue("application/octet-stream");
             entry.Property(e => e.SizeBytes).HasColumnName("size_bytes");
             entry.Property(e => e.ObjectKey).HasColumnName("object_key").HasMaxLength(500);
+            entry.Property(e => e.Revision).HasColumnName("revision").HasDefaultValue(1);
+            entry.Property(e => e.Version).HasColumnName("version").IsRowVersion();
+            entry.Property(e => e.EditedBy).HasColumnName("edited_by").HasMaxLength(200).HasDefaultValue("");
+            entry.Property(e => e.EditedAt).HasColumnName("edited_at");
             entry.Property(e => e.UploadedById).HasColumnName("uploaded_by_id").HasMaxLength(200).HasDefaultValue("");
             entry.Property(e => e.UploadedBy).HasColumnName("uploaded_by").HasMaxLength(200).HasDefaultValue("");
             entry.Property(e => e.UploadedAt).HasColumnName("uploaded_at");
@@ -1048,6 +1053,23 @@ public class ScmosDbContext(DbContextOptions<ScmosDbContext> options) : DbContex
             entry.Property(e => e.DeletedBy).HasColumnName("deleted_by").HasMaxLength(200).HasDefaultValue("");
             entry.HasIndex(e => new { e.FolderId, e.Name }).IsUnique().HasFilter("[deleted_at] IS NULL")
                 .HasDatabaseName("shared_files_folder_name_idx");
+        });
+
+        model.Entity<SharedFileRevision>(entry =>
+        {
+            entry.ToTable("shared_file_revisions");
+            entry.HasKey(e => e.Id);
+            entry.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entry.Property(e => e.FileId).HasColumnName("file_id");
+            entry.Property(e => e.Revision).HasColumnName("revision");
+            entry.Property(e => e.Name).HasColumnName("name").HasMaxLength(Rules.SharedFiles.MaxFileName);
+            entry.Property(e => e.ObjectKey).HasColumnName("object_key").HasMaxLength(500);
+            entry.Property(e => e.ContentType).HasColumnName("content_type").HasMaxLength(200);
+            entry.Property(e => e.SizeBytes).HasColumnName("size_bytes");
+            entry.Property(e => e.SavedBy).HasColumnName("saved_by").HasMaxLength(200);
+            entry.Property(e => e.SavedAt).HasColumnName("saved_at");
+            entry.HasIndex(e => new { e.FileId, e.Revision }).IsUnique();
+            entry.HasOne<SharedFile>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<StoredDocument>(entry =>

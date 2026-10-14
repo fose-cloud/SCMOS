@@ -18,7 +18,7 @@ public sealed record SharedResult(bool Ok, int Status, string Message, object? B
 /// so a mistaken delete is a restore, never a recovery.
 /// </para>
 /// </summary>
-public class SharedFilesService(ScmosDbContext db, IFileStore files, AuditService audit)
+public partial class SharedFilesService(ScmosDbContext db, IFileStore files, AuditService audit)
 {
     public const string FolderEntity = "shared-folder";
     public const string FileEntity = "shared-file";
@@ -98,6 +98,7 @@ public class SharedFilesService(ScmosDbContext db, IFileStore files, AuditServic
             {
                 id = row.Id, name = row.Name, sizeBytes = row.SizeBytes, uploadedBy = row.UploadedBy, uploadedAt = row.UploadedAt,
                 canChange = CanChange(user, row.UploadedById), viewable = InlineViewing.TypeFor(row.Name) is not null,
+                online = EditorKind(row.Name) is not null, revision = row.Revision,
             }),
             canUpload = CanWrite(user),
             canCreateFolder = CanWrite(user) && path.Count < SharedFiles.MaxDepth,
@@ -109,7 +110,7 @@ public class SharedFilesService(ScmosDbContext db, IFileStore files, AuditServic
     }
 
     /// <summary>A live file and its bytes, for download. A file in the trash, or under a folder that is, opens for nobody.</summary>
-    public async Task<(SharedFile? File, Stream? Content, SharedResult? Refusal)> OpenAsync(AppUser user, long id, CancellationToken token)
+    public async Task<(SharedFile? File, Stream? Content, SharedResult? Refusal)> OpenAsync(AppUser user, long id, CancellationToken token, int? revision = null)
     {
         if (!CanSee(user)) return (null, null, new(false, StatusCodes.Status403Forbidden, "เมนูนี้สำหรับบัญชีของพนักงาน"));
         var row = await db.SharedFiles.AsNoTracking().FirstOrDefaultAsync(file => file.Id == id, token);
@@ -117,6 +118,13 @@ public class SharedFilesService(ScmosDbContext db, IFileStore files, AuditServic
         if ((await OpenFolderAsync(row.FolderId, token)).Problem is not null)
             return (null, null, new(false, StatusCodes.Status404NotFound, "ไม่พบไฟล์นี้"));
         if (!files.Configured) return (null, null, new(false, StatusCodes.Status503ServiceUnavailable, "ยังไม่ได้ตั้งค่าที่เก็บไฟล์"));
+        if (revision is not null && revision != row.Revision)
+        {
+            var previous = await db.SharedFileRevisions.AsNoTracking().FirstOrDefaultAsync(r => r.FileId == id && r.Revision == revision, token);
+            if (previous is null) return (null, null, new(false, StatusCodes.Status404NotFound, "ไม่พบเวอร์ชันนี้"));
+            row.Name = previous.Name; row.ObjectKey = previous.ObjectKey; row.ContentType = previous.ContentType;
+            row.SizeBytes = previous.SizeBytes; row.Revision = previous.Revision;
+        }
         var content = await files.OpenAsync(row.ObjectKey, token);
         return content is null
             ? (null, null, new(false, StatusCodes.Status404NotFound, $"ไฟล์หายจากที่เก็บ: {row.ObjectKey}"))
@@ -302,6 +310,7 @@ public class SharedFilesService(ScmosDbContext db, IFileStore files, AuditServic
         file.Name = clean;
         audit.Stage(user, AuditActions.Update, FileEntity, id.ToString(), clean, "name", before, clean, "");
         try { await db.SaveChangesAsync(token); }
+        catch (DbUpdateConcurrencyException) { return Conflict(); }
         catch (DbUpdateException error) when (EvaluationWrites.Duplicate(error))
         { return new(false, StatusCodes.Status409Conflict, "มีไฟล์ชื่อนี้อยู่แล้ว"); }
         return new(true, StatusCodes.Status200OK, $"เปลี่ยนชื่อเป็น {clean} แล้ว");
@@ -319,7 +328,8 @@ public class SharedFilesService(ScmosDbContext db, IFileStore files, AuditServic
         file.DeletedAt = DateTimeOffset.UtcNow;
         file.DeletedBy = Who(user);
         audit.Stage(user, AuditActions.Trash, FileEntity, id.ToString(), file.Name, "deleted_at", "", file.DeletedAt.Value.ToString("O"), "");
-        await db.SaveChangesAsync(token);
+        try { await db.SaveChangesAsync(token); }
+        catch (DbUpdateConcurrencyException) { return Conflict(); }
         return new(true, StatusCodes.Status200OK, $"ย้าย {file.Name} ลงถังขยะแล้ว");
     }
 
@@ -363,7 +373,8 @@ public class SharedFilesService(ScmosDbContext db, IFileStore files, AuditServic
             file.DeletedAt = null;
             file.DeletedBy = "";
             audit.Stage(user, AuditActions.Restore, FileEntity, id.ToString(), file.Name, "name", before, file.Name, "");
-            await db.SaveChangesAsync(token);
+            try { await db.SaveChangesAsync(token); }
+            catch (DbUpdateConcurrencyException) { return Conflict(); }
             return new(true, StatusCodes.Status200OK, $"กู้ไฟล์ {file.Name} คืนแล้ว");
         }
         return new(false, StatusCodes.Status400BadRequest, "ระบุชนิดเป็น folder หรือ file");

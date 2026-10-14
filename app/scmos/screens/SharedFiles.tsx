@@ -5,6 +5,7 @@ import { apiFetch } from "../api";
 import { css } from "../theme";
 import { ZoomBox } from "../TableFrame";
 import { stamp } from "./WorkflowPanel";
+import { SharedFileEditor } from "./SharedFileEditor";
 
 /**
  * The shared file space (14 Oct 2026, its own menu): folders made and filled by the department, with a trash a
@@ -14,7 +15,7 @@ import { stamp } from "./WorkflowPanel";
  */
 
 type FolderRow = { id: number; name: string; createdBy: string; createdAt: string; items: number; canChange: boolean };
-type FileRow = { id: number; name: string; sizeBytes: number; uploadedBy: string; uploadedAt: string; canChange: boolean; viewable: boolean };
+type FileRow = { id: number; name: string; sizeBytes: number; uploadedBy: string; uploadedAt: string; canChange: boolean; viewable: boolean; online: boolean; revision: number };
 type Listing = {
   folder: { id: number; name: string } | null;
   path: { id: number; name: string }[];
@@ -43,6 +44,7 @@ export function SharedFiles({ onToast }: { onToast: (message: string) => void })
   const [draft, setDraft] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [editorId, setEditorId] = useState<number | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const requestId = useRef(0);
@@ -259,7 +261,8 @@ export function SharedFiles({ onToast }: { onToast: (message: string) => void })
                         <span style={css("display:inline-flex;gap:8px;align-items:center")}>
                           <FileIcon />
                           {naming?.kind === "file" && naming.id === file.id ? nameField
-                            : <a href={`${BASE}/${file.id}/content`} style={css(NAME + ";text-decoration:none")}>{file.name}</a>}
+                            : file.online ? <button disabled={busy} onClick={() => setEditorId(file.id)} style={css(NAME)}>{file.name}</button>
+                              : <a href={`${BASE}/${file.id}/content`} style={css(NAME + ";text-decoration:none")}>{file.name}</a>}
                         </span>
                       </td>
                       <td style={css(CELL + ";text-align:right;color:#5A6B7D;white-space:nowrap;font-family:ui-monospace,monospace")}>{size(file.sizeBytes)}</td>
@@ -267,7 +270,8 @@ export function SharedFiles({ onToast }: { onToast: (message: string) => void })
                       <td style={css(CELL + ";color:#7B8CA0;white-space:nowrap")}>{stamp(file.uploadedAt)}</td>
                       <td style={css(CELL + ";text-align:right;white-space:nowrap")}>
                         <span style={css("display:inline-flex;gap:5px")}>
-                          {file.viewable && <a href={`${BASE}/${file.id}/content?inline=1`} target="_blank" rel="noreferrer" style={css(BUTTON + ";text-decoration:none;display:inline-flex;align-items:center")}>เปิดดู</a>}
+                          {file.online ? <button disabled={busy} style={css(BUTTON)} onClick={() => setEditorId(file.id)}>เปิดออนไลน์</button>
+                            : file.viewable && <a href={`${BASE}/${file.id}/content?inline=1`} target="_blank" rel="noreferrer" style={css(BUTTON + ";text-decoration:none;display:inline-flex;align-items:center")}>เปิดดู</a>}
                           <a href={`${BASE}/${file.id}/content`} style={css(BUTTON + ";text-decoration:none;display:inline-flex;align-items:center")}>ดาวน์โหลด</a>
                           {file.canChange && <>
                             <button onClick={() => begin({ kind: "file", id: file.id }, file.name)} disabled={busy} style={css(BUTTON)}>เปลี่ยนชื่อ</button>
@@ -320,6 +324,8 @@ export function SharedFiles({ onToast }: { onToast: (message: string) => void })
           )}
         </div>
       )}
+      {editorId !== null && <SharedFileEditor key={editorId} id={editorId} onClose={() => setEditorId(null)}
+        onSaved={() => { onToast("บันทึกฉบับใหม่และเก็บฉบับเดิมแล้ว"); void load(); }} />}
     </div>
   );
 }

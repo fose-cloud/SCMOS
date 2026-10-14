@@ -30,7 +30,7 @@ public static class SharedFilesCheck
             Console.WriteLine("Only --local-db is accepted. No configurable database target is allowed.");
             return 2;
         }
-        var failed = 0;
+        var failed = SharedWorkbookCheck.Run();
 
         /* -------------------------------------------------------------- rules */
         failed += Check("an empty name is refused", SharedFiles.NameProblem("  ", 120) is not null, true);
@@ -78,6 +78,10 @@ public static class SharedFilesCheck
                 (await guarded.ListAsync(carrier, null, default)).Status == 403
                 && (await guarded.TrashAsync(carrier, default)).Status == 403
                 && (await guarded.OpenAsync(carrier, 1, default)).Refusal?.Status == 403, true);
+            failed += Check("editor denies carriers and unauthorized writes before SQL",
+                (await guarded.EditorAsync(carrier, 1, default)).Status == 403
+                && (await guarded.EditCellsAsync(viewer, 1, "version", [], default)).Status == 403
+                && (await guarded.EditContentAsync(carrier, 1, "version", null, default)).Status == 403, true);
             failed += Check("service mutations deny carriers before database access",
                 (await guarded.RenameFolderAsync(carrier, 1, "x", default)).Status == 403
                 && (await guarded.TrashFolderAsync(carrier, 1, default)).Status == 403
@@ -147,6 +151,26 @@ public static class SharedFilesCheck
         failed += Check("a colleague may not change the owner's file",
             listed.GetProperty("files").EnumerateArray().All(file => !file.GetProperty("canChange").GetBoolean()), true);
         var firstId = Id(first) ?? 0;
+        var editor = Json((await With(s => s.EditorAsync(owner, firstId, none))).Body);
+        var version = editor.GetProperty("version").GetString();
+        failed += Check("a viewer cannot edit, and is told it may only read",
+            (await With(s => s.EditContentAsync(viewer, firstId, version, Form("a.pdf", "%PDF-1.4\nnew\n%%EOF"), none))).Status == 403
+                && !Json((await With(s => s.EditorAsync(viewer, firstId, none))).Body).GetProperty("canEdit").GetBoolean(), true);
+        failed += Check("a colleague with the upload right may edit another uploader's file",
+            Json((await With(s => s.EditorAsync(colleague, firstId, none))).Body).GetProperty("canEdit").GetBoolean(), true);
+        var editResults = await Task.WhenAll(Enumerable.Range(0, 2).Select(i => With(s =>
+            s.EditContentAsync(i == 0 ? owner : colleague, firstId, version, Form("a.pdf", $"%PDF-1.4\nchange {i}\n%%EOF"), none))));
+        failed += Check("two writers on the same version produce exactly one new revision and one conflict",
+            editResults.Count(r => r.Ok) == 1 && editResults.Count(r => r.Status == 409) == 1, true);
+        var editedInfo = Json((await With(s => s.EditorAsync(owner, firstId, none))).Body);
+        failed += Check("the editor lists immutable previous content",
+            editedInfo.GetProperty("revision").GetInt32() == 2 && editedInfo.GetProperty("history").GetArrayLength() == 1, true);
+        var previousContent = await With(s => s.OpenAsync(owner, firstId, none, 1));
+        failed += Check("historical download keeps the original exact bytes",
+            previousContent.Content is not null && new StreamReader(previousContent.Content).ReadToEnd() == "first", true);
+        previousContent.Content?.Dispose();
+        failed += Check("invalid image/PDF bytes and XLSX binary replacement are refused",
+            (await With(s => s.EditContentAsync(owner, firstId, editedInfo.GetProperty("version").GetString(), Form("a.pdf", "not PDF"), none))).Status, 415);
         failed += Check("a colleague cannot rename it", (await With(s => s.RenameFileAsync(colleague, firstId, "b.pdf", none))).Status, 403);
         failed += Check("a supervisor can, and a name typed without its extension keeps the file's own",
             (await With(s => s.RenameFileAsync(supervisor, firstId, "สัญญา", none))).Ok
@@ -178,8 +202,13 @@ public static class SharedFilesCheck
             restored.Ok && restored.Message.Contains("Contracts (2)"), true);
         var opened = await With(s => s.OpenAsync(owner, firstId, none));
         failed += Check("its files open again, with the bytes that were uploaded",
-            opened.Content is not null && new StreamReader(opened.Content).ReadToEnd() == "first", true);
+            opened.Content is not null && new StreamReader(opened.Content).ReadToEnd().StartsWith("%PDF-1.4\nchange"), true);
         opened.Content?.Dispose();
+        var currentEditor = Json((await With(s => s.EditorAsync(owner, firstId, none))).Body);
+        var currentVersion = currentEditor.GetProperty("version").GetString();
+        await With(s => s.RenameFileAsync(owner, firstId, "another name", none));
+        failed += Check("renaming while an editor is open invalidates its save token",
+            (await With(s => s.EditContentAsync(owner, firstId, currentVersion, Form("a.pdf", "%PDF-1.4\nnew\n%%EOF"), none))).Status, 409);
 
         // Fail the audit AFTER the entity's first insert to prove the existing transaction rolls both back.
         var faultOptions = new DbContextOptionsBuilder<ScmosDbContext>().UseSqlServer(connection)
@@ -203,6 +232,36 @@ public static class SharedFilesCheck
                 refused && !await verification.SharedFolders.AnyAsync(row => row.Name == "Audit failure")
                     && !await verification.SharedFiles.AnyAsync(row => row.Name == "audit-failure.pdf"), true);
         }
+        var beforeFailure = Json((await With(s => s.EditorAsync(owner, firstId, none))).Body);
+        var editAuditFailed = false;
+        await using (var faultDb = new ScmosDbContext(faultOptions))
+        {
+            var faultService = new SharedFilesService(faultDb, store, new AuditService(faultDb, new HttpContextAccessor(), NullLogger<AuditService>.Instance));
+            try { await faultService.EditContentAsync(owner, firstId, beforeFailure.GetProperty("version").GetString(), Form("a.pdf", "%PDF-1.4\nfailed audit\n%%EOF"), none); }
+            catch (InvalidOperationException e) when (e.Message == "Synthetic shared audit failure") { editAuditFailed = true; }
+        }
+        var afterFailure = Json((await With(s => s.EditorAsync(owner, firstId, none))).Body);
+        failed += Check("a failed audit cannot advance the file or add a revision",
+            editAuditFailed && beforeFailure.GetProperty("version").GetString() == afterFailure.GetProperty("version").GetString()
+                && afterFailure.GetProperty("history").GetArrayLength() == 1, true);
+
+        var workbookBytes = SharedWorkbookCheck.ValidFixture();
+        var workbookUpload = new FormFile(new MemoryStream(workbookBytes), 0, workbookBytes.Length, "file", "rates.xlsx")
+            { Headers = new HeaderDictionary(), ContentType = "text/html" };
+        var workbookId = Id(await With(s => s.UploadAsync(owner, null, workbookUpload, none)))!.Value;
+        var workbookInfo = Json((await With(s => s.EditorAsync(owner, workbookId, none))).Body);
+        failed += Check("XLSX preview and scalar changes use the same versioned save service",
+            workbookInfo.GetProperty("kind").GetString() == "excel"
+            && (await With(s => s.EditCellsAsync(owner, workbookId, workbookInfo.GetProperty("version").GetString(),
+                [new("Rates", "A1", "number", "99.5")], none))).Ok, true);
+        var workbookChanged = Json((await With(s => s.EditorAsync(owner, workbookId, none))).Body);
+        failed += Check("the current XLSX contains the edited price and retains a historical download",
+            workbookChanged.GetProperty("workbook").GetProperty("sheets")[0].GetProperty("cells").EnumerateArray()
+                .Any(c => c.GetProperty("address").GetString() == "A1" && c.GetProperty("value").GetString() == "99.5")
+                && workbookChanged.GetProperty("history").GetArrayLength() == 1, true);
+        failed += Check("an XLSX cannot be replaced by arbitrary uploaded bytes",
+            (await With(s => s.EditContentAsync(owner, workbookId, workbookChanged.GetProperty("version").GetString(),
+                Form("rates.xlsx", "arbitrary bytes"), none))).Status, 415);
 
         await using (var db = new ScmosDbContext(options))
         {
@@ -213,7 +272,7 @@ public static class SharedFilesCheck
                 new[] { AuditActions.Create, AuditActions.Upload, AuditActions.Update, AuditActions.Trash, AuditActions.Restore }
                     .All(actions.Contains), true);
             failed += Check("nothing was deleted from the database",
-                await db.SharedFiles.CountAsync() == 2 && await db.SharedFolders.CountAsync() >= 3, true);
+                await db.SharedFiles.CountAsync() == 3 && await db.SharedFolders.CountAsync() >= 3, true);
         }
         }
         finally
@@ -271,8 +330,8 @@ public static class SharedFilesCheck
     /// <summary>The blob container, in memory: what was put, by key.</summary>
     private sealed class MemoryStore : IFileStore
     {
-        private readonly Dictionary<string, byte[]> blobs = new(StringComparer.Ordinal);
-        public IReadOnlyCollection<string> Keys => blobs.Keys;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> blobs = new(StringComparer.Ordinal);
+        public IReadOnlyCollection<string> Keys => blobs.Keys.ToArray();
         public bool Configured => true;
 
         public async Task<string> PutAsync(string objectKey, Stream content, string contentType, IDictionary<string, string> metadata,

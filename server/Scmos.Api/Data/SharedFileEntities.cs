@@ -32,6 +32,10 @@ public class SharedFile
     public string ContentType { get; set; } = "application/octet-stream";
     public long SizeBytes { get; set; }
     public string ObjectKey { get; set; } = "";
+    public int Revision { get; set; } = 1;
+    public byte[] Version { get; set; } = [];
+    public string EditedBy { get; set; } = "";
+    public DateTimeOffset? EditedAt { get; set; }
 
     public string UploadedById { get; set; } = "";
     public string UploadedBy { get; set; } = "";
@@ -39,4 +43,18 @@ public class SharedFile
 
     public DateTimeOffset? DeletedAt { get; set; }
     public string DeletedBy { get; set; } = "";
+}
+
+/// <summary>Immutable previous content. Neither a save nor a trash operation deletes these bytes.</summary>
+public class SharedFileRevision
+{
+    public long Id { get; set; }
+    public long FileId { get; set; }
+    public int Revision { get; set; }
+    public string Name { get; set; } = "";
+    public string ObjectKey { get; set; } = "";
+    public string ContentType { get; set; } = "";
+    public long SizeBytes { get; set; }
+    public string SavedBy { get; set; } = "";
+    public DateTimeOffset SavedAt { get; set; }
 }

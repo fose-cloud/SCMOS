@@ -8701,6 +8701,18 @@ namespace Scmos.Api.Data.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("deleted_by");
 
+                    b.Property<DateTimeOffset?>("EditedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("edited_at");
+
+                    b.Property<string>("EditedBy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasDefaultValue("")
+                        .HasColumnName("edited_by");
+
                     b.Property<long?>("FolderId")
                         .HasColumnType("bigint")
                         .HasColumnName("folder_id");
@@ -8716,6 +8728,12 @@ namespace Scmos.Api.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("object_key");
+
+                    b.Property<int>("Revision")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1)
+                        .HasColumnName("revision");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint")
@@ -8741,6 +8759,13 @@ namespace Scmos.Api.Data.Migrations
                         .HasDefaultValue("")
                         .HasColumnName("uploaded_by_id");
 
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion")
+                        .HasColumnName("version");
+
                     b.HasKey("Id");
 
                     b.HasIndex("FolderId", "Name")
@@ -8749,6 +8774,63 @@ namespace Scmos.Api.Data.Migrations
                         .HasFilter("[deleted_at] IS NULL");
 
                     b.ToTable("shared_files", (string)null);
+                });
+
+            modelBuilder.Entity("Scmos.Api.Data.SharedFileRevision", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("content_type");
+
+                    b.Property<long>("FileId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("object_key");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int")
+                        .HasColumnName("revision");
+
+                    b.Property<DateTimeOffset>("SavedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("saved_at");
+
+                    b.Property<string>("SavedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("saved_by");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FileId", "Revision")
+                        .IsUnique();
+
+                    b.ToTable("shared_file_revisions", (string)null);
                 });
 
             modelBuilder.Entity("Scmos.Api.Data.SharedFolder", b =>
@@ -10766,6 +10848,15 @@ namespace Scmos.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_billing_original_packages_billing_invoices_invoice_id");
+                });
+
+            modelBuilder.Entity("Scmos.Api.Data.SharedFileRevision", b =>
+                {
+                    b.HasOne("Scmos.Api.Data.SharedFile", null)
+                        .WithMany()
+                        .HasForeignKey("FileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Scmos.Api.Data.SkillAssessment", b =>
