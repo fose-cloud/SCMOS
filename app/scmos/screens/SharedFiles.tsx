@@ -22,6 +22,8 @@ type Listing = {
   folders: FolderRow[];
   files: FileRow[];
   canUpload: boolean;
+  /** The company Teams library, where files open in their own programs and save back; set on the API, not here. */
+  teamsUrl?: string | null;
   canCreateFolder: boolean;
   canRestore: boolean;
   storageReady: boolean;
@@ -186,6 +188,10 @@ export function SharedFiles({ onToast }: { onToast: (message: string) => void })
           </>}
         </nav>
         <div style={css("display:flex;gap:8px;flex-wrap:wrap")}>
+          {view === "files" && listing?.teamsUrl?.startsWith("https://") && (
+            <a href={listing.teamsUrl} target="_blank" rel="noopener noreferrer"
+              style={css(BUTTON + ";text-decoration:none;display:inline-flex;align-items:center")}>เปิดคลังไฟล์ใน Teams</a>
+          )}
           {view === "files" && listing?.canCreateFolder && (
             <button onClick={() => begin({ kind: "new" }, "")} disabled={busy} style={css(BUTTON)}>+ โฟลเดอร์ใหม่</button>
           )}

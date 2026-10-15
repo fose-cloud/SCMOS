@@ -18,7 +18,8 @@ public sealed record SharedResult(bool Ok, int Status, string Message, object? B
 /// so a mistaken delete is a restore, never a recovery.
 /// </para>
 /// </summary>
-public partial class SharedFilesService(ScmosDbContext db, IFileStore files, AuditService audit)
+public partial class SharedFilesService(ScmosDbContext db, IFileStore files, AuditService audit,
+    IConfiguration? configuration = null)
 {
     public const string FolderEntity = "shared-folder";
     public const string FileEntity = "shared-file";
@@ -105,6 +106,7 @@ public partial class SharedFilesService(ScmosDbContext db, IFileStore files, Aud
             canCreateFolder = CanWrite(user) && path.Count < SharedFiles.MaxDepth,
             canRestore = CanRestore(user),
             storageReady = files.Configured,
+            teamsUrl = SharedFiles.TeamsLink(configuration?["SharedFiles:TeamsUrl"]),
             limits = new { maxBytes = SharedFiles.MaxBytes, maxFolderName = SharedFiles.MaxFolderName,
                 maxFileName = SharedFiles.MaxFileName, extensions = SharedFiles.Extensions },
         });

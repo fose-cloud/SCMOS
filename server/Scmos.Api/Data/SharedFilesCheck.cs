@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Scmos.Api.Auth;
 using Scmos.Api.Rules;
@@ -43,6 +44,13 @@ public static class SharedFilesCheck
             SharedFiles.Allowed("setup.exe") || SharedFiles.Allowed("run.bat") || SharedFiles.Allowed("page.html") || SharedFiles.Allowed("x.js"), false);
         failed += Check("an upload keeps only its last path segment", SharedFiles.UploadName("C:\\Users\\me\\ใบแจ้งหนี้.pdf"), "ใบแจ้งหนี้.pdf");
         failed += Check("reserved characters in an upload become underscores", SharedFiles.UploadName("a:b?.pdf"), "a_b_.pdf");
+        const string teams = "https://contoso.sharepoint.com/:f:/r/sites/Team/Shared%20Documents/Folder?d=w0123&csf=1&web=1&e=AbCdEf";
+        failed += Check("a SharePoint folder link is handed on unchanged", SharedFiles.TeamsLink("  " + teams + " "), teams);
+        failed += Check("no link configured, no button", SharedFiles.TeamsLink(null), null);
+        failed += Check("a link that is not https, or not SharePoint, is refused",
+            new[] { "http://contoso.sharepoint.com/sites/Team", "javascript:alert(1)", "https://contoso.sharepoint.com.evil.example/x",
+                "https://sharepoint.com/x", "https://user@contoso.sharepoint.com/x", "https://contoso.sharepoint.com:8443/x", "/sites/Team" }
+                .All(link => SharedFiles.TeamsLink(link) is null), true);
         failed += Check("a long upload keeps its extension",
             SharedFiles.UploadName(new string('x', 300) + ".pdf") is { Length: SharedFiles.MaxFileName } kept && kept.EndsWith(".pdf"), true);
         failed += Check("a second copy is numbered", SharedFiles.FreeName("a.pdf", ["A.pdf", "a (2).pdf"]), "a (3).pdf");
@@ -150,6 +158,17 @@ public static class SharedFilesCheck
             listed.GetProperty("files").GetArrayLength() == 2 && listed.GetProperty("folders").GetArrayLength() == 1, true);
         failed += Check("a colleague may not change the owner's file",
             listed.GetProperty("files").EnumerateArray().All(file => !file.GetProperty("canChange").GetBoolean()), true);
+        failed += Check("with no Teams link configured the listing offers none",
+            listed.GetProperty("teamsUrl").ValueKind == JsonValueKind.Null, true);
+        await using (var linkDb = new ScmosDbContext(options))
+        {
+            var configured = new ConfigurationBuilder().AddInMemoryCollection(
+                new Dictionary<string, string?> { ["SharedFiles:TeamsUrl"] = teams }).Build();
+            var linked = new SharedFilesService(linkDb, store,
+                new AuditService(linkDb, new HttpContextAccessor(), NullLogger<AuditService>.Instance), configured);
+            failed += Check("the configured Teams link reaches a staff listing",
+                Json((await linked.ListAsync(viewer, null, none)).Body).GetProperty("teamsUrl").GetString(), teams);
+        }
         var firstId = Id(first) ?? 0;
         var editor = Json((await With(s => s.EditorAsync(owner, firstId, none))).Body);
         var version = editor.GetProperty("version").GetString();

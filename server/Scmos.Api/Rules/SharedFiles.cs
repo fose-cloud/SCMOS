@@ -63,6 +63,19 @@ public static class SharedFiles
     }
 
     /// <summary>
+    /// The company's Teams library for the same paperwork, where a file opens in Excel, a PDF reader or a picture program
+    /// and saves back on its own (the user's choice, 15 Oct 2026). Configured as <c>SharedFiles__TeamsUrl</c> on the API,
+    /// never written here: this repository is public. Only an https link on a SharePoint host reaches a browser.
+    /// </summary>
+    public static string? TeamsLink(string? configured)
+    {
+        var text = (configured ?? "").Trim();
+        if (text.Length is 0 or > 2048 || !Uri.TryCreate(text, UriKind.Absolute, out var link)) return null;
+        if (link.Scheme != Uri.UriSchemeHttps || link.UserInfo.Length > 0 || !link.IsDefaultPort) return null;
+        return link.Host.EndsWith(".sharepoint.com", StringComparison.OrdinalIgnoreCase) ? link.AbsoluteUri : null;
+    }
+
+    /// <summary>
     /// The name a second copy gets, the way Windows names it: "report.pdf" taken → "report (2).pdf". Compared
     /// without regard to case, as the database's collation compares them.
     /// </summary>

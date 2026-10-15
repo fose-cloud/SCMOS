@@ -88,3 +88,18 @@ review/CI and Azure release workflows. This authorization does not request
 new storage resources, changed role grants, AI enablement or data deletion.
 Final deployment/migration evidence must be recorded after the workflows finish;
 the pre-release/local evidence above is not proof of a Production upload.
+
+## Opening files in their own programs — v2.8.28 (15 October 2026)
+
+The user asked for files that open in Excel, a PDF reader or a picture program and save back on their own. The SCMOS
+tenant holds no Microsoft 365 licence and no SharePoint (Graph: "Tenant does not have a SPO license"), so the user chose
+the company's existing Microsoft 365: a folder in a company Teams/SharePoint library, synced to File Explorer by OneDrive.
+Files there open in any program and save back; SharePoint keeps their versions. SCMOS only links to it.
+
+- The link is configuration, not code: `SharedFiles__TeamsUrl` on the API App Service, set by the user in the Portal.
+  This repository is public, so the company's SharePoint address is never committed.
+- `SharedFiles.TeamsLink` hands on only an absolute https link on a `*.sharepoint.com` host (no user info, default port);
+  anything else, or nothing configured, shows no button. The link goes out in the staff listing only (carriers never
+  reach `/api/shared-files`), and the screen opens it in a new tab with `noopener noreferrer`.
+- No Graph permission, app registration or SharePoint integration is added; the SCMOS file space, its online editor and
+  version history are unchanged. Opening the library still needs the person's own company sign-in.

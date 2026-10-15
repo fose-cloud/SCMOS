@@ -73,3 +73,13 @@ test("create/upload use the existing atomic audit helper and CI runs offline sto
   assert.match(checks, /Unsafe storage test cleanup target/);
   assert.doesNotMatch(checks, /\[connection string\]|args\[flag \+ 1\]/);
 });
+
+test("the Teams library button comes from API configuration, never from this public repository", () => {
+  const ui = read("app/scmos/screens/SharedFiles.tsx");
+  assert.match(ui, /listing\?\.teamsUrl\?\.startsWith\("https:\/\/"\)/);
+  assert.match(ui, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(ui, />เปิดคลังไฟล์ใน Teams</);
+  assert.match(read("server/Scmos.Api/Services/SharedFilesService.cs"), /SharedFiles\.TeamsLink\(configuration\?\["SharedFiles:TeamsUrl"\]\)/);
+  for (const path of ["app/scmos/screens/SharedFiles.tsx", "server/Scmos.Api/Rules/SharedFiles.cs", "server/Scmos.Api/Services/SharedFilesService.cs"])
+    assert.doesNotMatch(read(path), /https:\/\/[a-z0-9-]+\.sharepoint\.com/i, path);
+});
