@@ -28,15 +28,18 @@ public static class SharedFilesEndpoints
             CancellationToken token) => await Run(context, users, user => service.TrashAsync(user, token)));
 
         group.MapGet("/{id:long}/editor", async (long id, HttpContext context, IUserAccessor users, SharedFilesService service,
-            CancellationToken token) => await Run(context, users, user => service.EditorAsync(user, id, token)));
+            CancellationToken token) => await Run(context, users, user =>
+                SharedFiles.OpenInBrowser ? service.EditorAsync(user, id, token) : Task.FromResult(Withdrawn)));
 
         group.MapPost("/{id:long}/cells", async (long id, CellsBody body, HttpContext context, IUserAccessor users,
             SharedFilesService service, CancellationToken token) =>
-            await Run(context, users, user => service.EditCellsAsync(user, id, body.Version, body.Edits, token)));
+            await Run(context, users, user => SharedFiles.OpenInBrowser
+                ? service.EditCellsAsync(user, id, body.Version, body.Edits, token) : Task.FromResult(Withdrawn)));
 
         group.MapPost("/{id:long}/edit", async (long id, HttpContext context, IUserAccessor users, SharedFilesService service,
             CancellationToken token) => await Run(context, users, async user =>
         {
+            if (!SharedFiles.OpenInBrowser) return Withdrawn;
             if (!SharedFilesService.CanWrite(user)) return new(false, 403, "บัญชีนี้ไม่มีสิทธิ์แก้ไขไฟล์");
             if (!context.Request.HasFormContentType) return new(false, 415, "ต้องส่งเป็น multipart form");
             if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
@@ -98,7 +101,7 @@ public static class SharedFilesEndpoints
             // name, under a policy that runs nothing.
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             context.Response.Headers.CacheControl = "private, no-store";
-            var shown = inline is "1" or "true" ? InlineViewing.TypeFor(file!.Name) : null;
+            var shown = SharedFiles.OpenInBrowser && (inline is "1" or "true") ? InlineViewing.TypeFor(file!.Name) : null;
             if (shown is not null)
             {
                 context.Response.Headers["Content-Security-Policy"] = InlineViewing.Policy;
@@ -107,6 +110,9 @@ public static class SharedFilesEndpoints
             return Results.File(content!, file!.ContentType, file.Name, enableRangeProcessing: true);
         });
     }
+
+    /// <summary>The editor's routes while files do not open in the browser (<see cref="SharedFiles.OpenInBrowser"/>).</summary>
+    private static readonly SharedResult Withdrawn = new(false, StatusCodes.Status410Gone, SharedFiles.BrowserWithdrawn);
 
     /// <summary>Signed in, a staff account, then the action — and its answer as JSON with the words to show.</summary>
     private static async Task<IResult> Run(HttpContext context, IUserAccessor users, Func<AppUser, Task<SharedResult>> action)

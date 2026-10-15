@@ -1,6 +1,8 @@
 # Transport cost subcon — basic online editor (14 October 2026)
 
 Status: built by the Codex session; released as v2.8.26 (14 Oct 2026) with editing widened to the upload right.
+**Withdrawn from use 15 Oct 2026 (v2.8.29), at the user's request:** files are downloaded only; see
+`TRANSPORT_COST_SUBCON_20261014.md`. Code, table and stored versions are kept behind `SharedFiles.OpenInBrowser`.
 This is a manual file feature. No AI permissions, policies, owners, budgets, credentials or kill switches are changed.
 No external document service, public file URL, SAS link or new cloud resource is introduced.
 

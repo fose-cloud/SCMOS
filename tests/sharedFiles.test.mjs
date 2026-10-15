@@ -83,3 +83,20 @@ test("the Teams library button comes from API configuration, never from this pub
   for (const path of ["app/scmos/screens/SharedFiles.tsx", "server/Scmos.Api/Rules/SharedFiles.cs", "server/Scmos.Api/Services/SharedFilesService.cs"])
     assert.doesNotMatch(read(path), /https:\/\/[a-z0-9-]+\.sharepoint\.com/i, path);
 });
+
+test("files are downloaded, not opened or edited in the browser (withdrawn 15 Oct 2026)", () => {
+  assert.match(read("server/Scmos.Api/Rules/SharedFiles.cs"), /public static readonly bool OpenInBrowser = false;/);
+  const routes = read("server/Scmos.Api/Endpoints/SharedFilesEndpoints.cs");
+  assert.match(routes, /SharedFiles\.OpenInBrowser \? service\.EditorAsync/);
+  assert.match(routes, /SharedFiles\.OpenInBrowser\s+\? service\.EditCellsAsync/);
+  assert.match(routes, /if \(!SharedFiles\.OpenInBrowser\) return Withdrawn;\s+if \(!SharedFilesService\.CanWrite/);
+  assert.match(routes, /SharedFiles\.OpenInBrowser && \(inline is "1" or "true"\)/);
+  assert.match(routes, /StatusCodes\.Status410Gone/);
+  const service = read("server/Scmos.Api/Services/SharedFilesService.cs");
+  assert.match(service, /viewable = SharedFiles\.OpenInBrowser &&/);
+  assert.match(service, /online = SharedFiles\.OpenInBrowser &&/);
+  // The screen follows the listing: neither flag set, the name and the only action download the file.
+  const ui = read("app/scmos/screens/SharedFiles.tsx");
+  assert.match(ui, /file\.online \? <button[^\n]*\n\s*: <a href=\{`\$\{BASE\}\/\$\{file\.id\}\/content`\}/);
+  assert.match(ui, />ดาวน์โหลด</);
+});

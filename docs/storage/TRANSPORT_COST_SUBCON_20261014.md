@@ -103,3 +103,14 @@ Files there open in any program and save back; SharePoint keeps their versions. 
   reach `/api/shared-files`), and the screen opens it in a new tab with `noopener noreferrer`.
 - No Graph permission, app registration or SharePoint integration is added; the SCMOS file space, its online editor and
   version history are unchanged. Opening the library still needs the person's own company sign-in.
+
+## Download only — v2.8.29 (15 October 2026)
+
+With the Teams library in place the user withdrew opening files in the browser ("ยกเลิกการเปิดแบบออนไลน์"), and chose
+download only for every type, PDF and pictures included.
+
+- `SharedFiles.OpenInBrowser` (false) is the one switch. The listing reports `online` and `viewable` false, so the screen
+  shows a file's name as a download link and offers only ดาวน์โหลด (plus rename/trash for those allowed).
+- `/editor`, `/cells` and `/edit` answer 410 with the reason; `/content?inline=1` is served as a download.
+- Nothing is removed: the editor's code, `shared_file_revisions` and every stored version stay, and a historical
+  version still downloads through `/content?revision=`. Turning the switch back on restores the v2.8.26–28 behaviour.

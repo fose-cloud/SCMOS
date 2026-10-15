@@ -28,6 +28,17 @@ public static class SharedFiles
         ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".zip",
     ];
 
+    /// <summary>
+    /// Whether a file opens in the browser here: the online editor and the in-page view. Withdrawn by the user on
+    /// 15 Oct 2026: files in this space are downloaded, and opened in their own programs from the company Teams
+    /// library (<see cref="TeamsLink"/>). The editor's code, its table and every stored version are kept; this one value
+    /// brings it back.
+    /// </summary>
+    public static readonly bool OpenInBrowser = false;
+
+    /// <summary>The answer the editor's routes give while <see cref="OpenInBrowser"/> is off.</summary>
+    public const string BrowserWithdrawn = "ปิดการเปิดและแก้ไขไฟล์ในเว็บแล้ว — ดาวน์โหลดไฟล์ หรือใช้คลังไฟล์ใน Teams";
+
     public static bool Allowed(string? fileName) =>
         Extensions.Contains(Path.GetExtension(fileName ?? "").ToLowerInvariant());
 

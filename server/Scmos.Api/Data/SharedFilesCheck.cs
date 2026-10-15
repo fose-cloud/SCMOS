@@ -47,6 +47,7 @@ public static class SharedFilesCheck
         const string teams = "https://contoso.sharepoint.com/:f:/r/sites/Team/Shared%20Documents/Folder?d=w0123&csf=1&web=1&e=AbCdEf";
         failed += Check("a SharePoint folder link is handed on unchanged", SharedFiles.TeamsLink("  " + teams + " "), teams);
         failed += Check("no link configured, no button", SharedFiles.TeamsLink(null), null);
+        failed += Check("files open in the browser for nobody (withdrawn 15 Oct 2026)", SharedFiles.OpenInBrowser, false);
         failed += Check("a link that is not https, or not SharePoint, is refused",
             new[] { "http://contoso.sharepoint.com/sites/Team", "javascript:alert(1)", "https://contoso.sharepoint.com.evil.example/x",
                 "https://sharepoint.com/x", "https://user@contoso.sharepoint.com/x", "https://contoso.sharepoint.com:8443/x", "/sites/Team" }
@@ -158,6 +159,9 @@ public static class SharedFilesCheck
             listed.GetProperty("files").GetArrayLength() == 2 && listed.GetProperty("folders").GetArrayLength() == 1, true);
         failed += Check("a colleague may not change the owner's file",
             listed.GetProperty("files").EnumerateArray().All(file => !file.GetProperty("canChange").GetBoolean()), true);
+        failed += Check("no file is offered for opening or editing in the browser",
+            listed.GetProperty("files").EnumerateArray().All(file =>
+                !file.GetProperty("online").GetBoolean() && !file.GetProperty("viewable").GetBoolean()), true);
         failed += Check("with no Teams link configured the listing offers none",
             listed.GetProperty("teamsUrl").ValueKind == JsonValueKind.Null, true);
         await using (var linkDb = new ScmosDbContext(options))
